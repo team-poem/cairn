@@ -2,6 +2,8 @@
 export * from "./types.js";
 export * from "./interfaces.js";
 export { runHarness } from "./pipeline.js";
+export { runScenario, needsLlmCritic, applyHeals } from "./run.js";
+export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 
 export { InlineContextProvider } from "./context/inline.js";
 export { StaticPlanner } from "./planners/static.js";

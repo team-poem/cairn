@@ -3,10 +3,12 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **PoC 졸업 ✔ — `poc/harness-v0` → `develop` 머지 완료(`--no-ff`, push됨).** 다음은 v1.
-- 핵심 가설 증명됨: discover→freeze→replay 한 바퀴(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정).
-- 브랜치 전략: `main → develop → poc/*`. 현재 통합 브랜치 = `develop`. main 보존.
-  v1 작업은 `develop`에서 새 `poc/*` 또는 feature 브랜치로.
+- 단계: **루프 완성 + 자산화 진행.** 코어 루프(discover→freeze→replay→self-heal) 동작,
+  **리포 public**, README/배너 완료, **라이브러리 API 1급화** 완료(`runScenario` 등 라이브러리로 승격).
+- **정체성(확정):** cairn = 임베드 엔진(`@cairn/harness`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(npm 배포 예정),
+  프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
+- 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
+- 브랜치 전략: `main → develop → feature/*`. main=develop(공개 면). 작업은 `develop`에서 feature 브랜치로.
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 

@@ -31,12 +31,19 @@ export interface Target {
   selector?: string;
 }
 
-/** A condition the Critic checks against collected Evidence. Deterministic. */
+/**
+ * A condition the Critic checks against collected Evidence.
+ *
+ * The first four are mechanical and deterministic. `expect` is a natural-language
+ * criterion judged by an LLM (LlmCritic) — it is the only kind that costs an LLM call,
+ * so a scenario that uses only mechanical kinds replays deterministically (invariant #4).
+ */
 export type Assertion =
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  | { kind: "request-status"; urlIncludes: string; status: number };
+  | { kind: "request-status"; urlIncludes: string; status: number }
+  | { kind: "expect"; criterion: string };
 
 /** A planned, replayable unit of work: ordered actions plus what to check. */
 export interface Scenario {

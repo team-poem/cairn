@@ -15,6 +15,7 @@ import { discover } from "./discover.js";
 import { InlineContextProvider } from "./context/inline.js";
 import { StaticPlanner } from "./planners/static.js";
 import { AssertionCritic } from "./critics/assertion.js";
+import { LlmCritic } from "./critics/llm.js";
 import { ConsoleReporter } from "./reporters/console.js";
 import { JsonReporter } from "./reporters/json.js";
 import { ChromeDevToolsDriver } from "./drivers/chrome.js";
@@ -60,14 +61,23 @@ function reporterFor(flags: Map<string, string | boolean>): Reporter {
   return { emit: async (r) => void (await Promise.all(reporters.map((rep) => rep.emit(r)))) };
 }
 
-/** Deterministic replay of a fixed scenario — no LLM (invariant #4). */
+/**
+ * Run a fixed scenario. Mechanical-only scenarios use the deterministic critic (no LLM,
+ * invariant #4); a scenario containing any `expect` criterion uses LlmCritic (which still
+ * judges the mechanical assertions deterministically and calls the LLM only for `expect`).
+ */
 async function runScenario(scenario: Scenario, flags: Map<string, string | boolean>): Promise<Result> {
+  const needsLlm = scenario.assertions.some((a) => a.kind === "expect");
+  const model = typeof flags.get("model") === "string" ? (flags.get("model") as string) : undefined;
+  const critic = needsLlm ? new LlmCritic(createLlmClient(model ? { model } : {})) : new AssertionCritic();
+  if (needsLlm) console.log(`scenario has 'expect' criteria → judging with LlmCritic`);
+
   return runHarness(
     {
       context: new InlineContextProvider(),
       planner: new StaticPlanner(scenario),
       driver: new ChromeDevToolsDriver(),
-      critic: new AssertionCritic(),
+      critic,
       reporter: reporterFor(flags),
     },
     scenario.name,

@@ -68,3 +68,14 @@
 - **결과:** 도그푸딩 req 5→**7** 캡처(favicon/font 포함). 원인: Chrome이 저우선 리소스를 500ms 넘겨 지연 로드 →
   기본 idleMs=1000으로 상향. 단위테스트 10→**18/18**, typecheck/build OK.
 - **다음:** LLM Critic(`LlmClient` seam 재사용).
+
+## 2026-06-22 — v1: LLM Critic
+- **목표:** design §8 v0의 "LLM+텍스트 단언" 완성 — 자연어 기대를 증거로 판정.
+- **한 일:** 자연어 단언 `{kind:"expect",criterion}` 추가. `LlmCritic`(`feat/llm-critic`):
+  `expect`만 LLM 판정, 기계적 단언은 기존 `checkAssertion` 재사용(중복 제거). LLM은 `LlmClient` seam 뒤(불변식 #5).
+  증거 3층을 compact 요약해 프롬프트로(design §6). CLI가 scenario에 expect 있으면 LlmCritic 자동 선택.
+- **결정:** `expect`가 없으면 LLM 호출 0 → 그런 scenario는 결정적 재생 유지(불변식 #4). expect는 opt-in.
+  discover의 기본 산출에는 expect 미포함(재생 결정성 보존). LLM 에러는 해당 단언만 fail(런 전체 X).
+- **결과(도그푸딩):** expect "IANA 문서 도달"→✓ / "쇼핑 카트"→✗(exit 1, CI 게이트). 단위테스트 18→**21/21**.
+  - 잔여: settle 휴리스틱이 지연 리소스에 가끔 조기 종료(req 7 대신 5). SettleOptions 튜닝 여지.
+- **다음:** self-heal(깨진 스킬 LLM 복구) · 입력 ContextProvider(git diff·티켓) · 시각 리플레이.

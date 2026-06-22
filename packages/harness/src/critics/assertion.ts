@@ -7,7 +7,12 @@
 import type { Critic } from "../interfaces.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../types.js";
 
-function check(assertion: Assertion, evidence: Evidence): AssertionResult {
+/**
+ * Evaluate one mechanical assertion against evidence. Deterministic — no LLM.
+ * `expect` (natural-language) is not mechanical; it returns unsupported here and is the
+ * job of LlmCritic.
+ */
+export function checkAssertion(assertion: Assertion, evidence: Evidence): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
@@ -36,12 +41,14 @@ function check(assertion: Assertion, evidence: Evidence): AssertionResult {
         ? { assertion, passed: true, detail: `${match.status} ${match.url}` }
         : { assertion, passed: false, detail: `expected ${assertion.status}, got ${match.status} for ${match.url}` };
     }
+    case "expect":
+      return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };
   }
 }
 
 export class AssertionCritic implements Critic {
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
-    const results = assertions.map((a) => check(a, evidence));
+    const results = assertions.map((a) => checkAssertion(a, evidence));
     return { passed: results.every((r) => r.passed), results };
   }
 }

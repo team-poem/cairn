@@ -1,8 +1,29 @@
 {
   "name": "@cairn/core",
-  "version": "0.0.0",
-  "description": "cairn core — NL intent → browser driver → 3-layer evidence → critic → report",
+  "version": "0.1.0",
+  "description": "An engine for self-healing E2E browser tests — discovered once by an AI, replayed deterministically.",
+  "keywords": [
+    "e2e",
+    "testing",
+    "browser",
+    "qa",
+    "self-healing",
+    "deterministic",
+    "llm",
+    "ai",
+    "chrome-devtools",
+    "mcp",
+    "automation"
+  ],
   "license": "MIT",
+  "author": "team-poem (https://github.com/team-poem)",
+  "homepage": "https://github.com/team-poem/cairn#readme",
+  "bugs": "https://github.com/team-poem/cairn/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/team-poem/cairn.git",
+    "directory": "packages/harness"
+  },
   "type": "module",
   "bin": {
     "cairn": "./dist/cli.js"
@@ -11,13 +32,21 @@
     ".": "./dist/index.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "README.md"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "dev": "tsx src/cli.ts"
+    "dev": "tsx src/cli.ts",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

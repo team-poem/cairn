@@ -9,9 +9,9 @@
  *
  * It wraps any Driver (invariant #2/#5): heal logic is independent of the backend.
  */
-import type { Driver } from "../interfaces.js";
-import type { LlmClient } from "../llm/client.js";
-import type { Evidence, PageElement, SettleOptions, Target } from "../types.js";
+import type { Driver } from "../../core/ports.js";
+import type { LlmClient } from "../../core/ports.js";
+import type { Evidence, PageElement, SettleOptions, Target } from "../../core/types.js";
 
 /** A recorded substitution: the original target could not be found, this name was used. */
 export interface Heal {

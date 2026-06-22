@@ -99,21 +99,30 @@ Two design lines hold the whole thing together:
 
 ## Structure
 
+Ports & adapters (hexagonal): `core/` is the pure domain and the ports; `adapters/`
+implements them. Dependencies point inward — adapters depend on core, never the reverse.
+
 ```
 cairn/
 ├── packages/
-│   └── harness/          # @cairn/harness — the engine
+│   └── harness/                  # @cairn/harness — the engine
 │       └── src/
-│           ├── pipeline.ts          # Context → Plan → Execute → Judge → Report
-│           ├── interfaces.ts        # the six extension points
-│           ├── discover.ts          # the LLM discover loop (the only loop)
-│           ├── drivers/             # ChromeDevTools (MCP), self-heal, fake
-│           ├── critics/             # deterministic assertions + LLM
-│           ├── llm/                 # model-agnostic LlmClient (Claude Code / Anthropic)
-│           ├── skills/              # freeze / replay
-│           └── cli.ts               # thin CLI over the library
-├── docs/design.md        # the design, in full
-└── spec/                 # architecture invariants + living state
+│           ├── core/             # domain + ports (depends on nothing else)
+│           │   ├── types.ts        # Context · Scenario · Evidence · Verdict …
+│           │   ├── ports.ts        # the extension points (interfaces)
+│           │   ├── pipeline.ts     # Context → Plan → Execute → Judge → Report
+│           │   └── discover.ts     # the LLM discover loop (the only loop)
+│           ├── adapters/         # port implementations (the things you plug in)
+│           │   ├── drivers/        # ChromeDevTools (MCP) · self-heal · fake
+│           │   ├── critics/        # deterministic assertions · LLM
+│           │   ├── reporters/      # console · json
+│           │   ├── llm/            # Claude Code · Anthropic · factory
+│           │   └── context/ · planners/ · skills/
+│           ├── run.ts            # composition: runScenario with defaults
+│           ├── index.ts          # public API
+│           └── cli.ts            # thin CLI over the library
+├── docs/design.md               # the design, in full
+└── spec/                        # architecture invariants + living state
 ```
 
 ## Status

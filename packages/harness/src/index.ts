@@ -1,27 +1,27 @@
 /** Public surface of @cairn/harness. */
-export * from "./types.js";
-export * from "./interfaces.js";
-export { runHarness } from "./pipeline.js";
+export * from "./core/types.js";
+export * from "./core/ports.js";
+export { runHarness } from "./core/pipeline.js";
 export { runScenario, needsLlmCritic, applyHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 
-export { InlineContextProvider } from "./context/inline.js";
-export { StaticPlanner } from "./planners/static.js";
-export { AssertionCritic, checkAssertion } from "./critics/assertion.js";
-export { LlmCritic, summarizeEvidence } from "./critics/llm.js";
-export { ConsoleReporter } from "./reporters/console.js";
-export { JsonReporter } from "./reporters/json.js";
-export { FakeDriver } from "./drivers/fake.js";
-export { ChromeDevToolsDriver } from "./drivers/chrome.js";
-export { SelfHealingDriver, parseHealChoice } from "./drivers/self-heal.js";
-export type { Heal, SelfHealOptions } from "./drivers/self-heal.js";
+export { InlineContextProvider } from "./adapters/context/inline.js";
+export { StaticPlanner } from "./adapters/planners/static.js";
+export { AssertionCritic, checkAssertion } from "./adapters/critics/assertion.js";
+export { LlmCritic, summarizeEvidence } from "./adapters/critics/llm.js";
+export { ConsoleReporter } from "./adapters/reporters/console.js";
+export { JsonReporter } from "./adapters/reporters/json.js";
+export { FakeDriver } from "./adapters/drivers/fake.js";
+export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
+export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
+export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 
-export type { LlmClient, CompleteOptions } from "./llm/client.js";
-export { ClaudeCodeLlmClient } from "./llm/claude-code.js";
-export { AnthropicLlmClient } from "./llm/anthropic.js";
-export { createLlmClient } from "./llm/factory.js";
+export type { LlmClient, CompleteOptions } from "./core/ports.js";
+export { ClaudeCodeLlmClient } from "./adapters/llm/claude-code.js";
+export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
+export { createLlmClient } from "./adapters/llm/factory.js";
 
-export { FileSkillStore, loadSkillFile } from "./skills/file-store.js";
+export { FileSkillStore, loadSkillFile } from "./adapters/skills/file-store.js";
 
-export { discover, parseDecision } from "./discover.js";
-export type { DiscoverOptions, Decision } from "./discover.js";
+export { discover, parseDecision } from "./core/discover.js";
+export type { DiscoverOptions, Decision } from "./core/discover.js";

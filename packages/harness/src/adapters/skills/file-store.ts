@@ -8,8 +8,8 @@
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { SkillStore, Skill } from "../interfaces.js";
-import type { Scenario } from "../types.js";
+import type { SkillStore, Skill } from "../../core/ports.js";
+import type { Scenario } from "../../core/types.js";
 
 export class FileSkillStore implements SkillStore {
   /** @param dir directory that holds `<name>.json` skill files. */

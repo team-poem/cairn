@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applyHeals, needsLlmCritic, runScenario } from "./run.js";
-import { FakeDriver } from "./drivers/fake.js";
+import { FakeDriver } from "./adapters/drivers/fake.js";
 import type { Evidence, Reporter, Result, Scenario } from "./index.js";
 
 function evidence(): Evidence {

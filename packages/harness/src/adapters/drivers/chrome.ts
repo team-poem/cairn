@@ -11,7 +11,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import type { Driver } from "../interfaces.js";
+import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
   Evidence,
@@ -19,7 +19,7 @@ import type {
   PageElement,
   SettleOptions,
   Target,
-} from "../types.js";
+} from "../../core/types.js";
 
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 

@@ -4,8 +4,8 @@
  * No LLM (invariant #4) — this is the critic the replay path uses. An LLM-backed Critic
  * for fuzzy judgment is a separate implementation behind the same interface.
  */
-import type { Critic } from "../interfaces.js";
-import type { Assertion, AssertionResult, Evidence, Verdict } from "../types.js";
+import type { Critic } from "../../core/ports.js";
+import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
 /**
  * Evaluate one mechanical assertion against evidence. Deterministic — no LLM.

@@ -6,8 +6,8 @@
  * plain Scenario that can be frozen and later replayed deterministically with no LLM
  * (invariant #4). The LLM lives behind the LlmClient seam (invariant #5).
  */
-import type { Driver } from "./interfaces.js";
-import type { LlmClient } from "./llm/client.js";
+import type { Driver } from "./ports.js";
+import type { LlmClient } from "./ports.js";
 import type { Assertion, PageElement, Scenario, Step } from "./types.js";
 
 export interface DiscoverOptions {

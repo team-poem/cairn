@@ -4,7 +4,7 @@
  * This is the "correct default" once a user supplies a key — a real standalone backend
  * with no Claude Code dependency. Implemented with fetch to avoid an SDK dependency.
  */
-import type { CompleteOptions, LlmClient } from "./client.js";
+import type { CompleteOptions, LlmClient } from "../../core/ports.js";
 
 export interface AnthropicOptions {
   apiKey?: string;

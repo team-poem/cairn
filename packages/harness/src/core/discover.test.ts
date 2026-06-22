@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { discover, parseDecision } from "./discover.js";
-import { FakeDriver } from "./drivers/fake.js";
-import type { LlmClient } from "./llm/client.js";
+import { FakeDriver } from "../adapters/drivers/fake.js";
+import type { LlmClient } from "./ports.js";
 import type { Evidence } from "./types.js";
 
 /** Replays a fixed sequence of model replies — keeps discover deterministic in tests. */

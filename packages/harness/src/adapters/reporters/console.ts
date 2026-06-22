@@ -1,6 +1,6 @@
 /** Human-readable Reporter for CLI/CI. Mirrors the report sketch in docs/design.md §7. */
-import type { Reporter } from "../interfaces.js";
-import type { Result } from "../types.js";
+import type { Reporter } from "../../core/ports.js";
+import type { Result } from "../../core/types.js";
 
 export class ConsoleReporter implements Reporter {
   async emit(result: Result): Promise<void> {

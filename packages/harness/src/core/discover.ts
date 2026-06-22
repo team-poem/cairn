@@ -32,7 +32,7 @@ const SYSTEM =
   'with "done" you may include "assertions": an array of {"kind":"navigated"} | {"kind":"no-failed-requests"} | ' +
   '{"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
 
-function buildPrompt(intent: string, elements: PageElement[], steps: Step[]): string {
+function buildPrompt(intent: string, elements: PageElement[], steps: Step[], failures: string[]): string {
   const els = elements
     .slice(0, 60)
     .map((e) => `- [${e.role}] ${e.name}`)
@@ -43,6 +43,9 @@ function buildPrompt(intent: string, elements: PageElement[], steps: Step[]): st
   return [
     `Intent: ${intent}`,
     ``,
+    ...(failures.length
+      ? [`These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`, ...failures.map((f) => `- ${f}`), ``]
+      : []),
     `Actions taken so far:`,
     history,
     ``,
@@ -75,6 +78,26 @@ function sanitizeAssertions(input: Assertion[] | undefined): Assertion[] {
   return valid.length ? valid : [{ kind: "no-failed-requests" }];
 }
 
+/** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
+async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+  switch (decision.action) {
+    case "click":
+      if (!decision.text) throw new Error('click decision missing "text"');
+      await driver.click({ text: decision.text });
+      return { kind: "click", target: { text: decision.text } };
+    case "type":
+      if (!decision.text) throw new Error('type decision missing "text"');
+      await driver.type({ text: decision.text }, decision.value ?? "");
+      return { kind: "type", target: { text: decision.text }, text: decision.value ?? "" };
+    case "goto":
+      if (!decision.url) throw new Error('goto decision missing "url"');
+      await driver.goto(decision.url);
+      return { kind: "goto", url: decision.url };
+    default:
+      throw new Error(`unknown action: ${decision.action}`);
+  }
+}
+
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   const { driver, llm, baseUrl, maxSteps = 8, onStep } = opts;
   const steps: Step[] = [];
@@ -84,10 +107,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     steps.push({ kind: "goto", url: baseUrl });
   }
 
+  // Remember what already failed so the LLM stops retrying dead ends (real sites have
+  // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).
+  const failures: string[] = [];
   for (let i = 0; i < maxSteps; i++) {
     await driver.settle();
     const elements = await driver.snapshot();
-    const reply = await llm.complete(buildPrompt(intent, elements, steps), { system: SYSTEM });
+    const reply = await llm.complete(buildPrompt(intent, elements, steps, failures), { system: SYSTEM });
     const decision = parseDecision(reply);
 
     if (decision.action === "done") {
@@ -95,28 +121,15 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       return { name: intent, steps, assertions: sanitizeAssertions(decision.assertions) };
     }
 
-    let step: Step;
-    switch (decision.action) {
-      case "click":
-        if (!decision.text) throw new Error('click decision missing "text"');
-        await driver.click({ text: decision.text });
-        step = { kind: "click", target: { text: decision.text } };
-        break;
-      case "type":
-        if (!decision.text) throw new Error('type decision missing "text"');
-        await driver.type({ text: decision.text }, decision.value ?? "");
-        step = { kind: "type", target: { text: decision.text }, text: decision.value ?? "" };
-        break;
-      case "goto":
-        if (!decision.url) throw new Error('goto decision missing "url"');
-        await driver.goto(decision.url);
-        step = { kind: "goto", url: decision.url };
-        break;
-      default:
-        throw new Error(`unknown action: ${(decision as Decision).action}`);
+    try {
+      const step = await applyDecision(driver, decision);
+      steps.push(step);
+      onStep?.(decision, step);
+    } catch (err) {
+      const what = `${decision.action}${decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : ""}`;
+      failures.push(`${what} — ${err instanceof Error ? err.message : String(err)}`);
+      onStep?.(decision);
     }
-    steps.push(step);
-    onStep?.(decision, step);
   }
 
   // Safety cap reached without an explicit "done".

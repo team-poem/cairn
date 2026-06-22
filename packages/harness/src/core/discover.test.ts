@@ -53,6 +53,26 @@ describe("discover", () => {
     expect(driver.clicked).toHaveLength(2);
   });
 
+  it("recovers from a failed action and adapts instead of crashing", async () => {
+    // First pick a target that doesn't resolve; discover should not throw, but try again.
+    const driver = new FakeDriver({
+      evidence,
+      elements: [{ role: "link", name: "Open" }],
+      failOn: ["Gone"],
+    });
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Gone"}',
+      '{"action":"click","text":"Open"}',
+      '{"action":"done"}',
+    ]);
+
+    const scenario = await discover("adapt", { driver, llm });
+
+    // The failed click is not recorded; only the successful one is.
+    expect(scenario.steps).toEqual([{ kind: "click", target: { text: "Open" } }]);
+    expect(driver.clicked).toEqual([{ text: "Open" }]);
+  });
+
   it("drops malformed assertions back to a safe default", async () => {
     const driver = new FakeDriver({ evidence, elements: [] });
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"bogus"}]}']);

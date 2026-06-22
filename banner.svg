@@ -1,0 +1,41 @@
+<svg width="1200" height="320" viewBox="0 0 1200 320" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="cairn — browser tests an AI discovers once, replays deterministically, and heals when they break">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="320" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#11151c"/>
+      <stop offset="1" stop-color="#0b0e13"/>
+    </linearGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#aeb6c2"/>
+      <stop offset="1" stop-color="#6b7484"/>
+    </linearGradient>
+    <linearGradient id="stoneTop" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e6b888"/>
+      <stop offset="1" stop-color="#cf9b5e"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1200" height="320" rx="20" fill="url(#bg)"/>
+
+  <!-- ground -->
+  <line x1="96" y1="262" x2="332" y2="262" stroke="#2a313c" stroke-width="2"/>
+
+  <!-- the cairn: stacked stones, built once to mark the trail -->
+  <g>
+    <ellipse cx="214" cy="248" rx="92" ry="22" fill="#1a1f27"/>
+    <ellipse cx="214" cy="236" rx="86" ry="27" fill="url(#stone)"/>
+    <ellipse cx="208" cy="196" rx="68" ry="23" fill="url(#stone)"/>
+    <ellipse cx="220" cy="160" rx="53" ry="20" fill="url(#stone)"/>
+    <ellipse cx="206" cy="128" rx="40" ry="17" fill="url(#stone)"/>
+    <ellipse cx="216" cy="101" rx="27" ry="13" fill="url(#stoneTop)"/>
+  </g>
+
+  <!-- wordmark -->
+  <text x="384" y="168" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="118" font-weight="700" fill="#eef2f7" letter-spacing="-3">cairn</text>
+
+  <!-- tagline -->
+  <text x="390" y="214" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#9aa4b2">Browser tests an AI discovers once,</text>
+  <text x="390" y="250" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="27" font-weight="500" fill="#9aa4b2">replays deterministically, and heals when they break.</text>
+
+  <!-- accent: the trail -->
+  <text x="392" y="294" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19" fill="#cf9b5e">discover → freeze → replay → self-heal</text>
+</svg>

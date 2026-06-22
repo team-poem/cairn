@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { findUidByName, parseConsole, parseElements, parseNetwork, parseSelectedUrl } from "./chrome.js";
+import {
+  findUidByName,
+  isNavigation,
+  normalizeUrl,
+  parseConsole,
+  parseElements,
+  parseNetwork,
+  parseSelectedUrl,
+} from "./chrome.js";
 
 // Sample text mirrors real chrome-devtools-mcp output observed during dogfooding.
 
@@ -55,6 +63,21 @@ describe("parseSelectedUrl", () => {
   });
   it("returns undefined when no page is selected", () => {
     expect(parseSelectedUrl(`1: about:blank`)).toBeUndefined();
+  });
+});
+
+describe("isNavigation", () => {
+  it("ignores a trailing-slash-only difference", () => {
+    expect(isNavigation("https://example.com", "https://example.com/")).toBe(false);
+  });
+  it("detects a real navigation", () => {
+    expect(isNavigation("https://example.com", "https://www.iana.org/help/example-domains")).toBe(true);
+  });
+  it("treats a first navigation (no initial url) as navigation", () => {
+    expect(isNavigation(undefined, "https://example.com/")).toBe(true);
+  });
+  it("normalizeUrl drops trailing slash and hash", () => {
+    expect(normalizeUrl("https://x.com/path/#frag")).toBe("https://x.com/path");
   });
 });
 

@@ -1,8 +1,6 @@
 /**
- * LlmClient backed by the Anthropic Messages API (uses ANTHROPIC_API_KEY).
- *
- * This is the "correct default" once a user supplies a key — a real standalone backend
- * with no Claude Code dependency. Implemented with fetch to avoid an SDK dependency.
+ * LlmClient backed by the Anthropic Messages API (ANTHROPIC_API_KEY) — the standalone
+ * default once a user supplies a key. Uses fetch to avoid an SDK dependency.
  */
 import type { CompleteOptions, LlmClient } from "../../core/ports.js";
 

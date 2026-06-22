@@ -1,19 +1,14 @@
 /**
- * LlmClient backed by the local Claude Code CLI (`claude -p`).
- *
- * This is the default when no API key is present: a user who already has Claude Code
- * installed can run cairn's discover loop with no extra credentials — it reuses their
- * existing auth. Swappable for AnthropicLlmClient via `createLlmClient` (invariant #5).
+ * LlmClient backed by the local Claude Code CLI (`claude -p`) — the default when no API key
+ * is set: it reuses an installed Claude Code's auth, no extra credentials. Swappable for
+ * AnthropicLlmClient via `createLlmClient` (invariant #5).
  */
 import { spawn } from "node:child_process";
 import type { CompleteOptions, LlmClient } from "../../core/ports.js";
 
 export interface ClaudeCodeOptions {
-  /** Model alias passed to `--model` (e.g. "sonnet", "haiku"). */
   model?: string;
-  /** Path to the claude binary. */
   bin?: string;
-  /** Hard timeout in ms. */
   timeoutMs?: number;
 }
 
@@ -33,7 +28,6 @@ export class ClaudeCodeLlmClient implements LlmClient {
   async complete(prompt: string, opts: CompleteOptions = {}): Promise<string> {
     const args = ["-p", "--model", this.model];
     if (opts.system) args.push("--append-system-prompt", opts.system);
-    const input = prompt;
 
     return new Promise<string>((resolve, reject) => {
       const child = spawn(this.bin, args, { stdio: ["pipe", "pipe", "pipe"] });
@@ -56,7 +50,7 @@ export class ClaudeCodeLlmClient implements LlmClient {
         else reject(new Error(`claude -p exited ${code}: ${stderr.trim()}`));
       });
 
-      child.stdin.write(input);
+      child.stdin.write(prompt);
       child.stdin.end();
     });
   }

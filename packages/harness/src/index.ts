@@ -16,7 +16,6 @@ export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 
-export type { LlmClient, CompleteOptions } from "./core/ports.js";
 export { ClaudeCodeLlmClient } from "./adapters/llm/claude-code.js";
 export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 export { createLlmClient } from "./adapters/llm/factory.js";

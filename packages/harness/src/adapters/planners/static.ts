@@ -1,9 +1,4 @@
-/**
- * Deterministic Planner: returns a fixed scenario the caller already built.
- *
- * This is the replay-path planner — no LLM (invariant #4). Discovering a *new* scenario
- * from an unknown app is a different Planner implementation (an LLM loop), not this one.
- */
+/** Deterministic Planner — returns a fixed scenario. The replay path's planner, no LLM (invariant #4). */
 import type { Planner } from "../../core/ports.js";
 import type { Context, Scenario } from "../../core/types.js";
 

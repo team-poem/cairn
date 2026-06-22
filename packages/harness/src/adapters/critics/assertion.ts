@@ -1,17 +1,8 @@
-/**
- * Deterministic Critic: checks each assertion against the three-layer evidence.
- *
- * No LLM (invariant #4) — this is the critic the replay path uses. An LLM-backed Critic
- * for fuzzy judgment is a separate implementation behind the same interface.
- */
+/** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
-/**
- * Evaluate one mechanical assertion against evidence. Deterministic — no LLM.
- * `expect` (natural-language) is not mechanical; it returns unsupported here and is the
- * job of LlmCritic.
- */
+/** Evaluate one mechanical assertion. `expect` is not mechanical — returns unsupported (LlmCritic handles it). */
 export function checkAssertion(assertion: Assertion, evidence: Evidence): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {

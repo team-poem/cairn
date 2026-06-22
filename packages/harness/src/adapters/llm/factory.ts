@@ -1,8 +1,4 @@
-/**
- * Picks the LLM backend. Default policy keeps the core model-agnostic (invariant #5)
- * and makes swapping trivial: set a key and you get the API; otherwise fall back to the
- * locally-installed Claude Code. Callers can also pass an explicit client to override.
- */
+/** Picks the LLM backend (invariant #5): the API if ANTHROPIC_API_KEY is set, else local Claude Code. */
 import type { LlmClient } from "../../core/ports.js";
 import { AnthropicLlmClient } from "./anthropic.js";
 import { ClaudeCodeLlmClient } from "./claude-code.js";

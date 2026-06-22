@@ -11,6 +11,8 @@ export { ConsoleReporter } from "./reporters/console.js";
 export { JsonReporter } from "./reporters/json.js";
 export { FakeDriver } from "./drivers/fake.js";
 export { ChromeDevToolsDriver } from "./drivers/chrome.js";
+export { SelfHealingDriver, parseHealChoice } from "./drivers/self-heal.js";
+export type { Heal, SelfHealOptions } from "./drivers/self-heal.js";
 
 export type { LlmClient, CompleteOptions } from "./llm/client.js";
 export { ClaudeCodeLlmClient } from "./llm/claude-code.js";

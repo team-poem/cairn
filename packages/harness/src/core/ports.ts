@@ -1,11 +1,12 @@
 /**
- * The six extension points of the cairn pipeline (invariant #2: new behavior is added
+ * The extension points (ports) of the cairn engine (invariant #2: new behavior is added
  * by implementing one of these, never by branching inside a pipeline stage).
  *
- *   ContextProvider · Planner · Driver · SkillStore · Critic · Reporter
+ *   ContextProvider · Planner · Driver · SkillStore · Critic · Reporter   (pipeline ports)
+ *   LlmClient                                                             (model seam)
  *
- * The core ships default implementations; an environment plugs in by implementing
- * an interface and passing it to `runHarness`.
+ * The core depends only on these ports; adapters in `../adapters` implement them. An
+ * environment plugs in by implementing a port and passing it to `runHarness`.
  */
 import type {
   Assertion,
@@ -90,3 +91,22 @@ export interface Harness {
 
 /** Convenience handle so a Driver can announce the action it just executed. */
 export type ActionStep = Step;
+
+/**
+ * Model-agnostic LLM seam (invariant #5: no LLM is hard-wired into the core). The
+ * discover loop and the LLM critic depend on this port, never on a concrete provider;
+ * `createLlmClient` (an adapter) picks the implementation.
+ */
+export interface LlmClient {
+  /** A short identifier of the backing model/runtime, for reporting. */
+  readonly id: string;
+  /** Complete a single prompt and return the text. */
+  complete(prompt: string, opts?: CompleteOptions): Promise<string>;
+}
+
+export interface CompleteOptions {
+  /** Steering system prompt. */
+  system?: string;
+  /** Upper bound on output tokens (best-effort per backend). */
+  maxTokens?: number;
+}

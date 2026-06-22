@@ -1,7 +1,7 @@
 /** Structured Reporter — writes the full result as JSON for CI consumption. */
 import { writeFile } from "node:fs/promises";
-import type { Reporter } from "../interfaces.js";
-import type { Result } from "../types.js";
+import type { Reporter } from "../../core/ports.js";
+import type { Result } from "../../core/types.js";
 
 export class JsonReporter implements Reporter {
   constructor(private readonly path: string) {}

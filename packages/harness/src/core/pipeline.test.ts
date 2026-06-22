@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { runHarness } from "./pipeline.js";
-import { InlineContextProvider } from "./context/inline.js";
-import { StaticPlanner } from "./planners/static.js";
-import { AssertionCritic } from "./critics/assertion.js";
-import { FakeDriver } from "./drivers/fake.js";
-import type { Evidence, Reporter, Result, Scenario } from "./index.js";
+import { InlineContextProvider } from "../adapters/context/inline.js";
+import { StaticPlanner } from "../adapters/planners/static.js";
+import { AssertionCritic } from "../adapters/critics/assertion.js";
+import { FakeDriver } from "../adapters/drivers/fake.js";
+import type { Evidence, Reporter, Result, Scenario } from "../index.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;

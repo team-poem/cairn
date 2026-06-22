@@ -105,3 +105,14 @@
   → 프로젝트2(데스크탑)가 CLI 복붙 없이 `import { runScenario }`로 사용 가능.
 - **결과:** 단위테스트 30→**35/35**, typecheck/build OK. 도그푸딩(run --dogfood, replay --heal) 동작 보존 확인.
 - **다음:** npm 배포 준비 → v2(git diff ContextProvider).
+
+## 2026-06-22 — 헥사고날 재구조화 (배포 전 정리)
+- **목표:** 코드를 패턴이 드러나게 정리(보기 편하게) — 배포 전.
+- **결정:** Ports & Adapters(헥사고날). `core/`(순수 도메인+포트) ↔ `adapters/`(구현) 분리, 의존방향 adapters→core.
+  `run.ts`는 기본 어댑터 조립이라 core 아닌 **루트**(core 순수성 유지). 기존 패턴(Decorator=self-heal/Factory=createLlmClient/
+  Strategy=포트 교체/Pipeline)이 구조로 명시됨.
+- **한 일(`refactor/hexagonal`):** `git mv`로 이동(히스토리 보존) — types/ports(←interfaces)/pipeline/discover→`core/`,
+  구현→`adapters/{drivers,critics,reporters,planners,context,skills,llm}`. `llm/client.ts`(LlmClient 포트)를 `core/ports.ts`로 병합.
+  import 경로 일괄 갱신. 빌드: 테스트 제외 `tsconfig.build.json`, `build`가 dist clean.
+- **결과:** typecheck/35테스트/build OK, 도그푸딩 보존. 공개 API 배럴(`@cairn/harness`) 불변(exports/bin 그대로).
+- **다음:** npm 배포 준비(package.json 메타데이터·org) → v2.

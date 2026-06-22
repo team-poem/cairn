@@ -3,7 +3,7 @@
  * and makes swapping trivial: set a key and you get the API; otherwise fall back to the
  * locally-installed Claude Code. Callers can also pass an explicit client to override.
  */
-import type { LlmClient } from "./client.js";
+import type { LlmClient } from "../../core/ports.js";
 import { AnthropicLlmClient } from "./anthropic.js";
 import { ClaudeCodeLlmClient } from "./claude-code.js";
 

@@ -9,9 +9,9 @@
  * - Judgment is grounded in the three-layer evidence (design §6), not a screenshot guess.
  */
 import { checkAssertion } from "./assertion.js";
-import type { Critic } from "../interfaces.js";
-import type { LlmClient } from "../llm/client.js";
-import type { Assertion, AssertionResult, Evidence, Verdict } from "../types.js";
+import type { Critic } from "../../core/ports.js";
+import type { LlmClient } from "../../core/ports.js";
+import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
 const SYSTEM =
   "You are a QA critic. Given observed evidence from a browser run and a success " +

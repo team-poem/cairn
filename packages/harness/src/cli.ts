@@ -14,12 +14,12 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
-import { discover } from "./discover.js";
-import { ConsoleReporter } from "./reporters/console.js";
-import { JsonReporter } from "./reporters/json.js";
-import { ChromeDevToolsDriver } from "./drivers/chrome.js";
-import { loadSkillFile } from "./skills/file-store.js";
-import { createLlmClient } from "./llm/factory.js";
+import { discover } from "./core/discover.js";
+import { ConsoleReporter } from "./adapters/reporters/console.js";
+import { JsonReporter } from "./adapters/reporters/json.js";
+import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
+import { loadSkillFile } from "./adapters/skills/file-store.js";
+import { createLlmClient } from "./adapters/llm/factory.js";
 import type { Reporter, Scenario } from "./index.js";
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */

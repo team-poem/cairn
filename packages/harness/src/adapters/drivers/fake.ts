@@ -3,8 +3,8 @@
  * Execute → Judge → Report) be unit-tested without the real Chrome MCP backend, and
  * proves the core is driver-agnostic (invariant #5).
  */
-import type { Driver } from "../interfaces.js";
-import type { Evidence, PageElement, Target } from "../types.js";
+import type { Driver } from "../../core/ports.js";
+import type { Evidence, PageElement, Target } from "../../core/types.js";
 
 export interface FakeScript {
   /** Evidence the fake returns from observe(). */

@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { SelfHealingDriver, parseHealChoice } from "./self-heal.js";
 import { FakeDriver } from "./fake.js";
-import type { LlmClient } from "../llm/client.js";
-import type { Evidence } from "../types.js";
+import type { LlmClient } from "../../core/ports.js";
+import type { Evidence } from "../../core/types.js";
 
 class ScriptedLlm implements LlmClient {
   readonly id = "scripted";

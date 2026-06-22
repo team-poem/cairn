@@ -6,7 +6,7 @@
  * deterministic (invariant #4): given a Planner that resolves a fixed scenario and a
  * deterministic Critic, no LLM is in the loop.
  */
-import type { Harness } from "./interfaces.js";
+import type { Harness } from "./ports.js";
 import type { Evidence, ExecutedAction, Result, Step } from "./types.js";
 
 /** Execute one step against the driver, capturing success/failure as evidence. */

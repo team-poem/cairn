@@ -11,19 +11,19 @@
  * No LLM is constructed unless something actually needs one (an `expect` critic or
  * `heal`), so a plain mechanical replay stays deterministic and LLM-free (invariant #4).
  */
-import { runHarness } from "./pipeline.js";
-import { InlineContextProvider } from "./context/inline.js";
-import { StaticPlanner } from "./planners/static.js";
-import { AssertionCritic } from "./critics/assertion.js";
-import { LlmCritic } from "./critics/llm.js";
-import { ChromeDevToolsDriver } from "./drivers/chrome.js";
-import { SelfHealingDriver } from "./drivers/self-heal.js";
-import { ConsoleReporter } from "./reporters/console.js";
-import { createLlmClient } from "./llm/factory.js";
-import type { ContextProvider, Critic, Driver, Reporter } from "./interfaces.js";
-import type { Heal } from "./drivers/self-heal.js";
-import type { LlmClient } from "./llm/client.js";
-import type { Result, Scenario } from "./types.js";
+import { runHarness } from "./core/pipeline.js";
+import { InlineContextProvider } from "./adapters/context/inline.js";
+import { StaticPlanner } from "./adapters/planners/static.js";
+import { AssertionCritic } from "./adapters/critics/assertion.js";
+import { LlmCritic } from "./adapters/critics/llm.js";
+import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
+import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
+import { ConsoleReporter } from "./adapters/reporters/console.js";
+import { createLlmClient } from "./adapters/llm/factory.js";
+import type { ContextProvider, Critic, Driver, Reporter } from "./core/ports.js";
+import type { Heal } from "./adapters/drivers/self-heal.js";
+import type { LlmClient } from "./core/ports.js";
+import type { Result, Scenario } from "./core/types.js";
 
 export interface RunScenarioOptions {
   /** Browser driver. Default: a fresh ChromeDevToolsDriver. */

@@ -6,7 +6,7 @@
  * existing auth. Swappable for AnthropicLlmClient via `createLlmClient` (invariant #5).
  */
 import { spawn } from "node:child_process";
-import type { CompleteOptions, LlmClient } from "./client.js";
+import type { CompleteOptions, LlmClient } from "../../core/ports.js";
 
 export interface ClaudeCodeOptions {
   /** Model alias passed to `--model` (e.g. "sonnet", "haiku"). */

@@ -14,8 +14,10 @@
 
 ## 살아있는 계약/결정
 - 아키텍처 불변식 → `spec/architecture.md`.
+- **코드 구조: Ports & Adapters(헥사고날).** `src/core/`(도메인+포트: types·ports·pipeline·discover) ↔
+  `src/adapters/`(구현). `run.ts`=조립(루트). 의존방향 adapters→core. 공개 API=`src/index.ts` 배럴.
 - 기본 드라이버: Chrome DevTools MCP.
-- 형태: **CLI 우선.** 데스크톱 패키징은 확장 선택지.
+- 형태: **임베드 엔진 + 얇은 CLI.** 데스크탑은 별도 프로젝트(엔진 install).
 - 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.
 
 ## 다음 스텝

@@ -41,3 +41,20 @@
 - **이슈/한계:** `observe()`가 in-flight 서브리소스와 레이스(도그푸딩 5 vs 수동 7 req) →
   Execute 단계 auto-wait(settle) 필요(design §3). 파서 brittle → 파서 단위테스트 후속.
 - **다음:** (1) LLM Critic 주입 (2) Execute settle (3) v1 탐색→freeze→재생.
+
+## 2026-06-22 — PoC 완주: discover→freeze→replay 한 바퀴
+- **목표:** cairn 핵심 가설(LLM이 시나리오 발견 → freeze → LLM 없이 결정적 재생) 한 바퀴 통과 → PoC 졸업.
+- **결정(범위):** PoC 종료선 = discover→freeze→replay 통과. C(Claude Code 드라이버)는 v0 산출물 아님,
+  플러밍은 이미 증명 → 진짜 베팅(발견+결정적 재생)을 끝까지 통과시키기로.
+- **결정(LLM 소스):** 모델 비종속(`LlmClient` 인터페이스). 기본 = 로컬 Claude Code(`claude -p`, 키 불필요,
+  Claude Code 사용자 대상), 올바른 기본값 = 사용자 `ANTHROPIC_API_KEY`. `createLlmClient` 팩토리로 env 선택 → 교체 용이.
+- **한 일:**
+  - `LlmClient` seam + `ClaudeCodeLlmClient`(spawn `claude -p`) + `AnthropicLlmClient`(fetch Messages API) + factory.
+  - `FileSkillStore`/`loadSkillFile`(freeze/resolve) + `cairn replay`.
+  - `Driver.snapshot()`(라이브 인지) 추가 → `discover()` observe→act→adapt 루프(불변식 #3) → `cairn discover`.
+  - CLI를 `run|replay|discover` 디스패치로 재구성.
+- **결과(도그푸딩):** Claude Code(haiku)가 example.com에서 "Learn more" 발견 → freeze →
+  replay 2회 동일 출력(경로 결정성) · pass exit 0 · **주입 회귀 → critic 검출 → exit 1**(CI 게이트).
+  실서버 503도 logic층에서 잡힘(critic 가치 입증). 단위테스트 10/10, typecheck/build OK.
+- **이슈/한계:** observe() settle(레이스) 여전; LLM Critic 미구현(결정적 단언만); MCP 텍스트 파서 brittle(파서 테스트로 방어).
+- **다음:** `poc/harness-v0` → `develop` 졸업(사용자 확인). v1: self-heal·입력 ContextProvider·시각 리플레이.

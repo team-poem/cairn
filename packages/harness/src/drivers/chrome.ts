@@ -12,7 +12,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Driver } from "../interfaces.js";
-import type { ConsoleMessage, Evidence, NetworkRequest, Target } from "../types.js";
+import type { ConsoleMessage, Evidence, NetworkRequest, PageElement, Target } from "../types.js";
 
 const MCP_COMMAND = "npx";
 // `--isolated` gives the harness its own ephemeral browser instance, so a standalone
@@ -75,6 +75,11 @@ export class ChromeDevToolsDriver implements Driver {
     await this.call("fill", { uid, value: text });
   }
 
+  async snapshot(): Promise<PageElement[]> {
+    const text = await this.call("take_snapshot");
+    return parseElements(text);
+  }
+
   async observe(): Promise<Evidence> {
     const [pages, network, console] = await Promise.all([
       this.call("list_pages"),
@@ -112,6 +117,16 @@ export class ChromeDevToolsDriver implements Driver {
 }
 
 // --- text parsers for chrome-devtools-mcp output ---------------------------------
+
+/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
+export function parseElements(snapshot: string): PageElement[] {
+  const out: PageElement[] = [];
+  for (const line of snapshot.split("\n")) {
+    const m = line.match(/uid=\S+\s+(\w+)\s+"([^"]*)"/);
+    if (m && m[2]!.trim()) out.push({ role: m[1]!, name: m[2]! });
+  }
+  return out;
+}
 
 /** `uid=1_3 link "Learn more" url="..."` → first uid whose quoted name includes `text`. */
 export function findUidByName(snapshot: string, text: string): string | undefined {

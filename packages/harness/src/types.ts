@@ -45,6 +45,12 @@ export interface Scenario {
   assertions: Assertion[];
 }
 
+/** An interactive element the discover loop can perceive and act on. */
+export interface PageElement {
+  role: string;
+  name: string;
+}
+
 /** A single observed network request. */
 export interface NetworkRequest {
   method: string;

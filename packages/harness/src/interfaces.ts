@@ -11,6 +11,7 @@ import type {
   Assertion,
   Context,
   Evidence,
+  PageElement,
   Result,
   Scenario,
   Step,
@@ -43,6 +44,8 @@ export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
+  /** Live perception for the discover loop: the interactive elements on the page. */
+  snapshot(): Promise<PageElement[]>;
   /** Collect a fresh three-layer evidence snapshot of current state. */
   observe(): Promise<Evidence>;
   close(): Promise<void>;

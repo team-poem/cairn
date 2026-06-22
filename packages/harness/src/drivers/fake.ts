@@ -4,11 +4,13 @@
  * proves the core is driver-agnostic (invariant #5).
  */
 import type { Driver } from "../interfaces.js";
-import type { Evidence, Target } from "../types.js";
+import type { Evidence, PageElement, Target } from "../types.js";
 
 export interface FakeScript {
   /** Evidence the fake returns from observe(). */
   evidence: Evidence;
+  /** Elements the fake returns from snapshot(). */
+  elements?: PageElement[];
   /** Targets that should throw when acted on (by text), to simulate failures. */
   failOn?: string[];
 }
@@ -35,6 +37,10 @@ export class FakeDriver implements Driver {
     if (target.text && this.script.failOn?.includes(target.text)) {
       throw new Error(`element not found: ${target.text}`);
     }
+  }
+
+  async snapshot(): Promise<PageElement[]> {
+    return this.script.elements ?? [];
   }
 
   async observe(): Promise<Evidence> {

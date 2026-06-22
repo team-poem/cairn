@@ -1,4 +1,4 @@
-/** Public surface of @cairn/harness. */
+/** Public surface of @cairn/core. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";

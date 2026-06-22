@@ -4,7 +4,7 @@
 
 A **cairn** is a stack of stones that marks a trail — built once, so the path can be found again. This tool does the same for browser tests: an AI walks an unfamiliar app once to find the path, **freezes it into a marker**, and from then on follows it **deterministically** — no LLM, no flakiness. When the trail shifts and a marker no longer fits, the AI **rebuilds it**.
 
-cairn is the engine, not a product: a model- and browser-agnostic core (`@cairn/core`) you run from the CLI or embed in your own app. You describe a QA flow in plain language; cairn discovers the steps, replays them cheaply forever, and heals them when the UI changes.
+cairn is the engine, not a product: a model- and browser-agnostic core (`cairn-engine`) you run from the CLI or embed in your own app. You describe a QA flow in plain language; cairn discovers the steps, replays them cheaply forever, and heals them when the UI changes.
 
 ## The loop
 
@@ -41,7 +41,7 @@ You don't maintain selectors, and you don't pay an LLM on every CI run. Discover
 ## Quickstart
 
 ```sh
-npm install -g @cairn/core   # provides the `cairn` CLI
+npm install -g cairn-engine   # provides the `cairn` CLI
 ```
 
 ```sh
@@ -64,7 +64,7 @@ Embed it instead of shelling out — every stage is an injected interface:
 import {
   runHarness, StaticPlanner, ChromeDevToolsDriver,
   AssertionCritic, JsonReporter, InlineContextProvider,
-} from "@cairn/core";
+} from "cairn-engine";
 
 const result = await runHarness({
   context:  new InlineContextProvider(),
@@ -105,7 +105,7 @@ implements them. Dependencies point inward — adapters depend on core, never th
 ```
 cairn/
 ├── packages/
-│   └── harness/                  # @cairn/core — the engine
+│   └── harness/                  # cairn-engine — the engine
 │       └── src/
 │           ├── core/             # domain + ports (depends on nothing else)
 │           │   ├── types.ts        # Context · Scenario · Evidence · Verdict …

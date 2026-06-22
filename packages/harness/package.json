@@ -1,5 +1,5 @@
 {
-  "name": "@cairn/core",
+  "name": "cairn-engine",
   "version": "0.1.0",
   "description": "An engine for self-healing E2E browser tests — discovered once by an AI, replayed deterministically.",
   "keywords": [
@@ -37,9 +37,6 @@
   ],
   "engines": {
     "node": ">=20"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json",

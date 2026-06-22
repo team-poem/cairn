@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * cairn CLI — a thin consumer of the @cairn/core library.
+ * cairn CLI — a thin consumer of the cairn-engine library.
  *
  *   cairn run --dogfood                       built-in example.com → first link → network
  *   cairn run --scenario s.json [--json out]  run a scenario file (deterministic)

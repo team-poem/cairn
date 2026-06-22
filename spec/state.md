@@ -14,8 +14,15 @@
 - 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.
 
 ## 다음 스텝
-1. chrome-devtools-mcp 동작 검증 — MCP가 자연어 시나리오를 수행하나.
+1. **(진행 중) chrome-devtools-mcp 검증** — 등록·연결 완료(✔, cairn 프로젝트 스코프).
+   도구는 세션 재시작 후 로드됨.
+   - 재시작: `cd ~/cairn && claude` 로 cairn 프로젝트에서 새 세션 시작.
+   - 첫 테스트(수행 확인): "example.com 열고 → 첫 링크 클릭 → 그때 뜬 네트워크 요청 보여줘".
+     이게 되면 = MCP가 탐색/관찰을 수행함 = harness Driver의 기반 OK.
 2. `packages/harness` v0 — 최소 파이프라인(Context → Driver → Evidence → Critic → Report).
+
+## 환경 메모
+- chrome-devtools-mcp 등록됨: `npx -y chrome-devtools-mcp@latest` (Node 25, Chrome 설치 확인).
 
 ## 규칙 후보 (반복되면 승격)
 - (없음)

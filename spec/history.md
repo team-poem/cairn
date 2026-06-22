@@ -116,3 +116,13 @@
   import 경로 일괄 갱신. 빌드: 테스트 제외 `tsconfig.build.json`, `build`가 dist clean.
 - **결과:** typecheck/35테스트/build OK, 도그푸딩 보존. 공개 API 배럴(`@cairn/harness`) 불변(exports/bin 그대로).
 - **다음:** npm 배포 준비(package.json 메타데이터·org) → v2.
+
+## 2026-06-22 — npm 배포(cairn-engine@0.1.0) + discover 복원력
+- **배포:** unscoped `cairn-engine`로 npm 게시(`cairn` org 만들기 싫다 하여). 토큰(granular)으로 publish, GitHub v0.1.0 태그.
+  `npx`·`import` 양쪽 동작 확인(낯선 사용자 시뮬). 사용은 `import { runScenario }`가 메인, CLI는 보조.
+- **실전 도그푸딩(delivered.co.kr Ktown4U 플로우):** discover가 액션 실패 시 **크래시**하던 버그 발견 →
+  `fix/discover-adapt`: (1) 실패를 LLM에 피드백해 적응(observe→act→**adapt**, 불변식 #3 완성), (2) 실패 요소 기억해 무한 반복 방지.
+  결과: 크래시·무한루프 없이, 막히면 "불가능" 판단 후 종료. 단위테스트 +1(36/36). 버전 0.1.1.
+- **남은 갭(실전이 드러냄):** Driver에 **hover 없음** → 호버/flyout 메뉴(예: 내비의 Ktown4U) 못 펼침. 텍스트 클릭만 가능.
+  (해당 스토어 URL은 점검/404였음도 확인.) → 다음 후보: Driver hover 액션.
+- **다음:** v0.1.1 재배포 여부 · Driver hover · v2(git diff ContextProvider).

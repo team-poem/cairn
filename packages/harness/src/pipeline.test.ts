@@ -53,6 +53,7 @@ describe("pipeline", () => {
     expect(driver.visited).toEqual(["https://example.com"]);
     expect(driver.clicked).toEqual([{ text: "Learn more" }]);
     expect(driver.closed).toBe(true); // driver always closed
+    expect(driver.settled).toBe(true); // Execute auto-waits before observing
     expect(reporter.last).toBe(result);
     expect(result.evidence.execution.actions).toHaveLength(2);
   });

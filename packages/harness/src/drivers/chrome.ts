@@ -12,7 +12,16 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import type { Driver } from "../interfaces.js";
-import type { ConsoleMessage, Evidence, NetworkRequest, PageElement, Target } from "../types.js";
+import type {
+  ConsoleMessage,
+  Evidence,
+  NetworkRequest,
+  PageElement,
+  SettleOptions,
+  Target,
+} from "../types.js";
+
+const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MCP_COMMAND = "npx";
 // `--isolated` gives the harness its own ephemeral browser instance, so a standalone
@@ -78,6 +87,32 @@ export class ChromeDevToolsDriver implements Driver {
   async snapshot(): Promise<PageElement[]> {
     const text = await this.call("take_snapshot");
     return parseElements(text);
+  }
+
+  async settle(options: SettleOptions = {}): Promise<void> {
+    // Chrome defers low-priority resources (favicon, web fonts) well past the usual
+    // 500ms "network-idle" window, so the idle threshold is deliberately generous —
+    // missing a late request would mean missing a real failure. Tune via SettleOptions.
+    const idleMs = options.idleMs ?? 1_000;
+    const timeoutMs = options.timeoutMs ?? 10_000;
+    const pollMs = options.pollMs ?? 250;
+    const deadline = Date.now() + timeoutMs;
+    let lastCount = -1;
+    let stableSince = Date.now();
+    try {
+      while (Date.now() < deadline) {
+        const count = parseNetwork(await this.call("list_network_requests")).length;
+        if (count !== lastCount) {
+          lastCount = count;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= idleMs) {
+          return; // request count held steady long enough — treat as network-idle
+        }
+        await delay(pollMs);
+      }
+    } catch {
+      // best-effort: settling must never fail a run (interface contract).
+    }
   }
 
   async observe(): Promise<Evidence> {

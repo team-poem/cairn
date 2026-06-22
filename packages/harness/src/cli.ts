@@ -1,30 +1,26 @@
 #!/usr/bin/env node
 /**
- * cairn CLI (v0).
+ * cairn CLI — a thin consumer of the @cairn/harness library.
  *
  *   cairn run --dogfood                       built-in example.com → first link → network
  *   cairn run --scenario s.json [--json out]  run a scenario file (deterministic)
  *   cairn replay <skill.json> [--json out]    replay a frozen skill (deterministic, no LLM)
- *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, optionally re-freeze
+ *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, re-freeze
  *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m]
  *
- * Exit code is 1 when the verdict fails, so it works as a CI gate.
+ * All orchestration lives in the library (`runScenario` / `discover`). This file only
+ * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
+ * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { runHarness } from "./pipeline.js";
+import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./discover.js";
-import { InlineContextProvider } from "./context/inline.js";
-import { StaticPlanner } from "./planners/static.js";
-import { AssertionCritic } from "./critics/assertion.js";
-import { LlmCritic } from "./critics/llm.js";
 import { ConsoleReporter } from "./reporters/console.js";
 import { JsonReporter } from "./reporters/json.js";
 import { ChromeDevToolsDriver } from "./drivers/chrome.js";
-import { SelfHealingDriver } from "./drivers/self-heal.js";
-import type { Heal } from "./drivers/self-heal.js";
 import { loadSkillFile } from "./skills/file-store.js";
 import { createLlmClient } from "./llm/factory.js";
-import type { Reporter, Result, Scenario } from "./index.js";
+import type { Reporter, Scenario } from "./index.js";
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {
@@ -36,9 +32,11 @@ const DOGFOOD: Scenario = {
   assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }],
 };
 
-function parseArgs(argv: string[]): { positionals: string[]; flags: Map<string, string | boolean> } {
+type Flags = Map<string, string | boolean>;
+
+function parseArgs(argv: string[]): { positionals: string[]; flags: Flags } {
   const positionals: string[] = [];
-  const flags = new Map<string, string | boolean>();
+  const flags: Flags = new Map();
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]!;
     if (a.startsWith("--")) {
@@ -57,97 +55,66 @@ function parseArgs(argv: string[]): { positionals: string[]; flags: Map<string, 
   return { positionals, flags };
 }
 
-function reporterFor(flags: Map<string, string | boolean>): Reporter {
+const flagStr = (flags: Flags, key: string): string | undefined => {
+  const v = flags.get(key);
+  return typeof v === "string" ? v : undefined;
+};
+
+function reporterFor(flags: Flags): Reporter {
   const reporters: Reporter[] = [new ConsoleReporter()];
-  const jsonOut = flags.get("json");
-  if (typeof jsonOut === "string") reporters.push(new JsonReporter(jsonOut));
+  const jsonOut = flagStr(flags, "json");
+  if (jsonOut) reporters.push(new JsonReporter(jsonOut));
   return { emit: async (r) => void (await Promise.all(reporters.map((rep) => rep.emit(r)))) };
 }
 
-/**
- * Run a fixed scenario. Mechanical-only scenarios use the deterministic critic (no LLM,
- * invariant #4); a scenario containing any `expect` criterion uses LlmCritic (which still
- * judges the mechanical assertions deterministically and calls the LLM only for `expect`).
- */
-async function runScenario(scenario: Scenario, flags: Map<string, string | boolean>): Promise<Result> {
-  const needsLlm = scenario.assertions.some((a) => a.kind === "expect");
-  const model = typeof flags.get("model") === "string" ? (flags.get("model") as string) : undefined;
-  const critic = needsLlm ? new LlmCritic(createLlmClient(model ? { model } : {})) : new AssertionCritic();
-  if (needsLlm) console.log(`scenario has 'expect' criteria → judging with LlmCritic`);
+/** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
+async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
-  // --heal: wrap the driver so a broken step is repaired by the LLM and retried
-  // (invariant #4's sanctioned exception). A healthy replay still calls no LLM.
-  let healer: SelfHealingDriver | undefined;
-  const driver = flags.get("heal")
-    ? (healer = new SelfHealingDriver(new ChromeDevToolsDriver(), createLlmClient(model ? { model } : {})))
-    : new ChromeDevToolsDriver();
+  const { result, heals, healedScenario } = await runScenario(scenario, {
+    reporter: reporterFor(flags),
+    model: flagStr(flags, "model"),
+    heal: Boolean(flags.get("heal")),
+  });
 
-  const result = await runHarness(
-    {
-      context: new InlineContextProvider(),
-      planner: new StaticPlanner(scenario),
-      driver,
-      critic,
-      reporter: reporterFor(flags),
-    },
-    scenario.name,
-  );
-
-  if (healer && healer.heals.length) {
-    console.log(`\nself-healed ${healer.heals.length} step(s):`);
-    for (const h of healer.heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
-    const freeze = flags.get("freeze");
-    if (typeof freeze === "string") {
-      const healed = applyHeals(scenario, healer.heals);
-      await writeFile(freeze, JSON.stringify({ name: healed.name, scenario: healed }, null, 2), "utf8");
+  if (heals.length) {
+    console.log(`\nself-healed ${heals.length} step(s):`);
+    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
+    const freeze = flagStr(flags, "freeze");
+    if (freeze && healedScenario) {
+      await writeFile(freeze, JSON.stringify({ name: healedScenario.name, scenario: healedScenario }, null, 2), "utf8");
       console.log(`  re-frozen → ${freeze}`);
     }
   }
-  return result;
+  return result.verdict.passed ? 0 : 1;
 }
 
-/** Rewrite a scenario's targets with the names self-heal substituted, for re-freezing. */
-function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
-  const byOriginal = new Map(heals.map((h) => [h.original.text, h.healedText]));
-  return {
-    ...scenario,
-    steps: scenario.steps.map((step) => {
-      if ((step.kind === "click" || step.kind === "type") && step.target.text) {
-        const healed = byOriginal.get(step.target.text);
-        if (healed) return { ...step, target: { ...step.target, text: healed } };
-      }
-      return step;
-    }),
-  };
-}
-
-async function cmdRun(flags: Map<string, string | boolean>): Promise<number> {
+async function cmdRun(flags: Flags): Promise<number> {
   let scenario: Scenario;
   if (flags.get("dogfood")) {
     scenario = DOGFOOD;
   } else {
-    const path = flags.get("scenario");
-    if (typeof path !== "string") throw new Error("provide --scenario <file.json> or --dogfood");
+    const path = flagStr(flags, "scenario");
+    if (!path) throw new Error("provide --scenario <file.json> or --dogfood");
     scenario = JSON.parse(await readFile(path, "utf8")) as Scenario;
   }
-  const result = await runScenario(scenario, flags);
-  return result.verdict.passed ? 0 : 1;
+  return runScenarioCli(scenario, flags);
 }
 
-async function cmdReplay(positionals: string[], flags: Map<string, string | boolean>): Promise<number> {
+async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--json out]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out]");
   const skill = await loadSkillFile(file);
-  console.log(`replaying frozen skill "${skill.name}" — deterministic, no LLM`);
-  const result = await runScenario(skill.scenario, flags);
-  return result.verdict.passed ? 0 : 1;
+  const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
+  console.log(`replaying frozen skill "${skill.name}" — ${mode}`);
+  return runScenarioCli(skill.scenario, flags);
 }
 
-async function cmdDiscover(positionals: string[], flags: Map<string, string | boolean>): Promise<number> {
+async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
   const intent = positionals[0];
   if (!intent) throw new Error('usage: cairn discover "<intent>" --url <u> [--freeze f] [--model m]');
-  const url = typeof flags.get("url") === "string" ? (flags.get("url") as string) : undefined;
-  const model = typeof flags.get("model") === "string" ? (flags.get("model") as string) : undefined;
+  const url = flagStr(flags, "url");
+  const model = flagStr(flags, "model");
 
   const driver = new ChromeDevToolsDriver();
   const llm = createLlmClient(model ? { model } : {});
@@ -163,8 +130,8 @@ async function cmdDiscover(positionals: string[], flags: Map<string, string | bo
   console.log(`\ndiscovered scenario "${scenario.name}" — ${scenario.steps.length} steps:`);
   for (const step of scenario.steps) console.log(`  · ${JSON.stringify(step)}`);
 
-  const freeze = flags.get("freeze");
-  if (typeof freeze === "string") {
+  const freeze = flagStr(flags, "freeze");
+  if (freeze) {
     await writeFile(freeze, JSON.stringify({ name: scenario.name, scenario }, null, 2), "utf8");
     console.log(`\nfrozen → ${freeze}  (replay with: cairn replay ${freeze})`);
   }

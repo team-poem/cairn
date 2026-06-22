@@ -92,3 +92,16 @@
   단위테스트 21→**26/26**. **cairn 루프 완성: discover→freeze→replay→self-heal.**
 - **이슈:** `navigated` 불리언이 trailing slash(`example.com` vs `example.com/`)를 탐색으로 오판(verdict엔 무영향, follow-up).
 - **다음:** 입력 ContextProvider(git diff·티켓) · 시각 리플레이 · navigated URL 정규화.
+
+## 2026-06-22 — 정체성 확정 + README/배너 + 라이브러리 API 1급화
+- **정체성(사용자 결정):** cairn = 임베드 가능한 **엔진**(`@cairn/harness`), CLI 제품 아님.
+  리드 스토리 = 핵심 루프(discover→freeze→replay→self-heal). 메타포 = 길 표시 돌탑.
+  **2-프로젝트 분리:** 프로젝트1(이 레포)=엔진+얇은 CLI, npm 배포 / 프로젝트2(별도, 나중)=이를 install하는 데스크탑 앱.
+  → 메모리 `cairn-identity` 저장.
+- **README/배너:** 영문 README(메타포→루프→포지셔닝 비교표→quickstart→파이프라인/인터페이스→구조) + `banner.svg`. 리포 public.
+- **라이브러리 API 1급화(`feat/library-api`):** `cli.ts`의 조립 로직을 라이브러리로 승격 —
+  `runScenario(scenario, opts)`(기본 critic 자동선택·self-heal·드라이버, LLM은 필요할 때만 lazy 생성) +
+  `needsLlmCritic` + `applyHeals`를 `src/run.ts`로 추출·export. CLI는 인자파싱·리포터합성·exit코드만 남긴 얇은 소비자.
+  → 프로젝트2(데스크탑)가 CLI 복붙 없이 `import { runScenario }`로 사용 가능.
+- **결과:** 단위테스트 30→**35/35**, typecheck/build OK. 도그푸딩(run --dogfood, replay --heal) 동작 보존 확인.
+- **다음:** npm 배포 준비 → v2(git diff ContextProvider).

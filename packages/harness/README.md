@@ -1,4 +1,4 @@
-# @cairn/core
+# cairn-engine
 
 ![cairn banner](https://raw.githubusercontent.com/team-poem/cairn/main/banner.svg)
 
@@ -7,7 +7,7 @@ discovers once, replays deterministically (no LLM in the loop), and self-heals w
 drifts. Model- and browser-agnostic; embed it or drive it from the `cairn` CLI.
 
 ```sh
-npm install @cairn/core
+npm install cairn-engine
 ```
 
 ```sh
@@ -22,7 +22,7 @@ cairn replay t.json --heal --freeze t.json
 Embed it — every stage is an injected port:
 
 ```ts
-import { runScenario } from "@cairn/core";
+import { runScenario } from "cairn-engine";
 
 const { result } = await runScenario(scenario, { heal: true });
 if (!result.verdict.passed) process.exit(1);

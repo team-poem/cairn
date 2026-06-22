@@ -4,10 +4,10 @@
 
 ## 지금 상태
 - 단계: **배포 직전.** 코어 루프(discover→freeze→replay→self-heal) 동작, **리포 public**,
-  README/배너, 라이브러리 API 1급화, **헥사고날 구조(core/adapters)**, 주석 정리, `@cairn/core@0.1.0` 배포 메타 완료.
+  README/배너, 라이브러리 API 1급화, **헥사고날 구조(core/adapters)**, 주석 정리, `cairn-engine@0.1.0` 배포 메타 완료.
 - **배포 대기(사용자 작업):** `npm login` → npm에 `cairn` org 생성(공개 무료) → `packages/harness`에서 `npm publish`.
   `npm pack --dry-run` 확인 끝(26kB, src/test 미포함).
-- **정체성(확정):** cairn = 임베드 엔진(`@cairn/core`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(npm 배포 예정),
+- **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(npm 배포 예정),
   프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
 - 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
 - 브랜치 전략: `main → develop → feature/*`. main=develop(공개 면). 작업은 `develop`에서 feature 브랜치로.
@@ -79,7 +79,7 @@
 ## 환경 메모
 - harness 내장 Driver는 `npx -y chrome-devtools-mcp@latest --isolated`로 자기 브라우저를 spawn
   (세션 MCP의 기본 프로필과 충돌 방지). Node 25, Chrome 설치 확인.
-- 빌드: `npm run build -w @cairn/core`. CLI: `node packages/harness/dist/cli.js <run|replay|discover>`.
+- 빌드: `npm run build -w cairn-engine`. CLI: `node packages/harness/dist/cli.js <run|replay|discover>`.
   - `discover "<intent>" --url <u> [--model haiku] [--freeze f]` / `replay <skill.json>` / `run --dogfood`.
 - LLM 백엔드: 키 없으면 로컬 `claude -p`(기본), `ANTHROPIC_API_KEY` 있으면 API. `--model`로 모델 지정.
 

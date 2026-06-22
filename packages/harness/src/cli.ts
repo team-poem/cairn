@@ -5,6 +5,7 @@
  *   cairn run --dogfood                       built-in example.com → first link → network
  *   cairn run --scenario s.json [--json out]  run a scenario file (deterministic)
  *   cairn replay <skill.json> [--json out]    replay a frozen skill (deterministic, no LLM)
+ *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, optionally re-freeze
  *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m]
  *
  * Exit code is 1 when the verdict fails, so it works as a CI gate.
@@ -19,6 +20,8 @@ import { LlmCritic } from "./critics/llm.js";
 import { ConsoleReporter } from "./reporters/console.js";
 import { JsonReporter } from "./reporters/json.js";
 import { ChromeDevToolsDriver } from "./drivers/chrome.js";
+import { SelfHealingDriver } from "./drivers/self-heal.js";
+import type { Heal } from "./drivers/self-heal.js";
 import { loadSkillFile } from "./skills/file-store.js";
 import { createLlmClient } from "./llm/factory.js";
 import type { Reporter, Result, Scenario } from "./index.js";
@@ -72,16 +75,50 @@ async function runScenario(scenario: Scenario, flags: Map<string, string | boole
   const critic = needsLlm ? new LlmCritic(createLlmClient(model ? { model } : {})) : new AssertionCritic();
   if (needsLlm) console.log(`scenario has 'expect' criteria → judging with LlmCritic`);
 
-  return runHarness(
+  // --heal: wrap the driver so a broken step is repaired by the LLM and retried
+  // (invariant #4's sanctioned exception). A healthy replay still calls no LLM.
+  let healer: SelfHealingDriver | undefined;
+  const driver = flags.get("heal")
+    ? (healer = new SelfHealingDriver(new ChromeDevToolsDriver(), createLlmClient(model ? { model } : {})))
+    : new ChromeDevToolsDriver();
+
+  const result = await runHarness(
     {
       context: new InlineContextProvider(),
       planner: new StaticPlanner(scenario),
-      driver: new ChromeDevToolsDriver(),
+      driver,
       critic,
       reporter: reporterFor(flags),
     },
     scenario.name,
   );
+
+  if (healer && healer.heals.length) {
+    console.log(`\nself-healed ${healer.heals.length} step(s):`);
+    for (const h of healer.heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
+    const freeze = flags.get("freeze");
+    if (typeof freeze === "string") {
+      const healed = applyHeals(scenario, healer.heals);
+      await writeFile(freeze, JSON.stringify({ name: healed.name, scenario: healed }, null, 2), "utf8");
+      console.log(`  re-frozen → ${freeze}`);
+    }
+  }
+  return result;
+}
+
+/** Rewrite a scenario's targets with the names self-heal substituted, for re-freezing. */
+function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
+  const byOriginal = new Map(heals.map((h) => [h.original.text, h.healedText]));
+  return {
+    ...scenario,
+    steps: scenario.steps.map((step) => {
+      if ((step.kind === "click" || step.kind === "type") && step.target.text) {
+        const healed = byOriginal.get(step.target.text);
+        if (healed) return { ...step, target: { ...step.target, text: healed } };
+      }
+      return step;
+    }),
+  };
 }
 
 async function cmdRun(flags: Map<string, string | boolean>): Promise<number> {

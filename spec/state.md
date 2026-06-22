@@ -51,8 +51,10 @@
 
 ## 다음 스텝 (v1)
 1. **(완료 ✔)** `poc/harness-v0` → `develop` 졸업 머지.
-2. v1: self-heal(깨진 스킬 복구), 입력 ContextProvider(git diff·티켓), 시각 리플레이.
-3. 아래 한계 정리(~~Execute settle~~ ✔ / LLM Critic / 파서 테스트 ✔).
+2. v1: ~~self-heal~~ ✔ · ~~LLM Critic~~ ✔ · ~~Execute settle~~ ✔ — **cairn 루프 완성**
+   (discover→freeze→replay→self-heal). 남음: 입력 ContextProvider(git diff·티켓), 시각 리플레이.
+3. 작은 버그: `navigated` 불리언이 `example.com` vs `example.com/`(trailing slash)를 탐색으로 오판 →
+   URL 정규화 필요(assertion 레벨은 정상이라 verdict엔 영향 없음). follow-up.
 
 ## 한계 / 후속(v1)
 - **(해결 ✔) Execute 자동대기(settle)** — `Driver.settle()`(네트워크 카운트 안정까지 폴링) 추가,
@@ -63,6 +65,10 @@
   LLM은 `expect`가 있을 때만 호출(없으면 LLM 0 → 결정성 유지, 불변식 #4). 기계적 단언은 `checkAssertion` 재사용.
   CLI가 expect 유무로 critic 자동 선택. 증거 3층 요약을 LLM에 제공(design §6). 브랜치 `feat/llm-critic`.
   - 도그푸딩: expect "IANA 문서 도달" → ✓ pass / "쇼핑 카트" → ✗ fail(exit 1). 단위테스트 +3.
+- **(해결 ✔) self-heal** — `SelfHealingDriver`(Driver 데코레이터). 재생 중 target 해석 실패 시
+  LLM이 현재 요소로 매핑→재시도→`heals` 기록(불변식 #4의 sanctioned 예외; 안 깨지면 LLM 0).
+  CLI `replay --heal [--freeze f]`로 복구·재freeze. 브랜치 `feat/self-heal`.
+  - 도그푸딩: 깨진 스킬("Read more") → heal없으면 ✗(exit 1) / `--heal`로 "Learn more" 매핑 → ✓ + 재freeze. 단위테스트 +5.
 
 ## 환경 메모
 - harness 내장 Driver는 `npx -y chrome-devtools-mcp@latest --isolated`로 자기 브라우저를 spawn

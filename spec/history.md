@@ -79,3 +79,16 @@
 - **결과(도그푸딩):** expect "IANA 문서 도달"→✓ / "쇼핑 카트"→✗(exit 1, CI 게이트). 단위테스트 18→**21/21**.
   - 잔여: settle 휴리스틱이 지연 리소스에 가끔 조기 종료(req 7 대신 5). SettleOptions 튜닝 여지.
 - **다음:** self-heal(깨진 스킬 LLM 복구) · 입력 ContextProvider(git diff·티켓) · 시각 리플레이.
+
+## 2026-06-22 — v1: self-heal (cairn 루프 완성)
+- **목표:** 굳힌 스킬이 깨졌을 때(요소 이름 변경 등) LLM이 복구해 재생 재개 — design §4의 self-heal.
+- **한 일:** `SelfHealingDriver`(Driver 데코레이터, `feat/self-heal`): click/type에서 inner가 target 해석 실패 시
+  현재 요소 스냅샷 + LLM에게 "원 의도에 맞는 현재 요소" 질의 → 재시도 → `heals[]` 기록. goto/snapshot/settle/observe/close는 위임.
+  CLI `replay --heal [--freeze]`: 복구 요약 출력 + 치유된 target으로 scenario 재작성해 재freeze(`applyHeals`).
+- **결정:** 안 깨지면 LLM 호출 0 → 건강한 재생은 결정적 유지(불변식 #4, self-heal은 sanctioned 예외).
+  maxHeals로 비용 캡. heal 매칭 실패 시 명확한 에러.
+- **결과(도그푸딩):** 깨진 스킬("Read more", 실제 링크는 "Learn more") → heal 없으면 ✗(exit 1);
+  `--heal`로 Claude Code(haiku)가 "Read more"→"Learn more" 매핑 → ✓ pass(exit 0) + 치유 스킬 재freeze.
+  단위테스트 21→**26/26**. **cairn 루프 완성: discover→freeze→replay→self-heal.**
+- **이슈:** `navigated` 불리언이 trailing slash(`example.com` vs `example.com/`)를 탐색으로 오판(verdict엔 무영향, follow-up).
+- **다음:** 입력 ContextProvider(git diff·티켓) · 시각 리플레이 · navigated URL 정규화.

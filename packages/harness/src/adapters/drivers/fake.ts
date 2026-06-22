@@ -1,17 +1,11 @@
-/**
- * In-memory Driver for tests — no browser. Lets the deterministic pipeline (Plan →
- * Execute → Judge → Report) be unit-tested without the real Chrome MCP backend, and
- * proves the core is driver-agnostic (invariant #5).
- */
+/** In-memory Driver for tests (no browser); also proves the core is driver-agnostic (invariant #5). */
 import type { Driver } from "../../core/ports.js";
 import type { Evidence, PageElement, Target } from "../../core/types.js";
 
 export interface FakeScript {
-  /** Evidence the fake returns from observe(). */
   evidence: Evidence;
-  /** Elements the fake returns from snapshot(). */
   elements?: PageElement[];
-  /** Targets that should throw when acted on (by text), to simulate failures. */
+  /** Targets (by text) that should throw when acted on, to simulate a broken step. */
   failOn?: string[];
 }
 

@@ -1,12 +1,6 @@
 /**
- * The extension points (ports) of the cairn engine (invariant #2: new behavior is added
- * by implementing one of these, never by branching inside a pipeline stage).
- *
- *   ContextProvider · Planner · Driver · SkillStore · Critic · Reporter   (pipeline ports)
- *   LlmClient                                                             (model seam)
- *
- * The core depends only on these ports; adapters in `../adapters` implement them. An
- * environment plugs in by implementing a port and passing it to `runHarness`.
+ * The ports of the cairn engine (invariant #2: add behavior by implementing one of these,
+ * never by branching inside a stage). Core depends only on these; `../adapters` implement them.
  */
 import type {
   Assertion,
@@ -16,70 +10,51 @@ import type {
   Result,
   Scenario,
   SettleOptions,
-  Step,
   Target,
   Verdict,
 } from "./types.js";
 
-/** Assembles grounding for a task from any source (NL, git diff, ticket, RAG). */
+/** Grounding from any source (NL, git diff, ticket, RAG). */
 export interface ContextProvider {
   provide(task: string): Promise<Context>;
 }
 
-/**
- * Turns intent into an ordered Scenario.
- *
- * The replay path must stay deterministic (invariant #4): a Planner that resolves a
- * frozen/explicit scenario uses no LLM. An exploratory Planner that calls an LLM is a
- * separate implementation, used only for discovering a *new* scenario.
- */
+/** Intent → ordered Scenario. Frozen-replay planning uses no LLM (invariant #4); discovery is a separate LLM planner. */
 export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }
 
-/**
- * Drives a browser. Default impl is Chrome DevTools MCP; replaceable (e.g. Playwright)
- * without touching the core (invariant #5). Targets are resolved by the driver from
- * intent (text/selector) so scenarios never carry driver-specific element handles.
- */
+/** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles. */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
-  /** Live perception for the discover loop: the interactive elements on the page. */
   snapshot(): Promise<PageElement[]>;
-  /**
-   * Wait for the page to go quiescent (network idle) before observing — the Execute
-   * stage's auto-wait (design §3). Best-effort and time-bounded; never throws.
-   */
+  /** Execute-stage auto-wait for network idle (design §3). Best-effort, time-bounded, never throws. */
   settle(options?: SettleOptions): Promise<void>;
-  /** Collect a fresh three-layer evidence snapshot of current state. */
   observe(): Promise<Evidence>;
   close(): Promise<void>;
 }
 
-/** A reusable, named flow that can be frozen and replayed deterministically. */
 export interface Skill {
   name: string;
   scenario: Scenario;
 }
 
-/** Resolves named skills (freeze / replay). */
 export interface SkillStore {
   resolve(name: string): Promise<Skill | undefined>;
 }
 
-/** Judges evidence against assertions. May be assertions, baseline diff, or LLM. */
+/** Judges evidence against assertions (mechanical, baseline, or LLM). */
 export interface Critic {
   judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict>;
 }
 
-/** Emits a result anywhere — console, json file, an arbitrary tracker. */
+/** Emits a result anywhere — console, json, an arbitrary tracker. */
 export interface Reporter {
   emit(result: Result): Promise<void>;
 }
 
-/** The dependency set the pipeline orchestrates over. */
 export interface Harness {
   context: ContextProvider;
   planner: Planner;
@@ -89,24 +64,13 @@ export interface Harness {
   skills?: SkillStore;
 }
 
-/** Convenience handle so a Driver can announce the action it just executed. */
-export type ActionStep = Step;
-
-/**
- * Model-agnostic LLM seam (invariant #5: no LLM is hard-wired into the core). The
- * discover loop and the LLM critic depend on this port, never on a concrete provider;
- * `createLlmClient` (an adapter) picks the implementation.
- */
+/** Model-agnostic LLM seam (invariant #5); `createLlmClient` picks the implementation. */
 export interface LlmClient {
-  /** A short identifier of the backing model/runtime, for reporting. */
   readonly id: string;
-  /** Complete a single prompt and return the text. */
   complete(prompt: string, opts?: CompleteOptions): Promise<string>;
 }
 
 export interface CompleteOptions {
-  /** Steering system prompt. */
   system?: string;
-  /** Upper bound on output tokens (best-effort per backend). */
   maxTokens?: number;
 }

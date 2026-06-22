@@ -1,23 +1,16 @@
 /**
- * The discover loop — the ONLY place the agent loops (invariant #3).
- *
- * Given an intent and an app it has never seen, it observes the page, asks the LLM for
- * the next action, acts, and re-observes until the intent is satisfied. The output is a
- * plain Scenario that can be frozen and later replayed deterministically with no LLM
- * (invariant #4). The LLM lives behind the LlmClient seam (invariant #5).
+ * The discover loop — the only place the agent loops (invariant #3). It observes the page,
+ * asks the LLM for the next action, acts, and repeats until done, emitting a Scenario that
+ * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
-import type { Driver } from "./ports.js";
-import type { LlmClient } from "./ports.js";
+import type { Driver, LlmClient } from "./ports.js";
 import type { Assertion, PageElement, Scenario, Step } from "./types.js";
 
 export interface DiscoverOptions {
   driver: Driver;
   llm: LlmClient;
-  /** Optional starting URL. */
   baseUrl?: string;
-  /** Safety cap on loop iterations. */
   maxSteps?: number;
-  /** Called after each decision, for progress visibility. */
   onStep?: (decision: Decision, step?: Step) => void;
 }
 
@@ -60,7 +53,7 @@ function buildPrompt(intent: string, elements: PageElement[], steps: Step[]): st
   ].join("\n");
 }
 
-/** Extract the first JSON object from a model reply, tolerating code fences/prose. */
+/** First JSON object in a model reply, tolerating code fences and surrounding prose. */
 export function parseDecision(text: string): Decision {
   let s = text.trim();
   s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
@@ -76,7 +69,7 @@ export function parseDecision(text: string): Decision {
 
 const KNOWN_KINDS = new Set(["navigated", "no-failed-requests", "no-console-errors", "request-status"]);
 
-/** Keep only assertions whose shape the deterministic critic understands. */
+/** Drop assertions the deterministic critic can't evaluate; fall back to a safe default. */
 function sanitizeAssertions(input: Assertion[] | undefined): Assertion[] {
   const valid = (input ?? []).filter((a) => a && KNOWN_KINDS.has((a as { kind: string }).kind));
   return valid.length ? valid : [{ kind: "no-failed-requests" }];
@@ -126,6 +119,6 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     onStep?.(decision, step);
   }
 
-  // Hit the safety cap without an explicit "done".
+  // Safety cap reached without an explicit "done".
   return { name: intent, steps, assertions: [{ kind: "no-failed-requests" }] };
 }

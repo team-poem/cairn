@@ -1,16 +1,11 @@
 /**
- * Critic that judges natural-language `expect` criteria with an LLM, while delegating
- * the mechanical assertions to the deterministic checker.
- *
- * Design notes:
- * - The LLM is invoked ONLY for `expect` assertions. A scenario with none makes zero LLM
- *   calls here, so it stays deterministic (invariant #4). The LLM lives behind the
- *   LlmClient seam (invariant #5).
- * - Judgment is grounded in the three-layer evidence (design §6), not a screenshot guess.
+ * Critic that judges natural-language `expect` criteria with an LLM and delegates mechanical
+ * assertions to the deterministic checker. The LLM runs ONLY for `expect`, so a scenario with
+ * none makes zero LLM calls and stays deterministic (invariant #4). Judgment is grounded in the
+ * three-layer evidence (design §6), behind the LlmClient seam (invariant #5).
  */
 import { checkAssertion } from "./assertion.js";
-import type { Critic } from "../../core/ports.js";
-import type { LlmClient } from "../../core/ports.js";
+import type { Critic, LlmClient } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
 const SYSTEM =

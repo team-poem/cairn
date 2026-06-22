@@ -1,13 +1,8 @@
 /**
- * Default Driver — drives a real browser through the Chrome DevTools MCP server.
- *
- * The harness embeds an MCP *client* and spawns `chrome-devtools-mcp` over stdio, so
- * `cairn run` is self-contained (no external agent needed). The core stays
- * driver-agnostic (invariant #5): everything Chrome-specific — tool names, text-response
- * parsing — lives here, behind the Driver interface.
- *
- * The MCP returns human-readable text, not JSON, so this driver parses the same lines a
- * human sees (snapshot uids, `reqid=… GET … [200]`, the selected-page url).
+ * Default Driver — drives a real browser via the Chrome DevTools MCP server, which this
+ * embeds as a client and spawns over stdio (so `cairn run` is self-contained). Everything
+ * Chrome-specific, including parsing the MCP's human-readable text, stays here behind the
+ * Driver port (invariant #5).
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -24,12 +19,11 @@ import type {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MCP_COMMAND = "npx";
-// `--isolated` gives the harness its own ephemeral browser instance, so a standalone
-// `cairn run` never collides with another chrome-devtools-mcp using the default profile.
+// `--isolated` gives the harness its own ephemeral browser, so a standalone `cairn run`
+// never collides with another chrome-devtools-mcp using the default profile.
 const MCP_ARGS = ["-y", "chrome-devtools-mcp@latest", "--isolated"];
 
 export interface ChromeDriverOptions {
-  /** Override the command used to launch the MCP server (e.g. a pinned version). */
   command?: string;
   args?: string[];
 }
@@ -54,7 +48,6 @@ export class ChromeDevToolsDriver implements Driver {
     return client;
   }
 
-  /** Call an MCP tool and return its text content joined. */
   private async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
     const client = await this.ensureConnected();
     const res = (await client.callTool({ name, arguments: args })) as {
@@ -85,14 +78,13 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async snapshot(): Promise<PageElement[]> {
-    const text = await this.call("take_snapshot");
-    return parseElements(text);
+    return parseElements(await this.call("take_snapshot"));
   }
 
   async settle(options: SettleOptions = {}): Promise<void> {
-    // Chrome defers low-priority resources (favicon, web fonts) well past the usual
-    // 500ms "network-idle" window, so the idle threshold is deliberately generous —
-    // missing a late request would mean missing a real failure. Tune via SettleOptions.
+    // Chrome defers low-priority resources (favicon, web fonts) past the usual 500ms
+    // "network-idle" window, so the idle threshold is generous — missing a late request
+    // would mean missing a real failure. Tune via SettleOptions.
     const idleMs = options.idleMs ?? 1_000;
     const timeoutMs = options.timeoutMs ?? 10_000;
     const pollMs = options.pollMs ?? 250;
@@ -106,12 +98,12 @@ export class ChromeDevToolsDriver implements Driver {
           lastCount = count;
           stableSince = Date.now();
         } else if (Date.now() - stableSince >= idleMs) {
-          return; // request count held steady long enough — treat as network-idle
+          return; // count held steady long enough — treat as network-idle
         }
         await delay(pollMs);
       }
     } catch {
-      // best-effort: settling must never fail a run (interface contract).
+      // best-effort: settling must never fail a run (port contract).
     }
   }
 
@@ -138,20 +130,18 @@ export class ChromeDevToolsDriver implements Driver {
     this.transport = undefined;
   }
 
-  /** Take an a11y snapshot and find the uid whose accessible name matches the target. */
   private async resolveUid(target: Target): Promise<string> {
     if (target.selector) {
-      throw new Error("ChromeDevToolsDriver v0 resolves targets by text, not CSS selector");
+      throw new Error("ChromeDevToolsDriver resolves targets by text, not CSS selector");
     }
     if (!target.text) throw new Error("target needs a `text` to resolve an element");
-    const snapshot = await this.call("take_snapshot");
-    const uid = findUidByName(snapshot, target.text);
+    const uid = findUidByName(await this.call("take_snapshot"), target.text);
     if (!uid) throw new Error(`no element with accessible name matching "${target.text}"`);
     return uid;
   }
 }
 
-// --- text parsers for chrome-devtools-mcp output ---------------------------------
+// --- parsers for chrome-devtools-mcp's text output -------------------------------
 
 /** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
 export function parseElements(snapshot: string): PageElement[] {
@@ -163,7 +153,7 @@ export function parseElements(snapshot: string): PageElement[] {
   return out;
 }
 
-/** `uid=1_3 link "Learn more" url="..."` → first uid whose quoted name includes `text`. */
+/** `uid=1_3 link "Learn more" …` → first uid whose quoted name includes `text`. */
 export function findUidByName(snapshot: string, text: string): string | undefined {
   const needle = text.toLowerCase();
   for (const line of snapshot.split("\n")) {
@@ -187,7 +177,7 @@ export function parseNetwork(text: string): NetworkRequest[] {
   return out;
 }
 
-/** Console listing → messages. Conservative: only rows that name a known type. */
+/** Console listing → messages. Conservative: only rows naming a known type. */
 export function parseConsole(text: string): ConsoleMessage[] {
   const out: ConsoleMessage[] = [];
   for (const line of text.split("\n")) {
@@ -207,7 +197,7 @@ export function normalizeUrl(u: string): string {
   }
 }
 
-/** True only if the page genuinely moved — not just a trailing-slash normalization. */
+/** True only if the page genuinely moved — not just a trailing-slash difference. */
 export function isNavigation(initialUrl: string | undefined, finalUrl: string): boolean {
   if (initialUrl === undefined) return true;
   return normalizeUrl(initialUrl) !== normalizeUrl(finalUrl);

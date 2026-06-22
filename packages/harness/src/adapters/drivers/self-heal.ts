@@ -1,19 +1,13 @@
 /**
- * A Driver decorator that repairs a broken step at replay time.
- *
- * Replay is normally deterministic and LLM-free (invariant #4). Self-heal is the
- * sanctioned exception: when a frozen target can no longer be resolved (a button was
- * renamed, a link moved), the LLM is asked to map the original intent onto an element
- * that exists now, the action is retried, and the substitution is recorded so the skill
- * can be re-frozen. No break → no LLM call, so healthy replays stay deterministic.
- *
- * It wraps any Driver (invariant #2/#5): heal logic is independent of the backend.
+ * A Driver decorator (wraps any Driver) that repairs a broken step at replay time — the
+ * sanctioned exception to LLM-free replay (invariant #4). When a frozen target no longer
+ * resolves, the LLM maps the original intent onto a current element, the action is retried,
+ * and the substitution is recorded for re-freezing. No break → no LLM call.
  */
-import type { Driver } from "../../core/ports.js";
-import type { LlmClient } from "../../core/ports.js";
+import type { Driver, LlmClient } from "../../core/ports.js";
 import type { Evidence, PageElement, SettleOptions, Target } from "../../core/types.js";
 
-/** A recorded substitution: the original target could not be found, this name was used. */
+/** A recorded substitution: `original` could not be found, `healedText` was used instead. */
 export interface Heal {
   original: Target;
   healedText: string;
@@ -21,7 +15,6 @@ export interface Heal {
 }
 
 export interface SelfHealOptions {
-  /** Cap on heal attempts per run, to bound LLM cost on a badly-broken skill. */
   maxHeals?: number;
 }
 
@@ -108,7 +101,6 @@ export class SelfHealingDriver implements Driver {
     return this.inner.close();
   }
 
-  /** Ask the LLM for an element that fulfills the original intent; record and return it. */
   private async heal(target: Target, cause: unknown): Promise<string> {
     if (this.heals.length >= this.maxHeals) {
       throw new Error(`self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`);

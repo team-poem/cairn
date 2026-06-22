@@ -53,8 +53,8 @@
 1. **(완료 ✔)** `poc/harness-v0` → `develop` 졸업 머지.
 2. v1: ~~self-heal~~ ✔ · ~~LLM Critic~~ ✔ · ~~Execute settle~~ ✔ — **cairn 루프 완성**
    (discover→freeze→replay→self-heal). 남음: 입력 ContextProvider(git diff·티켓), 시각 리플레이.
-3. 작은 버그: `navigated` 불리언이 `example.com` vs `example.com/`(trailing slash)를 탐색으로 오판 →
-   URL 정규화 필요(assertion 레벨은 정상이라 verdict엔 영향 없음). follow-up.
+3. **(해결 ✔)** `navigated` 불리언 trailing-slash 오판 → `normalizeUrl`/`isNavigation`로 정규화 비교.
+   브랜치 `fix/navigated-normalize`. 단위테스트 +4(총 30/30).
 
 ## 한계 / 후속(v1)
 - **(해결 ✔) Execute 자동대기(settle)** — `Driver.settle()`(네트워크 카운트 안정까지 폴링) 추가,

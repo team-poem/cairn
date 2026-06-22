@@ -123,7 +123,7 @@ export class ChromeDevToolsDriver implements Driver {
     ]);
 
     const finalUrl = parseSelectedUrl(pages);
-    const navigated = finalUrl !== undefined && finalUrl !== this.initialUrl;
+    const navigated = finalUrl !== undefined && isNavigation(this.initialUrl, finalUrl);
 
     return {
       execution: { actions: [], navigated, finalUrl, blocked: false },
@@ -195,6 +195,22 @@ export function parseConsole(text: string): ConsoleMessage[] {
     if (m) out.push({ type: m[1]!.toLowerCase(), text: m[2]!.trim() });
   }
   return out;
+}
+
+/** Canonicalize a url for comparison: drop a trailing slash and the hash. */
+export function normalizeUrl(u: string): string {
+  try {
+    const url = new URL(u);
+    return `${url.origin}${url.pathname.replace(/\/$/, "")}${url.search}`;
+  } catch {
+    return u.replace(/[/#]+$/, "");
+  }
+}
+
+/** True only if the page genuinely moved — not just a trailing-slash normalization. */
+export function isNavigation(initialUrl: string | undefined, finalUrl: string): boolean {
+  if (initialUrl === undefined) return true;
+  return normalizeUrl(initialUrl) !== normalizeUrl(finalUrl);
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

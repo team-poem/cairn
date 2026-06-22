@@ -3,9 +3,10 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **PoC 완주 ✔ — discover→freeze→replay 한 바퀴 통과.** cairn 핵심 가설 증명됨.
-  다음은 `poc/harness-v0` → `develop` 졸업 + v1.
-- 브랜치 전략: `main → develop → poc/*`. PoC는 `poc/harness-v0`(메인 보존). 원격 push 완료.
+- 단계: **PoC 졸업 ✔ — `poc/harness-v0` → `develop` 머지 완료(`--no-ff`, push됨).** 다음은 v1.
+- 핵심 가설 증명됨: discover→freeze→replay 한 바퀴(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정).
+- 브랜치 전략: `main → develop → poc/*`. 현재 통합 브랜치 = `develop`. main 보존.
+  v1 작업은 `develop`에서 새 `poc/*` 또는 feature 브랜치로.
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 
@@ -48,10 +49,10 @@
   **주입 회귀(엉뚱한 목적지 단언) → critic 검출 → exit 1**(CI 게이트). 실서버 503도 logic층에서 잡힘.
 - 단위테스트 10/10(파서·팩토리·skill 라운드트립·discover 루프 scripted).
 
-## 다음 스텝 (졸업 / v1)
-1. `poc/harness-v0` → `develop` 머지(졸업). 사용자 확인 필요.
+## 다음 스텝 (v1)
+1. **(완료 ✔)** `poc/harness-v0` → `develop` 졸업 머지.
 2. v1: self-heal(깨진 스킬 복구), 입력 ContextProvider(git diff·티켓), 시각 리플레이.
-3. 아래 한계 정리.
+3. 아래 한계 정리(Execute settle / LLM Critic / 파서 테스트).
 
 ## 한계 / 후속(v1)
 - **Execute 자동대기(settle)** — `observe()`가 in-flight 서브리소스와 레이스(도그푸딩 5 vs 수동 7 req).

@@ -10,7 +10,7 @@ AI 코딩 에이전트가 이 레포를 수정하기 전에 따르는 규칙과,
 ## 1. 라우팅 — 작업 종류 → 문서
 - 코어/파이프라인/인터페이스(`packages/harness/**`) → **`spec/architecture.md` 필수.**
 - QA 앱(`packages/qa/**`) → `spec/architecture.md` + (코드 규칙은 생기는 대로 `spec/code/`).
-- 제품 설계 전반·맥락 → `docs/design.html` (요약: `spec/design.md`).
+- 제품 설계 전반·맥락 → `docs/design.md` (에이전트용 정본). 사람용 시각 버전: `docs/design.html`.
 - 코드 스타일 문서는 코드가 쌓이면 `spec/code/`에 추가한다. **지금은 미리 쓰지 않는다.**
 
 ## 2. 설계 불변식 — 깨지 말 것

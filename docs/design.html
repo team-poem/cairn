@@ -283,13 +283,13 @@
 <span class="k">interface</span> <span class="t">Driver</span>          { goto·click·type·observe() } <span class="c">// 기본 ChromeDevToolsMCP / 교체 Playwright</span>
 <span class="k">interface</span> <span class="t">SkillStore</span>      { resolve(name): <span class="t">Skill</span> }      <span class="c">// 재사용 플로우 · freeze / replay</span>
 <span class="k">interface</span> <span class="t">Critic</span>          { judge(evidence): <span class="t">Verdict</span> }   <span class="c">// 단언 | baseline | LLM</span>
-<span class="k">interface</span> <span class="t">Reporter</span>        { emit(result) }              <span class="c">// console · json · (회사: Jira)</span>
+<span class="k">interface</span> <span class="t">Reporter</span>        { emit(result) }              <span class="c">// console · json · 임의 트래커</span>
 </div>
       <div class="cards">
         <div class="cc"><h4><code>core</code> 가 들고 있는 것</h4><p>파이프라인 오케스트레이션, 기본 드라이버, 탐색·시나리오 생성 프롬프트, 3층 증거 스키마, freeze 로직.</p></div>
-        <div class="cc"><h4><code>plugin</code> 으로 꽂는 것</h4><p>환경별 <code>ContextProvider</code>·<code>Reporter</code> 구현. 회사 버전은 이 둘만 갈아끼우면 끝 — 코어 변경 0.</p></div>
+        <div class="cc"><h4><code>plugin</code> 으로 꽂는 것</h4><p>환경별 <code>ContextProvider</code>·<code>Reporter</code> 구현. 환경에 맞게 이 둘만 갈아끼우면 끝 — 코어 변경 0.</p></div>
       </div>
-      <div class="callout"><b>경계 = 패턴 vs 데이터.</b> 오픈소스로 나가는 건 파이프라인·인터페이스·프롬프트(패턴). 도메인 코퍼스·내부 커넥터·시나리오 자산(데이터)은 사내에 남는다.</div>
+      <div class="callout"><b>경계 = 패턴 vs 데이터.</b> 코어는 파이프라인·인터페이스·프롬프트(패턴)를 범용으로 두고, 특정 도메인·환경의 데이터·커넥터·시나리오 자산(데이터)은 플러그인으로 분리한다.</div>
     </section>
 
     <!-- 06 -->
@@ -348,12 +348,13 @@
         </div>
       </div>
 
-      <h3>입력 소스 · 통합</h3>
-      <p>입력은 모두 <code>ContextProvider</code> 한 인터페이스로 들어온다 — ① 자연어 ② git diff / PR ③ 티켓 ④ 저장된 시나리오. 사내 버전은 그 위에 커넥터 두 개만 구현한다.</p>
-      <div class="code"><span class="k">class</span> <span class="t">EpilogueProvider</span> <span class="k">implements</span> <span class="t">ContextProvider</span> { <span class="c">/* 작업 요약 → Context */</span> }
-<span class="k">class</span> <span class="t">JiraReporter</span>     <span class="k">implements</span> <span class="t">Reporter</span>        { <span class="c">/* 이슈 → 버그 티켓 초안 */</span> }
+      <h3>입력 소스 · 확장</h3>
+      <p>입력은 모두 <code>ContextProvider</code> 한 인터페이스로 들어온다 — ① 자연어 ② git diff / PR ③ 티켓 ④ 저장된 시나리오. 새 입력원이나 리포트 대상은 인터페이스 두 개(<code>ContextProvider</code>·<code>Reporter</code>)만 구현하면 어디든 붙는다.</p>
+      <div class="code"><span class="k">class</span> <span class="t">MyContextProvider</span> <span class="k">implements</span> <span class="t">ContextProvider</span> { <span class="c">/* 임의의 소스 → Context */</span> }
+<span class="k">class</span> <span class="t">MyReporter</span>        <span class="k">implements</span> <span class="t">Reporter</span>        { <span class="c">/* 결과 → 임의의 트래커 */</span> }
 
-createHarness({ context: <span class="k">new</span> <span class="t">EpilogueProvider</span>(), reporter: <span class="k">new</span> <span class="t">JiraReporter</span>() })</div>
+createHarness({ context: <span class="k">new</span> <span class="t">MyContextProvider</span>(), reporter: <span class="k">new</span> <span class="t">MyReporter</span>() })</div>
+      <p class="note">확장형: 같은 코어를 로컬 데스크톱 앱으로 패키징해, 로그인된 브라우저 세션 위에서 돌리는 형태도 가능하다.</p>
     </section>
 
     <!-- 08 -->
@@ -364,9 +365,9 @@ createHarness({ context: <span class="k">new</span> <span class="t">EpilogueProv
         <div class="ph"><div class="v">v0</div><div><h4>최소 파이프라인 — “MCP가 도나”</h4><p>NL 1개 → 드라이버 실행 → 3층 증거 → Critic(LLM+텍스트 단언) → JSON. 탐색·freeze·게이트 제외.</p></div></div>
         <div class="ph"><div class="v">v1</div><div><h4>탐색 + 굳히기</h4><p>처음 보는 앱 탐색 루프 → 성공 경로 freeze → 결정적 재생. self-heal 재시도.</p></div></div>
         <div class="ph"><div class="v">v2</div><div><h4>입력 소스 + 사람 게이트</h4><p>git diff·티켓 ContextProvider, 알려진-항목 억제, 위험 단계 사람 게이트, 시각적 리플레이.</p></div></div>
-        <div class="ph"><div class="v">v3</div><div><h4>생태계 · 사내 적용</h4><p>GitHub Action, baseline diff, 커넥터 SDK → 에필로그·Jira 사내 버전.</p></div></div>
+        <div class="ph"><div class="v">v3</div><div><h4>생태계 · 확장</h4><p>GitHub Action, baseline diff, 커넥터 SDK, 데스크톱 패키징 등 확장.</p></div></div>
       </div>
-      <div class="callout">모노레포 <code>packages/harness</code>(코어) + <code>packages/qa</code>(앱). 라이선스 Apache-2.0. 이 문서가 곧 README의 뼈대.</div>
+      <div class="callout">모노레포 <code>packages/harness</code>(코어) + <code>packages/qa</code>(앱). 라이선스 MIT. 이 문서가 곧 README의 뼈대.</div>
       <p class="foot">QA Agent Harness · 설계 문서 — (가칭) Probe. 코드·화면은 설계 설명용 예시이며 구현 과정에서 변경될 수 있음.</p>
     </section>
 

@@ -17,6 +17,7 @@ export interface FakeScript {
 
 export class FakeDriver implements Driver {
   closed = false;
+  settled = false;
   readonly visited: string[] = [];
   readonly clicked: Target[] = [];
 
@@ -41,6 +42,10 @@ export class FakeDriver implements Driver {
 
   async snapshot(): Promise<PageElement[]> {
     return this.script.elements ?? [];
+  }
+
+  async settle(): Promise<void> {
+    this.settled = true;
   }
 
   async observe(): Promise<Evidence> {

@@ -51,6 +51,10 @@ export async function runHarness(harness: Harness, task: string): Promise<Result
       if (!result.ok) break;
     }
 
+    // Auto-wait: let the page go network-idle before observing (design §3), so evidence
+    // captures late subresources instead of racing them. Best-effort; never fails a run.
+    await driver.settle();
+
     const observed = await driver.observe();
     const evidence: Evidence = {
       ...observed,

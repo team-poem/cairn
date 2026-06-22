@@ -51,6 +51,16 @@ export interface PageElement {
   name: string;
 }
 
+/** Tuning for the Execute-stage auto-wait. */
+export interface SettleOptions {
+  /** Consider the page settled once the request count is stable for this long (ms). */
+  idleMs?: number;
+  /** Give up waiting after this long (ms) and observe whatever state exists. */
+  timeoutMs?: number;
+  /** Poll interval (ms). */
+  pollMs?: number;
+}
+
 /** A single observed network request. */
 export interface NetworkRequest {
   method: string;

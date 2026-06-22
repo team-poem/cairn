@@ -14,6 +14,7 @@ import type {
   PageElement,
   Result,
   Scenario,
+  SettleOptions,
   Step,
   Target,
   Verdict,
@@ -46,6 +47,11 @@ export interface Driver {
   type(target: Target, text: string): Promise<void>;
   /** Live perception for the discover loop: the interactive elements on the page. */
   snapshot(): Promise<PageElement[]>;
+  /**
+   * Wait for the page to go quiescent (network idle) before observing — the Execute
+   * stage's auto-wait (design §3). Best-effort and time-bounded; never throws.
+   */
+  settle(options?: SettleOptions): Promise<void>;
   /** Collect a fresh three-layer evidence snapshot of current state. */
   observe(): Promise<Evidence>;
   close(): Promise<void>;

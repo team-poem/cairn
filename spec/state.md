@@ -52,12 +52,13 @@
 ## 다음 스텝 (v1)
 1. **(완료 ✔)** `poc/harness-v0` → `develop` 졸업 머지.
 2. v1: self-heal(깨진 스킬 복구), 입력 ContextProvider(git diff·티켓), 시각 리플레이.
-3. 아래 한계 정리(Execute settle / LLM Critic / 파서 테스트).
+3. 아래 한계 정리(~~Execute settle~~ ✔ / LLM Critic / 파서 테스트 ✔).
 
 ## 한계 / 후속(v1)
-- **Execute 자동대기(settle)** — `observe()`가 in-flight 서브리소스와 레이스(도그푸딩 5 vs 수동 7 req).
-  design §3 "단계별 auto-wait" 자리.
-- **LLM Critic** — `Critic`로 주입(design §8 v0의 "LLM+텍스트 단언" 완성).
+- **(해결 ✔) Execute 자동대기(settle)** — `Driver.settle()`(네트워크 카운트 안정까지 폴링) 추가,
+  파이프라인 Execute에서 observe 전 호출. 기본 idleMs=1000(Chrome이 favicon/font를 지연 로드 → 500은 짧음).
+  도그푸딩 7/7 req 캡처(이전 5). MCP 파서 단위테스트 8개 추가. 브랜치 `feat/execute-settle`.
+- **LLM Critic** — `Critic`로 주입(design §8 v0의 "LLM+텍스트 단언" 완성). **다음 작업.**
 
 ## 환경 메모
 - harness 내장 Driver는 `npx -y chrome-devtools-mcp@latest --isolated`로 자기 브라우저를 spawn

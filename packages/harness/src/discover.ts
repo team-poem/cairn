@@ -92,6 +92,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   }
 
   for (let i = 0; i < maxSteps; i++) {
+    await driver.settle();
     const elements = await driver.snapshot();
     const reply = await llm.complete(buildPrompt(intent, elements, steps), { system: SYSTEM });
     const decision = parseDecision(reply);

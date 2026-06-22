@@ -58,3 +58,13 @@
   실서버 503도 logic층에서 잡힘(critic 가치 입증). 단위테스트 10/10, typecheck/build OK.
 - **이슈/한계:** observe() settle(레이스) 여전; LLM Critic 미구현(결정적 단언만); MCP 텍스트 파서 brittle(파서 테스트로 방어).
 - **다음:** `poc/harness-v0` → `develop` 졸업(사용자 확인). v1: self-heal·입력 ContextProvider·시각 리플레이.
+
+## 2026-06-22 — v1: Execute auto-wait(settle) + 파서 테스트
+- **목표:** 졸업 후 첫 v1 작업 — 증명된 루프 견고화. 알려진 레이스(observe가 in-flight 서브리소스와 경합) 해결.
+- **결정:** PoC 졸업했으므로 이제 **PoC 아님 = v1 정식 개발**. `develop`에서 `feat/execute-settle` 브랜치.
+- **한 일:** `Driver.settle(SettleOptions)` 추가(네트워크 요청 카운트가 idleMs 동안 안정 → network-idle 근사,
+  timeoutMs 캡, best-effort/never throw). 파이프라인 Execute에서 observe 직전 호출, discover 루프도 snapshot 전 settle.
+  MCP 텍스트 파서 5종 단위테스트 8개(parseNetwork/parseElements/parseSelectedUrl/findUidByName/parseConsole).
+- **결과:** 도그푸딩 req 5→**7** 캡처(favicon/font 포함). 원인: Chrome이 저우선 리소스를 500ms 넘겨 지연 로드 →
+  기본 idleMs=1000으로 상향. 단위테스트 10→**18/18**, typecheck/build OK.
+- **다음:** LLM Critic(`LlmClient` seam 재사용).

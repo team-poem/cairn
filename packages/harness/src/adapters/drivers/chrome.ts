@@ -19,9 +19,11 @@ import type {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MCP_COMMAND = "npx";
+// Pinned to the tested 1.3.x line: the parsers below depend on chrome-devtools-mcp's text
+// format, so an unbounded `@latest` could break them silently. Override via ChromeDriverOptions.
 // `--isolated` gives the harness its own ephemeral browser, so a standalone `cairn run`
 // never collides with another chrome-devtools-mcp using the default profile.
-const MCP_ARGS = ["-y", "chrome-devtools-mcp@latest", "--isolated"];
+const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
 
 export interface ChromeDriverOptions {
   command?: string;
@@ -175,18 +177,22 @@ export function parseElements(snapshot: string): PageElement[] {
   return out;
 }
 
-/** `uid=1_3 link "Learn more" …` → first uid whose quoted name includes `text`. */
+/**
+ * Resolve a uid by accessible name. Prefers an exact (case-insensitive) match over a
+ * substring one, so "Cart" picks the button "Cart" rather than the first "Add to Cart".
+ * Only the role-adjacent quoted name counts — a bare `url="…"` is never matched as a name.
+ */
 export function findUidByName(snapshot: string, text: string): string | undefined {
-  const needle = text.toLowerCase();
+  const needle = text.trim().toLowerCase();
+  const rows: Array<{ uid: string; name: string }> = [];
   for (const line of snapshot.split("\n")) {
-    const uidMatch = line.match(/uid=(\S+)/);
-    if (!uidMatch) continue;
-    const nameMatch = line.match(/"([^"]*)"/);
-    if (nameMatch && nameMatch[1]!.toLowerCase().includes(needle)) {
-      return uidMatch[1];
-    }
+    const m = line.match(/uid=(\S+)\s+\w+\s+"([^"]*)"/);
+    if (m && m[2]!.trim()) rows.push({ uid: m[1]!, name: m[2]! });
   }
-  return undefined;
+  return (
+    rows.find((r) => r.name.toLowerCase() === needle)?.uid ??
+    rows.find((r) => r.name.toLowerCase().includes(needle))?.uid
+  );
 }
 
 /** `reqid=5 GET https://… [200]` → NetworkRequest[]. */

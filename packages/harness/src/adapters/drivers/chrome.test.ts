@@ -33,6 +33,16 @@ describe("findUidByName", () => {
   it("returns the first uid whose accessible name matches (case-insensitive)", () => {
     expect(findUidByName(SNAPSHOT, "learn more")).toBe("1_3");
   });
+
+  it("prefers an exact name over a substring match", () => {
+    const snap = `uid=2_1 link "Add to Cart"\nuid=2_2 button "Cart"`;
+    expect(findUidByName(snap, "Cart")).toBe("2_2"); // not 2_1 "Add to Cart"
+  });
+
+  it("never matches a bare url= attribute as a name", () => {
+    const snap = `uid=3_1 link url="https://shop.com/cart"\nuid=3_2 link "Home"`;
+    expect(findUidByName(snap, "shop.com/cart")).toBeUndefined();
+  });
   it("returns undefined when nothing matches", () => {
     expect(findUidByName(SNAPSHOT, "checkout")).toBeUndefined();
   });

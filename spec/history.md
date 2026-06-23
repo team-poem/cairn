@@ -162,3 +162,13 @@
   → Slack 논리대로 replay가 LLM 없이 UI변경 버팀. self-heal은 예외(재정렬·구조변경)만.
 - **한계:** role+index는 재정렬엔 약함 · self-heal은 element변경만(플로우변경은 재discover) · 토큰$ 미측정(턴수만).
 - **다음(미배포 누적, 한번에 배포 예정):** self-heal 관측신호 · discover 비용절감 · 의미단언. 배포는 0.4.0으로.
+
+## 2026-06-23 — 전 등급 A 방향 + 확장성 개방 → v1.0.0
+- **A 푸시:** self-heal `onHeal` 신호(노후 관리) · navigated 목적지 grounding(판정) · **discover 실$ 측정**($0.4–0.6 1회, replay $0 → 풀에이전트 $15–30/run 대비 ~5000배). 점수: 비용 A · 신뢰성 A− · 검증 B+.
+- **production-grade 유연성(사용자 핵심 요구 "우리가 정한 것만 흐르면 안 됨"):**
+  - 판정층 개방: `Assertion`에 `{kind:custom,name,params}` + `CustomChecks` 핸들러 레지스트리 → 제품이 성공 정의.
+  - 액션 개방: `Step`에 `{kind:custom}` + `CustomAction` 레지스트리(runScenario({actions})) → 제품 고유 인터랙션.
+  - 나머지는 이미 포트(Driver·Critic·Reporter·Context·Planner·LlmClient) → 로케이터도 custom Driver로.
+- **v1.0.0 결정(사용자):** seam을 *다 연 뒤*(=마지막 breaking) 안정 API에서 1.0.0 끊음. README에 확장 문서화. 테스트 54/54.
+- **남은(1.x):** discover 단언 제안 훅 · testid 로케이터(chrome-devtools a11y 제약) · 벤치 플로우 확대.
+- **다음:** v1.0.0 npm 배포 + GitHub 릴리스.

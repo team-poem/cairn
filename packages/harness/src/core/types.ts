@@ -14,7 +14,9 @@ export type Step =
   | { kind: "type"; target: Target; text: string }
   | { kind: "select"; target: Target; value: string }
   | { kind: "pressKey"; key: string }
-  | { kind: "scroll"; direction?: "down" | "up" };
+  | { kind: "scroll"; direction?: "down" | "up" }
+  /** A product-defined interaction: the host registers a handler for `name`. */
+  | { kind: "custom"; name: string; params?: Record<string, unknown> };
 
 /**
  * Locate an element by intent, not a driver handle. A frozen target carries several

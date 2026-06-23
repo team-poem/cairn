@@ -4,6 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { runHarness } from "./core/pipeline.js";
+import type { CustomAction } from "./core/pipeline.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
 import { StaticPlanner } from "./adapters/planners/static.js";
 import { AssertionCritic } from "./adapters/critics/assertion.js";
@@ -37,6 +38,8 @@ export interface RunScenarioOptions {
   screenshots?: boolean;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
+  /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
+  actions?: Record<string, CustomAction>;
 }
 
 export interface RunScenarioResult {
@@ -94,7 +97,7 @@ export async function runScenario(
       reporter: opts.reporter ?? new ConsoleReporter(),
     },
     scenario.name,
-    { signal: opts.signal, onStep: opts.onStep, captureScreenshots: opts.screenshots },
+    { signal: opts.signal, onStep: opts.onStep, captureScreenshots: opts.screenshots, actions: opts.actions },
   );
 
   const heals = healer?.heals ?? [];

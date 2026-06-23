@@ -3,10 +3,12 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **데스크탑 임베드용 안정화 완료 — `cairn-engine@0.3.0`** (배포 대기/완료).
-  견고성(타임아웃·재연결·누수차단) + 데스크탑 포트(onStep·screenshot·AbortSignal) + 최적화(snapshot 캐시)
-  + parseConsole 실포맷 수정(콘솔에러 무검출 버그). 테스트 43/43.
-- 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters) · 브라우저 액션 세트.
+- 단계: **`cairn-engine@1.0.0` 준비 완료 (npm 미배포 — 한번에 배포 예정).** 리포트 대조→측정→견고화→유연성 개방.
+  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 54/54.
+- **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
+  UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
+- **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
+- 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters).
 - **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.
 - **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish "--//registry.npmjs.org/:_authToken=npm_…"`
   (granular 토큰, 2FA 우회). 버전 올리고 → publish → `git tag vX & push` → GitHub Releases 웹에서 노트 작성.

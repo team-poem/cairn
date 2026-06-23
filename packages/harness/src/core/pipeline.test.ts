@@ -61,6 +61,24 @@ describe("pipeline — browser actions", () => {
     expect(driver.keys).toEqual(["Enter"]);
     expect(driver.scrolls).toEqual(["down"]);
   });
+
+  it("runs a product-defined custom action via the registry", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const seen: unknown[] = [];
+    const sc: Scenario = { name: "custom", steps: [{ kind: "custom", name: "wiggle", params: { n: 3 } }], assertions: [] };
+    await runHarness(
+      {
+        context: new InlineContextProvider(),
+        planner: new StaticPlanner(sc),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      sc.name,
+      { actions: { wiggle: async (_d, params) => void seen.push(params.n) } },
+    );
+    expect(seen).toEqual([3]);
+  });
 });
 
 describe("pipeline", () => {

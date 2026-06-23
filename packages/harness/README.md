@@ -39,6 +39,22 @@ await runScenario(scenario, {
 });
 ```
 
+Make it yours — the engine ships defaults, your product defines the specifics:
+
+```ts
+await runScenario(scenario, {
+  // success is whatever your product says it is
+  custom: { "cart-has": (p, ev) => ev.logic.requests.some((r) => r.url.includes(p.path) && r.status === 200) },
+  // product-specific interactions, beyond click/type/hover/select/scroll
+  actions: { "drag-slider": async (driver, p) => { /* … */ } },
+});
+```
+
+Every layer is replaceable: bring your own `Driver` (e.g. Playwright), `Critic`, `Reporter`,
+`ContextProvider` (auth / fixtures), or `LlmClient` (any model) — and use `custom`
+assertions / `actions` for what doesn't fit the built-ins. Nothing forces your product
+through only what we decided.
+
 No API key needed if you have **Claude Code** installed (cairn shells out to it); set
 `ANTHROPIC_API_KEY` to use the Anthropic API instead.
 

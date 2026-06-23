@@ -7,8 +7,43 @@
 //
 // Split into two phases so neither invocation risks the shell timeout.
 
-import { discover, ChromeDevToolsDriver, createLlmClient, runScenario } from "/Users/deliveredkorea/cairn/packages/harness/dist/index.js";
+import { discover, ChromeDevToolsDriver, runScenario } from "/Users/deliveredkorea/cairn/packages/harness/dist/index.js";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { spawn } from "node:child_process";
+
+// A metered LLM client (claude -p --output-format json) that also captures real $ cost + turns.
+function meteredClaude(model) {
+  const stats = { calls: 0, cost: 0, promptChars: 0 };
+  return {
+    id: `claude-code:${model}`,
+    _stats: stats,
+    complete(prompt, opts = {}) {
+      stats.calls++;
+      stats.promptChars += prompt.length + (opts.system?.length ?? 0);
+      const args = ["-p", "--model", model, "--output-format", "json"];
+      if (opts.system) args.push("--append-system-prompt", opts.system);
+      return new Promise((resolve, reject) => {
+        const c = spawn("claude", args, { stdio: ["pipe", "pipe", "pipe"] });
+        let out = "", err = "";
+        c.stdout.on("data", (d) => (out += d));
+        c.stderr.on("data", (d) => (err += d));
+        c.on("error", reject);
+        c.on("close", (code) => {
+          if (code !== 0) return reject(new Error(`claude exited ${code}: ${err}`));
+          try {
+            const j = JSON.parse(out);
+            stats.cost += j.total_cost_usd ?? 0;
+            resolve((j.result ?? "").trim());
+          } catch (e) {
+            reject(e);
+          }
+        });
+        c.stdin.write(prompt);
+        c.stdin.end();
+      });
+    },
+  };
+}
 
 const FROZEN_DIR = "/Users/deliveredkorea/cairn/bench/frozen";
 
@@ -36,26 +71,12 @@ const sec = (t) => `${(t / 1000).toFixed(1)}s`;
 const stepStr = (s) =>
   s.kind + (s.target?.text ? `("${s.target.text}")` : s.url ? `(${s.url})` : s.key ? `(${s.key})` : s.value ? `="${s.value}"` : "");
 
-// Counts LLM turns + prompt volume during discover (the article: cost ∝ turns · context growth).
-function countingLlm(inner) {
-  const stats = { calls: 0, promptChars: 0 };
-  return {
-    id: inner.id,
-    _stats: stats,
-    async complete(prompt, opts) {
-      stats.calls++;
-      stats.promptChars += prompt.length + (opts?.system?.length ?? 0);
-      return inner.complete(prompt, opts);
-    },
-  };
-}
-
 async function phaseDiscover() {
   mkdirSync(FROZEN_DIR, { recursive: true });
   for (const flow of FLOWS) {
     console.log(`\n=== DISCOVER · ${flow.id} ===`);
     const driver = new ChromeDevToolsDriver();
-    const llm = countingLlm(createLlmClient({ model: flow.model }));
+    const llm = meteredClaude(flow.model);
     const t0 = Date.now();
     let scenario, err;
     try {
@@ -72,7 +93,10 @@ async function phaseDiscover() {
     }
     writeFileSync(`${FROZEN_DIR}/${flow.id}.json`, JSON.stringify({ flow, scenario }, null, 2));
     console.log(`  steps:   ${scenario.steps.length}  →  ${scenario.steps.map(stepStr).join(" → ")}`);
-    console.log(`  cost:    ${llm._stats.calls} LLM turns · ${Math.round(llm._stats.promptChars / 1000)}K prompt chars · ${sec(took)}`);
+    console.log(
+      `  cost:    ${llm._stats.calls} LLM turns · $${llm._stats.cost.toFixed(4)} (one-time) · ${Math.round(llm._stats.promptChars / 1000)}K prompt chars · ${sec(took)}`,
+    );
+    console.log(`  → replay cost: $0 (LLM-free), forever`);
     console.log(`  frozen → bench/frozen/${flow.id}.json`);
   }
 }

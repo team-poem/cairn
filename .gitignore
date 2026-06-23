@@ -24,3 +24,6 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# benchmark outputs
+bench/frozen/

@@ -25,6 +25,17 @@ describe("parseDecision", () => {
     const d = parseDecision('Sure!\n```json\n{"action":"click","text":"Add to cart"}\n```');
     expect(d).toEqual({ action: "click", text: "Add to cart" });
   });
+  it("takes the first object when a model emits two (real crash on complex flows)", () => {
+    const d = parseDecision('{"action":"type","text":"User","value":"a"}\n{"action":"done"}');
+    expect(d).toEqual({ action: "type", text: "User", value: "a" });
+  });
+  it("ignores braces inside string values", () => {
+    expect(parseDecision('{"action":"type","text":"Name","value":"a{b}c"}')).toEqual({
+      action: "type",
+      text: "Name",
+      value: "a{b}c",
+    });
+  });
 });
 
 describe("discover", () => {
@@ -49,7 +60,8 @@ describe("discover", () => {
       { kind: "click", target: { text: "Add to cart" } },
       { kind: "click", target: { text: "Checkout" } },
     ]);
-    expect(scenario.assertions).toEqual([{ kind: "navigated" }, { kind: "no-failed-requests" }]);
+    // assertions are grounded in observed evidence (navigated:true here), not the LLM's guess
+    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "navigated" }]);
     expect(driver.clicked).toHaveLength(2);
   });
 
@@ -73,9 +85,14 @@ describe("discover", () => {
     expect(driver.clicked).toEqual([{ text: "Open" }]);
   });
 
-  it("drops malformed assertions back to a safe default", async () => {
-    const driver = new FakeDriver({ evidence, elements: [] });
-    const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"bogus"}]}']);
+  it("grounds assertions in evidence — no `navigated` on a flow that didn't navigate (SPA)", async () => {
+    const spaEvidence: Evidence = {
+      ...evidence,
+      execution: { ...evidence.execution, navigated: false },
+    };
+    const driver = new FakeDriver({ evidence: spaEvidence, elements: [] });
+    // LLM wrongly proposes `navigated`; grounding must drop it.
+    const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
     expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }]);
   });

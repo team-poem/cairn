@@ -1,6 +1,6 @@
 {
   "name": "cairn-engine",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "An engine for self-healing E2E browser tests — discovered once by an AI, replayed deterministically.",
   "keywords": [
     "e2e",

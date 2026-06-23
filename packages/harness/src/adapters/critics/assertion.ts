@@ -2,6 +2,11 @@
 import type { Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
+/** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. */
+function isBenignRequest(url: string): boolean {
+  return /\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url);
+}
+
 /** Evaluate one mechanical assertion. `expect` is not mechanical — returns unsupported (LlmCritic handles it). */
 export function checkAssertion(assertion: Assertion, evidence: Evidence): AssertionResult {
   switch (assertion.kind) {
@@ -20,7 +25,8 @@ export function checkAssertion(assertion: Assertion, evidence: Evidence): Assert
         : { assertion, passed: false, detail: `${errors.length} console error(s): ${errors[0]?.text}` };
     }
     case "no-failed-requests": {
-      const failed = evidence.logic.requests.filter((r) => r.status >= 400);
+      // Ignore universally-benign noise (a missing favicon shouldn't fail a checkout test).
+      const failed = evidence.logic.requests.filter((r) => r.status >= 400 && !isBenignRequest(r.url));
       return failed.length === 0
         ? { assertion, passed: true }
         : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };

@@ -7,6 +7,7 @@ import { runHarness } from "./core/pipeline.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
 import { StaticPlanner } from "./adapters/planners/static.js";
 import { AssertionCritic } from "./adapters/critics/assertion.js";
+import type { CustomChecks } from "./adapters/critics/assertion.js";
 import { LlmCritic } from "./adapters/critics/llm.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
@@ -34,6 +35,8 @@ export interface RunScenarioOptions {
   onStep?: (progress: StepProgress) => void;
   /** Capture a screenshot after each step (attached to onStep / a host's visual replay). */
   screenshots?: boolean;
+  /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
+  custom?: CustomChecks;
 }
 
 export interface RunScenarioResult {
@@ -72,7 +75,9 @@ export async function runScenario(
   let llmCache = opts.llm;
   const getLlm = (): LlmClient => (llmCache ??= createLlmClient(opts.model ? { model: opts.model } : {}));
 
-  const critic = opts.critic ?? (needsLlmCritic(scenario) ? new LlmCritic(getLlm()) : new AssertionCritic());
+  const critic =
+    opts.critic ??
+    (needsLlmCritic(scenario) ? new LlmCritic(getLlm(), opts.custom) : new AssertionCritic(opts.custom));
 
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   let healer: SelfHealingDriver | undefined;

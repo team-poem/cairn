@@ -4,7 +4,8 @@
  * none makes zero LLM calls and stays deterministic (invariant #4). Judgment is grounded in the
  * three-layer evidence (design §6), behind the LlmClient seam (invariant #5).
  */
-import { checkAssertion } from "./assertion.js";
+import { resolveAssertion } from "./assertion.js";
+import type { CustomChecks } from "./assertion.js";
 import type { Critic, LlmClient } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
@@ -42,7 +43,10 @@ function parseVerdict(text: string): { passed: boolean; detail?: string } {
 }
 
 export class LlmCritic implements Critic {
-  constructor(private readonly llm: LlmClient) {}
+  constructor(
+    private readonly llm: LlmClient,
+    private readonly custom: CustomChecks = {},
+  ) {}
 
   private async judgeExpect(criterion: string, evidence: Evidence, assertion: Assertion): Promise<AssertionResult> {
     const prompt = [
@@ -67,7 +71,7 @@ export class LlmCritic implements Critic {
       assertions.map((a) =>
         a.kind === "expect"
           ? this.judgeExpect(a.criterion, evidence, a)
-          : Promise.resolve(checkAssertion(a, evidence)),
+          : resolveAssertion(a, evidence, this.custom),
       ),
     );
     return { passed: results.every((r) => r.passed), results };

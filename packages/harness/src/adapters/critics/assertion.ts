@@ -2,6 +2,29 @@
 import type { Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
+/** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
+export type CustomCheck = (
+  params: Record<string, unknown>,
+  evidence: Evidence,
+) => boolean | { passed: boolean; detail?: string } | Promise<boolean | { passed: boolean; detail?: string }>;
+
+export type CustomChecks = Record<string, CustomCheck>;
+
+/** Resolve any assertion — a registered `custom` handler, else the built-in mechanical check. */
+export async function resolveAssertion(
+  assertion: Assertion,
+  evidence: Evidence,
+  custom: CustomChecks = {},
+): Promise<AssertionResult> {
+  if (assertion.kind === "custom") {
+    const handler = custom[assertion.name];
+    if (!handler) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"` };
+    const r = await handler(assertion.params ?? {}, evidence);
+    return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
+  }
+  return checkAssertion(assertion, evidence);
+}
+
 /** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. */
 function isBenignRequest(url: string): boolean {
   return /\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url);
@@ -40,12 +63,17 @@ export function checkAssertion(assertion: Assertion, evidence: Evidence): Assert
     }
     case "expect":
       return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };
+    case "custom":
+      return { assertion, passed: false, detail: `custom check "${assertion.name}" needs a registered handler` };
   }
 }
 
 export class AssertionCritic implements Critic {
+  /** @param custom product-defined checks for `custom` assertions, keyed by name. */
+  constructor(private readonly custom: CustomChecks = {}) {}
+
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
-    const results = assertions.map((a) => checkAssertion(a, evidence));
+    const results = await Promise.all(assertions.map((a) => resolveAssertion(a, evidence, this.custom)));
     return { passed: results.every((r) => r.passed), results };
   }
 }

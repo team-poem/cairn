@@ -8,7 +8,8 @@ export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";
-export { AssertionCritic, checkAssertion } from "./adapters/critics/assertion.js";
+export { AssertionCritic, checkAssertion, resolveAssertion } from "./adapters/critics/assertion.js";
+export type { CustomCheck, CustomChecks } from "./adapters/critics/assertion.js";
 export { LlmCritic, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { JsonReporter } from "./adapters/reporters/json.js";

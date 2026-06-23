@@ -16,6 +16,8 @@ export interface Heal {
 
 export interface SelfHealOptions {
   maxHeals?: number;
+  /** Fired when a step is healed — a host's signal that the scenario is aging (re-freeze worthwhile). */
+  onHeal?: (heal: Heal) => void;
 }
 
 const HEAL_SYSTEM =
@@ -54,6 +56,7 @@ export function parseHealChoice(text: string): string | undefined {
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
   private readonly maxHeals: number;
+  private readonly onHeal?: (heal: Heal) => void;
 
   constructor(
     private readonly inner: Driver,
@@ -61,6 +64,7 @@ export class SelfHealingDriver implements Driver {
     opts: SelfHealOptions = {},
   ) {
     this.maxHeals = opts.maxHeals ?? 5;
+    this.onHeal = opts.onHeal;
   }
 
   async goto(url: string): Promise<void> {
@@ -150,7 +154,9 @@ export class SelfHealingDriver implements Driver {
       const why = cause instanceof Error ? cause.message : String(cause);
       throw new Error(`self-heal found no match for ${JSON.stringify(target)} (${why})`);
     }
-    this.heals.push({ original: target, healedText: choice });
+    const heal: Heal = { original: target, healedText: choice };
+    this.heals.push(heal);
+    this.onHeal?.(heal);
     return choice;
   }
 }

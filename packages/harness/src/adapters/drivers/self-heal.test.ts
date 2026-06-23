@@ -47,6 +47,16 @@ describe("SelfHealingDriver", () => {
     expect(llm.calls).toBe(1);
   });
 
+  it("fires onHeal so a host can flag the aging scenario", async () => {
+    const inner = new FakeDriver({ evidence, elements: [{ role: "link", name: "Learn more" }], failOn: ["Read more"] });
+    const seen: string[] = [];
+    const driver = new SelfHealingDriver(inner, new ScriptedLlm('{"name":"Learn more"}'), {
+      onHeal: (h) => seen.push(`${h.original.text}→${h.healedText}`),
+    });
+    await driver.click({ text: "Read more" });
+    expect(seen).toEqual(["Read more→Learn more"]);
+  });
+
   it("does NOT call the LLM when the target resolves (healthy replay stays deterministic)", async () => {
     const inner = new FakeDriver({ evidence, elements: [{ role: "link", name: "Learn more" }] });
     const llm = new ScriptedLlm('{"name":"x"}');

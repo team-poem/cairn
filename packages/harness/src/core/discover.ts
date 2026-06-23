@@ -112,11 +112,25 @@ function extractFirstJsonObject(text: string): unknown {
  */
 function deriveAssertions(proposed: Assertion[] | undefined, evidence: Evidence): Assertion[] {
   const out: Assertion[] = [{ kind: "no-failed-requests" }];
-  if (evidence.execution.navigated) out.push({ kind: "navigated" });
+  const { navigated, finalUrl } = evidence.execution;
+  // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
+  // that lands on an error/wrong page yet technically navigated.
+  if (navigated && finalUrl) out.push({ kind: "navigated", to: destinationKey(finalUrl) });
+  else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (a && (a as { kind: string }).kind === "request-status") out.push(a);
   }
   return out;
+}
+
+/** host + path of a url (query/hash dropped) — a stable, meaningful destination to assert. */
+function destinationKey(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.host}${u.pathname}`.replace(/\/$/, "");
+  } catch {
+    return url;
+  }
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */

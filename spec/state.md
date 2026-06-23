@@ -3,12 +3,14 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **배포 직전.** 코어 루프(discover→freeze→replay→self-heal) 동작, **리포 public**,
-  README/배너, 라이브러리 API 1급화, **헥사고날 구조(core/adapters)**, 주석 정리, `cairn-engine@0.1.0` 배포 메타 완료.
-- **배포 대기(사용자 작업):** `npm login` → npm에 `cairn` org 생성(공개 무료) → `packages/harness`에서 `npm publish`.
-  `npm pack --dry-run` 확인 끝(26kB, src/test 미포함).
-- **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(npm 배포 예정),
+- 단계: **npm 배포 완료 — `cairn-engine@0.2.0` 라이브** (+ GitHub v0.2.0 릴리스, main=`84fe0be`).
+  코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters) · 브라우저 액션 세트 · 복원력 discover.
+- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish "--//registry.npmjs.org/:_authToken=npm_…"`
+  (granular 토큰, 2FA 우회). 버전 올리고 → publish → `git tag vX & push` → GitHub Releases 웹에서 노트 작성.
+- **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),
   프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
+- **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·
+  hover 실효성 실측 미검증 · settle은 휴리스틱(아주 늦은 단일 요청 놓칠 수 있음).
 - 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
 - 브랜치 전략: `main → develop → feature/*`. main=develop(공개 면). 작업은 `develop`에서 feature 브랜치로.
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.

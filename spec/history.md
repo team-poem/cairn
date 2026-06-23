@@ -172,3 +172,17 @@
 - **v1.0.0 결정(사용자):** seam을 *다 연 뒤*(=마지막 breaking) 안정 API에서 1.0.0 끊음. README에 확장 문서화. 테스트 54/54.
 - **남은(1.x):** discover 단언 제안 훅 · testid 로케이터(chrome-devtools a11y 제약) · 벤치 플로우 확대.
 - **다음:** v1.0.0 npm 배포 + GitHub 릴리스.
+
+## 2026-06-23 — 디스패치를 핸들러 어댑터로 통일 (refactor, 미배포)
+- **배경:** 바깥 경계는 포트인데 안쪽 분기는 `switch`였다. Execute의 `switch(step.kind)`가 단계 안에 분기를 박아
+  **불변식 #2** 위반. v1.0.0이 custom을 *별개 레지스트리*로 열어 한 관심사에 경로 2개(built-in `switch` + custom 레지스트리).
+- **변경:** 포트 2개 추가 — `StepHandler`·`AssertionHandler`(`supports()` + `execute()/judge()`). 파이프라인·critic은
+  `find(supports)`로 라우팅만 한다.
+  - 액션: `BuiltinStepHandler`(switch 캡슐화, `const _: never = step` 누락검사 유지) + `CustomStepHandler`(레지스트리 흡수)
+    → `core/steps.ts`. Driver 포트·Step 타입에만 의존 → **의존방향 #6** 안 깸(core→adapters 역참조 없음).
+  - 단언: `MechanicalAssertionHandler`+`CustomAssertionHandler`(assertion.ts) · `ExpectAssertionHandler`(llm.ts).
+    두 critic이 핸들러 세트로만 구분 — `LlmCritic = AssertionCritic + ExpectAssertionHandler`(first-match-wins로 expect 가로챔).
+- **호환:** 공개 API 비파괴(`runScenario`/`runHarness`/`actions`/`custom`). `runHarness`에 체인 교체용 `opts.stepHandlers`만 추가.
+- **결과:** 행동 보존(리팩터). 기존 54 + 신규 10 = **64/64**, typecheck/build green. 도그푸딩(실 브라우저)은 미수행.
+- **범위 밖(후속 후보):** 미사용 `SkillStore` 포트 · `discover()`↔`Planner` 관계 · 미소비 `Context.baseUrl` · `Skill`/`Scenario` `name` 중복.
+- **다음:** `feat/step-handler-dispatch` → `develop` PR.

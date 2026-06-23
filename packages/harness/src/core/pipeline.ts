@@ -3,11 +3,9 @@
  * is injected (invariant #2); with a fixed-scenario Planner + deterministic Critic, no LLM
  * runs (invariant #4).
  */
-import type { Driver, Harness } from "./ports.js";
+import type { CustomAction, Driver, Harness, StepHandler } from "./ports.js";
 import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
-
-/** A product-defined interaction for a `{ kind: "custom", name }` step — composes the Driver. */
-export type CustomAction = (driver: Driver, params: Record<string, unknown>) => Promise<void>;
+import { defaultStepHandlers } from "./steps.js";
 
 /**
  * Seams a host (CLI, desktop app, CI) plugs into — the engine emits/accepts, the host
@@ -19,51 +17,18 @@ export interface RunHarnessOptions {
   signal?: AbortSignal;
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
+  /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
+  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`. */
+  stepHandlers?: StepHandler[];
 }
 
-async function executeStep(
-  driver: Harness["driver"],
-  step: Step,
-  actions: Record<string, CustomAction>,
-): Promise<ExecutedAction> {
+/** Route one step to the first handler that supports it; record success/failure either way. */
+async function executeStep(handlers: StepHandler[], step: Step, driver: Driver): Promise<ExecutedAction> {
   try {
-    switch (step.kind) {
-      case "goto":
-        await driver.goto(step.url);
-        break;
-      case "click":
-        await driver.click(step.target);
-        break;
-      case "doubleClick":
-        await driver.doubleClick(step.target);
-        break;
-      case "hover":
-        await driver.hover(step.target);
-        break;
-      case "type":
-        await driver.type(step.target, step.text);
-        break;
-      case "select":
-        await driver.select(step.target, step.value);
-        break;
-      case "pressKey":
-        await driver.pressKey(step.key);
-        break;
-      case "scroll":
-        await driver.scroll(step.direction);
-        break;
-      case "custom": {
-        const handler = actions[step.name];
-        if (!handler) throw new Error(`no handler registered for custom action "${step.name}"`);
-        await handler(driver, step.params ?? {});
-        break;
-      }
-      default: {
-        const unhandled: never = step;
-        throw new Error(`unhandled step kind: ${JSON.stringify(unhandled)}`);
-      }
-    }
+    const handler = handlers.find((h) => h.supports(step));
+    if (!handler) throw new Error(`no step handler for kind "${step.kind}"`);
+    await handler.execute(step, driver);
     return { step, ok: true };
   } catch (err) {
     return { step, ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -76,6 +41,7 @@ export async function runHarness(
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
 
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
@@ -85,7 +51,7 @@ export async function runHarness(
   try {
     for (const step of scenario.steps) {
       opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-      const result = await executeStep(driver, step, opts.actions ?? {});
+      const result = await executeStep(handlers, step, driver);
       actions.push(result);
       if (opts.onStep) {
         const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;

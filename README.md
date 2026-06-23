@@ -90,7 +90,7 @@ Context ─► Plan ─► Execute ─► Judge ─► Report
   `execution` (did it act/navigate) · `perception` (what it looked like) · `logic` (requests, console)
 - **Report** — emits the result anywhere (console, JSON, your tracker)
 
-The six extension points — **`ContextProvider · Planner · Driver · SkillStore · Critic · Reporter`** — are how you adapt cairn without forking it. The LLM lives behind its own seam (`LlmClient`), so neither a model nor a browser is hard-wired into the core.
+The six extension points — **`ContextProvider · Planner · Driver · SkillStore · Critic · Reporter`** — are how you adapt cairn without forking it. The LLM lives behind its own seam (`LlmClient`), so neither a model nor a browser is hard-wired into the core. And where a whole port is too much, **`custom` assertions and `actions`** let a product define its own success criteria and interactions inline — the engine ships defaults, your product defines the specifics.
 
 Two design lines hold the whole thing together:
 
@@ -127,9 +127,9 @@ cairn/
 
 ## Status
 
-The full loop — **discover → freeze → replay → self-heal** — works today, driven by Chrome DevTools MCP, with deterministic and LLM critics. Next: input sources (git diff / ticket `ContextProvider`s), and a separate desktop app that embeds this engine for visual replay.
+`cairn-engine` is at **v1.0** on npm. The full loop — **discover → freeze → replay → self-heal** — works today and is benchmarked: deterministic, LLM-free replay on real multi-step flows; discovery paid once (~$0.5) against $0 replays; survival across UI renames without re-reasoning. Every layer is extensible — swap a port, or define `custom` assertions/actions.
 
-It is early. The interfaces are the contract; expect the surface around them to keep moving.
+What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a separate desktop app that embeds it for visual replay. The interfaces are the contract.
 
 ## License
 

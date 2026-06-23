@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QA Agent Harness · 설계 문서</title>
+<title>cairn · QA 에이전트 설계</title>
 <style>
   :root{
     --bg:#ffffff; --sidebar:#fafbfc; --soft:#f5f6fa; --soft2:#eceff5;
@@ -28,15 +28,13 @@
   code{font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:.86em;background:var(--soft);padding:1px 6px;border-radius:5px;color:var(--accent-d)}
   strong,b{color:#10202f;font-weight:700}
 
-  /* TOP BAR */
   .top{border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(255,255,255,.86);backdrop-filter:saturate(180%) blur(8px);z-index:20}
   .top .in{max-width:var(--maxw);margin:0 auto;padding:14px 28px;display:flex;align-items:center;gap:13px}
   .top .logo{width:26px;height:26px;border-radius:7px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:800;font-size:13px}
   .top .nm{font-weight:750;font-size:15px;letter-spacing:-.01em}
   .top .nm span{color:var(--faint);font-weight:500}
-  .top .tag{margin-left:auto;font-size:12px;font-weight:700;color:var(--accent-d);background:var(--accent-soft);border:1px solid #d9ddfb;border-radius:999px;padding:4px 12px}
+  .top .tag{margin-left:auto;font-size:12px;font-weight:700;color:var(--ok);background:var(--ok-soft);border:1px solid #bfe6cf;border-radius:999px;padding:4px 12px}
 
-  /* DOC LAYOUT */
   .doc{max-width:var(--maxw);margin:0 auto;display:grid;grid-template-columns:236px 1fr;gap:46px;padding:0 28px}
   .toc{position:sticky;top:74px;align-self:start;height:calc(100vh - 90px);overflow-y:auto;padding:36px 0 40px}
   .toc .tt{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:800;margin:0 0 12px;padding-left:12px}
@@ -76,12 +74,12 @@
   th{background:var(--soft);color:var(--muted);font-weight:700;font-size:13px}
   tbody tr:hover{background:#fafbfe}
   td b{color:#16202f}
+  .num{font-variant-numeric:tabular-nums;font-family:"SF Mono",monospace;font-size:13.5px}
+  .g-a{color:var(--ok);font-weight:800}
 
-  /* CODE */
-  .code{background:var(--ink);border:1px solid #232b3d;border-radius:12px;padding:17px 19px;overflow-x:auto;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.8px;line-height:1.8;color:#ccd4e4;margin:16px 0}
+  .code{background:var(--ink);border:1px solid #232b3d;border-radius:12px;padding:17px 19px;overflow-x:auto;white-space:pre;tab-size:2;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.8px;line-height:1.8;color:#ccd4e4;margin:16px 0}
   .code .c{color:#717f96}.code .k{color:#a9b4ff;font-weight:600}.code .t{color:#7ce0c3}.code .s{color:#9fd0ff}.code .d{color:#8b93a1}
 
-  /* PIPELINE DIAGRAM */
   .pipe{display:flex;flex-wrap:wrap;border:1px solid var(--line);border-radius:13px;background:var(--bg);overflow:hidden;margin:16px 0}
   .pipe .st{flex:1 1 0;min-width:120px;padding:16px 14px;border-right:1px solid var(--line);position:relative;text-align:center}
   .pipe .st:last-child{border-right:none}
@@ -91,7 +89,6 @@
   .pipe .st .ar{position:absolute;right:-8px;top:24px;color:var(--faint);font-size:14px;font-weight:700;z-index:2;background:var(--bg);padding:0 1px}
   .pipe .st:last-child .ar{display:none}
 
-  /* DISCOVERY vs REPLAY */
   .dr{display:grid;gap:14px;margin:16px 0}
   .drrow{border:1px solid var(--line);border-radius:13px;padding:16px 18px;display:flex;align-items:center;gap:16px;flex-wrap:wrap}
   .drrow.disc{border-color:#cfd2fb;background:linear-gradient(90deg,var(--accent-soft),transparent)}
@@ -108,14 +105,12 @@
   .callout{border:1px solid var(--line);border-left:4px solid var(--accent);background:#fbfbfe;border-radius:11px;padding:16px 20px;margin:18px 0;font-size:15px}
   .callout.g{border-left-color:var(--ok);background:var(--ok-soft)}
 
-  /* CARDS (light use) */
   .cards{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin:14px 0}
   .cards .cc{border:1px solid var(--line);border-radius:12px;padding:17px 18px;background:var(--bg)}
   .cards .cc h4{margin:0 0 7px;font-size:15px;font-weight:750}
   .cards .cc h4 code{font-size:12px}
   .cards .cc p{margin:0;font-size:13.8px;color:var(--muted)}
 
-  /* TERMINAL */
   .term{background:var(--ink);border:1px solid #232b3d;border-radius:12px;overflow:hidden;margin:16px 0}
   .term .tt{display:flex;align-items:center;gap:7px;padding:10px 13px;background:#161d2c;border-bottom:1px solid #232b3d}
   .term .tt i{width:10px;height:10px;border-radius:50%;display:block}
@@ -124,7 +119,6 @@
   .term .tb{padding:15px 17px;font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;font-size:12.2px;line-height:1.85;color:#ccd4e4}
   .term .pr{color:#7ce0c3}.term .ok{color:#7ce0a4}.term .bad{color:#f08a8a}.term .dim{color:#717f96}.term .acc{color:#a9b4ff}
 
-  /* MINI UI MOCK */
   .ui{border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:16px 0;box-shadow:0 16px 40px -30px rgba(20,30,55,.4)}
   .ui .bar{display:flex;align-items:center;gap:7px;padding:10px 13px;background:var(--soft);border-bottom:1px solid var(--line)}
   .ui .bar i{width:10px;height:10px;border-radius:50%}
@@ -149,8 +143,9 @@
   .ui .ev .con{color:var(--danger);padding-top:7px;font-weight:600}
 
   .road{display:grid;gap:12px;margin-top:8px}
-  .ph{display:grid;grid-template-columns:70px 1fr;gap:16px;border:1px solid var(--line);border-radius:12px;padding:16px 18px;align-items:start}
-  .ph .v{font-weight:800;color:#fff;background:var(--accent);border-radius:8px;text-align:center;padding:5px 0;font-size:13px}
+  .ph{display:grid;grid-template-columns:96px 1fr;gap:16px;border:1px solid var(--line);border-radius:12px;padding:16px 18px;align-items:start}
+  .ph .v{font-weight:800;color:#fff;background:var(--ok);border-radius:8px;text-align:center;padding:5px 0;font-size:12px}
+  .ph .v.next{background:var(--accent)}
   .ph h4{margin:0 0 4px;font-size:15px}.ph p{margin:0;font-size:13.5px;color:var(--muted)}
   .note{font-size:13px;color:var(--faint);font-style:italic}
   .foot{border-top:1px solid var(--line);margin-top:30px;padding-top:20px;font-size:13px;color:var(--faint)}
@@ -170,166 +165,171 @@
 
 <div class="top">
   <div class="in">
-    <span class="logo">Q</span>
-    <span class="nm">QA Agent Harness <span>· 설계 문서</span></span>
-    <span class="tag">(가칭) Probe</span>
+    <span class="logo">▲</span>
+    <span class="nm">cairn <span>· QA 에이전트 설계</span></span>
+    <span class="tag">엔진 v1.0 SHIPPED</span>
   </div>
 </div>
 
 <div class="doc">
-  <!-- TOC -->
   <nav class="toc">
     <p class="tt">목차</p>
-    <a href="#overview"><span class="n">00</span> 개요</a>
+    <a href="#overview"><span class="n">00</span> 무엇을 만드나</a>
     <a href="#principle"><span class="n">01</span> 설계 원칙</a>
     <a href="#derive"><span class="n">02</span> 요구 → 구조</a>
-    <a href="#pipeline"><span class="n">03</span> 아키텍처 · 파이프라인</a>
-    <a href="#loop"><span class="n">04</span> 탐색과 재생</a>
+    <a href="#pipeline"><span class="n">03</span> 파이프라인</a>
+    <a href="#loop"><span class="n">04</span> 핵심 베팅 · 탐색과 재생</a>
     <a href="#iface"><span class="n">05</span> 확장점</a>
     <a href="#evidence"><span class="n">06</span> 증거와 판정</a>
-    <a href="#surface"><span class="n">07</span> 사용 면</a>
-    <a href="#roadmap"><span class="n">08</span> 로드맵</a>
+    <a href="#surface"><span class="n">07</span> 제품 형태</a>
+    <a href="#roadmap"><span class="n">08</span> 어디까지 왔고, 어디로</a>
   </nav>
 
   <main class="content">
 
     <!-- 00 -->
     <section id="overview" class="lead-hero">
-      <h1>의도를 받아 브라우저를 검증하는<br>QA 에이전트의 런타임</h1>
-      <p class="sub">자연어 의도를 실제 브라우저 동작으로 옮기고, 수집한 증거로 결과를 판정한다. 하네스는 LLM 자체가 아니라 <b>그 주변 설계</b> — 무엇을 컨텍스트로 넣고, 어떻게 실행하고, 무엇으로 판정하고, 언제 사람을 부를지 — 를 가리킨다.</p>
+      <h1>자연어로 적으면 테스트 케이스를 대신 검증하는 QA 에이전트</h1>
+      <p class="sub">“로그인하고 첫 상품을 장바구니에 담아”처럼 평소 말로 적으면, AI가 브라우저에서 그 경로를 한 번 찾아 저장한다. 그다음부터는 <b>AI 없이</b> 똑같이 다시 돌려 — 빠르고 매번 같은 결과 — 화면·네트워크·콘솔 증거로 합격/불합격을 따진다. cairn은 AI 자체가 아니라 <b>그 주위를 감싸는 엔진</b>이다.</p>
       <div class="meta">
+        <span><b>엔진</b> cairn-engine@1.0.0 · npm</span>
         <span><b>런타임</b> TypeScript / Node</span>
-        <span><b>드라이버</b> Chrome DevTools MCP</span>
-        <span>모델·드라이버 비종속</span>
-        <span>QA = 첫 응용</span>
+        <span><b>기본 드라이버</b> Chrome DevTools MCP</span>
+        <span>모델·드라이버 비종속 · MIT</span>
       </div>
     </section>
 
     <!-- 01 -->
     <section id="principle">
-      <div class="h2"><span class="n">01</span><h2>설계 제약</h2></div>
-      <p class="sechint">하네스가 따르는 네 가지 제약.</p>
+      <div class="h2"><span class="n">01</span><h2>설계 원칙</h2></div>
+      <p class="sechint">엔진이 지키는 — 코드와 PR 훅으로 강제되는 — 다섯 제약.</p>
       <div class="cards">
-        <div class="cc"><h4>모델·드라이버 비종속</h4><p>LLM도 브라우저 드라이버도 인터페이스 뒤에 둔다. 기본 구현을 갈아끼울 수 있다.</p></div>
-        <div class="cc"><h4>결정적 재생</h4><p>회귀 실행은 LLM 없이 굳힌 시나리오를 재생한다. (→ §04)</p></div>
-        <div class="cc"><h4>패턴 / 데이터 경계</h4><p>파이프라인·인터페이스는 코어, 도메인 데이터·커넥터는 플러그인으로 분리한다.</p></div>
-        <div class="cc"><h4>증거 기반 판정</h4><p>화면이 아니라 실행·화면·로직 3층 증거로 판정한다. (→ §06)</p></div>
+        <div class="cc"><h4>모델·드라이버 비종속</h4><p>AI도 브라우저 도구도 인터페이스 뒤에 둔다. 기본은 Chrome DevTools MCP, 교체 가능(Playwright 등).</p></div>
+        <div class="cc"><h4>재생은 AI 없이</h4><p>반복 실행은 AI 없이 저장한 시나리오를 그대로 돌린다 → 매번 같은 결과. (→ §04)</p></div>
+        <div class="cc"><h4>패턴 / 데이터 경계</h4><p>파이프라인·인터페이스는 코어, 도메인 데이터·커넥터·시나리오 자산은 제품에 남긴다.</p></div>
+        <div class="cc"><h4>증거 기반 판정</h4><p>“화면이 맞아 보였다”가 아니라 실행·화면·로직 3층 증거로 판정. (→ §06)</p></div>
       </div>
-      <p>실행의 본체는 파이프라인이며, 루프는 처음 보는 앱을 탐색하는 단계(§04)에서만 쓴다.</p>
+      <p>다섯째 — <b>확장은 인터페이스(포트)로만.</b> 단계 안에 분기를 박지 않는다. 그리고 <span class="hl">루프(관찰·행동·적응)는 ‘처음 보는 앱을 탐색’할 때만</span> 쓴다.</p>
     </section>
 
     <!-- 02 -->
     <section id="derive">
       <div class="h2"><span class="n">02</span><h2>요구 → 구조</h2></div>
-      <p class="sechint">QA가 요구하는 것에서 구성요소를 거꾸로 도출한다.</p>
+      <p class="sechint">QA가 실제로 필요로 하는 것에서 부품을 거꾸로 끌어냈다.</p>
       <table>
-        <thead><tr><th style="width:42%">QA가 필요로 하는 것</th><th>그래서 필요한 메커니즘</th></tr></thead>
+        <thead><tr><th style="width:42%">QA가 필요로 하는 것</th><th>그래서 필요한 부품</th></tr></thead>
         <tbody>
-          <tr><td>대상 앱을 전혀 모름</td><td><b>컨텍스트 주입</b> — 의도·도메인을 grounding</td></tr>
+          <tr><td>대상 앱을 전혀 모름</td><td><b>컨텍스트 주입</b> — 의도를 실제 화면에 맞춤</td></tr>
           <tr><td>의도를 실행 단계로 풀어야 함</td><td><b>시나리오 생성(Plan)</b></td></tr>
-          <tr><td>사람처럼 조작해야 함</td><td><b>드라이버</b> (브라우저 도구)</td></tr>
-          <tr><td>처음 보는 앱이라 경로를 미리 못 짬</td><td><b>탐색 루프</b> — 보고·행동·적응 <span class="muted">(여기만 루프)</span></td></tr>
-          <tr><td>페이지가 늦거나 동적임</td><td>단계별 적응 재시도 <span class="muted">(robustness)</span></td></tr>
+          <tr><td>사람처럼 눌러야 함</td><td><b>드라이버</b> (브라우저 도구)</td></tr>
+          <tr><td>처음 보는 앱이라 경로를 미리 못 짬</td><td><b>탐색 루프</b> — 보고·누르고·다시 보고 <span class="muted">(여기만 루프)</span></td></tr>
+          <tr><td>페이지가 늦거나 동적임</td><td>로딩이 끝날 때까지 기다리는 자동 대기</td></tr>
           <tr><td>증거로 옳고 그름을 판정</td><td><b>증거 수집 + Critic</b></td></tr>
-          <tr><td>회귀 때 LLM 비용을 안 내야 함</td><td><b>성공 경로 굳히기(freeze) → 재생</b></td></tr>
-          <tr><td>위험한 순간엔 사람 판단</td><td>체크포인트(사람 게이트)</td></tr>
+          <tr><td>반복 실행 땐 AI 비용을 안 내야 함</td><td><b>성공 경로 저장(freeze) → 재생</b></td></tr>
+          <tr><td>성공 기준이 제품마다 다름</td><td><b>제품이 정의하는 custom 단언</b></td></tr>
         </tbody>
       </table>
-      <p>이 표가 아키텍처가 된다. <span class="hl">대부분은 순서가 정해진 파이프라인</span>이고, 루프는 “처음 보는 앱”에서만 요구된다.</p>
+      <p>이 표가 그대로 아키텍처가 됐다. <span class="hl">대부분은 순서가 정해진 파이프라인</span>이고, 루프는 “처음 보는 앱”에서만 필요하다.</p>
     </section>
 
     <!-- 03 -->
     <section id="pipeline">
-      <div class="h2"><span class="n">03</span><h2>아키텍처 · 파이프라인</h2></div>
-      <p class="sechint">실행의 본체는 다섯 단계 파이프라인이다.</p>
+      <div class="h2"><span class="n">03</span><h2>파이프라인 (실행 다섯 단계)</h2></div>
+      <p class="sechint">코드는 <b>코어</b>(<code>core/</code> — 핵심 규칙)와 <b>꽂는 부품</b>(<code>adapters/</code> — 실제 구현)으로 갈라져 있다.</p>
       <div class="pipe">
-        <div class="st"><div class="ic">🧩</div><div class="nm">Context</div><div class="en">grounding</div><span class="ar">→</span></div>
-        <div class="st"><div class="ic">🗺️</div><div class="nm">Plan</div><div class="en">scenario</div><span class="ar">→</span></div>
-        <div class="st"><div class="ic">🖱️</div><div class="nm">Execute</div><div class="en">drive</div><span class="ar">→</span></div>
-        <div class="st"><div class="ic">⚖️</div><div class="nm">Judge</div><div class="en">critic</div><span class="ar">→</span></div>
-        <div class="st"><div class="ic">📋</div><div class="nm">Report</div><div class="en">emit</div></div>
+        <div class="st"><div class="ic">🧩</div><div class="nm">Context</div><div class="en">의도 맞춤</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">🗺️</div><div class="nm">Plan</div><div class="en">단계로 풀기</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">🖱️</div><div class="nm">Execute</div><div class="en">누르기 · 대기</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">⚖️</div><div class="nm">Judge</div><div class="en">합격/불합격</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">📋</div><div class="nm">Report</div><div class="en">결과 내보내기</div></div>
       </div>
-      <p>컨텍스트를 모으고 → 시나리오로 풀고 → 실행하고 → 판정하고 → 리포트한다. <b>Execute</b> 안에는 페이지가 늦거나 동적일 때 버티는 단계별 재시도가 있다 — Cypress·Playwright의 auto-wait와 같은 층위다.</p>
+      <p>컨텍스트를 모으고 → 할 일을 단계로 풀고 → 브라우저를 누르고 → 따지고 → 결과를 낸다. <b>Execute</b>엔 페이지 로딩이 끝날 때까지(네트워크가 조용해질 때까지) 기다려 주는 자동 대기가 있어, 늦게 뜨는 화면 때문에 잘못 실패하지 않는다.</p>
     </section>
 
     <!-- 04 -->
     <section id="loop">
-      <div class="h2"><span class="n">04</span><h2>탐색과 재생</h2></div>
-      <p class="sechint">루프가 정당하게 필요한 단 하나의 자리.</p>
-      <p>파이프라인에서 <b>불확실성</b>이 있는 지점은 하나다 — <span class="hl">처음 보는 앱</span>. DOM을 모르면 “장바구니에 담아”를 어디 클릭할지 미리 짤 수 없다. 그래서 첫 실행은 <b>탐색</b>이다: 보고 → 행동하고 → 바뀐 화면을 보고 → 다음을 정한다.</p>
+      <div class="h2"><span class="n">04</span><h2>핵심 베팅 · 탐색과 재생</h2></div>
+      <p class="sechint">AI 탐색은 딱 한 번만 비싸게, 그다음 반복은 AI 없이 공짜.</p>
+      <p>불확실한 곳은 하나뿐이다 — <span class="hl">처음 보는 앱</span>. 화면을 모르면 “장바구니에 담아”를 어디 누를지 미리 짤 수 없다. 그래서 첫 실행은 <b>탐색</b>이다: 보고 → 누르고 → 바뀐 화면을 보고 → 다음을 정한다.</p>
+      <div class="pipe">
+        <div class="st"><div class="ic">🔎</div><div class="nm">discover</div><div class="en">AI · 1회 · ~$0.5</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">🧊</div><div class="nm">freeze</div><div class="en">JSON 저장</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">▶</div><div class="nm">replay</div><div class="en">AI 0 · 매번 같음 · $0</div><span class="ar">→</span></div>
+        <div class="st"><div class="ic">🩹</div><div class="nm">self-heal</div><div class="en">AI · 깨질 때만</div></div>
+      </div>
       <div class="dr">
         <div class="drrow disc">
           <span class="badge">탐색 · DISCOVER</span>
-          <span class="body">의도 + 모르는 앱 → <span class="cyc"><span class="lp">↻</span> 관찰 · 행동 · 적응</span> → 경로 발견 <b>(LLM 루프)</b></span>
+          <span class="body">하고 싶은 일 + 모르는 앱 → <span class="cyc"><span class="lp">↻</span> 보고 · 누르고 · 다시 보고</span> → 경로 발견 <b>(AI가 한 번 도는 단계)</b></span>
         </div>
-        <div class="frz">↓ 성공하면 결정적 시나리오로 <b>굳힘 (freeze)</b> — 루프가 여기서 소멸</div>
+        <div class="frz">↓ 성공한 경로를 파일로 <b>저장(freeze)</b> — AI 루프는 여기서 끝</div>
         <div class="drrow rep">
           <span class="badge">재생 · REPLAY</span>
-          <span class="body">굳힌 시나리오 → 그대로 재생 <b>(LLM·루프 없음 · 결정적)</b></span>
+          <span class="body">저장한 경로 → 그대로 다시 실행 <b>(AI 없음 · 매번 같은 결과 · ~4초 · $0)</b></span>
         </div>
       </div>
-      <div class="principle g"><b>탐색이 성공하면 경로를 굳히고(freeze), 이후 실행은 결정적 시나리오를 재생한다.</b> 재생 경로에는 LLM이 없으므로 <span class="hl-g">회귀 비용과 flaky가 함께 줄어든다.</span></div>
-      <p>LLM이 다시 등판하는 건 두 경우뿐이다 — <b>새 시나리오를 탐색</b>할 때, 그리고 <b>굳힌 경로가 UI 변경으로 깨져 복구(self-heal)</b>할 때. 그 외 모든 실행은 결정적 재생이다.</p>
-      <p class="note">탐색적(exploratory) 모드 — 새 이슈가 안 나올 때까지 반복 — 은 선택적 확장이다.</p>
+      <div class="principle g"><b>AI의 유연함은 얻되, 매 실행마다 드는 AI의 비용·불안정함은 버린다.</b> 다시 돌릴 때 AI가 없으니 <span class="hl-g">비용도, 매번 결과가 달라지는 불안정함(flaky)도 함께 사라진다.</span> Slack 글이 “AI 에이전트는 CI 자동검사엔 쓰지 마라”고 한 그 자리를, cairn은 ‘탐색은 한 번 / 반복은 AI 없이’로 나눠서 차지한다.</div>
+      <p>AI가 다시 나서는 건 둘뿐 — <b>새 경로 탐색</b>, 그리고 <b>저장한 경로가 UI 변경으로 깨져 고칠(self-heal)</b> 때. self-heal은 늘 도는 게 아니라 깨졌을 때만 가끔 도는 <b>예외</b>다.</p>
     </section>
 
     <!-- 05 -->
     <section id="iface">
-      <div class="h2"><span class="n">05</span><h2>확장점</h2></div>
-      <p class="sechint">파이프라인 각 단계는 교체 가능한 인터페이스 — “패턴은 코어, 데이터는 플러그인”.</p>
-      <div class="code"><span class="c">// 파이프라인 단계 ↔ 확장점</span>
-<span class="k">interface</span> <span class="t">ContextProvider</span> { provide(task): <span class="t">Context</span> }      <span class="c">// NL · git diff · 티켓 · 문서RAG</span>
-<span class="k">interface</span> <span class="t">Planner</span>         { plan(ctx): <span class="t">Scenario</span> }        <span class="c">// 의도 → 단계</span>
-<span class="k">interface</span> <span class="t">Driver</span>          { goto·click·type·observe() } <span class="c">// 기본 ChromeDevToolsMCP / 교체 Playwright</span>
-<span class="k">interface</span> <span class="t">SkillStore</span>      { resolve(name): <span class="t">Skill</span> }      <span class="c">// 재사용 플로우 · freeze / replay</span>
-<span class="k">interface</span> <span class="t">Critic</span>          { judge(evidence): <span class="t">Verdict</span> }   <span class="c">// 단언 | baseline | LLM</span>
-<span class="k">interface</span> <span class="t">Reporter</span>        { emit(result) }              <span class="c">// console · json · 임의 트래커</span>
-</div>
-      <div class="cards">
-        <div class="cc"><h4><code>core</code> 가 들고 있는 것</h4><p>파이프라인 오케스트레이션, 기본 드라이버, 탐색·시나리오 생성 프롬프트, 3층 증거 스키마, freeze 로직.</p></div>
-        <div class="cc"><h4><code>plugin</code> 으로 꽂는 것</h4><p>환경별 <code>ContextProvider</code>·<code>Reporter</code> 구현. 환경에 맞게 이 둘만 갈아끼우면 끝 — 코어 변경 0.</p></div>
-      </div>
-      <div class="callout"><b>경계 = 패턴 vs 데이터.</b> 코어는 파이프라인·인터페이스·프롬프트(패턴)를 범용으로 두고, 특정 도메인·환경의 데이터·커넥터·시나리오 자산(데이터)은 플러그인으로 분리한다.</div>
+      <div class="h2"><span class="n">05</span><h2>확장점 — 제품이 정의한다</h2></div>
+      <p class="sechint">“우리가 정한 것만 흐른다”가 아니다. 모든 층이 교체·확장 가능하다.</p>
+      <div class="code"><span class="c">// 7개 포트 — 환경별 동작을 꽂는 자리</span>
+<span class="k">interface</span> <span class="t">ContextProvider</span> { provide(task): <span class="t">Context</span> }       <span class="c">// NL · git diff · 티켓 · RAG</span>
+<span class="k">interface</span> <span class="t">Planner</span>         { plan(ctx): <span class="t">Scenario</span> }         <span class="c">// 의도 → 단계</span>
+<span class="k">interface</span> <span class="t">Driver</span>          { goto · click · type · locate · <span class="c">// 기본 Chrome DevTools MCP</span>
+                            select · observe · close() }   <span class="c">// 교체 Playwright 등</span>
+<span class="k">interface</span> <span class="t">SkillStore</span>      { resolve(name): <span class="t">Skill</span> }       <span class="c">// freeze / replay 보관</span>
+<span class="k">interface</span> <span class="t">Critic</span>          { judge(evidence, asserts) }    <span class="c">// 기계적 | LLM | 제품 정의</span>
+<span class="k">interface</span> <span class="t">Reporter</span>        { emit(result) }               <span class="c">// console · json · 임의 트래커</span>
+<span class="k">interface</span> <span class="t">LlmClient</span>       { complete(prompt) }            <span class="c">// Claude Code · Anthropic · BYO</span></div>
+      <p>닫힌 데이터마저 열려있다 — 제품이 <b>성공 기준</b>과 <b>인터랙션</b>을 직접 정의한다:</p>
+      <div class="code"><span class="k">await</span> <span class="t">runScenario</span>(scenario, {
+  custom:  { <span class="s">"cart-has"</span>: (p, ev) => ev.logic.requests.some(r => r.url.includes(p.path) && r.status === <span class="d">200</span>) },
+  actions: { <span class="s">"drag-slider"</span>: <span class="k">async</span> (driver, p) => { <span class="c">/* 제품 고유 인터랙션 */</span> } },
+})</div>
+      <div class="callout"><b>경계 = 우리는 루프·포트·좋은 기본값, 제품은 specifics(액션·단언·로케이터·컨텍스트).</b> 오픈소스로 나가는 건 패턴(엔진), 도메인 데이터·시나리오 자산은 제품에 남는다.</div>
     </section>
 
     <!-- 06 -->
     <section id="evidence">
       <div class="h2"><span class="n">06</span><h2>증거와 판정</h2></div>
-      <p class="sechint">Critic은 단정하기 전에 관찰 가능한 사실을 세 층위로 받는다.</p>
-      <p>화면만 보는 검증은 화면 단에서 멈춘다. Critic이 받는 증거는 실행·화면·로직 세 층이라, 화면상으론 멀쩡한데 실제론 실패한 경우를 잡는다.</p>
+      <p class="sechint">Critic은 “화면이 맞아 보였다”가 아니라 관찰 가능한 사실 3층으로 따진다.</p>
+      <p>화면만 보는 검증은 화면에서 멈춘다. cairn은 실행·화면·로직 세 층을 받아, 화면상으론 멀쩡한데 실제론 실패한 경우(주문 API가 500인데 “주문 완료”처럼 보임)를 잡는다.</p>
       <div class="code"><span class="t">Evidence</span> = {
-  execution:  { clicked: <span class="s">true</span>, navigated: <span class="s">true</span>, blocked: <span class="s">false</span> },  <span class="c">// 실행층</span>
-  perception: { screenshot: <span class="s">"step3.png"</span>, layoutShift: <span class="d">0</span> },       <span class="c">// 화면층</span>
-  logic:      { requests: [{ url: <span class="s">"/api/orders"</span>, status: <span class="d">500</span> }],   <span class="c">// 로직층</span>
-                console:  [<span class="s">"TypeError: orders is null"</span>] }
+  execution:  { actions, navigated: <span class="s">true</span>, finalUrl, blocked: <span class="s">false</span> },   <span class="c">// 실행층</span>
+  perception: { screenshot: <span class="s">"data:image/png;…"</span> },                    <span class="c">// 화면층 (스텝별)</span>
+  logic:      { requests: [{ url: <span class="s">"/api/orders"</span>, status: <span class="d">500</span> }],     <span class="c">// 로직층</span>
+                console:  [{ type: <span class="s">"error"</span>, text: <span class="s">"orders is null"</span> }] }
 }</div>
-      <div class="callout g"><b>알려진-항목 억제(known-item suppression).</b> 입력(변경 요약·티켓)에 “이건 의도적으로 미적용”이라 적혀 있으면 Critic이 <span class="hl-g">버그가 아닌 것으로 분류</span>한다. AI QA의 고질병인 오탐을 입력 맥락으로 누른다.</div>
+      <p>단언은 <b>AI의 추측이 아니라 실제 일어난 일에 맞춘다</b> — 정말 페이지를 옮겼으면 <b>올바른 목적지(host+path)까지</b> 확인하고, 항상 실패 요청(4xx/5xx, favicon 같은 무해한 건 제외) 없음을 본다. “성공이 뭔지”는 제품이 <code>custom</code> 단언으로, 애매한 목표는 <code>expect</code>(AI 판정, 선택)로.</p>
+      <p class="note">다음 단계: 입력(변경 요약·티켓)에 “이건 의도적 미적용”이라 적히면 버그가 아닌 것으로 거르는 ‘알려진-항목 억제’ — AI QA 고질병인 오탐을 입력 맥락으로 누른다(설계 중, 미구현).</p>
     </section>
 
     <!-- 07 -->
     <section id="surface">
-      <div class="h2"><span class="n">07</span><h2>사용 면</h2></div>
-      <p class="sechint">헤드리스 CLI와 시각적 리플레이 — 같은 런타임의 두 표면.</p>
+      <div class="h2"><span class="n">07</span><h2>제품 형태</h2></div>
+      <p class="sechint">하나의 엔진, 세 입구 — 임베드(라이브러리) · CLI/CI · 데스크탑 앱.</p>
 
-      <h3>CLI · CI</h3>
-      <p>한 줄로 시나리오를 돌리고 구조화된 리포트를 떨군다. GitHub Action에 그대로 물려 PR 게이트로 쓴다.</p>
+      <h3>① 임베드 + CLI · CI <span class="muted">(지금)</span></h3>
+      <p>엔진을 <code>import</code>하거나, <code>cairn discover</code>로 한 번 발견 → <code>cairn replay</code>를 매 PR에서 돌린다. 재생은 AI도 API 키도 필요 없다.</p>
       <div class="term">
-        <div class="tt"><i></i><i></i><i></i><span>zsh — qa-agent</span></div>
+        <div class="tt"><i></i><i></i><i></i><span>zsh — cairn</span></div>
         <div class="tb">
-<span class="pr">$</span> npx qa-agent run <span class="acc">"checkout: 담기 → 결제 → 주문확인"</span><br>
-<span class="ok">✓</span> context assembled <span class="dim">— 3 docs · 2 skills</span><br>
-<span class="ok">✓</span> scenario planned  <span class="dim">— 5 steps</span><br>
-<span class="dim">▶ step 3/5</span> click "Pay"   <span class="dim">POST /api/pay</span>    <span class="ok">200</span><br>
-<span class="dim">▶ step 5/5</span> verify order  <span class="dim">GET /api/orders</span> <span class="bad">500</span><br>
-<span class="bad">✗ 1 issue</span> <span class="dim">— order not shown · evidence captured</span><br>
-&nbsp;&nbsp;<span class="dim">report → ./qa-report.json · exit 1</span>
+<span class="pr">$</span> cairn discover <span class="acc">"로그인하고 첫 상품을 담아 카트를 연다"</span> --url shop.example --freeze cart.json<br>
+<span class="ok">→</span> 6 steps <span class="dim">· goto → type("Username") → click("Login") → click("Add to cart") → goto(/cart)</span><br>
+<span class="dim">frozen → cart.json</span><br>
+<span class="pr">$</span> cairn replay cart.json   <span class="dim"># 결정적, AI 0</span><br>
+<span class="ok">✓</span> navigated → /cart.html&nbsp;&nbsp;<span class="ok">✓</span> no-failed-requests&nbsp;&nbsp;<span class="ok">✓ pass</span> <span class="dim">· exit 0</span>
         </div>
       </div>
 
-      <h3>시각적 리플레이</h3>
-      <p>같은 실행을 로컬 UI로 따라간다. 단계 타임라인 + 라이브 뷰 + 3층 증거. 비개발자 검토와 디버깅용.</p>
+      <h3>② 데스크탑 QA 앱 <span class="muted">(다음 · 프로젝트 2)</span></h3>
+      <p>엔진은 표시에 필요한 <b>seam</b>을 이미 다 노출한다 — <code>onStep</code>(타임라인)·<code>screenshots</code>(스텝별 PNG)·<code>signal</code>(Stop)·<code>onHeal</code>(노후 알림). 그 위의 <b>UI는 엔진에 넣지 않고</b> 별도 데스크탑 앱이 <code>cairn-engine</code>을 install해 그린다 — 로그인된 브라우저 세션 위에서, 비개발자도 보는 시각 리플레이.</p>
       <div class="ui">
-        <div class="bar"><i></i><i></i><i></i><span>replay · checkout</span></div>
+        <div class="bar"><i></i><i></i><i></i><span>cairn desktop · replay · checkout</span></div>
         <div class="body">
           <div class="stage">
             <div class="tlrow"><span class="stp ok">✓ 로그인</span><span class="stp ok">✓ 장바구니</span><span class="stp run">⏳ 결제</span><span class="stp wait">○ 주문확인</span></div>
@@ -340,35 +340,28 @@
             </div>
           </div>
           <div class="ev">
-            <div class="et">네트워크</div>
+            <div class="et">증거 · 네트워크</div>
             <div class="row"><span><span class="m">POST</span> /api/pay</span><span class="s2">200</span></div>
             <div class="row"><span><span class="m">GET</span> /api/orders</span><span class="s5">500</span></div>
             <div class="con">⚠ TypeError: orders is null</div>
           </div>
         </div>
       </div>
-
-      <h3>입력 소스 · 확장</h3>
-      <p>입력은 모두 <code>ContextProvider</code> 한 인터페이스로 들어온다 — ① 자연어 ② git diff / PR ③ 티켓 ④ 저장된 시나리오. 새 입력원이나 리포트 대상은 인터페이스 두 개(<code>ContextProvider</code>·<code>Reporter</code>)만 구현하면 어디든 붙는다.</p>
-      <div class="code"><span class="k">class</span> <span class="t">MyContextProvider</span> <span class="k">implements</span> <span class="t">ContextProvider</span> { <span class="c">/* 임의의 소스 → Context */</span> }
-<span class="k">class</span> <span class="t">MyReporter</span>        <span class="k">implements</span> <span class="t">Reporter</span>        { <span class="c">/* 결과 → 임의의 트래커 */</span> }
-
-createHarness({ context: <span class="k">new</span> <span class="t">MyContextProvider</span>(), reporter: <span class="k">new</span> <span class="t">MyReporter</span>() })</div>
-      <p class="note">확장형: 같은 코어를 로컬 데스크톱 앱으로 패키징해, 로그인된 브라우저 세션 위에서 돌리는 형태도 가능하다.</p>
+      <p class="note">시각 리플레이 UI는 엔진이 아니라 데스크탑 앱이 그린다 — 위 mock은 그 seam으로 만들 화면 예시다.</p>
     </section>
 
     <!-- 08 -->
     <section id="roadmap">
-      <div class="h2"><span class="n">08</span><h2>로드맵</h2></div>
-      <p class="sechint">파이프라인 하나부터. 레이어는 필요할 때 얹는다.</p>
+      <div class="h2"><span class="n">08</span><h2>어디까지 왔고, 어디로</h2></div>
+      <p class="sechint">엔진은 출시 완료. 다음은 그 위에 얹는 QA 제품.</p>
       <div class="road">
-        <div class="ph"><div class="v">v0</div><div><h4>최소 파이프라인 — “MCP가 도나”</h4><p>NL 1개 → 드라이버 실행 → 3층 증거 → Critic(LLM+텍스트 단언) → JSON. 탐색·freeze·게이트 제외.</p></div></div>
-        <div class="ph"><div class="v">v1</div><div><h4>탐색 + 굳히기</h4><p>처음 보는 앱 탐색 루프 → 성공 경로 freeze → 결정적 재생. self-heal 재시도.</p></div></div>
-        <div class="ph"><div class="v">v2</div><div><h4>입력 소스 + 사람 게이트</h4><p>git diff·티켓 ContextProvider, 알려진-항목 억제, 위험 단계 사람 게이트, 시각적 리플레이.</p></div></div>
-        <div class="ph"><div class="v">v3</div><div><h4>생태계 · 확장</h4><p>GitHub Action, baseline diff, 커넥터 SDK, 데스크톱 패키징 등 확장.</p></div></div>
+        <div class="ph"><div class="v">✓ 엔진</div><div><h4>cairn-engine v1.0.0 — 출시</h4><p>discover → freeze → replay → self-heal · 7포트 + custom 확장 · 3층 증거 · 다중 로케이터 · 데스크탑 seam. 실전 플로우로 <b class="g-a">결정적 재생 4/4 · AI 0</b>, <b class="g-a">discover $0.5 1회 / replay $0</b>(풀 에이전트 $15–30/run 대비), <b class="g-a">UI rename 생존</b> 검증. npm 배포 · 54 테스트.</p></div></div>
+        <div class="ph"><div class="v next">다음</div><div><h4>데스크탑 QA 앱 (프로젝트 2)</h4><p>엔진을 install해 — 시나리오 관리(저장·정리·버전), 시각 리플레이, 스위트 실행, 실행 히스토리·flaky 추세. 엔진은 안 고치고 <b>위에 얹는다.</b></p></div></div>
+        <div class="ph"><div class="v next">다음</div><div><h4>입력 소스 + CI 게이트</h4><p>git diff·티켓 <code>ContextProvider</code>, GitHub Action PR 게이트, 알려진-항목 억제(오탐 누르기).</p></div></div>
+        <div class="ph"><div class="v next">1.x</div><div><h4>엔진 강화</h4><p>LLM 백엔드 확대(OpenAI 등 → 진입장벽↓) · testid 로케이터(재정렬에도 강함) · 의미 단언 결정적화 · 벤치 플로우 확대.</p></div></div>
       </div>
-      <div class="callout">모노레포 <code>packages/harness</code>(코어) + <code>packages/qa</code>(앱). 라이선스 MIT. 이 문서가 곧 README의 뼈대.</div>
-      <p class="foot">QA Agent Harness · 설계 문서 — (가칭) Probe. 코드·화면은 설계 설명용 예시이며 구현 과정에서 변경될 수 있음.</p>
+      <div class="callout">모노레포 <code>packages/harness</code>(엔진 = <code>cairn-engine</code>) + <code>packages/qa</code>(예정). 정체성: <b>임베드 가능한 엔진</b>이지 CLI 제품이 아니다. 데스크탑은 이를 install하는 별도 프로젝트.</div>
+      <p class="foot">cairn · QA 에이전트 설계 — 2026-06-23 현행. 엔진 상세·벤치마크 숫자는 별도 「cairn-engine 엔진 문서」 참고. github.com/team-poem/cairn · npm: cairn-engine</p>
     </section>
 
   </main>

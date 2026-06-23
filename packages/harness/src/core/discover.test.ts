@@ -55,10 +55,11 @@ describe("discover", () => {
 
     const scenario = await discover("checkout flow", { driver, llm, baseUrl: "https://shop" });
 
+    // targets are enriched with resilient locators (role + structural index) at freeze time
     expect(scenario.steps).toEqual([
       { kind: "goto", url: "https://shop" },
-      { kind: "click", target: { text: "Add to cart" } },
-      { kind: "click", target: { text: "Checkout" } },
+      { kind: "click", target: { text: "Add to cart", role: "link", index: 0 } },
+      { kind: "click", target: { text: "Checkout", role: "button", index: 0 } },
     ]);
     // assertions are grounded in observed evidence (navigated:true here), not the LLM's guess
     expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "navigated" }]);
@@ -81,8 +82,8 @@ describe("discover", () => {
     const scenario = await discover("adapt", { driver, llm });
 
     // The failed click is not recorded; only the successful one is.
-    expect(scenario.steps).toEqual([{ kind: "click", target: { text: "Open" } }]);
-    expect(driver.clicked).toEqual([{ text: "Open" }]);
+    expect(scenario.steps).toEqual([{ kind: "click", target: { text: "Open", role: "link", index: 0 } }]);
+    expect(driver.clicked).toEqual([{ text: "Open", role: "link", index: 0 }]);
   });
 
   it("grounds assertions in evidence — no `navigated` on a flow that didn't navigate (SPA)", async () => {

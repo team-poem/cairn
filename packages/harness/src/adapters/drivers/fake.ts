@@ -51,6 +51,14 @@ export class FakeDriver implements Driver {
     this.resolve(target);
   }
 
+  async locate(target: Target): Promise<Target> {
+    const els = this.script.elements ?? [];
+    const el = els.find((e) => target.text && e.name.toLowerCase().includes(target.text.toLowerCase()));
+    if (!el) return target;
+    const index = els.filter((e) => e.role === el.role).indexOf(el);
+    return { ...target, role: el.role, index };
+  }
+
   async select(target: Target, _value: string): Promise<void> {
     this.resolve(target);
   }

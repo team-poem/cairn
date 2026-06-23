@@ -14,7 +14,7 @@ import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
-import type { Result, Scenario } from "./core/types.js";
+import type { Result, Scenario, StepProgress } from "./core/types.js";
 
 export interface RunScenarioOptions {
   driver?: Driver;
@@ -26,6 +26,12 @@ export interface RunScenarioOptions {
   /** Wrap the driver so broken steps are repaired by the LLM and retried. */
   heal?: boolean;
   model?: string;
+  /** Abort the run between steps (a host's Stop button). */
+  signal?: AbortSignal;
+  /** Per-step progress, for a live timeline. */
+  onStep?: (progress: StepProgress) => void;
+  /** Capture a screenshot after each step (attached to onStep / a host's visual replay). */
+  screenshots?: boolean;
 }
 
 export interface RunScenarioResult {
@@ -79,6 +85,7 @@ export async function runScenario(
       reporter: opts.reporter ?? new ConsoleReporter(),
     },
     scenario.name,
+    { signal: opts.signal, onStep: opts.onStep, captureScreenshots: opts.screenshots },
   );
 
   const heals = healer?.heals ?? [];

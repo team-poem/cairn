@@ -4,7 +4,18 @@
  * runs (invariant #4).
  */
 import type { Harness } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, Step } from "./types.js";
+import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
+
+/**
+ * Seams a host (CLI, desktop app, CI) plugs into — the engine emits/accepts, the host
+ * decides what to do. `onStep` for a live timeline, `captureScreenshots` for visual
+ * replay, `signal` for a Stop button. None of these put UI in the engine.
+ */
+export interface RunHarnessOptions {
+  signal?: AbortSignal;
+  onStep?: (progress: StepProgress) => void;
+  captureScreenshots?: boolean;
+}
 
 async function executeStep(driver: Harness["driver"], step: Step): Promise<ExecutedAction> {
   try {
@@ -44,7 +55,11 @@ async function executeStep(driver: Harness["driver"], step: Step): Promise<Execu
   }
 }
 
-export async function runHarness(harness: Harness, task: string): Promise<Result> {
+export async function runHarness(
+  harness: Harness,
+  task: string,
+  opts: RunHarnessOptions = {},
+): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
 
   const ctx = await context.provide(task);
@@ -54,8 +69,13 @@ export async function runHarness(harness: Harness, task: string): Promise<Result
   const actions: ExecutedAction[] = [];
   try {
     for (const step of scenario.steps) {
+      opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
       const result = await executeStep(driver, step);
       actions.push(result);
+      if (opts.onStep) {
+        const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
+        opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, screenshot });
+      }
       if (!result.ok) break;
     }
 

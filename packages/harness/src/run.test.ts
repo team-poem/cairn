@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { applyHeals, needsLlmCritic, runScenario } from "./run.js";
 import { FakeDriver } from "./adapters/drivers/fake.js";
-import type { Evidence, Reporter, Result, Scenario } from "./index.js";
+import type { Evidence, Reporter, Result, Scenario, StepProgress } from "./index.js";
 
 function evidence(): Evidence {
   return {
@@ -58,6 +58,23 @@ describe("runScenario", () => {
     expect(healedScenario).toBeUndefined();
     expect(driver.settled).toBe(true);
     expect(reporter.last).toBe(result);
+  });
+
+  it("streams per-step progress (with screenshots) to onStep — the desktop timeline seam", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), screenshot: "data:image/png;base64,AAA" });
+    const events: StepProgress[] = [];
+    await runScenario(scenario, { driver, onStep: (e) => events.push(e), screenshots: true });
+    expect(events.map((e) => e.step.kind)).toEqual(["goto", "click"]);
+    expect(events.every((e) => e.ok)).toBe(true);
+    expect(events[0]?.screenshot).toBe("data:image/png;base64,AAA");
+  });
+
+  it("aborts between steps when the signal fires (a host's Stop button)", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+    const ac = new AbortController();
+    ac.abort();
+    await expect(runScenario(scenario, { driver, signal: ac.signal })).rejects.toThrow();
+    expect(driver.closed).toBe(true); // still cleaned up
   });
 
   it("self-heals a broken target and returns a re-frozen scenario", async () => {

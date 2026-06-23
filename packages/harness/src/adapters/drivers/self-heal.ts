@@ -115,6 +115,10 @@ export class SelfHealingDriver implements Driver {
     return this.inner.scroll(direction);
   }
 
+  screenshot(): Promise<string | undefined> {
+    return this.inner.screenshot();
+  }
+
   snapshot(): Promise<PageElement[]> {
     return this.inner.snapshot();
   }

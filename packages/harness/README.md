@@ -28,6 +28,17 @@ const { result } = await runScenario(scenario, { heal: true });
 if (!result.verdict.passed) process.exit(1);
 ```
 
+Building a UI on top? The engine exposes the seams; you bring the UI:
+
+```ts
+const controller = new AbortController();
+await runScenario(scenario, {
+  signal: controller.signal,                 // a Stop button
+  screenshots: true,                         // capture a PNG per step
+  onStep: (e) => render(e.index, e.step, e.ok, e.screenshot), // live timeline
+});
+```
+
 No API key needed if you have **Claude Code** installed (cairn shells out to it); set
 `ANTHROPIC_API_KEY` to use the Anthropic API instead.
 

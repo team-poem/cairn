@@ -3,8 +3,11 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **npm 배포 완료 — `cairn-engine@0.2.0` 라이브** (+ GitHub v0.2.0 릴리스, main=`84fe0be`).
-  코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters) · 브라우저 액션 세트 · 복원력 discover.
+- 단계: **데스크탑 임베드용 안정화 완료 — `cairn-engine@0.3.0`** (배포 대기/완료).
+  견고성(타임아웃·재연결·누수차단) + 데스크탑 포트(onStep·screenshot·AbortSignal) + 최적화(snapshot 캐시)
+  + parseConsole 실포맷 수정(콘솔에러 무검출 버그). 테스트 43/43.
+- 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters) · 브라우저 액션 세트.
+- **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.
 - **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish "--//registry.npmjs.org/:_authToken=npm_…"`
   (granular 토큰, 2FA 우회). 버전 올리고 → publish → `git tag vX & push` → GitHub Releases 웹에서 노트 작성.
 - **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),

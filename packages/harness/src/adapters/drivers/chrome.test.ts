@@ -100,13 +100,19 @@ describe("parsePageIds", () => {
 });
 
 describe("parseConsole", () => {
-  it("captures typed console rows", () => {
+  it("parses the real `msgid=N [type] text (M args)` format and strips the args suffix", () => {
     const text = `## Console messages
-error: TypeError: orders is null
-info: hydrated`;
+Showing 1-3 of 3 (Page 1 of 1).
+msgid=1 [error] TypeError: orders is null (1 args)
+msgid=2 [warn] slow request (1 args)
+msgid=3 [log] hydrated (1 args)`;
     expect(parseConsole(text)).toEqual([
       { type: "error", text: "TypeError: orders is null" },
-      { type: "info", text: "hydrated" },
+      { type: "warn", text: "slow request" },
+      { type: "log", text: "hydrated" },
     ]);
+  });
+  it("ignores header/non-message lines", () => {
+    expect(parseConsole(`## Console messages\nShowing 0-0 of 0`)).toEqual([]);
   });
 });

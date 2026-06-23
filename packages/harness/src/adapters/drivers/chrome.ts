@@ -38,6 +38,7 @@ export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
   private transport?: StdioClientTransport;
   private initialUrl?: string;
+  private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
@@ -56,7 +57,10 @@ export class ChromeDevToolsDriver implements Driver {
       const ids = parsePageIds(await this.call("list_pages"));
       const fresh = ids.filter((id) => !this.seenPages.has(id));
       ids.forEach((id) => this.seenPages.add(id));
-      if (fresh.length) await this.call("select_page", { pageId: Math.max(...fresh) });
+      if (fresh.length) {
+        await this.call("select_page", { pageId: Math.max(...fresh) });
+        this.snapshotCache = undefined; // different tab → different DOM
+      }
     } catch {
       /* best-effort */
     }
@@ -125,34 +129,41 @@ export class ChromeDevToolsDriver implements Driver {
     if (this.initialUrl === undefined) this.initialUrl = url;
     // accept beforeunload so leaving a dirty form/page doesn't hang on a dialog.
     await this.call("navigate_page", { type: "url", url, handleBeforeUnload: "accept" });
+    this.snapshotCache = undefined;
     await this.trackPages();
   }
 
   async click(target: Target): Promise<void> {
     await this.call("click", { uid: await this.resolveUid(target) });
+    this.snapshotCache = undefined;
     await this.followNewTab();
   }
 
   async doubleClick(target: Target): Promise<void> {
     await this.call("click", { uid: await this.resolveUid(target), dblClick: true });
+    this.snapshotCache = undefined;
     await this.followNewTab();
   }
 
   async hover(target: Target): Promise<void> {
     await this.call("hover", { uid: await this.resolveUid(target) });
+    this.snapshotCache = undefined;
   }
 
   async type(target: Target, text: string): Promise<void> {
     await this.call("fill", { uid: await this.resolveUid(target), value: text });
+    this.snapshotCache = undefined;
   }
 
   async select(target: Target, value: string): Promise<void> {
     // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
     await this.call("fill", { uid: await this.resolveUid(target), value });
+    this.snapshotCache = undefined;
   }
 
   async pressKey(key: string): Promise<void> {
     await this.call("press_key", { key });
+    this.snapshotCache = undefined;
   }
 
   async scroll(direction: "down" | "up" = "down"): Promise<void> {
@@ -160,6 +171,7 @@ export class ChromeDevToolsDriver implements Driver {
     await this.call("evaluate_script", {
       function: `() => { window.scrollBy(0, ${sign}window.innerHeight * 0.9); }`,
     });
+    this.snapshotCache = undefined;
   }
 
   async screenshot(): Promise<string | undefined> {
@@ -177,8 +189,14 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
+  /** Cache the page snapshot so resolve + the discover loop don't both re-fetch it; actions invalidate it. */
+  private async getSnapshot(): Promise<string> {
+    if (this.snapshotCache === undefined) this.snapshotCache = await this.call("take_snapshot");
+    return this.snapshotCache;
+  }
+
   async snapshot(): Promise<PageElement[]> {
-    return parseElements(await this.call("take_snapshot"));
+    return parseElements(await this.getSnapshot());
   }
 
   async settle(options: SettleOptions = {}): Promise<void> {
@@ -243,7 +261,7 @@ export class ChromeDevToolsDriver implements Driver {
       throw new Error("ChromeDevToolsDriver resolves targets by text, not CSS selector");
     }
     if (!target.text) throw new Error("target needs a `text` to resolve an element");
-    const uid = findUidByName(await this.call("take_snapshot"), target.text);
+    const uid = findUidByName(await this.getSnapshot(), target.text);
     if (!uid) throw new Error(`no element with accessible name matching "${target.text}"`);
     return uid;
   }
@@ -289,12 +307,12 @@ export function parseNetwork(text: string): NetworkRequest[] {
   return out;
 }
 
-/** Console listing → messages. Conservative: only rows naming a known type. */
+/** `msgid=1 [error] message (1 args)` → {type:"error", text:"message"}. */
 export function parseConsole(text: string): ConsoleMessage[] {
   const out: ConsoleMessage[] = [];
   for (const line of text.split("\n")) {
-    const m = line.match(/^\s*(?:msgid=\d+\s+)?(log|debug|info|error|warn|trace|verbose)[:>\s]\s*(.*)$/i);
-    if (m) out.push({ type: m[1]!.toLowerCase(), text: m[2]!.trim() });
+    const m = line.match(/^msgid=\d+\s+\[(\w+)\]\s+(.*)$/);
+    if (m) out.push({ type: m[1]!.toLowerCase(), text: m[2]!.replace(/\s*\(\d+ args?\)\s*$/, "").trim() });
   }
   return out;
 }

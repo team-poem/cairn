@@ -4,7 +4,8 @@ import { InlineContextProvider } from "../adapters/context/inline.js";
 import { StaticPlanner } from "../adapters/planners/static.js";
 import { AssertionCritic } from "../adapters/critics/assertion.js";
 import { FakeDriver } from "../adapters/drivers/fake.js";
-import type { Evidence, Reporter, Result, Scenario } from "../index.js";
+import type { ContextProvider } from "../core/ports.js";
+import type { Context, Evidence, Reporter, Result, Scenario } from "../index.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;
@@ -140,5 +141,28 @@ describe("pipeline", () => {
     expect(result.evidence.execution.blocked).toBe(true);
     const actions = result.evidence.execution.actions;
     expect(actions[actions.length - 1]?.ok).toBe(false);
+  });
+
+  it("lets ContextProvider influence the result — intent overrides the scenario name", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+
+    class CustomProvider implements ContextProvider {
+      async provide(): Promise<Context> {
+        return { intent: "grounding from a ticket" };
+      }
+    }
+
+    const result = await runHarness(
+      {
+        context: new CustomProvider(),
+        planner: new StaticPlanner(scenario),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      "ignored task",
+    );
+    expect(result.scenario).toBe("grounding from a ticket");
+    expect(result.verdict.passed).toBe(true);
   });
 });

@@ -2,8 +2,6 @@
 
 export interface Context {
   intent: string;
-  baseUrl?: string;
-  notes?: string[];
 }
 
 export type Step =

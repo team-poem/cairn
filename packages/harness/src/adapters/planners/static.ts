@@ -5,7 +5,7 @@ import type { Context, Scenario } from "../../core/types.js";
 export class StaticPlanner implements Planner {
   constructor(private readonly scenario: Scenario) {}
 
-  async plan(_ctx: Context): Promise<Scenario> {
-    return this.scenario;
+  async plan(ctx: Context): Promise<Scenario> {
+    return { ...this.scenario, name: ctx.intent || this.scenario.name };
   }
 }

@@ -37,6 +37,8 @@ export interface Driver {
   pressKey(key: string): Promise<void>;
   /** Scroll the page to reveal lazy/below-the-fold content. */
   scroll(direction?: "down" | "up"): Promise<void>;
+  /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
+  screenshot(): Promise<string | undefined>;
   snapshot(): Promise<PageElement[]>;
   /** Execute-stage auto-wait for network idle (design §3). Best-effort, time-bounded, never throws. */
   settle(options?: SettleOptions): Promise<void>;

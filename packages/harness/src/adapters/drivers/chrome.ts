@@ -162,6 +162,21 @@ export class ChromeDevToolsDriver implements Driver {
     });
   }
 
+  async screenshot(): Promise<string | undefined> {
+    try {
+      const client = await this.ensureConnected();
+      const res = (await this.withTimeout(
+        client.callTool({ name: "take_screenshot", arguments: { format: "png" } }),
+        this.opts.timeoutMs ?? 30_000,
+        "MCP take_screenshot",
+      )) as { content?: Array<{ type: string; data?: string; mimeType?: string }> };
+      const img = (res.content ?? []).find((c) => c.type === "image" && typeof c.data === "string");
+      return img?.data ? `data:${img.mimeType ?? "image/png"};base64,${img.data}` : undefined;
+    } catch {
+      return undefined; // screenshots are best-effort; never fail a run
+    }
+  }
+
   async snapshot(): Promise<PageElement[]> {
     return parseElements(await this.call("take_snapshot"));
   }

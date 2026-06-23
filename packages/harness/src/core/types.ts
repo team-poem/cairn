@@ -45,6 +45,16 @@ export interface PageElement {
   name: string;
 }
 
+/** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */
+export interface StepProgress {
+  index: number;
+  step: Step;
+  ok: boolean;
+  error?: string;
+  /** A screenshot data URL, present only when screenshot capture is enabled. */
+  screenshot?: string;
+}
+
 export interface SettleOptions {
   idleMs?: number;
   timeoutMs?: number;

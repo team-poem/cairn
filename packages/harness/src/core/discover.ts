@@ -12,6 +12,8 @@ export interface DiscoverOptions {
   baseUrl?: string;
   maxSteps?: number;
   onStep?: (decision: Decision, step?: Step) => void;
+  /** Abort discovery between steps (a host's Stop button). */
+  signal?: AbortSignal;
 }
 
 export interface Decision {
@@ -124,7 +126,7 @@ async function applyDecision(driver: Driver, decision: Decision): Promise<Step> 
 }
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 8, onStep } = opts;
+  const { driver, llm, baseUrl, maxSteps = 8, onStep, signal } = opts;
   const steps: Step[] = [];
 
   if (baseUrl) {
@@ -136,6 +138,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).
   const failures: string[] = [];
   for (let i = 0; i < maxSteps; i++) {
+    signal?.throwIfAborted();
     await driver.settle();
     const elements = await driver.snapshot();
     const reply = await llm.complete(buildPrompt(intent, elements, steps, failures), { system: SYSTEM });

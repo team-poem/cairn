@@ -5,6 +5,7 @@ import type { Evidence, PageElement, Target } from "../../core/types.js";
 export interface FakeScript {
   evidence: Evidence;
   elements?: PageElement[];
+  screenshot?: string;
   /** Targets (by text) that should throw when acted on, to simulate a broken step. */
   failOn?: string[];
 }
@@ -60,6 +61,10 @@ export class FakeDriver implements Driver {
 
   async scroll(direction: "down" | "up" = "down"): Promise<void> {
     this.scrolls.push(direction);
+  }
+
+  async screenshot(): Promise<string | undefined> {
+    return this.script.screenshot;
   }
 
   async snapshot(): Promise<PageElement[]> {

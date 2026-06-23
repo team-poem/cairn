@@ -6,6 +6,7 @@ import {
   parseConsole,
   parseElements,
   parseNetwork,
+  parsePageIds,
   parseSelectedUrl,
 } from "./chrome.js";
 
@@ -88,6 +89,13 @@ describe("isNavigation", () => {
   });
   it("normalizeUrl drops trailing slash and hash", () => {
     expect(normalizeUrl("https://x.com/path/#frag")).toBe("https://x.com/path");
+  });
+});
+
+describe("parsePageIds", () => {
+  it("reads page ids and ignores other lines", () => {
+    const text = `## Pages\n4: Example (https://example.com/) [selected]\n7: Detail (https://example.com/p/3)`;
+    expect(parsePageIds(text)).toEqual([4, 7]);
   });
 });
 

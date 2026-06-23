@@ -16,9 +16,16 @@ export type Step =
   | { kind: "pressKey"; key: string }
   | { kind: "scroll"; direction?: "down" | "up" };
 
-/** Locate an element by intent, not a driver handle: `text` = accessible name, `selector` = CSS fallback. */
+/**
+ * Locate an element by intent, not a driver handle. A frozen target carries several
+ * locators so replay survives UI change without falling back to the LLM:
+ * `text` (accessible name) is primary; `role` + `index` (position among same-role elements)
+ * is a rename-resilient fallback; `selector` is a CSS escape hatch.
+ */
 export interface Target {
   text?: string;
+  role?: string;
+  index?: number;
   selector?: string;
 }
 

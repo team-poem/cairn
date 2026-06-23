@@ -256,13 +256,18 @@ export class ChromeDevToolsDriver implements Driver {
     await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }
 
+  async locate(target: Target): Promise<Target> {
+    const rows = parseSnapshotRows(await this.getSnapshot());
+    const uid = resolveTargetUid(rows, target);
+    if (!uid) return target; // can't enrich right now — freeze what we have
+    const row = rows.find((r) => r.uid === uid)!;
+    const index = rows.filter((r) => r.role === row.role).findIndex((r) => r.uid === uid);
+    return { ...target, text: target.text ?? row.name, role: row.role, index };
+  }
+
   private async resolveUid(target: Target): Promise<string> {
-    if (target.selector) {
-      throw new Error("ChromeDevToolsDriver resolves targets by text, not CSS selector");
-    }
-    if (!target.text) throw new Error("target needs a `text` to resolve an element");
-    const uid = findUidByName(await this.getSnapshot(), target.text);
-    if (!uid) throw new Error(`no element with accessible name matching "${target.text}"`);
+    const uid = resolveTargetUid(parseSnapshotRows(await this.getSnapshot()), target);
+    if (!uid) throw new Error(`no element matching ${JSON.stringify(target)}`);
     return uid;
   }
 }
@@ -279,22 +284,47 @@ export function parseElements(snapshot: string): PageElement[] {
   return out;
 }
 
-/**
- * Resolve a uid by accessible name. Prefers an exact (case-insensitive) match over a
- * substring one, so "Cart" picks the button "Cart" rather than the first "Add to Cart".
- * Only the role-adjacent quoted name counts — a bare `url="…"` is never matched as a name.
- */
-export function findUidByName(snapshot: string, text: string): string | undefined {
-  const needle = text.trim().toLowerCase();
-  const rows: Array<{ uid: string; name: string }> = [];
+export interface SnapshotRow {
+  uid: string;
+  role: string;
+  name: string;
+}
+
+/** `uid=1_3 link "Learn more" …` → ordered {uid, role, name} rows (the role-adjacent quoted name). */
+export function parseSnapshotRows(snapshot: string): SnapshotRow[] {
+  const rows: SnapshotRow[] = [];
   for (const line of snapshot.split("\n")) {
-    const m = line.match(/uid=(\S+)\s+\w+\s+"([^"]*)"/);
-    if (m && m[2]!.trim()) rows.push({ uid: m[1]!, name: m[2]! });
+    const m = line.match(/uid=(\S+)\s+(\w+)\s+"([^"]*)"/);
+    if (m) rows.push({ uid: m[1]!, role: m[2]!, name: m[3]! });
   }
-  return (
-    rows.find((r) => r.name.toLowerCase() === needle)?.uid ??
-    rows.find((r) => r.name.toLowerCase().includes(needle))?.uid
-  );
+  return rows;
+}
+
+/**
+ * Multi-locator resolution. Prefers the accessible name (exact over substring, role-aware
+ * if known); if the name no longer matches — a UI rename — falls back to role + structural
+ * index, so the login button still resolves after "Log in" becomes "Sign in". This is what
+ * lets a frozen scenario survive UI change WITHOUT the LLM (self-heal stays the exception).
+ */
+export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | undefined {
+  const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
+  if (target.text) {
+    const needle = target.text.trim().toLowerCase();
+    const exact = rows.find((r) => roleOk(r) && r.name.toLowerCase() === needle);
+    if (exact) return exact.uid;
+    const sub = rows.find((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
+    if (sub) return sub.uid;
+  }
+  if (target.role && target.index !== undefined) {
+    const sameRole = rows.filter((r) => r.role === target.role);
+    return sameRole[target.index]?.uid;
+  }
+  return undefined;
+}
+
+/** Resolve a uid by accessible name only (exact over substring) — used by the discover snapshot path. */
+export function findUidByName(snapshot: string, text: string): string | undefined {
+  return resolveTargetUid(parseSnapshotRows(snapshot), { text });
 }
 
 /** `reqid=5 GET https://… [200]` → NetworkRequest[]. */

@@ -107,6 +107,10 @@ export class SelfHealingDriver implements Driver {
     }
   }
 
+  locate(target: Target): Promise<Target> {
+    return this.inner.locate(target);
+  }
+
   pressKey(key: string): Promise<void> {
     return this.inner.pressKey(key);
   }

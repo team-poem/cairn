@@ -31,6 +31,8 @@ export interface Driver {
   doubleClick(target: Target): Promise<void>;
   hover(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
+  /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
+  locate(target: Target): Promise<Target>;
   /** Choose an option in a `<select>` dropdown. */
   select(target: Target, value: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */

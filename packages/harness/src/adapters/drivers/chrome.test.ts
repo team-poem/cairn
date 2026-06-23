@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   findUidByName,
+  parseSnapshotRows,
+  resolveTargetUid,
   isNavigation,
   normalizeUrl,
   parseConsole,
@@ -46,6 +48,26 @@ describe("findUidByName", () => {
   });
   it("returns undefined when nothing matches", () => {
     expect(findUidByName(SNAPSHOT, "checkout")).toBeUndefined();
+  });
+});
+
+describe("resolveTargetUid — multi-locator", () => {
+  const v1 = `uid=1_1 textbox "Username"\nuid=1_2 button "Log in"`;
+  // a UI rename: same roles/positions, different visible names
+  const v2 = `uid=2_1 textbox "Account"\nuid=2_2 button "Sign in"`;
+
+  it("resolves by accessible name when it still matches", () => {
+    expect(resolveTargetUid(parseSnapshotRows(v1), { text: "Log in", role: "button", index: 0 })).toBe("1_2");
+  });
+
+  it("survives a rename via role + structural index (no LLM)", () => {
+    // "Log in" no longer exists on v2; role=button index=0 still finds the (renamed) login button
+    expect(resolveTargetUid(parseSnapshotRows(v2), { text: "Log in", role: "button", index: 0 })).toBe("2_2");
+    expect(resolveTargetUid(parseSnapshotRows(v2), { text: "Username", role: "textbox", index: 0 })).toBe("2_1");
+  });
+
+  it("returns undefined when neither name nor role+index resolves", () => {
+    expect(resolveTargetUid(parseSnapshotRows(v2), { text: "Log in" })).toBeUndefined();
   });
 });
 

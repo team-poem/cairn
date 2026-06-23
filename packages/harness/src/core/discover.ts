@@ -4,7 +4,7 @@
  * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
 import type { Driver, LlmClient } from "./ports.js";
-import type { Assertion, Evidence, PageElement, Scenario, Step } from "./types.js";
+import type { Assertion, Evidence, PageElement, Scenario, Step, Target } from "./types.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -121,26 +121,38 @@ function deriveAssertions(proposed: Assertion[] | undefined, evidence: Evidence)
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
-  const needText = (): string => {
+  // Enrich the target with resilient locators (role + structural index) before acting, and
+  // freeze the enriched target — so replay survives a UI rename without the LLM.
+  const located = (): Promise<Target> => {
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
-    return decision.text;
+    return driver.locate({ text: decision.text });
   };
   switch (decision.action) {
-    case "click":
-      await driver.click({ text: needText() });
-      return { kind: "click", target: { text: needText() } };
-    case "doubleClick":
-      await driver.doubleClick({ text: needText() });
-      return { kind: "doubleClick", target: { text: needText() } };
-    case "hover":
-      await driver.hover({ text: needText() });
-      return { kind: "hover", target: { text: needText() } };
-    case "type":
-      await driver.type({ text: needText() }, decision.value ?? "");
-      return { kind: "type", target: { text: needText() }, text: decision.value ?? "" };
-    case "select":
-      await driver.select({ text: needText() }, decision.value ?? "");
-      return { kind: "select", target: { text: needText() }, value: decision.value ?? "" };
+    case "click": {
+      const target = await located();
+      await driver.click(target);
+      return { kind: "click", target };
+    }
+    case "doubleClick": {
+      const target = await located();
+      await driver.doubleClick(target);
+      return { kind: "doubleClick", target };
+    }
+    case "hover": {
+      const target = await located();
+      await driver.hover(target);
+      return { kind: "hover", target };
+    }
+    case "type": {
+      const target = await located();
+      await driver.type(target, decision.value ?? "");
+      return { kind: "type", target, text: decision.value ?? "" };
+    }
+    case "select": {
+      const target = await located();
+      await driver.select(target, decision.value ?? "");
+      return { kind: "select", target, value: decision.value ?? "" };
+    }
     case "pressKey":
       if (!decision.key) throw new Error('pressKey decision missing "key"');
       await driver.pressKey(decision.key);

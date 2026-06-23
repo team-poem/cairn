@@ -150,3 +150,15 @@
 - **결과:** 테스트 40→**43/43**, typecheck/build OK. 버전 **0.3.0**. 공개 API에 signal/onStep/screenshots/Driver.screenshot 추가(앱이 소비).
 - **남은 폴리시(0.3.x):** 클릭發 다이얼로그(MCP 한계) · hover 실측 · 전역 LLM 예산 · followNewTab 다중탭.
 - **다음:** v0.3.0 배포 → 프로젝트2(데스크탑 앱)는 이 포트로 시작 가능.
+
+## 2026-06-23 — Slack 리포트 대조 → 벤치마크 + 견고화 (v0.3.1·v0.4.0, 미배포 누적)
+- **방향:** 다른 세션이 Slack "Agentic Testing" 글로 cairn 평가(구조 A·검증 C). 리포트+원글 종합 →
+  "기능 추가"가 아니라 **측정·견고화**로 방향 전환. Slack 명제: *실행환경 안정성이 1순위 레버* · *에이전트는 CI회귀에 쓰지 마라*.
+- **벤치마크 하네스(`bench/`):** `benchmark.mjs`(discover 비용·replay flakiness) + `churn.mjs`(UI변경 생존·self-heal 비용).
+  - 결과: 실전 다단계(saucedemo 로그인+장바구니·todomvc SPA) **replay 4/4·4/4 결정적, LLM 0, ~4s**.
+  - 벤치가 엔진 버그 3개 발견·수정(`0.3.1`): parseDecision 다중객체 크래시 · discover 단언 observe-grounding(SPA navigated 오판) · no-failed-requests favicon 오탐.
+- **다중 로케이터 견고화(`0.4.0`):** `Target`에 `role`+`index`(구조 위치) 추가, `Driver.locate()`로 freeze시 enrich,
+  `resolveTargetUid`가 이름→role+index 폴백. **churn 측정: rename 생존 0/4→4/4, LLM 2/run→0/run** (self-heal 발동 0).
+  → Slack 논리대로 replay가 LLM 없이 UI변경 버팀. self-heal은 예외(재정렬·구조변경)만.
+- **한계:** role+index는 재정렬엔 약함 · self-heal은 element변경만(플로우변경은 재discover) · 토큰$ 미측정(턴수만).
+- **다음(미배포 누적, 한번에 배포 예정):** self-heal 관측신호 · discover 비용절감 · 의미단언. 배포는 0.4.0으로.

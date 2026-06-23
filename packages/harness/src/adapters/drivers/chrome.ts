@@ -28,6 +28,10 @@ const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
+  /** Per-MCP-call timeout (ms). A hung tool call rejects instead of wedging the run. Default 30s. */
+  timeoutMs?: number;
+  /** Timeout for the initial browser launch/connect (ms). Default 60s (first run may download). */
+  connectTimeoutMs?: number;
 }
 
 export class ChromeDevToolsDriver implements Driver {
@@ -58,6 +62,21 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
+  /** Reject after `ms` if `p` hasn't settled — so a hung MCP/subprocess never wedges the caller. */
+  private async withTimeout<T>(p: Promise<T>, ms: number, label: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        p,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
   private async ensureConnected(): Promise<Client> {
     if (this.client) return this.client;
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
@@ -65,7 +84,23 @@ export class ChromeDevToolsDriver implements Driver {
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
-    await client.connect(transport);
+    // If the subprocess dies mid-run, drop the dead client so the next call reconnects.
+    transport.onclose = () => {
+      if (this.client === client) {
+        this.client = undefined;
+        this.transport = undefined;
+      }
+    };
+    try {
+      await this.withTimeout(
+        client.connect(transport),
+        this.opts.connectTimeoutMs ?? 60_000,
+        "chrome-devtools-mcp connect",
+      );
+    } catch (err) {
+      await transport.close().catch(() => {}); // don't orphan the spawned subprocess
+      throw new Error(`failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
+    }
     this.client = client;
     this.transport = transport;
     return client;
@@ -73,10 +108,11 @@ export class ChromeDevToolsDriver implements Driver {
 
   private async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
     const client = await this.ensureConnected();
-    const res = (await client.callTool({ name, arguments: args })) as {
-      content?: Array<{ type: string; text?: string }>;
-      isError?: boolean;
-    };
+    const res = (await this.withTimeout(
+      client.callTool({ name, arguments: args }),
+      this.opts.timeoutMs ?? 30_000,
+      `MCP ${name}`,
+    )) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
     const text = (res.content ?? [])
       .filter((c) => c.type === "text" && typeof c.text === "string")
       .map((c) => c.text)
@@ -178,9 +214,13 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async close(): Promise<void> {
-    await this.client?.close().catch(() => {});
-    this.client = undefined;
+    const client = this.client;
+    const transport = this.transport;
+    this.client = undefined; // clear first so onclose treats this as an intentional close
     this.transport = undefined;
+    this.seenPages.clear();
+    await client?.close().catch(() => {});
+    await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }
 
   private async resolveUid(target: Target): Promise<string> {

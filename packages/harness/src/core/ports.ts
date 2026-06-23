@@ -28,7 +28,15 @@ export interface Planner {
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;
+  doubleClick(target: Target): Promise<void>;
+  hover(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
+  /** Choose an option in a `<select>` dropdown. */
+  select(target: Target, value: string): Promise<void>;
+  /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
+  pressKey(key: string): Promise<void>;
+  /** Scroll the page to reveal lazy/below-the-fold content. */
+  scroll(direction?: "down" | "up"): Promise<void>;
   snapshot(): Promise<PageElement[]>;
   /** Execute-stage auto-wait for network idle (design §3). Best-effort, time-bounded, never throws. */
   settle(options?: SettleOptions): Promise<void>;

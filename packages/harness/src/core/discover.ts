@@ -15,9 +15,11 @@ export interface DiscoverOptions {
 }
 
 export interface Decision {
-  action: "click" | "type" | "goto" | "done";
+  action: "click" | "doubleClick" | "hover" | "type" | "select" | "pressKey" | "scroll" | "goto" | "done";
   text?: string;
   value?: string;
+  key?: string;
+  direction?: "down" | "up";
   url?: string;
   reason?: string;
   assertions?: Assertion[];
@@ -27,10 +29,15 @@ const SYSTEM =
   "You are a QA agent driving a web browser to satisfy a natural-language intent. " +
   "At each turn you see the page's interactive elements and the actions taken so far. " +
   "Respond with ONE next action as strict JSON, no prose, no code fences. " +
-  'Schema: {"action":"click|type|goto|done","text":"<element name>","value":"<text to type>","url":"<url>","reason":"<short>"}. ' +
-  'Use "click"/"type" with the exact element name shown. Use "done" when the intent is achieved; ' +
-  'with "done" you may include "assertions": an array of {"kind":"navigated"} | {"kind":"no-failed-requests"} | ' +
-  '{"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
+  "Actions: " +
+  '{"action":"click","text":"<element>"} · {"action":"doubleClick","text":"<element>"} · ' +
+  '{"action":"hover","text":"<element>"} (reveals flyout/dropdown menus) · ' +
+  '{"action":"type","text":"<element>","value":"<text>"} · {"action":"select","text":"<element>","value":"<option>"} · ' +
+  '{"action":"pressKey","key":"Enter|Escape|Tab|..."} · {"action":"scroll","direction":"down|up"} (load lazy content) · ' +
+  '{"action":"goto","url":"<url>"} · {"action":"done"}. ' +
+  'Always add "reason":"<short>". Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
+  'Use "done" when the intent is achieved (or impossible); with "done" you may include "assertions": an array of ' +
+  '{"kind":"navigated"} | {"kind":"no-failed-requests"} | {"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
 
 function buildPrompt(intent: string, elements: PageElement[], steps: Step[], failures: string[]): string {
   const els = elements
@@ -80,15 +87,33 @@ function sanitizeAssertions(input: Assertion[] | undefined): Assertion[] {
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+  const needText = (): string => {
+    if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
+    return decision.text;
+  };
   switch (decision.action) {
     case "click":
-      if (!decision.text) throw new Error('click decision missing "text"');
-      await driver.click({ text: decision.text });
-      return { kind: "click", target: { text: decision.text } };
+      await driver.click({ text: needText() });
+      return { kind: "click", target: { text: needText() } };
+    case "doubleClick":
+      await driver.doubleClick({ text: needText() });
+      return { kind: "doubleClick", target: { text: needText() } };
+    case "hover":
+      await driver.hover({ text: needText() });
+      return { kind: "hover", target: { text: needText() } };
     case "type":
-      if (!decision.text) throw new Error('type decision missing "text"');
-      await driver.type({ text: decision.text }, decision.value ?? "");
-      return { kind: "type", target: { text: decision.text }, text: decision.value ?? "" };
+      await driver.type({ text: needText() }, decision.value ?? "");
+      return { kind: "type", target: { text: needText() }, text: decision.value ?? "" };
+    case "select":
+      await driver.select({ text: needText() }, decision.value ?? "");
+      return { kind: "select", target: { text: needText() }, value: decision.value ?? "" };
+    case "pressKey":
+      if (!decision.key) throw new Error('pressKey decision missing "key"');
+      await driver.pressKey(decision.key);
+      return { kind: "pressKey", key: decision.key };
+    case "scroll":
+      await driver.scroll(decision.direction);
+      return { kind: "scroll", direction: decision.direction };
     case "goto":
       if (!decision.url) throw new Error('goto decision missing "url"');
       await driver.goto(decision.url);

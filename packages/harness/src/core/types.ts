@@ -9,7 +9,12 @@ export interface Context {
 export type Step =
   | { kind: "goto"; url: string }
   | { kind: "click"; target: Target }
-  | { kind: "type"; target: Target; text: string };
+  | { kind: "doubleClick"; target: Target }
+  | { kind: "hover"; target: Target }
+  | { kind: "type"; target: Target; text: string }
+  | { kind: "select"; target: Target; value: string }
+  | { kind: "pressKey"; key: string }
+  | { kind: "scroll"; direction?: "down" | "up" };
 
 /** Locate an element by intent, not a driver handle: `text` = accessible name, `selector` = CSS fallback. */
 export interface Target {

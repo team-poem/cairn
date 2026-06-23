@@ -47,7 +47,7 @@ export function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
   return {
     ...scenario,
     steps: scenario.steps.map((step) => {
-      if ((step.kind === "click" || step.kind === "type") && step.target.text) {
+      if ("target" in step && step.target.text) {
         const healed = byOriginal.get(step.target.text);
         if (healed) return { ...step, target: { ...step.target, text: healed } };
       }

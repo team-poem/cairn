@@ -68,13 +68,35 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async click(target: Target): Promise<void> {
-    const uid = await this.resolveUid(target);
-    await this.call("click", { uid });
+    await this.call("click", { uid: await this.resolveUid(target) });
+  }
+
+  async doubleClick(target: Target): Promise<void> {
+    await this.call("click", { uid: await this.resolveUid(target), dblClick: true });
+  }
+
+  async hover(target: Target): Promise<void> {
+    await this.call("hover", { uid: await this.resolveUid(target) });
   }
 
   async type(target: Target, text: string): Promise<void> {
-    const uid = await this.resolveUid(target);
-    await this.call("fill", { uid, value: text });
+    await this.call("fill", { uid: await this.resolveUid(target), value: text });
+  }
+
+  async select(target: Target, value: string): Promise<void> {
+    // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
+    await this.call("fill", { uid: await this.resolveUid(target), value });
+  }
+
+  async pressKey(key: string): Promise<void> {
+    await this.call("press_key", { key });
+  }
+
+  async scroll(direction: "down" | "up" = "down"): Promise<void> {
+    const sign = direction === "up" ? "-" : "";
+    await this.call("evaluate_script", {
+      function: `() => { window.scrollBy(0, ${sign}window.innerHeight * 0.9); }`,
+    });
   }
 
   async snapshot(): Promise<PageElement[]> {

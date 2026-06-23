@@ -34,6 +34,35 @@ const scenario: Scenario = {
   assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }],
 };
 
+describe("pipeline — browser actions", () => {
+  it("executes hover / pressKey / scroll / select steps via the driver", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const actions: Scenario = {
+      name: "actions",
+      steps: [
+        { kind: "hover", target: { text: "Menu" } },
+        { kind: "pressKey", key: "Enter" },
+        { kind: "scroll", direction: "down" },
+        { kind: "select", target: { text: "Country" }, value: "KR" },
+      ],
+      assertions: [],
+    };
+    await runHarness(
+      {
+        context: new InlineContextProvider(),
+        planner: new StaticPlanner(actions),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      actions.name,
+    );
+    expect(driver.hovered).toEqual([{ text: "Menu" }]);
+    expect(driver.keys).toEqual(["Enter"]);
+    expect(driver.scrolls).toEqual(["down"]);
+  });
+});
+
 describe("pipeline", () => {
   it("runs Context→Plan→Execute→Judge→Report and passes on clean evidence", async () => {
     const driver = new FakeDriver({ evidence: evidence() });

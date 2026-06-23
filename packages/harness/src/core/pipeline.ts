@@ -3,21 +3,30 @@
  * is injected (invariant #2); with a fixed-scenario Planner + deterministic Critic, no LLM
  * runs (invariant #4).
  */
-import type { Harness } from "./ports.js";
+import type { Driver, Harness } from "./ports.js";
 import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
+
+/** A product-defined interaction for a `{ kind: "custom", name }` step — composes the Driver. */
+export type CustomAction = (driver: Driver, params: Record<string, unknown>) => Promise<void>;
 
 /**
  * Seams a host (CLI, desktop app, CI) plugs into — the engine emits/accepts, the host
  * decides what to do. `onStep` for a live timeline, `captureScreenshots` for visual
- * replay, `signal` for a Stop button. None of these put UI in the engine.
+ * replay, `signal` for a Stop button, `actions` for product-defined interactions. None of
+ * these put UI in the engine.
  */
 export interface RunHarnessOptions {
   signal?: AbortSignal;
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
+  actions?: Record<string, CustomAction>;
 }
 
-async function executeStep(driver: Harness["driver"], step: Step): Promise<ExecutedAction> {
+async function executeStep(
+  driver: Harness["driver"],
+  step: Step,
+  actions: Record<string, CustomAction>,
+): Promise<ExecutedAction> {
   try {
     switch (step.kind) {
       case "goto":
@@ -44,6 +53,12 @@ async function executeStep(driver: Harness["driver"], step: Step): Promise<Execu
       case "scroll":
         await driver.scroll(step.direction);
         break;
+      case "custom": {
+        const handler = actions[step.name];
+        if (!handler) throw new Error(`no handler registered for custom action "${step.name}"`);
+        await handler(driver, step.params ?? {});
+        break;
+      }
       default: {
         const unhandled: never = step;
         throw new Error(`unhandled step kind: ${JSON.stringify(unhandled)}`);
@@ -70,7 +85,7 @@ export async function runHarness(
   try {
     for (const step of scenario.steps) {
       opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-      const result = await executeStep(driver, step);
+      const result = await executeStep(driver, step, opts.actions ?? {});
       actions.push(result);
       if (opts.onStep) {
         const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;

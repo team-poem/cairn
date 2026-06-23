@@ -2,7 +2,7 @@
 export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";
-export type { RunHarnessOptions } from "./core/pipeline.js";
+export type { RunHarnessOptions, CustomAction } from "./core/pipeline.js";
 export { runScenario, needsLlmCritic, applyHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 

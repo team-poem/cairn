@@ -15,8 +15,23 @@ async function executeStep(driver: Harness["driver"], step: Step): Promise<Execu
       case "click":
         await driver.click(step.target);
         break;
+      case "doubleClick":
+        await driver.doubleClick(step.target);
+        break;
+      case "hover":
+        await driver.hover(step.target);
+        break;
       case "type":
         await driver.type(step.target, step.text);
+        break;
+      case "select":
+        await driver.select(step.target, step.value);
+        break;
+      case "pressKey":
+        await driver.pressKey(step.key);
+        break;
+      case "scroll":
+        await driver.scroll(step.direction);
         break;
     }
     return { step, ok: true };

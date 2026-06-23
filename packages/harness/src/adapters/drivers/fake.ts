@@ -14,24 +14,52 @@ export class FakeDriver implements Driver {
   settled = false;
   readonly visited: string[] = [];
   readonly clicked: Target[] = [];
+  readonly hovered: Target[] = [];
+  readonly keys: string[] = [];
+  readonly scrolls: string[] = [];
 
   constructor(private readonly script: FakeScript) {}
+
+  /** Throws if the target is in `failOn`, simulating an unresolvable element. */
+  private resolve(target: Target): void {
+    if (target.text && this.script.failOn?.includes(target.text)) {
+      throw new Error(`element not found: ${target.text}`);
+    }
+  }
 
   async goto(url: string): Promise<void> {
     this.visited.push(url);
   }
 
   async click(target: Target): Promise<void> {
-    if (target.text && this.script.failOn?.includes(target.text)) {
-      throw new Error(`element not found: ${target.text}`);
-    }
+    this.resolve(target);
     this.clicked.push(target);
   }
 
+  async doubleClick(target: Target): Promise<void> {
+    this.resolve(target);
+    this.clicked.push(target);
+  }
+
+  async hover(target: Target): Promise<void> {
+    this.resolve(target);
+    this.hovered.push(target);
+  }
+
   async type(target: Target, _text: string): Promise<void> {
-    if (target.text && this.script.failOn?.includes(target.text)) {
-      throw new Error(`element not found: ${target.text}`);
-    }
+    this.resolve(target);
+  }
+
+  async select(target: Target, _value: string): Promise<void> {
+    this.resolve(target);
+  }
+
+  async pressKey(key: string): Promise<void> {
+    this.keys.push(key);
+  }
+
+  async scroll(direction: "down" | "up" = "down"): Promise<void> {
+    this.scrolls.push(direction);
   }
 
   async snapshot(): Promise<PageElement[]> {

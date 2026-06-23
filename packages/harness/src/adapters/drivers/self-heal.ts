@@ -71,8 +71,23 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.click(target);
     } catch (err) {
-      const healed = await this.heal(target, err);
-      await this.inner.click({ text: healed });
+      await this.inner.click({ text: await this.heal(target, err) });
+    }
+  }
+
+  async doubleClick(target: Target): Promise<void> {
+    try {
+      await this.inner.doubleClick(target);
+    } catch (err) {
+      await this.inner.doubleClick({ text: await this.heal(target, err) });
+    }
+  }
+
+  async hover(target: Target): Promise<void> {
+    try {
+      await this.inner.hover(target);
+    } catch (err) {
+      await this.inner.hover({ text: await this.heal(target, err) });
     }
   }
 
@@ -80,9 +95,24 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.type(target, text);
     } catch (err) {
-      const healed = await this.heal(target, err);
-      await this.inner.type({ text: healed }, text);
+      await this.inner.type({ text: await this.heal(target, err) }, text);
     }
+  }
+
+  async select(target: Target, value: string): Promise<void> {
+    try {
+      await this.inner.select(target, value);
+    } catch (err) {
+      await this.inner.select({ text: await this.heal(target, err) }, value);
+    }
+  }
+
+  pressKey(key: string): Promise<void> {
+    return this.inner.pressKey(key);
+  }
+
+  scroll(direction?: "down" | "up"): Promise<void> {
+    return this.inner.scroll(direction);
   }
 
   snapshot(): Promise<PageElement[]> {

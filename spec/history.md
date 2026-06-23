@@ -126,3 +126,14 @@
 - **남은 갭(실전이 드러냄):** Driver에 **hover 없음** → 호버/flyout 메뉴(예: 내비의 Ktown4U) 못 펼침. 텍스트 클릭만 가능.
   (해당 스토어 URL은 점검/404였음도 확인.) → 다음 후보: Driver hover 액션.
 - **다음:** v0.1.1 재배포 여부 · Driver hover · v2(git diff ContextProvider).
+
+## 2026-06-23 — 브라우저 액션 세트 확장 (v0.2.0)
+- **목표:** hover만 찔끔이 아니라, 실제 자동화에 필요한 핵심 액션을 한 번에 갖추고 재배포.
+- **한 일(`feat/driver-actions`):** Driver 포트 + Step 타입 + discover 어휘 + 파이프라인 동시 확장 —
+  **hover**(flyout 메뉴) · **pressKey**(Enter/Escape/Tab) · **select**(드롭다운) · **doubleClick** · **scroll**(지연로딩).
+  chrome-devtools-mcp 도구로 매핑(hover/press_key/fill/click+dblClick/evaluate-scroll). FakeDriver 기록, SelfHealingDriver는
+  target 기반 액션(click/doubleClick/hover/type/select) 모두 heal, pressKey/scroll은 위임. applyHeals를 모든 target 스텝으로 일반화.
+- **결과:** typecheck/37테스트/build OK. 버전 0.2.0.
+- **실전 재시도(Ktown4U):** 액션은 다 있으나 LLM이 hover 미선택(클릭 실패→메뉴 연결 못 함, 프롬프트/모델 튜닝 영역).
+  + `/store/ktown4u`가 일관되게 점검/404 → 스토어 자체가 다운(=플로우 불가, 능력 문제 아님). 해당 플로우는 보류.
+- **다음:** v0.2.0 재배포 · (선택)discover 프롬프트 튜닝으로 hover 유도 · v2(git diff ContextProvider).

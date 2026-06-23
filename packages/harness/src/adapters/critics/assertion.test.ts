@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { checkAssertion } from "./assertion.js";
+import { checkAssertion, AssertionCritic } from "./assertion.js";
 import type { Evidence } from "../../core/types.js";
 
 function ev(requests: { method: string; url: string; status: number }[]): Evidence {
@@ -22,5 +22,23 @@ describe("no-failed-requests", () => {
       { method: "GET", url: "https://app/api/orders", status: 500 },
     ]));
     expect(r.passed).toBe(false);
+  });
+});
+
+describe("custom assertions — the host defines success", () => {
+  it("runs a product-registered check", async () => {
+    const critic = new AssertionCritic({
+      "ordered-via": (params, evidence) =>
+        evidence.logic.requests.some((r) => r.url.includes(String(params.path)) && r.status === 200),
+    });
+    const evidence = ev([{ method: "POST", url: "https://shop/api/checkout", status: 200 }]);
+    const v = await critic.judge(evidence, [{ kind: "custom", name: "ordered-via", params: { path: "/api/checkout" } }]);
+    expect(v.passed).toBe(true);
+  });
+
+  it("fails clearly when no handler is registered", async () => {
+    const v = await new AssertionCritic().judge(ev([]), [{ kind: "custom", name: "unknown" }]);
+    expect(v.passed).toBe(false);
+    expect(v.results[0]?.detail).toContain("no custom check registered");
   });
 });

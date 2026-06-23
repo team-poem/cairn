@@ -38,7 +38,9 @@ export type Assertion =
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
   | { kind: "request-status"; urlIncludes: string; status: number }
-  | { kind: "expect"; criterion: string };
+  | { kind: "expect"; criterion: string }
+  /** A product-defined success criterion: the host registers a handler for `name`. */
+  | { kind: "custom"; name: string; params?: Record<string, unknown> };
 
 export interface Scenario {
   name: string;

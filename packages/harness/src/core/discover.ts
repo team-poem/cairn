@@ -4,7 +4,7 @@
  * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
 import type { Driver, LlmClient } from "./ports.js";
-import type { Assertion, PageElement, Scenario, Step } from "./types.js";
+import type { Assertion, Evidence, PageElement, Scenario, Step } from "./types.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -65,26 +65,58 @@ function buildPrompt(intent: string, elements: PageElement[], steps: Step[], fai
   ].join("\n");
 }
 
-/** First JSON object in a model reply, tolerating code fences and surrounding prose. */
+/** First JSON object in a model reply, tolerating fences, prose, and trailing extra objects. */
 export function parseDecision(text: string): Decision {
-  let s = text.trim();
-  s = s.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-  if (start === -1 || end === -1 || end < start) {
-    throw new Error(`no JSON object in model reply: ${text.slice(0, 200)}`);
-  }
-  const obj = JSON.parse(s.slice(start, end + 1)) as Decision;
-  if (!obj.action) throw new Error(`decision missing "action": ${s.slice(0, 200)}`);
+  const obj = extractFirstJsonObject(text) as Decision | undefined;
+  if (!obj) throw new Error(`no JSON object in model reply: ${text.slice(0, 200)}`);
+  if (!obj.action) throw new Error(`decision missing "action": ${text.slice(0, 200)}`);
   return obj;
 }
 
-const KNOWN_KINDS = new Set(["navigated", "no-failed-requests", "no-console-errors", "request-status"]);
+/**
+ * Extract the FIRST complete balanced {...} object. Slicing first-`{` to last-`}` breaks
+ * when a model emits two objects or trailing text (a real crash seen on complex flows);
+ * this scans braces (string-aware) and stops at the first balanced close.
+ */
+function extractFirstJsonObject(text: string): unknown {
+  const s = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const start = s.indexOf("{");
+  if (start === -1) return undefined;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === "\\") esc = true;
+      else if (ch === '"') inStr = false;
+    } else if (ch === '"') inStr = true;
+    else if (ch === "{") depth++;
+    else if (ch === "}" && --depth === 0) {
+      try {
+        return JSON.parse(s.slice(start, i + 1));
+      } catch {
+        return undefined;
+      }
+    }
+  }
+  return undefined;
+}
 
-/** Drop assertions the deterministic critic can't evaluate; fall back to a safe default. */
-function sanitizeAssertions(input: Assertion[] | undefined): Assertion[] {
-  const valid = (input ?? []).filter((a) => a && KNOWN_KINDS.has((a as { kind: string }).kind));
-  return valid.length ? valid : [{ kind: "no-failed-requests" }];
+/**
+ * Ground the frozen scenario's assertions in what actually happened, not what the LLM
+ * guessed — it would propose `navigated` even on a SPA that never navigates, making every
+ * replay fail. Always check requests; add `navigated` only if the run truly navigated;
+ * keep any LLM-proposed `request-status` (still deterministic).
+ */
+function deriveAssertions(proposed: Assertion[] | undefined, evidence: Evidence): Assertion[] {
+  const out: Assertion[] = [{ kind: "no-failed-requests" }];
+  if (evidence.execution.navigated) out.push({ kind: "navigated" });
+  for (const a of proposed ?? []) {
+    if (a && (a as { kind: string }).kind === "request-status") out.push(a);
+  }
+  return out;
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
@@ -142,11 +174,20 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     await driver.settle();
     const elements = await driver.snapshot();
     const reply = await llm.complete(buildPrompt(intent, elements, steps, failures), { system: SYSTEM });
-    const decision = parseDecision(reply);
+
+    let decision: Decision;
+    try {
+      decision = parseDecision(reply);
+    } catch {
+      // A malformed reply must not kill the whole discovery — nudge and retry.
+      failures.push("your previous reply was not a single valid JSON action object");
+      continue;
+    }
 
     if (decision.action === "done") {
       onStep?.(decision);
-      return { name: intent, steps, assertions: sanitizeAssertions(decision.assertions) };
+      const evidence = await driver.observe();
+      return { name: intent, steps, assertions: deriveAssertions(decision.assertions, evidence) };
     }
 
     try {

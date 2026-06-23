@@ -34,8 +34,29 @@ export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
   private transport?: StdioClientTransport;
   private initialUrl?: string;
+  private readonly seenPages = new Set<number>();
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
+
+  private async trackPages(): Promise<void> {
+    try {
+      parsePageIds(await this.call("list_pages")).forEach((id) => this.seenPages.add(id));
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  /** If the last action opened a new tab, switch to it — else later actions silently hit the wrong page. */
+  private async followNewTab(): Promise<void> {
+    try {
+      const ids = parsePageIds(await this.call("list_pages"));
+      const fresh = ids.filter((id) => !this.seenPages.has(id));
+      ids.forEach((id) => this.seenPages.add(id));
+      if (fresh.length) await this.call("select_page", { pageId: Math.max(...fresh) });
+    } catch {
+      /* best-effort */
+    }
+  }
 
   private async ensureConnected(): Promise<Client> {
     if (this.client) return this.client;
@@ -66,15 +87,19 @@ export class ChromeDevToolsDriver implements Driver {
 
   async goto(url: string): Promise<void> {
     if (this.initialUrl === undefined) this.initialUrl = url;
-    await this.call("navigate_page", { type: "url", url });
+    // accept beforeunload so leaving a dirty form/page doesn't hang on a dialog.
+    await this.call("navigate_page", { type: "url", url, handleBeforeUnload: "accept" });
+    await this.trackPages();
   }
 
   async click(target: Target): Promise<void> {
     await this.call("click", { uid: await this.resolveUid(target) });
+    await this.followNewTab();
   }
 
   async doubleClick(target: Target): Promise<void> {
     await this.call("click", { uid: await this.resolveUid(target), dblClick: true });
+    await this.followNewTab();
   }
 
   async hover(target: Target): Promise<void> {
@@ -112,17 +137,21 @@ export class ChromeDevToolsDriver implements Driver {
     const idleMs = options.idleMs ?? 1_000;
     const timeoutMs = options.timeoutMs ?? 10_000;
     const pollMs = options.pollMs ?? 250;
+    // Tolerate a trickle of background traffic (analytics beacons, polling, websockets) so
+    // those sites reach "idle" instead of always burning the full timeout; a real load
+    // burst (>1 new request in the window) still resets the wait.
+    const tolerance = 1;
     const deadline = Date.now() + timeoutMs;
-    let lastCount = -1;
-    let stableSince = Date.now();
+    let windowStart = Date.now();
+    let windowBase = -1;
     try {
       while (Date.now() < deadline) {
         const count = parseNetwork(await this.call("list_network_requests")).length;
-        if (count !== lastCount) {
-          lastCount = count;
-          stableSince = Date.now();
-        } else if (Date.now() - stableSince >= idleMs) {
-          return; // count held steady long enough — treat as network-idle
+        if (windowBase < 0 || count - windowBase > tolerance) {
+          windowBase = count;
+          windowStart = Date.now();
+        } else if (Date.now() - windowStart >= idleMs) {
+          return; // at most a trickle over idleMs — treat as network-idle
         }
         await delay(pollMs);
       }
@@ -229,6 +258,16 @@ export function normalizeUrl(u: string): string {
 export function isNavigation(initialUrl: string | undefined, finalUrl: string): boolean {
   if (initialUrl === undefined) return true;
   return normalizeUrl(initialUrl) !== normalizeUrl(finalUrl);
+}
+
+/** `4: Example Domain (…) [selected]` → page ids [4]. Ids are stable, increasing numbers. */
+export function parsePageIds(text: string): number[] {
+  const ids: number[] = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^\s*(\d+):/);
+    if (m) ids.push(Number(m[1]));
+  }
+  return ids;
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

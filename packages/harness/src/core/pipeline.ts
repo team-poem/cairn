@@ -33,6 +33,10 @@ async function executeStep(driver: Harness["driver"], step: Step): Promise<Execu
       case "scroll":
         await driver.scroll(step.direction);
         break;
+      default: {
+        const unhandled: never = step;
+        throw new Error(`unhandled step kind: ${JSON.stringify(unhandled)}`);
+      }
     }
     return { step, ok: true };
   } catch (err) {

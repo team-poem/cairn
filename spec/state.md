@@ -23,8 +23,11 @@
 
 ## 살아있는 계약/결정
 - 아키텍처 불변식 → `spec/architecture.md`.
-- **코드 구조: Ports & Adapters(헥사고날).** `src/core/`(도메인+포트: types·ports·pipeline·discover) ↔
+- **코드 구조: Ports & Adapters(헥사고날).** `src/core/`(도메인+포트: types·ports·pipeline·discover·steps) ↔
   `src/adapters/`(구현). `run.ts`=조립(루트). 의존방향 adapters→core. 공개 API=`src/index.ts` 배럴.
+- **Execute/Judge 디스패치:** 종류별 분기는 `StepHandler`/`AssertionHandler` 포트로 라우팅(`supports()→execute()/judge()`).
+  built-in `switch`는 `BuiltinStepHandler`에 캡슐화(타입 누락검사 유지), custom 레지스트리는 핸들러로 흡수. 새 액션·단언=핸들러 등록(core 불변).
+  기본 핸들러는 `core/steps.ts`(Driver포트·Step타입만 의존 → 의존방향 유지).
 - 기본 드라이버: Chrome DevTools MCP.
 - 형태: **임베드 엔진 + 얇은 CLI.** 데스크탑은 별도 프로젝트(엔진 install).
 - 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.

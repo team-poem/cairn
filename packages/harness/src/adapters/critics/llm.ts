@@ -4,9 +4,9 @@
  * none makes zero LLM calls and stays deterministic (invariant #4). Judgment is grounded in the
  * three-layer evidence (design §6), behind the LlmClient seam (invariant #5).
  */
-import { resolveAssertion } from "./assertion.js";
+import { CustomAssertionHandler, MechanicalAssertionHandler, judgeAssertion } from "./assertion.js";
 import type { CustomChecks } from "./assertion.js";
-import type { Critic, LlmClient } from "../../core/ports.js";
+import type { AssertionHandler, Critic, LlmClient } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
 
 const SYSTEM =
@@ -42,15 +42,18 @@ function parseVerdict(text: string): { passed: boolean; detail?: string } {
   return { passed: obj.passed === true, detail: typeof obj.detail === "string" ? obj.detail : undefined };
 }
 
-export class LlmCritic implements Critic {
-  constructor(
-    private readonly llm: LlmClient,
-    private readonly custom: CustomChecks = {},
-  ) {}
+/** Judges natural-language `expect` criteria with an LLM, grounded in the three-layer evidence. */
+export class ExpectAssertionHandler implements AssertionHandler {
+  constructor(private readonly llm: LlmClient) {}
 
-  private async judgeExpect(criterion: string, evidence: Evidence, assertion: Assertion): Promise<AssertionResult> {
+  supports(assertion: Assertion): boolean {
+    return assertion.kind === "expect";
+  }
+
+  async judge(assertion: Assertion, evidence: Evidence): Promise<AssertionResult> {
+    if (assertion.kind !== "expect") throw new Error(`expect handler received "${assertion.kind}" assertion`);
     const prompt = [
-      `Success criterion: ${criterion}`,
+      `Success criterion: ${assertion.criterion}`,
       ``,
       `Evidence:`,
       summarizeEvidence(evidence),
@@ -65,15 +68,23 @@ export class LlmCritic implements Critic {
       return { assertion, passed: false, detail: `LLM judgment failed: ${err instanceof Error ? err.message : String(err)}` };
     }
   }
+}
+
+export class LlmCritic implements Critic {
+  private readonly handlers: AssertionHandler[];
+
+  constructor(llm: LlmClient, custom: CustomChecks = {}) {
+    // `expect` → LLM (first, so it wins); everything else falls through to the same
+    // mechanical/custom handlers AssertionCritic uses. The two critics differ only here.
+    this.handlers = [
+      new ExpectAssertionHandler(llm),
+      new MechanicalAssertionHandler(),
+      new CustomAssertionHandler(custom),
+    ];
+  }
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
-    const results = await Promise.all(
-      assertions.map((a) =>
-        a.kind === "expect"
-          ? this.judgeExpect(a.criterion, evidence, a)
-          : resolveAssertion(a, evidence, this.custom),
-      ),
-    );
+    const results = await Promise.all(assertions.map((a) => judgeAssertion(this.handlers, a, evidence)));
     return { passed: results.every((r) => r.passed), results };
   }
 }

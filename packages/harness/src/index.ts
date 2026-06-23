@@ -2,15 +2,23 @@
 export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";
-export type { RunHarnessOptions, CustomAction } from "./core/pipeline.js";
+export type { RunHarnessOptions } from "./core/pipeline.js";
+export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";
-export { AssertionCritic, checkAssertion, resolveAssertion } from "./adapters/critics/assertion.js";
+export {
+  AssertionCritic,
+  checkAssertion,
+  resolveAssertion,
+  judgeAssertion,
+  MechanicalAssertionHandler,
+  CustomAssertionHandler,
+} from "./adapters/critics/assertion.js";
 export type { CustomCheck, CustomChecks } from "./adapters/critics/assertion.js";
-export { LlmCritic, summarizeEvidence } from "./adapters/critics/llm.js";
+export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { JsonReporter } from "./adapters/reporters/json.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";

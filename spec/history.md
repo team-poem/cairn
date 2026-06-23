@@ -137,3 +137,16 @@
 - **실전 재시도(Ktown4U):** 액션은 다 있으나 LLM이 hover 미선택(클릭 실패→메뉴 연결 못 함, 프롬프트/모델 튜닝 영역).
   + `/store/ktown4u`가 일관되게 점검/404 → 스토어 자체가 다운(=플로우 불가, 능력 문제 아님). 해당 플로우는 보류.
 - **다음:** v0.2.0 재배포 · (선택)discover 프롬프트 튜닝으로 hover 유도 · v2(git diff ContextProvider).
+
+## 2026-06-23 — 데스크탑 임베드용 안정화 (v0.3.0)
+- **목표:** 데스크탑 앱을 올릴 수 있을 만큼 엔진 안정화. **경계 원칙:** 앱 기능(UI)은 앱에 위임, 엔진엔 엔진 능력+포트만.
+- **독립 감사**(subagent)로 P0/P1/P2 도출 후 3라운드:
+  - **R1 견고성:** 모든 MCP 호출/connect 타임아웃(멈춤 방지) · 연결사망 감지→재연결 · spawn실패/close 시 서브프로세스 누수 차단 ·
+    anthropic fetch 타임아웃+429/5xx 재시도.
+  - **R2 데스크탑 포트:** `onStep`(스텝 진행 이벤트) · `Driver.screenshot()`+스텝별 캡처(시각리플레이) · `AbortSignal`(취소).
+    runHarness/runScenario/discover에 배선. 라이브 검증(실브라우저 PNG dataURL).
+  - **R3 최적화+정확도:** snapshot 캐시(한 스텝 내 중복 take_snapshot 제거) · **parseConsole 실포맷(`msgid=N [type] text`) 수정** —
+    기존 정규식이 `[error]` 포맷을 못 잡아 `no-console-errors`가 *항상 통과*(콘솔에러 무검출)하던 버그 → 이제 검출(라이브 확인).
+- **결과:** 테스트 40→**43/43**, typecheck/build OK. 버전 **0.3.0**. 공개 API에 signal/onStep/screenshots/Driver.screenshot 추가(앱이 소비).
+- **남은 폴리시(0.3.x):** 클릭發 다이얼로그(MCP 한계) · hover 실측 · 전역 LLM 예산 · followNewTab 다중탭.
+- **다음:** v0.3.0 배포 → 프로젝트2(데스크탑 앱)는 이 포트로 시작 가능.

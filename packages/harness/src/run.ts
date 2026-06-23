@@ -25,6 +25,8 @@ export interface RunScenarioOptions {
   llm?: LlmClient;
   /** Wrap the driver so broken steps are repaired by the LLM and retried. */
   heal?: boolean;
+  /** Fired on each self-heal — a host's signal that the frozen scenario is aging. */
+  onHeal?: (heal: Heal) => void;
   model?: string;
   /** Abort the run between steps (a host's Stop button). */
   signal?: AbortSignal;
@@ -74,7 +76,9 @@ export async function runScenario(
 
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   let healer: SelfHealingDriver | undefined;
-  const driver = opts.heal ? (healer = new SelfHealingDriver(baseDriver, getLlm())) : baseDriver;
+  const driver = opts.heal
+    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal: opts.onHeal }))
+    : baseDriver;
 
   const result = await runHarness(
     {

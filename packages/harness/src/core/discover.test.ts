@@ -61,8 +61,11 @@ describe("discover", () => {
       { kind: "click", target: { text: "Add to cart", role: "link", index: 0 } },
       { kind: "click", target: { text: "Checkout", role: "button", index: 0 } },
     ]);
-    // assertions are grounded in observed evidence (navigated:true here), not the LLM's guess
-    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "navigated" }]);
+    // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
+    expect(scenario.assertions).toEqual([
+      { kind: "no-failed-requests" },
+      { kind: "navigated", to: "shop/cart" },
+    ]);
     expect(driver.clicked).toHaveLength(2);
   });
 

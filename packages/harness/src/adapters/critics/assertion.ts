@@ -1,6 +1,6 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
-import type { Critic } from "../../core/ports.js";
-import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
+import type { AssertionHandler, Critic } from "../../core/ports.js";
+import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
 export type CustomCheck = (
@@ -9,21 +9,6 @@ export type CustomCheck = (
 ) => boolean | { passed: boolean; detail?: string } | Promise<boolean | { passed: boolean; detail?: string }>;
 
 export type CustomChecks = Record<string, CustomCheck>;
-
-/** Resolve any assertion — a registered `custom` handler, else the built-in mechanical check. */
-export async function resolveAssertion(
-  assertion: Assertion,
-  evidence: Evidence,
-  custom: CustomChecks = {},
-): Promise<AssertionResult> {
-  if (assertion.kind === "custom") {
-    const handler = custom[assertion.name];
-    if (!handler) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"` };
-    const r = await handler(assertion.params ?? {}, evidence);
-    return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
-  }
-  return checkAssertion(assertion, evidence);
-}
 
 /** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. */
 function isBenignRequest(url: string): boolean {
@@ -68,12 +53,65 @@ export function checkAssertion(assertion: Assertion, evidence: Evidence): Assert
   }
 }
 
-export class AssertionCritic implements Critic {
-  /** @param custom product-defined checks for `custom` assertions, keyed by name. */
+/** Built-in mechanical checks — every kind except product `custom` (`expect` yields its LlmCritic hint). */
+export class MechanicalAssertionHandler implements AssertionHandler {
+  supports(assertion: Assertion): boolean {
+    return assertion.kind !== "custom";
+  }
+
+  judge(assertion: Assertion, evidence: Evidence): AssertionResult {
+    return checkAssertion(assertion, evidence);
+  }
+}
+
+/** Product-defined `{ kind: "custom", name }` checks via a name→check registry. */
+export class CustomAssertionHandler implements AssertionHandler {
   constructor(private readonly custom: CustomChecks = {}) {}
 
+  supports(assertion: Assertion): boolean {
+    return assertion.kind === "custom";
+  }
+
+  async judge(assertion: Assertion, evidence: Evidence): Promise<AssertionResult> {
+    if (assertion.kind !== "custom") throw new Error(`custom handler received "${assertion.kind}" assertion`);
+    const check = this.custom[assertion.name];
+    if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"` };
+    const r = await check(assertion.params ?? {}, evidence);
+    return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
+  }
+}
+
+/** Route one assertion to the first handler that supports it (mirror of the Execute-stage step dispatch). */
+export async function judgeAssertion(
+  handlers: AssertionHandler[],
+  assertion: Assertion,
+  evidence: Evidence,
+  ctx?: Context,
+): Promise<AssertionResult> {
+  const handler = handlers.find((h) => h.supports(assertion));
+  if (!handler) return { assertion, passed: false, detail: `no critic handles "${assertion.kind}"` };
+  return handler.judge(assertion, evidence, ctx);
+}
+
+/** Resolve any assertion — a registered `custom` handler, else the built-in mechanical check. */
+export function resolveAssertion(
+  assertion: Assertion,
+  evidence: Evidence,
+  custom: CustomChecks = {},
+): Promise<AssertionResult> {
+  return judgeAssertion([new MechanicalAssertionHandler(), new CustomAssertionHandler(custom)], assertion, evidence);
+}
+
+export class AssertionCritic implements Critic {
+  private readonly handlers: AssertionHandler[];
+
+  /** @param custom product-defined checks for `custom` assertions, keyed by name. */
+  constructor(custom: CustomChecks = {}) {
+    this.handlers = [new MechanicalAssertionHandler(), new CustomAssertionHandler(custom)];
+  }
+
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
-    const results = await Promise.all(assertions.map((a) => resolveAssertion(a, evidence, this.custom)));
+    const results = await Promise.all(assertions.map((a) => judgeAssertion(this.handlers, a, evidence)));
     return { passed: results.every((r) => r.passed), results };
   }
 }

@@ -4,12 +4,14 @@
  */
 import type {
   Assertion,
+  AssertionResult,
   Context,
   Evidence,
   PageElement,
   Result,
   Scenario,
   SettleOptions,
+  Step,
   Target,
   Verdict,
 } from "./types.js";
@@ -48,6 +50,19 @@ export interface Driver {
   close(): Promise<void>;
 }
 
+/** A product-defined interaction for a `{ kind: "custom", name }` step — composes the Driver. */
+export type CustomAction = (driver: Driver, params: Record<string, unknown>) => Promise<void>;
+
+/**
+ * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step
+ * to the first handler that `supports` it, instead of branching inside the stage. Built-in kinds
+ * and product `custom` actions resolve through this one seam (Spring `HandlerAdapter`-style).
+ */
+export interface StepHandler {
+  supports(step: Step): boolean;
+  execute(step: Step, driver: Driver): Promise<void>;
+}
+
 export interface Skill {
   name: string;
   scenario: Scenario;
@@ -55,6 +70,21 @@ export interface Skill {
 
 export interface SkillStore {
   resolve(name: string): Promise<Skill | undefined>;
+}
+
+/**
+ * One link in the Judge stage's dispatch chain (mirror of StepHandler): a Critic routes each
+ * Assertion to the first handler that `supports` it. Mechanical, product `custom`, and LLM
+ * `expect` checks compose as separate handlers — critics differ only by which they register.
+ * Optional `ctx` grounds LLM judgment (e.g. the task intent); deterministic handlers ignore it.
+ */
+export interface AssertionHandler {
+  supports(assertion: Assertion): boolean;
+  judge(
+    assertion: Assertion,
+    evidence: Evidence,
+    ctx?: Context,
+  ): AssertionResult | Promise<AssertionResult>;
 }
 
 /** Judges evidence against assertions (mechanical, baseline, or LLM). Optional `ctx` grounds LLM judgment (e.g. the task intent); deterministic critics ignore it, so replay stays deterministic (invariant #4). */

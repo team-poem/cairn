@@ -7,7 +7,7 @@
 import { resolveAssertion } from "./assertion.js";
 import type { CustomChecks } from "./assertion.js";
 import type { Critic, LlmClient } from "../../core/ports.js";
-import type { Assertion, AssertionResult, Evidence, Verdict } from "../../core/types.js";
+import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
 
 const SYSTEM =
   "You are a QA critic. Given observed evidence from a browser run and a success " +
@@ -48,15 +48,18 @@ export class LlmCritic implements Critic {
     private readonly custom: CustomChecks = {},
   ) {}
 
-  private async judgeExpect(criterion: string, evidence: Evidence, assertion: Assertion): Promise<AssertionResult> {
-    const prompt = [
+  private async judgeExpect(criterion: string, evidence: Evidence, assertion: Assertion, intent?: string): Promise<AssertionResult> {
+    const lines = [
       `Success criterion: ${criterion}`,
       ``,
       `Evidence:`,
       summarizeEvidence(evidence),
       ``,
       `Is the criterion satisfied? Respond with JSON only.`,
-    ].join("\n");
+    ];
+    // Ground the judgment in the run's intent when a ContextProvider supplied one.
+    if (intent) lines.unshift(`Task intent: ${intent}`, ``);
+    const prompt = lines.join("\n");
     try {
       const reply = await this.llm.complete(prompt, { system: SYSTEM });
       const v = parseVerdict(reply);
@@ -66,11 +69,11 @@ export class LlmCritic implements Critic {
     }
   }
 
-  async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
+  async judge(evidence: Evidence, assertions: Assertion[], ctx?: Context): Promise<Verdict> {
     const results = await Promise.all(
       assertions.map((a) =>
         a.kind === "expect"
-          ? this.judgeExpect(a.criterion, evidence, a)
+          ? this.judgeExpect(a.criterion, evidence, a, ctx?.intent)
           : resolveAssertion(a, evidence, this.custom),
       ),
     );

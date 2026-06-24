@@ -103,7 +103,7 @@ export async function runHarness(
       execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
     };
 
-    const verdict = await critic.judge(evidence, scenario.assertions);
+    const verdict = await critic.judge(evidence, scenario.assertions, ctx);
     const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
     await reporter.emit(out);
     return out;

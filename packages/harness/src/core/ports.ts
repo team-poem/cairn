@@ -57,9 +57,9 @@ export interface SkillStore {
   resolve(name: string): Promise<Skill | undefined>;
 }
 
-/** Judges evidence against assertions (mechanical, baseline, or LLM). */
+/** Judges evidence against assertions (mechanical, baseline, or LLM). Optional `ctx` grounds LLM judgment (e.g. the task intent); deterministic critics ignore it, so replay stays deterministic (invariant #4). */
 export interface Critic {
-  judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict>;
+  judge(evidence: Evidence, assertions: Assertion[], ctx?: Context): Promise<Verdict>;
 }
 
 /** Emits a result anywhere — console, json, an arbitrary tracker. */

@@ -53,4 +53,36 @@ describe("LlmCritic", () => {
     expect(verdict.passed).toBe(false);
     expect(verdict.results[0]?.detail).toContain("LLM judgment failed");
   });
+
+  it("grounds the LLM judgment in the run's intent when context provides one", async () => {
+    let captured = "";
+    const llm: LlmClient = {
+      id: "capture",
+      async complete(prompt: string) {
+        captured = prompt;
+        return '{"passed":true,"detail":"ok"}';
+      },
+    };
+    const critic = new LlmCritic(llm);
+    await critic.judge(
+      evidence,
+      [{ kind: "expect", criterion: "order confirmation is shown" }],
+      { intent: "complete the book checkout" },
+    );
+    expect(captured).toContain("Task intent: complete the book checkout");
+  });
+
+  it("omits the intent line when no context is given", async () => {
+    let captured = "";
+    const llm: LlmClient = {
+      id: "capture",
+      async complete(prompt: string) {
+        captured = prompt;
+        return '{"passed":true}';
+      },
+    };
+    const critic = new LlmCritic(llm);
+    await critic.judge(evidence, [{ kind: "expect", criterion: "x" }]);
+    expect(captured).not.toContain("Task intent:");
+  });
 });

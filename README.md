@@ -4,7 +4,7 @@
 
 A **cairn** is a stack of stones that marks a trail — built once, so the path can be found again. This tool does the same for browser tests: an AI walks an unfamiliar app once to find the path, **freezes it into a marker**, and from then on follows it **deterministically** — no LLM, no flakiness. When the trail shifts and a marker no longer fits, the AI **rebuilds it**.
 
-cairn is the engine, not a product: a model- and browser-agnostic core (`cairn-engine`) you run from the CLI or embed in your own app. You describe a QA flow in plain language; cairn discovers the steps, replays them cheaply forever, and heals them when the UI changes.
+cairn is the engine, not a product: a model- and browser-agnostic core (`cairn-engine`) you run from the CLI or embed in your own app — Node, or a browser/extension via the `cairn-engine/browser` entry. You describe a QA flow in plain language; cairn discovers the steps, replays them cheaply forever, and heals them when the UI changes.
 
 ## The loop
 

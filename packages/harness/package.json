@@ -1,6 +1,6 @@
 {
   "name": "cairn-engine",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "An engine for self-healing E2E browser tests — discovered once by an AI, replayed deterministically.",
   "keywords": [
     "e2e",
@@ -29,7 +29,14 @@
     "cairn": "./dist/cli.js"
   },
   "exports": {
-    ".": "./dist/index.js"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    }
   },
   "files": [
     "dist",

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { checkAssertion, AssertionCritic } from "./assertion.js";
+import {
+  checkAssertion,
+  AssertionCritic,
+  MechanicalAssertionHandler,
+  CustomAssertionHandler,
+  judgeAssertion,
+} from "./assertion.js";
 import type { Evidence } from "../../core/types.js";
 
 function ev(requests: { method: string; url: string; status: number }[]): Evidence {
@@ -40,5 +46,31 @@ describe("custom assertions — the host defines success", () => {
     const v = await new AssertionCritic().judge(ev([]), [{ kind: "custom", name: "unknown" }]);
     expect(v.passed).toBe(false);
     expect(v.results[0]?.detail).toContain("no custom check registered");
+  });
+});
+
+describe("assertion handler chain — critics differ only by handler set", () => {
+  const evidence = ev([{ method: "GET", url: "https://x", status: 200 }]);
+
+  it("MechanicalAssertionHandler supports everything except custom", () => {
+    const h = new MechanicalAssertionHandler();
+    expect(h.supports({ kind: "navigated" })).toBe(true);
+    expect(h.supports({ kind: "expect", criterion: "x" })).toBe(true);
+    expect(h.supports({ kind: "custom", name: "c" })).toBe(false);
+  });
+
+  it("CustomAssertionHandler supports only custom and runs the registry", async () => {
+    const h = new CustomAssertionHandler({ ok: () => true });
+    expect(h.supports({ kind: "custom", name: "ok" })).toBe(true);
+    expect(h.supports({ kind: "navigated" })).toBe(false);
+    const r = await h.judge({ kind: "custom", name: "ok" }, evidence);
+    expect(r.passed).toBe(true);
+  });
+
+  it("the deterministic chain routes `expect` to the mechanical LlmCritic hint (no LLM handler present)", async () => {
+    const chain = [new MechanicalAssertionHandler(), new CustomAssertionHandler()];
+    const r = await judgeAssertion(chain, { kind: "expect", criterion: "x" }, evidence);
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("LlmCritic"); // adding ExpectAssertionHandler (as LlmCritic does) overrides this
   });
 });

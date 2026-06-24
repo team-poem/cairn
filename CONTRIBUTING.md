@@ -123,8 +123,8 @@ noise:
    bug fix, open an issue and get a maintainer's sign-off before generating the
    implementation.
 
-Agents working *inside* this repo should also read `AGENTS.md`. Deeper,
-repo-specific guidelines for agent contributors are being worked out in #10.
+Agents working *inside* this repo should also read `AGENTS.md` — its anti-slop section
+gives repo-specific guidelines for agent contributors.
 
 ## Where things live
 

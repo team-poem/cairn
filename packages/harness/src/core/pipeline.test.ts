@@ -165,4 +165,26 @@ describe("pipeline", () => {
     expect(result.scenario).toBe("grounding from a ticket");
     expect(result.verdict.passed).toBe(true);
   });
+
+  it("keeps the scenario's own name when intent is empty (default replay path)", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+
+    class EmptyProvider implements ContextProvider {
+      async provide(): Promise<Context> {
+        return { intent: "" };
+      }
+    }
+
+    const result = await runHarness(
+      {
+        context: new EmptyProvider(),
+        planner: new StaticPlanner(scenario),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      "ignored task",
+    );
+    expect(result.scenario).toBe("example → learn more"); // falls back to scenario.name
+  });
 });

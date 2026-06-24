@@ -20,14 +20,22 @@ Contributions that respect that contract are the most valuable kind.
    larger than a bug fix, describe your approach and wait for a maintainer to confirm
    the direction *before* you write code (see
    [AI / agent contributions](#ai--agent-contributions)).
-2. **Branch from `main`.** Name it for the change: `feat/...`, `fix/...`, `docs/...`.
+2. **Branch from `develop`.** Name it for the change: `feat/...`, `fix/...`, `docs/...`.
+   `develop` is the integration branch; `main` holds the latest published release.
 3. **Make one focused change.** Hold the [design invariants](#design-invariants); keep
    unrelated edits out.
 4. **Verify** (see [below](#verify-before-done)) — typecheck, build, test, and dogfood
    when you can.
 5. **Commit** following the [commit convention](#commit-convention).
-6. **Open a pull request**, fill in the template, and **link the issue** it resolves.
-7. **Respond to review.** Once approved, a maintainer merges (squash-rebase).
+6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
+   resolves.
+7. **Respond to review.** Once approved, a maintainer merges it into `develop` (squash-rebase).
+
+## Releases
+
+`develop` is where work accumulates; `main` holds the latest published release. A maintainer
+cuts a release by merging `develop` → `main`, bumping the version, tagging `vX.Y.Z`, and
+publishing to npm. **Only maintainers merge to `main`** — that merge _is_ the release.
 
 ## Development setup
 

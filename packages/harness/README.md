@@ -55,6 +55,14 @@ Every layer is replaceable: bring your own `Driver` (e.g. Playwright), `Critic`,
 assertions / `actions` for what doesn't fit the built-ins. Nothing forces your product
 through only what we decided.
 
+**Browser or extension (no Node)?** `runScenario` and the default Chrome DevTools MCP driver
+need Node. Import the browser-safe core from `cairn-engine/browser` and compose `runHarness`
+with your own `Driver` (e.g. one over `chrome.debugger`) plus a fetch-based `LlmClient`:
+
+```ts
+import { runHarness, StaticPlanner, AssertionCritic, AnthropicLlmClient } from "cairn-engine/browser";
+```
+
 No API key needed if you have **Claude Code** installed (cairn shells out to it); set
 `ANTHROPIC_API_KEY` to use the Anthropic API instead.
 

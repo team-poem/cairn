@@ -13,8 +13,25 @@ export type Step =
   | { kind: "select"; target: Target; value: string }
   | { kind: "pressKey"; key: string }
   | { kind: "scroll"; direction?: "down" | "up" }
+  /** Block until the app reaches a condition (auth ready, a request, an element) before continuing.
+   * Deterministic — polls the Driver's own observation, no LLM (invariant #4). */
+  | { kind: "waitFor"; until: WaitUntil; timeoutMs?: number }
   /** A product-defined interaction: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> };
+
+/**
+ * A condition a `waitFor` step blocks on. All provided fields must hold (AND). Checked against the
+ * Driver's `observe()`/`snapshot()` — so any Driver supports it without a new port method.
+ */
+export interface WaitUntil {
+  /** the final URL includes this substring */
+  url?: string;
+  /** a captured request whose URL includes `urlIncludes` reached `status` */
+  requestStatus?: { urlIncludes: string; status: number };
+  /** an element with this accessible name is present (optionally constrained by `role`) */
+  text?: string;
+  role?: string;
+}
 
 /**
  * Locate an element by intent, not a driver handle. A frozen target carries several

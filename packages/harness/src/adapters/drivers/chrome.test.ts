@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   findUidByName,
+  isOpenDialog,
   parseSnapshotRows,
   resolveTargetUid,
   isNavigation,
@@ -136,5 +137,19 @@ msgid=3 [log] hydrated (1 args)`;
   });
   it("ignores header/non-message lines", () => {
     expect(parseConsole(`## Console messages\nShowing 0-0 of 0`)).toEqual([]);
+  });
+});
+
+describe("isOpenDialog", () => {
+  it("detects the chrome-devtools-mcp open-dialog error (verified shape)", () => {
+    const err = new Error(
+      "# Open dialog\nconfirm: proceed?\nCall handle_dialog to handle it before continuing.",
+    );
+    expect(isOpenDialog(err)).toBe(true);
+  });
+
+  it("is false for an ordinary failure", () => {
+    expect(isOpenDialog(new Error("no element matching"))).toBe(false);
+    expect(isOpenDialog("plain string")).toBe(false);
   });
 });

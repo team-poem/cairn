@@ -134,15 +134,31 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async click(target: Target): Promise<void> {
-    await this.call("click", { uid: await this.resolveUid(target) });
+    await this.callAccepting("click", { uid: await this.resolveUid(target) });
     this.snapshotCache = undefined;
     await this.followNewTab();
   }
 
   async doubleClick(target: Target): Promise<void> {
-    await this.call("click", { uid: await this.resolveUid(target), dblClick: true });
+    await this.callAccepting("click", { uid: await this.resolveUid(target), dblClick: true });
     this.snapshotCache = undefined;
     await this.followNewTab();
+  }
+
+  /**
+   * Run an interactive MCP action, accepting any JS dialog it triggers. A `confirm`/`alert`/`prompt`
+   * opens a dialog the MCP can't interact through (no per-action hook) — the call errors and the run
+   * would wedge. The action's own handler already fired, so accept the dialog and treat it as done
+   * (#17). Generic over the action, so a dialog from a click, a form submit (Enter), a select, etc.
+   * is handled the same way — no per-verb special-casing.
+   */
+  private async callAccepting(name: string, args: Record<string, unknown>): Promise<void> {
+    try {
+      await this.call(name, args);
+    } catch (err) {
+      if (!isOpenDialog(err)) throw err;
+      await this.call("handle_dialog", { action: "accept" });
+    }
   }
 
   async hover(target: Target): Promise<void> {
@@ -151,18 +167,19 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async type(target: Target, text: string): Promise<void> {
-    await this.call("fill", { uid: await this.resolveUid(target), value: text });
+    await this.callAccepting("fill", { uid: await this.resolveUid(target), value: text });
     this.snapshotCache = undefined;
   }
 
   async select(target: Target, value: string): Promise<void> {
     // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
-    await this.call("fill", { uid: await this.resolveUid(target), value });
+    await this.callAccepting("fill", { uid: await this.resolveUid(target), value });
     this.snapshotCache = undefined;
   }
 
   async pressKey(key: string): Promise<void> {
-    await this.call("press_key", { key });
+    // a form submit (Enter) can trigger a confirm() — handle it like any other action.
+    await this.callAccepting("press_key", { key });
     this.snapshotCache = undefined;
   }
 
@@ -273,6 +290,12 @@ export class ChromeDevToolsDriver implements Driver {
 }
 
 // --- parsers for chrome-devtools-mcp's text output -------------------------------
+
+/** True if an MCP error means a click opened a JS dialog (confirm/alert/prompt) that now blocks. */
+export function isOpenDialog(err: unknown): boolean {
+  const m = err instanceof Error ? err.message : String(err);
+  return /open dialog/i.test(m) || /handle_dialog/i.test(m);
+}
 
 /** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
 export function parseElements(snapshot: string): PageElement[] {

@@ -15,6 +15,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover.js";
+import { weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
@@ -129,6 +130,13 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   console.log(`\ndiscovered scenario "${scenario.name}" — ${scenario.steps.length} steps:`);
   for (const step of scenario.steps) console.log(`  · ${JSON.stringify(step)}`);
+
+  // #14: flag weak (text-only) targets at freeze time, before a UI rename forces a self-heal.
+  const weak = weakTargets(scenario);
+  if (weak.length) {
+    console.log(`\n⚠ ${weak.length} weak target(s) — a UI rename may force a self-heal; strengthen up front:`);
+    for (const w of weak) console.log(`  · step ${w.stepIndex + 1} (${w.step.kind}): ${w.score.reason}`);
+  }
 
   const freeze = flagStr(flags, "freeze");
   if (freeze) {

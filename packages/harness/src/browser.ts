@@ -34,3 +34,5 @@ export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 
 export { discover, parseDecision } from "./core/discover.js";
 export type { DiscoverOptions, Decision } from "./core/discover.js";
+export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
+export type { TargetScore, ScoredTarget } from "./core/freeze.js";

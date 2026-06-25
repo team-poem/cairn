@@ -3,7 +3,7 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **`cairn-engine@1.0.0` 준비 완료 (npm 미배포 — 한번에 배포 예정).** 리포트 대조→측정→견고화→유연성 개방.
+- 단계: **`cairn-engine@1.1.0` npm 배포됨.** (1.0.0→1.1.0: browser-safe export `cairn-engine/browser`, handler-dispatch 통합, intent-grounded `expect` 판정, anti-slop AGENTS.md `#10`.) 리포트 대조→측정→견고화→유연성 개방.
   견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 54/54.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
@@ -17,9 +17,26 @@
 - **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·
   hover 실효성 실측 미검증 · settle은 휴리스틱(아주 늦은 단일 요청 놓칠 수 있음).
 - 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
-- 브랜치 전략: `main → develop → feature/*`. main=develop(공개 면). 작업은 `develop`에서 feature 브랜치로.
+- **브랜치 전략(확정): git-flow.** `develop`=통합(여기서 `feat/*` 브랜치 → PR), `develop → main` 머지 = **릴리스(메인테이너만)** → 수동 태그 + `npm publish`. 정본 `CONTRIBUTING.md`. (옛 'main→develop→feature' 표기는 폐기.)
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
+
+## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
+
+> delivered QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **PR/배포 대기.**
+
+- ✅ **`waitFor` 스텝** — `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}`. `observe`/`snapshot` 폴링, LLM 0(불변식 #4). `core/steps.ts` + 테스트.
+- ✅ **#14 freeze 점수+경고** — `scoreTarget`/`weakTargets`/`scoreScenario`(`core/freeze.ts`, 순수). CLI(`cmdDiscover`)가 freeze 시 약한(text-only) 타겟 경고. index·browser export. → **Closes #14**
+- ✅ **#17 settle** — 이미 activity-정적 + `SettleOptions` 노출 + 새 `waitFor`가 "event-based 대기" 항목 충족.
+- ✅ **#17 dialogs** — 클릭發 confirm/alert: MCP가 "open dialog" 에러 → `chrome.ts` `clickAccepting`이 `handle_dialog(accept)`로 처리. **세션 chrome-devtools MCP로 흐름 직접 검증**(click→에러→handle→confirm=true).
+- ✅ **#17 hover** — 기존 구현이 실제로 `:hover` flyout 메뉴를 드러냄. **MCP로 검증**(코드 변경 없음). → **Closes #17**
+- **CSS 로케이터(자연스러운 동반):** `Target.selector` 타입 이미 존재 + #14 점수가 selector를 최고로 보상. *실제 resolution은 CDP-direct 드라이버(익스텐션 `ExtensionDriver`) 몫* — MCP 텍스트 인터페이스는 CSS→uid 매핑이 어려움(레퍼런스 드라이버는 selector 미해석).
+- 검증: typecheck·build·**79 테스트**(+11)·browser 번들(node 0).
+
+## 다음 스텝
+1. **PR `feat/robustness-17-14` → develop → main** (`Closes #17`, `Closes #14`). git-flow(메인테이너 머지).
+2. **1.2.0 배포** (수동 태그+publish).
+3. **익스텐션이 `cairn-engine@1.2.0` install** → delivered 결제 퍼널 도그푸딩: `waitFor`로 로그인 인증 대기(navigated green) + `ExtensionDriver`에 **selector resolution 추가**(이름없는 카트 체크박스 = "아이템 선택" 스텝).
 
 ## 살아있는 계약/결정
 - 아키텍처 불변식 → `spec/architecture.md`.

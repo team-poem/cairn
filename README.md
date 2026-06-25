@@ -127,7 +127,7 @@ cairn/
 
 ## Status
 
-`cairn-engine` is at **v1.1** on npm. The full loop — **discover → freeze → replay → self-heal** — works today and is benchmarked: deterministic, LLM-free replay on real multi-step flows; discovery paid once (~$0.5) against $0 replays; survival across UI renames without re-reasoning. Every layer is extensible — swap a port, or define `custom` assertions/actions; embed it in Node, or in a browser/extension via the `cairn-engine/browser` entry.
+`cairn-engine` is on npm. The full loop — **discover → freeze → replay → self-heal** — works today and is benchmarked: deterministic, LLM-free replay on real multi-step flows; discovery paid once (~$0.5) against $0 replays; survival across UI renames without re-reasoning. Every layer is extensible — swap a port, or define `custom` assertions/actions; embed it in Node, or in a browser/extension via the `cairn-engine/browser` entry.
 
 What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a separate desktop app that embeds it for visual replay. The interfaces are the contract.
 

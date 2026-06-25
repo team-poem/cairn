@@ -43,7 +43,10 @@ export class AnthropicLlmClient implements LlmClient {
     const body = JSON.stringify({
       model: this.model,
       max_tokens: opts.maxTokens ?? 1024,
-      ...(opts.system ? { system: opts.system } : {}),
+      // #15 — cache the (constant) system prompt so repeated discover steps don't re-bill it.
+      ...(opts.system
+        ? { system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }] }
+        : {}),
       messages: [{ role: "user", content: prompt }],
     });
 

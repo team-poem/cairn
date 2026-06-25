@@ -2,9 +2,11 @@
 
 ![cairn banner](https://raw.githubusercontent.com/team-poem/cairn/main/banner.svg)
 
-The engine behind [cairn](https://github.com/team-poem/cairn) — browser tests an AI
-discovers once, replays deterministically (no LLM in the loop), and self-heals when the UI
-drifts. Model- and browser-agnostic; embed it or drive it from the `cairn` CLI.
+The engine behind [cairn](https://github.com/team-poem/cairn) — an AI walks an unfamiliar
+app **once** to discover a browser test and **freezes it into a marker**; from then on it
+replays that path **deterministically, with no LLM in the loop**. When a step breaks, the
+LLM returns only to **heal** it, then re-freezes. **Discovery is paid once; every replay is
+free.** Model- and browser-agnostic — embed it, or drive it from the `cairn` CLI.
 
 ```sh
 npm install cairn-engine

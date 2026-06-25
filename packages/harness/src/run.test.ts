@@ -77,6 +77,26 @@ describe("runScenario", () => {
     expect(driver.closed).toBe(true); // still cleaned up
   });
 
+  it("outcome-heals: a replay that fails its assertions is repaired by re-discovery", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    // Frozen scenario asserts a destination it never reaches → the replay verdict fails, but every
+    // step "ran" (no locator break), so only an outcome-aware heal can catch it.
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"]; // re-discover: done immediately, then no extra assertions
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? '{"action":"done"}'; } };
+
+    const { result, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+
+    // re-discovery grounds assertions in the real evidence (reached iana.org) → the repaired run passes
+    expect(result.verdict.passed).toBe(true);
+    expect(healedScenario?.assertions).toContainEqual({ kind: "navigated", to: "iana.org" });
+  });
+
   it("self-heals a broken target and returns a re-frozen scenario", async () => {
     // Frozen step says "Read more"; only "Learn more" exists → heal maps it.
     const driver = new FakeDriver({

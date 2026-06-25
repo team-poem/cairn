@@ -13,7 +13,7 @@ See CONTRIBUTING.md for the full guide.
 
 ## Related issue
 
-<!-- Required. Use "Closes #N" to auto-close, or "Refs #N" if it doesn't fully close. -->
+<!-- Required. cairn-bot closes "Closes/Fixes/Resolves #N" when this PR is merged into develop. Use "Refs #N" if it doesn't fully close. -->
 
 Closes #
 

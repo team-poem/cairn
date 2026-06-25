@@ -28,7 +28,7 @@ Contributions that respect that contract are the most valuable kind.
    when you can.
 5. **Commit** following the [commit convention](#commit-convention).
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
-   resolves.
+   resolves. `cairn-bot` validates that every PR links an issue.
 7. **Respond to review.** Once approved, a maintainer merges it into `develop` (squash-rebase).
 
 ## Releases
@@ -36,6 +36,10 @@ Contributions that respect that contract are the most valuable kind.
 `develop` is where work accumulates; `main` holds the latest published release. A maintainer
 cuts a release by merging `develop` → `main`, bumping the version, tagging `vX.Y.Z`, and
 publishing to npm. **Only maintainers merge to `main`** — that merge _is_ the release.
+
+When a PR is merged into `develop`, `cairn-bot` closes issues referenced with
+`Closes #N`, `Fixes #N`, or `Resolves #N`. The later `develop` → `main` release merge
+is manual and does not close additional issues.
 
 ## Development setup
 

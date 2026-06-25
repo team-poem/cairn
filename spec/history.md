@@ -214,3 +214,9 @@
 - **CSS 로케이터:** `Target.selector` 타입 이미 존재 + #14 점수가 selector 최고 보상. 실제 resolution은 **CDP-direct 드라이버(익스텐션 `ExtensionDriver`)** 몫 — MCP 텍스트 인터페이스는 CSS→uid 매핑 곤란(레퍼런스 드라이버 미해석).
 - **검증:** typecheck·build·**79/79**·browser 번들 node 0. cairn 자체 게이트 통과. *실 사이트(delivered) 검증은 배포 후 익스텐션 도그푸딩 단계.*
 - **다음:** PR → develop → main(`Closes #17, #14`) → 1.2.0 배포 → 익스텐션 install + `ExtensionDriver` selector resolution(이름없는 카트 체크박스).
+
+## 2026-06-25 — cairn-bot PR/issue automation
+
+- **GitHub App `cairn-bot` 운영 규칙 추가.** `develop` PR은 issue link가 필수이며, PR triage workflow가 size/status/area label을 붙이고 issue link 누락을 실패 처리한다.
+- **`develop` merge issue close:** `close-linked-issues-on-develop.yml`이 `pull_request_target.closed`에서 merged + base=`develop`일 때 `Closes/Fixes/Resolves #N`을 파싱해 App token으로 이슈를 `completed` close한다.
+- **릴리스 경계 유지:** `develop → main`은 계속 메인테이너 수동 릴리스이며, 추가 issue close 기준이 아니다.

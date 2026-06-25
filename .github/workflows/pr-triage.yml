@@ -33,7 +33,7 @@ jobs:
 
             const labels = {
               "status/0-draft": { color: "eeeeee", description: "Draft pull request" },
-              "status/2-needs-review": { color: "fadecf", description: "Ready for review" },
+              "status/1-needs-review": { color: "fadecf", description: "Ready for review" },
               "size/S": { color: "0e8a16", description: "Small pull request" },
               "size/M": { color: "fbca04", description: "Medium pull request" },
               "size/L": { color: "d93f0b", description: "Large pull request" },
@@ -63,7 +63,7 @@ jobs:
 
             const changed = files.reduce((sum, file) => sum + file.additions + file.deletions, 0);
             const size = changed <= 50 ? "size/S" : changed <= 250 ? "size/M" : "size/L";
-            const status = pr.draft ? "status/0-draft" : "status/2-needs-review";
+            const status = pr.draft ? "status/0-draft" : "status/1-needs-review";
             const areaLabels = new Set();
 
             for (const file of files) {

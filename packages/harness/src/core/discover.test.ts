@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { discover, parseDecision } from "./discover.js";
+import { discover, parseDecision, rankElements } from "./discover.js";
 import { FakeDriver } from "../adapters/drivers/fake.js";
 import type { LlmClient } from "./ports.js";
 import type { Evidence } from "./types.js";
@@ -35,6 +35,16 @@ describe("parseDecision", () => {
       text: "Name",
       value: "a{b}c",
     });
+  });
+});
+
+describe("rankElements (#15)", () => {
+  it("keeps an interactive, intent-relevant control inside the cutoff past a wall of noise", () => {
+    const noise = Array.from({ length: 70 }, (_, i) => ({ role: "paragraph", name: `text ${i}` }));
+    const ranked = rankElements([...noise, { role: "button", name: "Checkout now" }], "checkout", 60);
+    // a flat slice(0, 60) would drop the button at index 70; ranking pulls it in.
+    expect(ranked).toContainEqual({ role: "button", name: "Checkout now" });
+    expect(ranked).toHaveLength(60);
   });
 });
 
@@ -99,5 +109,45 @@ describe("discover", () => {
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
     expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }]);
+  });
+
+  it("#16: freezes a proposed request-status only when a real request matches it", async () => {
+    const ev: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://shop/payment", blocked: false },
+      perception: {},
+      logic: {
+        requests: [{ method: "POST", url: "https://shop/api/orders", status: 200 }],
+        console: [],
+      },
+    };
+    const driver = new FakeDriver({ evidence: ev, elements: [{ role: "button", name: "Pay" }] });
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Pay"}',
+      '{"action":"done"}',
+      // proposeAssertions reply: one grounded (matches a request), one hallucinated (no match)
+      '[{"kind":"request-status","urlIncludes":"/api/orders","status":200},{"kind":"request-status","urlIncludes":"/api/ghost","status":200}]',
+    ]);
+    const scenario = await discover("pay", { driver, llm });
+    expect(scenario.assertions).toEqual([
+      { kind: "no-failed-requests" },
+      { kind: "navigated", to: "shop/payment" },
+      { kind: "request-status", urlIncludes: "/api/orders", status: 200 },
+    ]);
+  });
+
+  it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {
+    const replies = ['{"action":"done"}', '[{"kind":"expect","criterion":"order confirmed"}]'];
+    const off = await discover("x", {
+      driver: new FakeDriver({ evidence, elements: [] }),
+      llm: new ScriptedLlm([...replies]),
+    });
+    expect(off.assertions.some((a) => a.kind === "expect")).toBe(false);
+
+    const on = await discover("x", {
+      driver: new FakeDriver({ evidence, elements: [] }),
+      llm: new ScriptedLlm([...replies]),
+      semanticChecks: true,
+    });
+    expect(on.assertions).toContainEqual({ kind: "expect", criterion: "order confirmed" });
   });
 });

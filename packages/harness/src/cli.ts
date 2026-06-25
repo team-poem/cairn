@@ -81,11 +81,14 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
     for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
-    const freeze = flagStr(flags, "freeze");
-    if (freeze && healedScenario) {
-      await writeFile(freeze, JSON.stringify({ name: healedScenario.name, scenario: healedScenario }, null, 2), "utf8");
-      console.log(`  re-frozen → ${freeze}`);
-    }
+  } else if (healedScenario) {
+    // outcome-heal: the run failed its assertions, so the whole scenario was re-discovered.
+    console.log(`\nrun failed its assertions → re-discovered the scenario (${healedScenario.steps.length} step(s))`);
+  }
+  const freeze = flagStr(flags, "freeze");
+  if (freeze && healedScenario) {
+    await writeFile(freeze, JSON.stringify({ name: healedScenario.name, scenario: healedScenario }, null, 2), "utf8");
+    console.log(`  re-frozen → ${freeze}`);
   }
   return result.verdict.passed ? 0 : 1;
 }
@@ -113,7 +116,7 @@ async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
   const intent = positionals[0];
-  if (!intent) throw new Error('usage: cairn discover "<intent>" --url <u> [--freeze f] [--model m]');
+  if (!intent) throw new Error('usage: cairn discover "<intent>" --url <u> [--freeze f] [--model m] [--semantic]');
   const url = flagStr(flags, "url");
   const model = flagStr(flags, "model");
 
@@ -123,7 +126,8 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   let scenario: Scenario;
   try {
-    scenario = await discover(intent, { driver, llm, baseUrl: url });
+    // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
+    scenario = await discover(intent, { driver, llm, baseUrl: url, semanticChecks: Boolean(flags.get("semantic")) });
   } finally {
     await driver.close();
   }

@@ -18,12 +18,13 @@
   hover 실효성 실측 미검증 · settle은 휴리스틱(아주 늦은 단일 요청 놓칠 수 있음).
 - 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
 - **브랜치 전략(확정): git-flow.** `develop`=통합(여기서 `feat/*` 브랜치 → PR), `develop → main` 머지 = **릴리스(메인테이너만)** → 수동 태그 + `npm publish`. 정본 `CONTRIBUTING.md`. (옛 'main→develop→feature' 표기는 폐기.)
+- **cairn-bot 운영:** PR은 issue link가 필수이며, `develop`에 머지된 PR의 `Closes/Fixes/Resolves #N` 이슈는 `cairn-bot`이 자동 close한다. `develop → main` 릴리스 머지는 수동이며 issue close 기준이 아니다.
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 
 ## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
 
-> delivered QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **PR/배포 대기.**
+> delivered QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **1.2.0으로 배포·소비 완료.**
 
 - ✅ **`waitFor` 스텝** — `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}`. `observe`/`snapshot` 폴링, LLM 0(불변식 #4). `core/steps.ts` + 테스트.
 - ✅ **#14 freeze 점수+경고** — `scoreTarget`/`weakTargets`/`scoreScenario`(`core/freeze.ts`, 순수). CLI(`cmdDiscover`)가 freeze 시 약한(text-only) 타겟 경고. index·browser export. → **Closes #14**
@@ -33,10 +34,20 @@
 - **CSS 로케이터(자연스러운 동반):** `Target.selector` 타입 이미 존재 + #14 점수가 selector를 최고로 보상. *실제 resolution은 CDP-direct 드라이버(익스텐션 `ExtensionDriver`) 몫* — MCP 텍스트 인터페이스는 CSS→uid 매핑이 어려움(레퍼런스 드라이버는 selector 미해석).
 - 검증: typecheck·build·**79 테스트**(+11)·browser 번들(node 0).
 
+## 이번 작업 — 1.3.0 (브랜치 `feat/discover-judge-heal-15-16`, 구현·검증 완료)
+
+> QA 도그푸딩 PoC(별도 레포 `delivered-qa-chrome-extension`)가 매핑한 실앱 갭을 엔진에서 해소. `Closes #15, #16` + outcome-aware heal(피드백). 상세·근거 = 익스텐션 `cairn-feedback.md`(커밋X).
+
+- ✅ **#16 grounded 단언 제안** — discover 끝에 LLM이 intent 기반 단언을 제안해 freeze에 박음. 기본은 *mechanical*: 제안된 `request-status`를 **실제 캡처 요청과 대조 검증**해야 보존(환각 드롭) + `navigated{to}`. 약한 기본판정("passed but wrong")을 결정적으로 메움. `expect`(LLM판정)는 `semanticChecks` opt-in — 아니면 AssertionCritic이 FAIL시키므로(invariant #4 재생 결정성 유지). `core/discover.ts`. → **Closes #16**
+- ✅ **#15 discover 프롬프트 비용** — `slice(0,60)` → **relevance ranking**(인터랙티브+intent 관련 우선)으로 무거운 페이지서 타겟 누락 방지(비용 아닌 *정확성* 효과). 스텝 간 스냅샷 *unchanged* 시 재전송 생략. system 프롬프트 **caching**(`anthropic.ts` cache_control). `core/discover.ts` + adapter. → **Closes #15**
+- ✅ **outcome-aware heal (피드백)** — replay verdict가 FAIL(스텝은 다 돌았는데 결과가 틀림 — locate-heal이 못 잡는 break)이면 시작점부터 **re-discover로 복구**(invariant #4 sanctioned use (b); 성공 replay는 LLM 0 유지). `run.ts`(`runScenario`) + CLI re-freeze. *self-heal이 진짜 도는* 견고 replay 완성.
+- 검증: typecheck·build·**83 테스트**(+4)·browser 번들(node 0).
+
 ## 다음 스텝
-1. **PR `feat/robustness-17-14` → develop → main** (`Closes #17`, `Closes #14`). git-flow(메인테이너 머지).
-2. **1.2.0 배포** (수동 태그+publish).
-3. **익스텐션이 `cairn-engine@1.2.0` install** → delivered 결제 퍼널 도그푸딩: `waitFor`로 로그인 인증 대기(navigated green) + `ExtensionDriver`에 **selector resolution 추가**(이름없는 카트 체크박스 = "아이템 선택" 스텝).
+1. **PR `feat/discover-judge-heal-15-16` → develop → main** (`Closes #15`, `Closes #16`). git-flow(메인테이너 머지). #15·#16 댓글은 사람이 직접.
+2. **1.3.0 배포** (수동 태그+publish). `packages/harness/package.json` 1.3.0 bump됨.
+3. **익스텐션이 `cairn-engine@1.3.0` install** → discover 재탐색이 grounded 단언을 굳히는지 + outcome-heal로 결제 퍼널 replay가 복구되는지 실앱 도그푸딩.
+4. **남은 갭(후속):** #14 동적 토큰 안정화(심화) · discover가 `waitFor` 산출 · #1 이름없는 요소 합성 라벨(익스텐션 Driver 몫). 상세 = 익스텐션 `cairn-feedback.md`.
 
 ## 살아있는 계약/결정
 - 아키텍처 불변식 → `spec/architecture.md`.

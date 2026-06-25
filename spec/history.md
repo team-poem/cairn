@@ -214,3 +214,32 @@
 - **CSS 로케이터:** `Target.selector` 타입 이미 존재 + #14 점수가 selector 최고 보상. 실제 resolution은 **CDP-direct 드라이버(익스텐션 `ExtensionDriver`)** 몫 — MCP 텍스트 인터페이스는 CSS→uid 매핑 곤란(레퍼런스 드라이버 미해석).
 - **검증:** typecheck·build·**79/79**·browser 번들 node 0. cairn 자체 게이트 통과. *실 사이트(delivered) 검증은 배포 후 익스텐션 도그푸딩 단계.*
 - **다음:** PR → develop → main(`Closes #17, #14`) → 1.2.0 배포 → 익스텐션 install + `ExtensionDriver` selector resolution(이름없는 카트 체크박스).
+
+## 2026-06-25 — cairn-bot PR/issue automation
+
+- **GitHub App `cairn-bot` 운영 규칙 추가.** `develop` PR은 issue link가 필수이며, PR triage workflow가 size/status/area label을 붙이고 issue link 누락을 실패 처리한다.
+- **`develop` merge issue close:** `close-linked-issues-on-develop.yml`이 `pull_request_target.closed`에서 merged + base=`develop`일 때 `Closes/Fixes/Resolves #N`을 파싱해 App token으로 이슈를 `completed` close한다.
+- **릴리스 경계 유지:** `develop → main`은 계속 메인테이너 수동 릴리스이며, 추가 issue close 기준이 아니다.
+
+## 2026-06-25 — QA 도그푸딩 PoC 완주 → 다음 엔진 과제 매핑
+
+> 별도 레포 `delivered-qa-chrome-extension`(회사 logos3pl 계정)에서 `cairn-engine`을 임베드해 실증. cairn 코어는 변경 없음 — 여기 기록은 *엔진이 실앱에서 뭘 더 해야 하는지*의 입력. 상세는 그 레포 `cairn-feedback.md`(커밋X).
+
+- **PoC 구성:** cairn-engine 1.2.0을 크롬 익스텐션(MV3)에 임베드, `chrome.debugger`(CDP) 위에 `ExtensionDriver`(Driver 포트) 구현. delivered staging 실사이트에서 구동.
+- **성과:** ① 손-시나리오 결제 퍼널(로그인→장바구니→선택→체크아웃) **replay 3/3 PASS**(navigated /payment·console0·network0, LLM0, 결정적). ② **discover→freeze→replay→self-heal 한 바퀴를 실앱에서** 돌림 — discover(브라우저 AnthropicLlmClient, Haiku) → chrome.storage freeze → 결정적 replay → SelfHealingDriver. ③ 토큰·시간 실측 UI로 discover 비용 vs replay 0토큰을 화면 증명.
+- **핵심 한계 실증(엔진 입력):**
+  - **#7 outcome-aware heal** — self-heal이 *target resolve 실패*에만 끼어, "클릭은 됐는데 기대 결과(nav/assertion) 미달"을 못 잡음(체크아웃 클릭이 resolve+실행됐으나 /payment 미도달, self-heal 0회). *결과 실패* 트리거가 있어야 self-heal이 실앱 stateful 플로우에서 진짜 동작.
+  - **#14 안정 타겟(심화)** — discover가 동적 접근성 이름("Checkout 2 from Olive Young", 개수·상점명 포함)을 타겟으로 freeze → 상태 바뀌면 오-resolve로 replay FAIL. freeze 점수가 휘발성 토큰을 unstable로 잡고 강화해야.
+  - **discover 동기화 부재** — discover 산출 시나리오에 `waitFor`가 없어 빠른 replay서 레이스. discover가 동기화 스텝을 산출하거나 안정 글로벌 타겟을 선호해야.
+  - **#1 이름없는 요소** — replay는 `Target.selector`(CSS)로 해결됨. discover 인지는 *드라이버가* 합성 라벨로 snapshot에 노출하면 cairn 무수정 가능(익스텐션 몫); cairn 잔여 몫은 라벨 안정성(#14).
+- **결론:** 엔진 파이프라인(CDP 드라이버·3층 판정·replay·discover·self-heal·측정)은 실앱에서 동작 확인. 단 **순수 freeze→replay는 stateful·동적 실앱에 취약** — *손-시나리오는 replay-grade, discover 산출물은 하드닝 필요*. "self-heal이 진짜 도는 PoC"의 다음 관문 = **#7 outcome-aware heal(최우선) + #14 + discover 동기화**(엔진 코어 작업).
+
+## 2026-06-25 — 1.3.0: discover 판정·비용 + outcome-aware heal (Closes #15, #16)
+
+> 브랜치 `feat/discover-judge-heal-15-16`(develop에서 분기). 위 PoC가 매핑한 갭을 엔진에서 해소. 기존 이슈 #15·#16에 얹고 피드백(outcome heal)을 같이 — 1.3.0 한 번에.
+
+- **#16 grounded 단언 제안 (`core/discover.ts`)** — 약한 기본판정("passed but wrong": `no-failed-requests` 하나뿐) 해소. discover 종료 시 `proposeAssertions`로 LLM이 *관찰된 evidence*에 근거해 단언을 제안 → `deriveAssertions`가 **grounding**: 제안된 `request-status`는 실제 캡처 요청과 URL+status가 맞을 때만 보존(환각 드롭), `navigated{to}`는 evidence 기준. `expect`(LLM판정)는 **`semanticChecks` opt-in** — 자동 freeze하면 AssertionCritic이 `expect`를 FAIL시켜 결정적 replay가 다 깨지므로(invariant #4). CLI `--semantic`. → **Closes #16**
+- **#15 discover 프롬프트 비용 (`core/discover.ts` + `adapters/llm/anthropic.ts`)** — `elements.slice(0,60)` → `rankElements`(인터랙티브 role +100, intent 토큰 일치 +10, 안정 정렬)로 컷오프 전 *랭킹* → 무거운 페이지서 핵심 컨트롤이 60개 밖으로 밀려 discover가 못 보던 문제(도그푸딩 실증)를 해결 = 비용 아닌 *정확성*. 스텝 간 스냅샷이 같으면 "(unchanged)"로 재전송 생략. system 프롬프트 `cache_control: ephemeral`. → **Closes #15**
+- **outcome-aware heal (`run.ts` `runScenario`, 피드백)** — locate-heal(`SelfHealingDriver`)은 *target resolve 실패*만 잡음. replay가 스텝은 다 돌았는데 **assertion이 실패**(결과/상태가 틀림 — PoC의 체크아웃 미도달)하면 못 잡았음. 이제 `heal` + verdict FAIL이면 시작점(`firstGotoUrl`)부터 **re-discover**로 시나리오를 복구하고 재판정 → `healedScenario` 반환(재-freeze). invariant #4 sanctioned use (b); green replay는 LLM 0 유지. CLI가 locate-heal 없이 outcome-heal만 일어나도 re-freeze.
+- **검증:** typecheck·build·**83 테스트**(+4: #16 grounding·expect gating, #15 ranking, outcome-heal). 불변식 유지(재생 기본 결정적, LLM은 탐색·heal에만, core가 adapter 비의존). `package.json` 1.3.0 bump.
+- **다음:** PR로 #15·#16 닫고 1.3.0 배포 → 익스텐션이 install해 재도그푸딩.

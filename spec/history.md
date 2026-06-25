@@ -186,3 +186,31 @@
 - **결과:** 행동 보존(리팩터). 기존 54 + 신규 10 = **64/64**, typecheck/build green. 도그푸딩(실 브라우저)은 미수행.
 - **범위 밖(후속 후보):** 미사용 `SkillStore` 포트 · `discover()`↔`Planner` 관계 · 미소비 `Context.baseUrl` · `Skill`/`Scenario` `name` 중복.
 - **다음:** `feat/step-handler-dispatch` → `develop` PR.
+
+## 2026-06-24 — 1.1.0 배포 + git-flow 확정 + 도그푸딩 발견(QA 익스텐션)
+
+- **`cairn-engine@1.1.0` npm 배포.** browser-safe export(`cairn-engine/browser` — 런타임-무관 core만, Node 어댑터·`runScenario` 제외)
+  + develop/main 갈라진 두 리팩터 결합(handler-dispatch + intent-grounded `expect`: `Critic.judge(…, ctx?)`로 task intent 주입,
+  결정성 유지) + anti-slop AGENTS.md(`#10` close). `release/1.1.0`로 develop→main 결합 머지(68 테스트). 태그 `v1.1.0`.
+- **git-flow 확정 + CONTRIBUTING 정비.** 옛 'main→develop→feature' 혼선 정리 → develop=통합, develop→main=릴리스(메인테이너),
+  수동 publish(자동배포는 보류). develop을 main에 sync. README v1.1 + browser entry. (브랜치 정리는 룰셋이 원격 삭제 막아 UI에서.)
+- **도그푸딩(별도 레포 `delivered-qa-chrome-extension`):** `cairn-engine/browser`를 크롬 익스텐션에 install,
+  `ExtensionDriver`(chrome.debugger/CDP)로 delivered staging 결제 퍼널(로그인→장바구니)을 실 사이트에서 replay.
+  **PoC 핵심(npm 임베드 + CDP replay + 3층 판정 + 실버그 캡처) 증명.** 동시에 **cairn-side 갭 3건** 표면화 →
+  익스텐션 레포 `cairn-feedback.md`(커밋X)에 누적, state.md "다음 작업"에 반영:
+  1. **`waitFor` 스텝 부재** — 조건 대기 없음(인증 준비 레이스에 replay 깨짐). 최우선.
+  2. **CSS/test-id 로케이터 부재** — 이름 없는 요소(카트 체크박스 `button ""`) 못 짚음.
+  3. **settle = "전부 완료" 대기** — 웹소켓(Channel Talk)에 안 끝나 매 동작 타임아웃. activity 기반 헬퍼 필요.
+- **의미:** "실제 프로덕트로 돌아갈 엔진" 목표를 실 사이트로 시험 → 비전 절반(replay) 작동, 한계(wait/locator)는 명확.
+  남은 절반(discover로 시나리오 자동생성)은 미연결(다음 큰 트랙).
+- **다음(내일) — 이번 cairn 수정 목표:** **Closes #17**(settle event-based + 클릭發 다이얼로그 + hover) **+ Closes #14**(freeze 타겟 안정성 점수 + 약한 타겟 경고). `waitFor` 스텝 · CSS/test-id 로케이터는 **새 이슈 없이 같이 개선**(자연스러운 업데이트; CSS는 #14 경고의 강화 수단). #17 settle 불릿 = 도그푸딩 settle 발견과 동일 작업. 상세 = state.md '다음 작업' + 익스텐션 `cairn-feedback.md`. `develop`에서 `feat/*` → PR(`Closes #17`, `#14`).
+
+## 2026-06-24 — #17 + #14 해결 (replay 견고성: waitFor · 타겟 점수 · dialogs/hover)
+
+- **브랜치 `feat/robustness-17-14`**(develop에서). **Closes #17 + Closes #14** + waitFor·CSS 동반 개선.
+- **`waitFor` 스텝(신규):** `core/types.ts`에 `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}` + `WaitUntil`. `BuiltinStepHandler`가 `observe`/`snapshot` 폴링으로 조건 충족까지 대기 — **새 Driver 메서드 없이, LLM 0**(불변식 #4). 인증-준비 레이스(로그인 직후 `/me` 404 → 홈 튕김) 같은 비동기 준비를 결정적으로 넘김. 테스트 +3.
+- **#14 freeze 점수/경고(신규 `core/freeze.ts`):** 순수 `scoreTarget`(selector=1.0 / role+index=0.7 / text-only=0.3 weak / none=0) + `weakTargets`/`scoreScenario`. CLI `cmdDiscover`가 freeze 시 약한(text-only) 타겟 경고. index·browser export. 테스트 +6. **Closes #14.**
+- **#17(드라이버 한계 3종):** ① settle = 이미 activity-정적+`SettleOptions`, + `waitFor`가 event-based 대기 보강. ② dialogs = 클릭發 confirm/alert에 MCP가 "open dialog" 에러 → `chrome.ts` `clickAccepting`이 잡아 `handle_dialog(accept)`. ③ hover = 기존 구현이 실제로 동작. **②③를 세션 chrome-devtools MCP로 직접 검증**(dialog: click→에러→handle→confirm=true / hover: `:hover` flyout 드러남). `isOpenDialog` 테스트 +2. **Closes #17.**
+- **CSS 로케이터:** `Target.selector` 타입 이미 존재 + #14 점수가 selector 최고 보상. 실제 resolution은 **CDP-direct 드라이버(익스텐션 `ExtensionDriver`)** 몫 — MCP 텍스트 인터페이스는 CSS→uid 매핑 곤란(레퍼런스 드라이버 미해석).
+- **검증:** typecheck·build·**79/79**·browser 번들 node 0. cairn 자체 게이트 통과. *실 사이트(delivered) 검증은 배포 후 익스텐션 도그푸딩 단계.*
+- **다음:** PR → develop → main(`Closes #17, #14`) → 1.2.0 배포 → 익스텐션 install + `ExtensionDriver` selector resolution(이름없는 카트 체크박스).

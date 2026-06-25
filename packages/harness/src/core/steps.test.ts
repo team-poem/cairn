@@ -69,3 +69,43 @@ describe("defaultStepHandlers", () => {
     expect(seen).toEqual(["ping"]);
   });
 });
+
+describe("waitFor step", () => {
+  const handler = new BuiltinStepHandler();
+
+  it("supports the waitFor kind", () => {
+    expect(handler.supports({ kind: "waitFor", until: { url: "/x" } })).toBe(true);
+  });
+
+  it("returns once url + request + element all hold", async () => {
+    const d = new FakeDriver({
+      evidence: {
+        execution: { actions: [], navigated: true, finalUrl: "https://x/en/cart", blocked: false },
+        perception: {},
+        logic: { requests: [{ method: "GET", url: "https://x/api/me", status: 200 }], console: [] },
+      },
+      elements: [{ role: "link", name: "Cart" }],
+    });
+    await handler.execute(
+      {
+        kind: "waitFor",
+        until: { url: "/cart", requestStatus: { urlIncludes: "/api/me", status: 200 }, text: "Cart" },
+      },
+      d,
+    );
+    // no throw == condition satisfied (deterministic, no LLM)
+  });
+
+  it("throws on timeout when the condition never holds", async () => {
+    const d = new FakeDriver({
+      evidence: {
+        execution: { actions: [], navigated: false, finalUrl: "https://x/en", blocked: false },
+        perception: {},
+        logic: { requests: [], console: [] },
+      },
+    });
+    await expect(
+      handler.execute({ kind: "waitFor", until: { url: "/cart" }, timeoutMs: 30 }, d),
+    ).rejects.toThrow(/waitFor timed out/);
+  });
+});

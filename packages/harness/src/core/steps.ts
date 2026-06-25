@@ -5,7 +5,11 @@
  * registering a handler, never editing a stage. Depends only on core ports/types.
  */
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
-import type { Step } from "./types.js";
+import type { Step, WaitUntil } from "./types.js";
+
+const WAIT_POLL_MS = 200;
+const WAIT_TIMEOUT_MS = 10_000;
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
@@ -31,6 +35,8 @@ export class BuiltinStepHandler implements StepHandler {
         return driver.pressKey(step.key);
       case "scroll":
         return driver.scroll(step.direction);
+      case "waitFor":
+        return waitForCondition(driver, step.until, step.timeoutMs);
       case "custom":
         // Owned by CustomStepHandler; reaching here means a handler-ordering bug, not bad input.
         throw new Error(`built-in handler received custom step "${step.name}"`);
@@ -62,4 +68,45 @@ export class CustomStepHandler implements StepHandler {
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
 export function defaultStepHandlers(actions: Record<string, CustomAction> = {}): StepHandler[] {
   return [new BuiltinStepHandler(), new CustomStepHandler(actions)];
+}
+
+/**
+ * Poll the Driver's own observation until every field of `until` holds, or throw on timeout.
+ * Uses only `observe()`/`snapshot()`, so any Driver works and replay stays deterministic (no LLM,
+ * invariant #4). This is the explicit-wait primitive the heuristic `settle()` can't express —
+ * e.g. "wait until /me returns 200" before the next step, instead of racing the app's readiness.
+ */
+async function waitForCondition(
+  driver: Driver,
+  until: WaitUntil,
+  timeoutMs = WAIT_TIMEOUT_MS,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await conditionMet(driver, until)) return;
+    if (Date.now() >= deadline) {
+      throw new Error(`waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
+    }
+    await sleep(WAIT_POLL_MS);
+  }
+}
+
+async function conditionMet(driver: Driver, until: WaitUntil): Promise<boolean> {
+  if (until.url !== undefined || until.requestStatus !== undefined) {
+    const { execution, logic } = await driver.observe();
+    if (until.url !== undefined && !(execution.finalUrl ?? "").includes(until.url)) return false;
+    if (until.requestStatus) {
+      const { urlIncludes, status } = until.requestStatus;
+      if (!logic.requests.some((r) => r.url.includes(urlIncludes) && r.status === status)) return false;
+    }
+  }
+  if (until.text !== undefined) {
+    const needle = until.text.trim().toLowerCase();
+    const els = await driver.snapshot();
+    const hit = els.some(
+      (e) => (!until.role || e.role === until.role) && e.name.toLowerCase().includes(needle),
+    );
+    if (!hit) return false;
+  }
+  return true;
 }

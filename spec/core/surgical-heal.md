@@ -1,8 +1,8 @@
 # Design: surgical self-heal — per-step outcome verification
 
-> Status: **v1 implemented** (P0 #1 keystone + P2 false-green fix) on `feat/surgical-heal` — per-step
-> `intent`/`expect` capture in discover, deterministic skip + divergence detection in the pipeline,
-> `StepHealer` port + `LlmStepHealer`, re-freeze. Remaining: P3 (positional), P4–P6, P7–P10.
+> Status: **implemented** on `feat/surgical-heal` — the keystone (#31: per-step `intent`/`expect`
+> capture, deterministic skip + divergence detection, `StepHealer` port + `LlmStepHealer`, re-freeze)
+> plus every follow-up it unlocked (#32–#40). Next: real-app dogfood via the extension.
 > Basis: direct read of the 1.3.0 code + extension dogfooding + an A-grade review. A formalization of the accumulated cairn-feedback.
 
 ## 0. Root — the deepest single problem
@@ -33,7 +33,7 @@ Judgment happens **once, at the end** of a scenario (the single `runHarness` ver
 ### 🟢 Tier 3 — tuning/policy
 - **P7** hardcoded defaults (`maxSteps=8` is short for real funnels, timeouts, benign-request list not injectable).
 - **P8** `rankElements` tokenization is English-biased (`split(/\W+/)` can't token-match Korean intents).
-- **P9** `applyHeals` keys by `text` → two steps with the same label collide.
+- **P9** `applyHeals` keys by `text` → two steps with the same label collide (fixed: key by target identity).
 - **P10** a scenario truncated at the safety cap is frozen as if complete (no truncation signal).
 
 ## 2. The keystone — detection (`expect`) and repair (`intent`) are a *pair*

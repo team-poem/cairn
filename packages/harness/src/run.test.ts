@@ -35,14 +35,22 @@ describe("needsLlmCritic", () => {
 });
 
 describe("applyHeals", () => {
-  it("rewrites click/type targets and leaves the rest", () => {
-    const healed = applyHeals(scenario, [
-      { original: { text: "Learn more" }, healed: { text: "Read more", role: "link", index: 0 } },
+  it("rewrites only the healed step's target by identity, leaving a duplicate label alone (#39)", () => {
+    const broken = { text: "Learn more" };
+    const s: Scenario = {
+      name: "t",
+      steps: [
+        { kind: "goto", url: "https://example.com" },
+        { kind: "click", target: broken },
+        { kind: "click", target: { text: "Learn more" } }, // same label, a different element
+      ],
+      assertions: [],
+    };
+    const healed = applyHeals(s, [
+      { original: broken, healed: { text: "Read more", role: "link", index: 0 } },
     ]);
-    expect(healed.steps).toEqual([
-      { kind: "goto", url: "https://example.com" },
-      { kind: "click", target: { text: "Read more", role: "link", index: 0 } },
-    ]);
+    expect(healed.steps[1]).toEqual({ kind: "click", target: { text: "Read more", role: "link", index: 0 } });
+    expect(healed.steps[2]).toEqual({ kind: "click", target: { text: "Learn more" } }); // untouched
   });
   it("returns the same scenario when there are no heals", () => {
     expect(applyHeals(scenario, [])).toBe(scenario);

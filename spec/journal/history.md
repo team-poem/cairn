@@ -298,5 +298,5 @@
 ### 이어서 — P7·P6·P9 (93 테스트, P1~P10 전부 처리)
 - **P7 benign-request 주입:** `isBenignRequest`+`checkAssertion`+critic 생성자+`runScenario opts.benign(string[])`로 스레드 → 제품이 자기 노이즈(analytics 4xx 등) URL 부분문자열을 `no-failed-requests`서 제외.
 - **P6 perception 정직화:** 3층은 *캡처*되나 빌트인 critic은 execution+logic만 판정 — perception(스크린샷)은 호스트 시각재생·custom 체크용, LLM-vision 단언은 future. types.ts·design.md·judgment.md의 "3층 판정" 과장 정정.
-- **P9 (한계 명시):** 로케이터-heal `applyHeals`는 데코레이터라 스텝 인덱스를 못 봐 같은 라벨 두 스텝이 함께 갈림. 인덱스 키 `applyStepHeals`(step-heal)가 그 경로의 정답 — 코멘트로 명시.
-- **검증:** 93 테스트·typecheck·build·browser 번들 OK. **`feat/surgical-heal` = P0 키스톤 + P2~P10 전부.** 다음: 익스텐션 재도그푸딩(실앱 검증) → 릴리스.
+- **P9 picked by identity:** `applyHeals`를 텍스트가 아니라 *타겟 객체 identity*로 키잉 — 타겟 레퍼런스가 step→driver→Heal로 그대로 흐르므로(StaticPlanner가 시나리오 객체 보존, 통합 테스트로 확인) 같은 라벨 두 스텝이 따로 갈림. (처음엔 데코레이터 한계로 오판 → 레퍼런스 흐름을 보고 제대로 픽스.)
+- **검증:** 93 테스트·typecheck·build·browser 번들 OK. **`feat/surgical-heal` = P0 키스톤 + P2~P10 전부(#31~#40).** 다음: 익스텐션 재도그푸딩(실앱 검증) → 릴리스.

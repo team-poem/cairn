@@ -72,17 +72,16 @@ function firstGotoUrl(scenario: Scenario): string | undefined {
 }
 
 /** Rewrite a scenario's targets with the (re-located) targets self-heal substituted, for re-freezing.
- * Keyed by name because the SelfHealingDriver decorator heals targets, not steps, so it can't see a
- * step index (P9) — two steps with the same label rewrite together. The surgical step-heal path
- * (`applyStepHeals`) keys by index and has no such collision; prefer it as that path matures. */
+ * Keyed by the original target's object identity — which flows unchanged from the step through the
+ * driver into the Heal — so two steps sharing a label don't rewrite together (#39). */
 export function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
   if (!heals.length) return scenario;
-  const byOriginal = new Map(heals.map((h) => [h.original.text, h.healed]));
+  const byOriginal = new Map(heals.map((h) => [h.original, h.healed]));
   return {
     ...scenario,
     steps: scenario.steps.map((step) => {
-      if ("target" in step && step.target.text) {
-        const healed = byOriginal.get(step.target.text);
+      if ("target" in step) {
+        const healed = byOriginal.get(step.target);
         if (healed) return { ...step, target: healed };
       }
       return step;

@@ -50,7 +50,7 @@
    - **목표(설계 합의):** "적용된 케이스는 LLM 0 + 필요시에만 자가치료로 LLM" — 결정적 replay와 유연성을 *동시에*. **토대 = freeze가 *스텝별 의도*(목적·기대)를 담아 → replay가 스텝 단위로 어긋남 감지 → *그 스텝만* LLM 적응 → re-freeze 수렴.** 현 self-heal(로케이터만)·outcome-heal(통째 재발견)은 거친 1차 근사 — #14·#6·stateful 적응형 replay가 *이 한 방향으로 수렴*.
    - **설계 정식화 완료 →** [`spec/core/surgical-heal.md`](../core/surgical-heal.md). 1.3.0 코드 직접 진단 + A급 평가로 *뿌리 = 스텝 단위 결과 검증 부재*로 재정의, P1~P10 인벤토리, **키스톤 = `expect`(감지)+`intent`(수정) 쌍**(순서 아님), `skip`은 post-condition 게이트. 흡수: #7(통째→스텝수술)·#6(스텝 expect)·#14 심화.
    - **v1 구현 완료** (`feat/surgical-heal`, **87 테스트·빌드 OK**): `Step += {intent, expect}`(expect=`WaitUntil` 재활용, `conditionMet`으로 결정적 검증) · discover가 intent(=reason)+expect(nav) 캡처 · 파이프라인 per-step 검증(*이미 hold면 결정적 skip*=idempotency, 어긋나면 detect) · `StepHealer` 포트+`LlmStepHealer`(intent 기반 수선) · `applyStepHeals` re-freeze · **P2 false-green 픽스**(outcome-heal이 *원래* 단언으로 판정).
-   - **P1~P10 전부 구현 완료** (`feat/surgical-heal`, 93 테스트·build OK): P3 positional 모호-폴백 거부 · P4 discover waitFor 생성 · P5 heal role/index 보존 · P6 perception 정직화 · P7 benign 주입 · P8 한국어 토큰화 · P10 truncation 신호 · P9 한계 명시.
+   - **P1~P10 전부 구현 완료** (`feat/surgical-heal`, 93 테스트·build OK): P3 positional 모호-폴백 거부 · P4 discover waitFor 생성 · P5 heal role/index 보존 · P6 perception 정직화 · P7 benign 주입 · P8 한국어 토큰화 · P10 truncation 신호 · P9 identity-keying.
    - **다음:** 익스텐션 재도그푸딩(실앱서 수술적 heal 검증, `Heal.healed` breaking 적응) → **한 번에 릴리스**. (이슈는 외부 발급.)
    - 안전(검토 후보): cairn 차원의 origin 경계/boundary(자동화가 외부 PG로 넘어가는 것 방지) — 익스텐션선 가드 추가됨.
 

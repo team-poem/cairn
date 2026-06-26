@@ -10,13 +10,19 @@ export type CustomCheck = (
 
 export type CustomChecks = Record<string, CustomCheck>;
 
-/** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. */
-function isBenignRequest(url: string): boolean {
-  return /\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url);
+/** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. Built-in
+ * universal noise plus any URL-substring a product marks benign (e.g. its own analytics 4xx). */
+function isBenignRequest(url: string, benign: readonly string[] = []): boolean {
+  if (/\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url)) return true;
+  return benign.some((s) => url.includes(s));
 }
 
 /** Evaluate one mechanical assertion. `expect` is not mechanical — returns unsupported (LlmCritic handles it). */
-export function checkAssertion(assertion: Assertion, evidence: Evidence): AssertionResult {
+export function checkAssertion(
+  assertion: Assertion,
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
@@ -34,7 +40,7 @@ export function checkAssertion(assertion: Assertion, evidence: Evidence): Assert
     }
     case "no-failed-requests": {
       // Ignore universally-benign noise (a missing favicon shouldn't fail a checkout test).
-      const failed = evidence.logic.requests.filter((r) => r.status >= 400 && !isBenignRequest(r.url));
+      const failed = evidence.logic.requests.filter((r) => r.status >= 400 && !isBenignRequest(r.url, benign));
       return failed.length === 0
         ? { assertion, passed: true }
         : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };
@@ -55,12 +61,14 @@ export function checkAssertion(assertion: Assertion, evidence: Evidence): Assert
 
 /** Built-in mechanical checks — every kind except product `custom` (`expect` yields its LlmCritic hint). */
 export class MechanicalAssertionHandler implements AssertionHandler {
+  constructor(private readonly benign: readonly string[] = []) {}
+
   supports(assertion: Assertion): boolean {
     return assertion.kind !== "custom";
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence);
+    return checkAssertion(assertion, evidence, this.benign);
   }
 }
 
@@ -105,9 +113,12 @@ export function resolveAssertion(
 export class AssertionCritic implements Critic {
   private readonly handlers: AssertionHandler[];
 
-  /** @param custom product-defined checks for `custom` assertions, keyed by name. */
-  constructor(custom: CustomChecks = {}) {
-    this.handlers = [new MechanicalAssertionHandler(), new CustomAssertionHandler(custom)];
+  /**
+   * @param custom product-defined checks for `custom` assertions, keyed by name.
+   * @param benign URL substrings whose 4xx/5xx is product noise, not a regression (P7).
+   */
+  constructor(custom: CustomChecks = {}, benign: readonly string[] = []) {
+    this.handlers = [new MechanicalAssertionHandler(benign), new CustomAssertionHandler(custom)];
   }
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {

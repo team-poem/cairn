@@ -29,6 +29,11 @@ describe("no-failed-requests", () => {
     ]));
     expect(r.passed).toBe(false);
   });
+  it("treats product-marked URLs as benign noise (P7)", () => {
+    const requests = [{ method: "GET", url: "https://analytics.x/track", status: 404 }];
+    expect(checkAssertion({ kind: "no-failed-requests" }, ev(requests)).passed).toBe(false);
+    expect(checkAssertion({ kind: "no-failed-requests" }, ev(requests), ["analytics.x"]).passed).toBe(true);
+  });
 });
 
 describe("custom assertions — the host defines success", () => {

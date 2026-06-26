@@ -63,6 +63,18 @@ export interface StepHandler {
   execute(step: Step, driver: Driver): Promise<void>;
 }
 
+/** Repairs a step whose `expect` failed at replay — surgically, from the step's `intent`, not by
+ * re-discovering the whole scenario. The LLM lives here (sanctioned, invariant #4(b)); injected only
+ * when healing is asked, so clean replay stays LLM-free. Returns the corrective step, or null. */
+export interface StepHealer {
+  heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null>;
+}
+
+export interface StepHeal {
+  index: number;
+  step: Step;
+}
+
 export interface SkillStore {
   resolve(name: string): Promise<Scenario | undefined>;
 }

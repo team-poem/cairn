@@ -4,9 +4,9 @@
 
 The engine behind [cairn](https://github.com/team-poem/cairn) — an AI walks an unfamiliar
 app **once** to discover a browser test and **freezes it into a marker**; from then on it
-replays that path **deterministically, with no LLM in the loop**. When a step breaks, the
-LLM returns only to **heal** it, then re-freezes. **Discovery is paid once; every replay is
-free.** Model- and browser-agnostic — embed it, or drive it from the `cairn` CLI.
+replays that path **deterministically, with no LLM in the loop**. When a step breaks or lands
+in the wrong state, the LLM returns to **heal** just that step, then re-freezes. **Discovery is
+paid once; every replay is free.** Model- and browser-agnostic — embed it, or drive it from the `cairn` CLI.
 
 ```sh
 npm install cairn-engine

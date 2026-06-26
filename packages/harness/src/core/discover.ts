@@ -4,7 +4,8 @@
  * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
 import type { Driver, LlmClient } from "./ports.js";
-import type { Assertion, Evidence, PageElement, Scenario, Step, Target } from "./types.js";
+import type { Assertion, Evidence, PageElement, Scenario, Step, Target, WaitUntil } from "./types.js";
+import { waitForCondition } from "./steps.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -23,12 +24,23 @@ export interface DiscoverOptions {
 }
 
 export interface Decision {
-  action: "click" | "doubleClick" | "hover" | "type" | "select" | "pressKey" | "scroll" | "goto" | "done";
+  action:
+    | "click"
+    | "doubleClick"
+    | "hover"
+    | "type"
+    | "select"
+    | "pressKey"
+    | "scroll"
+    | "goto"
+    | "waitFor"
+    | "done";
   text?: string;
   value?: string;
   key?: string;
   direction?: "down" | "up";
   url?: string;
+  until?: WaitUntil;
   reason?: string;
   assertions?: Assertion[];
 }
@@ -42,7 +54,10 @@ const SYSTEM =
   '{"action":"hover","text":"<element>"} (reveals flyout/dropdown menus) · ' +
   '{"action":"type","text":"<element>","value":"<text>"} · {"action":"select","text":"<element>","value":"<option>"} · ' +
   '{"action":"pressKey","key":"Enter|Escape|Tab|..."} · {"action":"scroll","direction":"down|up"} (load lazy content) · ' +
-  '{"action":"goto","url":"<url>"} · {"action":"done"}. ' +
+  '{"action":"goto","url":"<url>"} · ' +
+  '{"action":"waitFor","until":{"url":"<substring>"}|{"requestStatus":{"urlIncludes":"<substring>","status":200}}|{"text":"<element>"}} ' +
+  "(block until the app is ready before the next step — e.g. an auth redirect lands or a key request returns — instead of racing it) · " +
+  '{"action":"done"}. ' +
   'Always add "reason":"<short>". Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
   'Use "done" when the intent is achieved (or impossible); with "done" you may include "assertions": an array of ' +
   '{"kind":"navigated"} | {"kind":"no-failed-requests"} | {"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
@@ -59,7 +74,9 @@ const INTERACTIVE_ROLES = new Set([
  * needs when a page has thousands of elements (seen in dogfooding) — ranking is correctness, not just cost.
  */
 export function rankElements(elements: PageElement[], intent: string, limit: number): PageElement[] {
-  const words = intent.toLowerCase().split(/\W+/).filter((w) => w.length > 2);
+  // Unicode-aware tokens — `\W` treats every Korean (or any non-ASCII) char as a separator, so a
+  // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
+  const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
   return elements
     .map((e, i) => {
       let score = INTERACTIVE_ROLES.has(e.role) ? 100 : 0;
@@ -72,7 +89,7 @@ export function rankElements(elements: PageElement[], intent: string, limit: num
     .map((s) => s.e);
 }
 
-function renderElements(elements: PageElement[]): string {
+export function renderElements(elements: PageElement[]): string {
   return elements.map((e) => `- [${e.role}] ${e.name}`).join("\n");
 }
 
@@ -282,8 +299,18 @@ function destinationKey(url: string): string {
   }
 }
 
+/** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
+ * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
+ * weak expect would trigger false divergence. */
+async function stepExpect(driver: Driver, beforeUrl: string | undefined): Promise<WaitUntil | undefined> {
+  await driver.settle();
+  const afterUrl = (await driver.observe()).execution.finalUrl;
+  if (afterUrl && afterUrl !== beforeUrl) return { url: destinationKey(afterUrl) };
+  return undefined;
+}
+
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
   // Enrich the target with resilient locators (role + structural index) before acting, and
   // freeze the enriched target — so replay survives a UI rename without the LLM.
   const located = (): Promise<Target> => {
@@ -327,6 +354,10 @@ async function applyDecision(driver: Driver, decision: Decision): Promise<Step> 
       if (!decision.url) throw new Error('goto decision missing "url"');
       await driver.goto(decision.url);
       return { kind: "goto", url: decision.url };
+    case "waitFor":
+      if (!decision.until) throw new Error('waitFor decision missing "until"');
+      await waitForCondition(driver, decision.until); // wait now so discovery doesn't race the app
+      return { kind: "waitFor", until: decision.until };
     default:
       throw new Error(`unknown action: ${decision.action}`);
   }
@@ -375,7 +406,12 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     }
 
     try {
+      const beforeUrl = (await driver.observe()).execution.finalUrl;
       const step = await applyDecision(driver, decision);
+      // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
+      if (decision.reason?.trim()) step.intent = decision.reason.trim();
+      const expect = await stepExpect(driver, beforeUrl);
+      if (expect) step.expect = expect;
       steps.push(step);
       onStep?.(decision, step);
     } catch (err) {
@@ -385,8 +421,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     }
   }
 
-  // Safety cap reached without an explicit "done" — still ground assertions in what happened.
+  // Safety cap reached without an explicit "done" — flag it so the path isn't trusted as complete.
   const evidence = await driver.observe();
   const proposed = await proposeAssertions(llm, intent, evidence, semanticChecks);
-  return { name: intent, steps, assertions: deriveAssertions(proposed, evidence, semanticChecks) };
+  return {
+    name: intent,
+    steps,
+    assertions: deriveAssertions(proposed, evidence, semanticChecks),
+    truncated: true,
+  };
 }

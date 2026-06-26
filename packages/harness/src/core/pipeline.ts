@@ -3,9 +3,9 @@
  * is injected (invariant #2); with a fixed-scenario Planner + deterministic Critic, no LLM
  * runs (invariant #4).
  */
-import type { CustomAction, Driver, Harness, StepHandler } from "./ports.js";
+import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
-import { defaultStepHandlers } from "./steps.js";
+import { conditionMet, defaultStepHandlers } from "./steps.js";
 
 /**
  * Seams a host (CLI, desktop app, CI) plugs into — the engine emits/accepts, the host
@@ -21,6 +21,8 @@ export interface RunHarnessOptions {
   actions?: Record<string, CustomAction>;
   /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`. */
   stepHandlers?: StepHandler[];
+  /** Repair a step whose `expect` fails (surgical self-heal); absent → a diverged step just fails. */
+  stepHealer?: StepHealer;
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
@@ -33,6 +35,41 @@ async function executeStep(handlers: StepHandler[], step: Step, driver: Driver):
   } catch (err) {
     return { step, ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * Run a step with per-step `expect` verification (spec/core/surgical-heal.md): skip if it already
+ * holds (safe idempotency — gated on `expect`, so never a false pass), else execute and require it
+ * to hold afterwards (catches a step that ran but didn't reach its outcome). Deterministic; a
+ * divergence goes to `healer` when one is supplied, otherwise the step fails.
+ */
+async function runStep(
+  handlers: StepHandler[],
+  step: Step,
+  driver: Driver,
+  index: number,
+  healer?: StepHealer,
+): Promise<ExecutedAction> {
+  if (step.expect && (await conditionMet(driver, step.expect))) {
+    return { step, ok: true }; // already satisfied — safe skip
+  }
+  const result = await executeStep(handlers, step, driver);
+  if (!result.ok || !step.expect) return result;
+
+  await driver.settle();
+  if (await conditionMet(driver, step.expect)) return result;
+
+  // Diverged: ran but `expect` didn't hold — repair only this step.
+  if (healer) {
+    const healed = await healer.heal(step, index, driver);
+    if (healed) {
+      await driver.settle();
+      if (await conditionMet(driver, healed.step.expect ?? step.expect)) {
+        return { step: healed.step, ok: true };
+      }
+    }
+  }
+  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(step.expect)}` };
 }
 
 export async function runHarness(
@@ -51,7 +88,7 @@ export async function runHarness(
   try {
     for (const step of scenario.steps) {
       opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-      const result = await executeStep(handlers, step, driver);
+      const result = await runStep(handlers, step, driver, actions.length, opts.stepHealer);
       actions.push(result);
       if (opts.onStep) {
         const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;

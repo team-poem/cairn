@@ -81,7 +81,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
 
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
-    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
+    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healed.text ?? h.healed.selector}"`);
   } else if (healedScenario) {
     // outcome-heal: the run failed its assertions, so the whole scenario was re-discovered.
     console.log(`\nrun failed its assertions → re-discovered the scenario (${healedScenario.steps.length} step(s))`);
@@ -135,6 +135,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   console.log(`\ndiscovered scenario "${scenario.name}" — ${scenario.steps.length} steps:`);
   for (const step of scenario.steps) console.log(`  · ${JSON.stringify(step)}`);
+
+  if (scenario.truncated) {
+    console.log(`\n⚠ stopped at the step cap without reaching "done" — the path may be incomplete.`);
+  }
 
   // #14: flag weak (text-only) targets at freeze time, before a UI rename forces a self-heal.
   const weak = weakTargets(scenario);

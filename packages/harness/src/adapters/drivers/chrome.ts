@@ -324,10 +324,11 @@ export function parseSnapshotRows(snapshot: string): SnapshotRow[] {
 }
 
 /**
- * Multi-locator resolution. Prefers the accessible name (exact over substring, role-aware
- * if known); if the name no longer matches — a UI rename — falls back to role + structural
- * index, so the login button still resolves after "Log in" becomes "Sign in". This is what
- * lets a frozen scenario survive UI change WITHOUT the LLM (self-heal stays the exception).
+ * Multi-locator resolution. Prefers the accessible name (exact over substring, role-aware if known).
+ * If the name no longer matches, falls back to role + structural index so a renamed control still
+ * resolves WITHOUT the LLM — but only when that fallback is unambiguous (P3): with several same-role
+ * candidates a reorder would silently select the wrong element, so it yields nothing and lets
+ * self-heal pick by intent instead.
  */
 export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | undefined {
   const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
@@ -340,6 +341,8 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
   }
   if (target.role && target.index !== undefined) {
     const sameRole = rows.filter((r) => r.role === target.role);
+    // A positional fallback after a name miss is a guess — trust it only when unambiguous.
+    if (target.text && sameRole.length > 1) return undefined;
     return sameRole[target.index]?.uid;
   }
   return undefined;

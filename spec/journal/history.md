@@ -1,7 +1,7 @@
 # history — 개발 기록 (append)
 
 > 각 항목: 날짜 · 목표 · 한 일 · 결정 · 결과/이슈 · 다음 계약.
-> 길어지면 오래된 항목을 `spec/archive/`로 이관.
+> 길어지면 오래된 항목을 `spec/journal/archive/`로 이관.
 
 ---
 
@@ -250,3 +250,53 @@
 - **결정:** 이슈 #5의 1안 채택 — frozen skill 파일은 곧 `Scenario`다. `Skill` wrapper 타입을 제거하고 `SkillStore.resolve(name)`/`loadSkillFile(path)`는 `Scenario`를 반환한다.
 - **변경:** `FileSkillStore.freeze`와 CLI `discover --freeze`, `replay --heal --freeze`가 bare scenario JSON만 쓴다. `cairn replay`는 loader가 반환한 scenario를 바로 실행한다. `docs/design.md` 포트 예시도 `resolve(name): Scenario`로 갱신.
 - **검증:** red→green 회귀테스트(`file-store.test.ts`)로 wrapper 없는 JSON을 고정. `typecheck`·전체 `vitest` **83/83**·`build`·TypeScript no-excuse 검사 통과. 빌드된 CLI로 `/private/tmp/cairn-issue5-scenario.json` bare scenario를 실제 브라우저 replay해 PASS.
+## 2026-06-26 — 1.3.0 배포 후 재도그푸딩: 루프 안정성 갭 진단 + #5 머지
+
+- **1.3.0 npm 배포 + 익스텐션이 1.3.0으로 재도그푸딩.** #16 grounded 단언 확인됨 — 재생 verdict에 `request-status`(로그인/`/me` 200)가 실제로 박혀 "에러 없음"이 아니라 *진짜 그 호출이 됐나*를 판정.
+- **#5 frozen skill wrapper 제거 (PR #27, contributor Kangmin Kim) 머지** — frozen 파일=bare `Scenario`. `loadSkillFile`이 타입가드로 검증·loud 실패. *공개 `Skill` 타입 제거 + frozen 포맷 변경 = breaking* → 다음 릴리스 버전/체인지로그에 반영 예정.
+- **핵심 진단 — "루프가 안정적으로 안 도는" 게 cairn이냐 앱이냐:** 둘 다지만 **순서가 핵심**. ① *즉시 블로커는 perception(익스텐션)* — delivered 카트 선택 컨트롤이 이름없어 `snapshot`서 걸러져 LLM이 못 봄 → discover 체크아웃 미완주. 익스텐션 Driver가 합성 라벨로 노출하면 cairn 무수정으로 풀림. ② *그 뒤 cairn 엔진 갭이 깨끗이 보임* — #14 동적 타겟, #6 done/URL, 그리고 **stateful·동적 플로우를 freeze→replay하는 모델 자체의 취약성**(안정 플로우=벤치 4/4 견고, stateful=깨짐). → **perception-first(익스텐션) 후 cairn 엔진 재점검**. perception이 cairn 진단의 선결조건.
+- **outcome-heal 실증 교훈:** 익스텐션은 `runHarness` 직접 호출이라 `runScenario`의 outcome-heal이 안 닿음 → 익스텐션에 복제. 또 재발견의 *자체 단언*으로 판정하면 /cart에서 멈춰도 false PASS → **원래 목표 단언으로 판정**해야 정직(= "passed but wrong"이 heal 경로에서 재발). 안전: 자동화가 외부 PG로 넘어가는 사고 → origin 경계 하드 가드 필요(프롬프트 "멈춰"는 강제 아님).
+- **다음:** 익스텐션 perception 픽스(이름없는 요소 노출) 먼저 → 그담 cairn 엔진(#14·#6·적응형 replay).
+
+## 2026-06-26 (이어서) — perception 해결 후 엔진 방향 확정: "수술적 자가치료"
+
+- **익스텐션 perception·시작-페이지 의존 해결됨(앱 쪽):** 이름없는 인터랙티브 요소를 합성 라벨로 snapshot 노출 + discover가 시작 URL을 첫 `goto` 앵커로 기록 → discover·replay가 안정적으로 체크아웃 완주. **그 위에서 cairn 엔진의 진짜 과제가 깨끗이 드러남.**
+- **방향 확정(메인테이너와 합의):** cairn이 노리는 자리 = **"이미 적용된 케이스는 LLM 0(결정적 replay) + 상태가 어긋날 때만 자가치료로 LLM"** — rigid 스크립트(유연성 0)와 LLM 에이전트(매번 비쌈) 사이의 유일한 스위트스팟.
+- **이를 가능하게 하는 단 하나의 토대 = freeze가 *스텝별 의도*를 담는 것.** 지금 프로즌 스텝은 기계적(`click X`)이라, replay 도중 "이 스텝의 *목적*이 달성됐나"를 스텝 단위로 못 봄 → 어긋남을 끝(verdict)에서야 잡고 → 통째로 재발견(현 outcome-heal = 거침). 스텝별 의도(목적·precondition/postcondition)가 있으면 → **스텝 단위 어긋남 감지 → *그 스텝만* 수술적 LLM 적응 → 나머진 결정적 복귀 → re-freeze로 수렴(학습).**
+- **#14·#6·stateful 적응형 replay가 이 한 방향으로 수렴.** = 다음 엔진 작업의 핵심.
+- **다음:** cairn `spec/`에 수술적-heal 설계 작성 → 이슈 발급 → 구현. (익스텐션 PoC는 일단락, 커밋·푸시.)
+
+## 2026-06-26 (이어서) — 수술적-heal 설계 정식화 + spec 재구성
+
+- **설계 정식화:** 1.3.0 코드 직접 진단(외부 A급 평가 문서)으로 *뿌리*를 재정의 — **"스텝 단위 결과 검증(per-step outcome verification) 부재"**. 판정이 끝에서 한 번뿐 → 중간 스텝이 예외 안 던지면 안 보임. self-heal 거칢·positional silent 오선택·heal false green이 다 이 한 가지.
+  - **키스톤 교정:** `expect`(감지)와 `intent`(수정)는 *순서가 아니라 쌍*. `expect` 없으면 `intent`는 발동조차 못 함(헤드라인 "resolve됐는데 nav 안 됨"은 locate 실패가 아님). `skip`은 post-condition으로 게이트(아니면 false pass).
+  - **인벤토리 P1~P10:** Tier1(P1 스텝검증·P2 false green·P3 positional) = 키스톤이 한꺼번에 닫음. Tier2(P4 discover waitFor·P5 heal text-only 강등·P6 perception 미사용). Tier3 튜닝.
+  - → [`spec/core/surgical-heal.md`](core/surgical-heal.md)에 정식 기록. 이슈는 외부에서 발급, 구현은 P0 키스톤부터.
+- **spec 재구성:** `spec/core/`(영문 메커니즘 스펙: the-loop·judgment·targeting·surgical-heal) · `spec/journal/`(state·history 한국어) · `spec/README.md` 인덱스 · `architecture.md`·`docs/design.md` 영문화 · AGENTS 라우팅·경로 갱신. 역할 분리(core=메커니즘 / architecture=불변식 / design=제품 / journal=기록).
+- **다음:** P0 키스톤 구현(`feat/surgical-heal`).
+
+## 2026-06-26 (이어서) — 수술적-heal v1 구현 (브랜치 `feat/surgical-heal`)
+
+- **P0 #1 키스톤 + P2 false-green 픽스 구현·검증 완료** (87 테스트·typecheck·build OK).
+- **타입:** `Step += { intent?, expect? }`(`StepMeta` 교집합으로 모든 variant에). `expect`는 기존 **`WaitUntil` 재활용** — `waitFor`가 막던 그 조건 타입을 `conditionMet`으로 그대로 검증 → 새 타입·새 포트 0, 검증 결정적(불변식 #4).
+- **capture(discover):** 액션 `reason`→`step.intent`. 스텝 직후 URL 변화로 `step.expect={url}` 도출(nav 스텝만 — 약한 expect로 false divergence 방지). `applyDecision`/`parseDecision`/`renderElements` export해 healer가 재활용.
+- **검증(pipeline):** `runStep`이 스텝마다 — *실행 전 expect가 이미 hold면 결정적 skip*(idempotency, expect 게이트라 false pass 아님), 실행 후 expect 어긋나면 detect. LLM 0.
+- **heal:** `StepHealer` 포트(ports.ts) + `LlmStepHealer`(core/step-heal.ts) — 어긋난 스텝만 intent+현재 페이지로 단일 액션 재결정(LLM은 여기만, sanctioned). `run.ts`가 `opts.heal`일 때 주입.
+- **re-freeze:** `applyStepHeals`(인덱스 키 → P9 라벨충돌 회피). **P2:** outcome-heal(통째 재발견)이 *원래* 시나리오 단언으로 판정하도록 수정(다른 end-state가 green으로 위장하던 구멍 차단).
+- **테스트:** `core/surgical-heal.test.ts`(skip/detect/heal/discover-capture 4). 기존 discover·run 테스트는 intent 캡처·P2 동작으로 갱신.
+
+### 이어서 — P5·P3 (89 테스트)
+- **P5 self-heal text-only 강등 픽스:** 치유한 이름을 `inner.locate`로 re-enrich → healed 타겟이 role/index 보존(freeze 점수와 일치). `Heal.healedText: string` → **`healed: Target`**(breaking — 익스텐션 재도그푸딩 시 적응). `applyHeals`·CLI·테스트 갱신.
+- **P3 positional silent 오선택 픽스:** `resolveTargetUid`에서 이름 미스 후 positional 폴백은 *모호하지 않을 때만*(같은 role 후보 1개) 신뢰 — 여러 개면 `undefined` → self-heal이 의도로 선택. 명시적 positional(text 없는 role+index)은 그대로.
+- **다음:** P4 discover waitFor · P7 주입 config · P8 한국어 토큰화 · P10 truncation 신호 · P6 perception · P9(노트).
+
+### 이어서 — P4·P8·P10 (92 테스트)
+- **P4 discover가 `waitFor` 생성:** `Decision`에 `waitFor`+`until` 추가, SYSTEM 프롬프트에 액션 노출, `applyDecision`이 `waitForCondition`(export)로 *탐색 중 실제 대기* 후 스텝 기록 → 사람이 frozen 수동 편집 불필요.
+- **P8 한국어 토큰화:** `rankElements`가 `split(/\W+/)`(ASCII만) → `match(/[\p{L}\p{N}]+/gu)`로 — 한국어 의도가 relevance 랭킹에 반영.
+- **P10 truncation 신호:** `Scenario += truncated?`. 캡 도달(미-done) 시 `true` → CLI 경고("path may be incomplete").
+
+### 이어서 — P7·P6·P9 (93 테스트, P1~P10 전부 처리)
+- **P7 benign-request 주입:** `isBenignRequest`+`checkAssertion`+critic 생성자+`runScenario opts.benign(string[])`로 스레드 → 제품이 자기 노이즈(analytics 4xx 등) URL 부분문자열을 `no-failed-requests`서 제외.
+- **P6 perception 정직화:** 3층은 *캡처*되나 빌트인 critic은 execution+logic만 판정 — perception(스크린샷)은 호스트 시각재생·custom 체크용, LLM-vision 단언은 future. types.ts·design.md·judgment.md의 "3층 판정" 과장 정정.
+- **P9 picked by identity:** `applyHeals`를 텍스트가 아니라 *타겟 객체 identity*로 키잉 — 타겟 레퍼런스가 step→driver→Heal로 그대로 흐르므로(StaticPlanner가 시나리오 객체 보존, 통합 테스트로 확인) 같은 라벨 두 스텝이 따로 갈림. (처음엔 데코레이터 한계로 오판 → 레퍼런스 흐름을 보고 제대로 픽스.)
+- **검증:** 93 테스트·typecheck·build·browser 번들 OK. **`feat/surgical-heal` = P0 키스톤 + P2~P10 전부(#31~#40).** 다음: 익스텐션 재도그푸딩(실앱 검증) → 릴리스.

@@ -250,3 +250,18 @@
 - **결정:** 이슈 #5의 1안 채택 — frozen skill 파일은 곧 `Scenario`다. `Skill` wrapper 타입을 제거하고 `SkillStore.resolve(name)`/`loadSkillFile(path)`는 `Scenario`를 반환한다.
 - **변경:** `FileSkillStore.freeze`와 CLI `discover --freeze`, `replay --heal --freeze`가 bare scenario JSON만 쓴다. `cairn replay`는 loader가 반환한 scenario를 바로 실행한다. `docs/design.md` 포트 예시도 `resolve(name): Scenario`로 갱신.
 - **검증:** red→green 회귀테스트(`file-store.test.ts`)로 wrapper 없는 JSON을 고정. `typecheck`·전체 `vitest` **83/83**·`build`·TypeScript no-excuse 검사 통과. 빌드된 CLI로 `/private/tmp/cairn-issue5-scenario.json` bare scenario를 실제 브라우저 replay해 PASS.
+## 2026-06-26 — 1.3.0 배포 후 재도그푸딩: 루프 안정성 갭 진단 + #5 머지
+
+- **1.3.0 npm 배포 + 익스텐션이 1.3.0으로 재도그푸딩.** #16 grounded 단언 확인됨 — 재생 verdict에 `request-status`(로그인/`/me` 200)가 실제로 박혀 "에러 없음"이 아니라 *진짜 그 호출이 됐나*를 판정.
+- **#5 frozen skill wrapper 제거 (PR #27, contributor Kangmin Kim) 머지** — frozen 파일=bare `Scenario`. `loadSkillFile`이 타입가드로 검증·loud 실패. *공개 `Skill` 타입 제거 + frozen 포맷 변경 = breaking* → 다음 릴리스 버전/체인지로그에 반영 예정.
+- **핵심 진단 — "루프가 안정적으로 안 도는" 게 cairn이냐 앱이냐:** 둘 다지만 **순서가 핵심**. ① *즉시 블로커는 perception(익스텐션)* — delivered 카트 선택 컨트롤이 이름없어 `snapshot`서 걸러져 LLM이 못 봄 → discover 체크아웃 미완주. 익스텐션 Driver가 합성 라벨로 노출하면 cairn 무수정으로 풀림. ② *그 뒤 cairn 엔진 갭이 깨끗이 보임* — #14 동적 타겟, #6 done/URL, 그리고 **stateful·동적 플로우를 freeze→replay하는 모델 자체의 취약성**(안정 플로우=벤치 4/4 견고, stateful=깨짐). → **perception-first(익스텐션) 후 cairn 엔진 재점검**. perception이 cairn 진단의 선결조건.
+- **outcome-heal 실증 교훈:** 익스텐션은 `runHarness` 직접 호출이라 `runScenario`의 outcome-heal이 안 닿음 → 익스텐션에 복제. 또 재발견의 *자체 단언*으로 판정하면 /cart에서 멈춰도 false PASS → **원래 목표 단언으로 판정**해야 정직(= "passed but wrong"이 heal 경로에서 재발). 안전: 자동화가 외부 PG로 넘어가는 사고 → origin 경계 하드 가드 필요(프롬프트 "멈춰"는 강제 아님).
+- **다음:** 익스텐션 perception 픽스(이름없는 요소 노출) 먼저 → 그담 cairn 엔진(#14·#6·적응형 replay).
+
+## 2026-06-26 (이어서) — perception 해결 후 엔진 방향 확정: "수술적 자가치료"
+
+- **익스텐션 perception·시작-페이지 의존 해결됨(앱 쪽):** 이름없는 인터랙티브 요소를 합성 라벨로 snapshot 노출 + discover가 시작 URL을 첫 `goto` 앵커로 기록 → discover·replay가 안정적으로 체크아웃 완주. **그 위에서 cairn 엔진의 진짜 과제가 깨끗이 드러남.**
+- **방향 확정(메인테이너와 합의):** cairn이 노리는 자리 = **"이미 적용된 케이스는 LLM 0(결정적 replay) + 상태가 어긋날 때만 자가치료로 LLM"** — rigid 스크립트(유연성 0)와 LLM 에이전트(매번 비쌈) 사이의 유일한 스위트스팟.
+- **이를 가능하게 하는 단 하나의 토대 = freeze가 *스텝별 의도*를 담는 것.** 지금 프로즌 스텝은 기계적(`click X`)이라, replay 도중 "이 스텝의 *목적*이 달성됐나"를 스텝 단위로 못 봄 → 어긋남을 끝(verdict)에서야 잡고 → 통째로 재발견(현 outcome-heal = 거침). 스텝별 의도(목적·precondition/postcondition)가 있으면 → **스텝 단위 어긋남 감지 → *그 스텝만* 수술적 LLM 적응 → 나머진 결정적 복귀 → re-freeze로 수렴(학습).**
+- **#14·#6·stateful 적응형 replay가 이 한 방향으로 수렴.** = 다음 엔진 작업의 핵심.
+- **다음:** cairn `spec/`에 수술적-heal 설계 작성 → 이슈 발급 → 구현. (익스텐션 PoC는 일단락, 커밋·푸시.)

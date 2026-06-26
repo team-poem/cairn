@@ -69,16 +69,16 @@ function firstGotoUrl(scenario: Scenario): string | undefined {
   return first && first.kind === "goto" ? first.url : undefined;
 }
 
-/** Rewrite a scenario's targets with the names self-heal substituted, for re-freezing. */
+/** Rewrite a scenario's targets with the (re-located) targets self-heal substituted, for re-freezing. */
 export function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
   if (!heals.length) return scenario;
-  const byOriginal = new Map(heals.map((h) => [h.original.text, h.healedText]));
+  const byOriginal = new Map(heals.map((h) => [h.original.text, h.healed]));
   return {
     ...scenario,
     steps: scenario.steps.map((step) => {
       if ("target" in step && step.target.text) {
         const healed = byOriginal.get(step.target.text);
-        if (healed) return { ...step, target: { ...step.target, text: healed } };
+        if (healed) return { ...step, target: healed };
       }
       return step;
     }),

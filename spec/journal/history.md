@@ -284,4 +284,8 @@
 - **heal:** `StepHealer` 포트(ports.ts) + `LlmStepHealer`(core/step-heal.ts) — 어긋난 스텝만 intent+현재 페이지로 단일 액션 재결정(LLM은 여기만, sanctioned). `run.ts`가 `opts.heal`일 때 주입.
 - **re-freeze:** `applyStepHeals`(인덱스 키 → P9 라벨충돌 회피). **P2:** outcome-heal(통째 재발견)이 *원래* 시나리오 단언으로 판정하도록 수정(다른 end-state가 green으로 위장하던 구멍 차단).
 - **테스트:** `core/surgical-heal.test.ts`(skip/detect/heal/discover-capture 4). 기존 discover·run 테스트는 intent 캡처·P2 동작으로 갱신.
-- **다음:** P3 positional · P4 discover waitFor · P5 heal role/index 보존 · P6 perception · 익스텐션 재도그푸딩.
+
+### 이어서 — P5·P3 (89 테스트)
+- **P5 self-heal text-only 강등 픽스:** 치유한 이름을 `inner.locate`로 re-enrich → healed 타겟이 role/index 보존(freeze 점수와 일치). `Heal.healedText: string` → **`healed: Target`**(breaking — 익스텐션 재도그푸딩 시 적응). `applyHeals`·CLI·테스트 갱신.
+- **P3 positional silent 오선택 픽스:** `resolveTargetUid`에서 이름 미스 후 positional 폴백은 *모호하지 않을 때만*(같은 role 후보 1개) 신뢰 — 여러 개면 `undefined` → self-heal이 의도로 선택. 명시적 positional(text 없는 role+index)은 그대로.
+- **다음:** P4 discover waitFor · P7 주입 config · P8 한국어 토큰화 · P10 truncation 신호 · P6 perception · P9(노트).

@@ -63,7 +63,7 @@ describe("per-step expect verification", () => {
     const s = scn([{ kind: "click", target: { text: "Login" }, expect: { url: "app/home" } }]);
     const { result } = await runScenario(s, { driver, reporter: silent });
     expect(driver.clicked).toEqual([]); // never executed — goal already met
-    expect(result.evidence.execution.actions[0].ok).toBe(true);
+    expect(result.evidence.execution.actions[0]?.ok).toBe(true);
   });
 
   it("fails a step that ran but whose expect diverges (no healer)", async () => {
@@ -71,8 +71,8 @@ describe("per-step expect verification", () => {
     const s = scn([{ kind: "click", target: { text: "Checkout" }, expect: { url: "app/payment" } }]);
     const { result } = await runScenario(s, { driver, reporter: silent });
     expect(driver.clicked).toEqual(["Checkout"]); // executed
-    expect(result.evidence.execution.actions[0].ok).toBe(false);
-    expect(result.evidence.execution.actions[0].error).toContain("post-condition");
+    expect(result.evidence.execution.actions[0]?.ok).toBe(false);
+    expect(result.evidence.execution.actions[0]?.error).toContain("post-condition");
   });
 
   it("surgically heals a diverged step from its intent, then re-freezes it", async () => {
@@ -89,7 +89,7 @@ describe("per-step expect verification", () => {
       heal: true,
       reporter: silent,
     });
-    expect(result.evidence.execution.actions[0].ok).toBe(true); // healed → step passes
+    expect(result.evidence.execution.actions[0]?.ok).toBe(true); // healed → step passes
     expect(driver.clicked).toEqual(["Checkout", "Checkout Now"]); // original, then corrective
     expect(stepHeals).toHaveLength(1);
     expect(healedScenario?.steps[0]).toMatchObject({
@@ -109,7 +109,7 @@ describe("discover captures intent + expect", () => {
       '{"action":"done"}',
     ]);
     const found = await discover("buy", { driver, llm });
-    expect(found.steps[0].intent).toBe("select the item");
-    expect(found.steps[0].expect).toEqual({ url: "app/cart" });
+    expect(found.steps[0]?.intent).toBe("select the item");
+    expect(found.steps[0]?.expect).toEqual({ url: "app/cart" });
   });
 });

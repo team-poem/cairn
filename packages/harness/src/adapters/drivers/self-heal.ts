@@ -7,10 +7,11 @@
 import type { Driver, LlmClient } from "../../core/ports.js";
 import type { Evidence, PageElement, SettleOptions, Target } from "../../core/types.js";
 
-/** A recorded substitution: `original` could not be found, `healedText` was used instead. */
+/** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
+ * role/index, not a brittle text-only one) was used instead. */
 export interface Heal {
   original: Target;
-  healedText: string;
+  healed: Target;
   reason?: string;
 }
 
@@ -75,7 +76,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.click(target);
     } catch (err) {
-      await this.inner.click({ text: await this.heal(target, err) });
+      await this.inner.click(await this.heal(target, err));
     }
   }
 
@@ -83,7 +84,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.doubleClick(target);
     } catch (err) {
-      await this.inner.doubleClick({ text: await this.heal(target, err) });
+      await this.inner.doubleClick(await this.heal(target, err));
     }
   }
 
@@ -91,7 +92,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.hover(target);
     } catch (err) {
-      await this.inner.hover({ text: await this.heal(target, err) });
+      await this.inner.hover(await this.heal(target, err));
     }
   }
 
@@ -99,7 +100,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.type(target, text);
     } catch (err) {
-      await this.inner.type({ text: await this.heal(target, err) }, text);
+      await this.inner.type(await this.heal(target, err), text);
     }
   }
 
@@ -107,7 +108,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await this.inner.select(target, value);
     } catch (err) {
-      await this.inner.select({ text: await this.heal(target, err) }, value);
+      await this.inner.select(await this.heal(target, err), value);
     }
   }
 
@@ -143,7 +144,7 @@ export class SelfHealingDriver implements Driver {
     return this.inner.close();
   }
 
-  private async heal(target: Target, cause: unknown): Promise<string> {
+  private async heal(target: Target, cause: unknown): Promise<Target> {
     if (this.heals.length >= this.maxHeals) {
       throw new Error(`self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`);
     }
@@ -154,9 +155,12 @@ export class SelfHealingDriver implements Driver {
       const why = cause instanceof Error ? cause.message : String(cause);
       throw new Error(`self-heal found no match for ${JSON.stringify(target)} (${why})`);
     }
-    const heal: Heal = { original: target, healedText: choice };
+    // Re-locate the chosen element so the healed target keeps strong locators (role/index), not a
+    // brittle text-only one — matching what the freeze score rewards (P5).
+    const healed = await this.inner.locate({ text: choice });
+    const heal: Heal = { original: target, healed };
     this.heals.push(heal);
     this.onHeal?.(heal);
-    return choice;
+    return healed;
   }
 }

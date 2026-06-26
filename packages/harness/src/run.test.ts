@@ -36,10 +36,12 @@ describe("needsLlmCritic", () => {
 
 describe("applyHeals", () => {
   it("rewrites click/type targets and leaves the rest", () => {
-    const healed = applyHeals(scenario, [{ original: { text: "Learn more" }, healedText: "Read more" }]);
+    const healed = applyHeals(scenario, [
+      { original: { text: "Learn more" }, healed: { text: "Read more", role: "link", index: 0 } },
+    ]);
     expect(healed.steps).toEqual([
       { kind: "goto", url: "https://example.com" },
-      { kind: "click", target: { text: "Read more" } },
+      { kind: "click", target: { text: "Read more", role: "link", index: 0 } },
     ]);
   });
   it("returns the same scenario when there are no heals", () => {
@@ -115,7 +117,12 @@ describe("runScenario", () => {
 
     const { heals, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
-    expect(heals).toEqual([{ original: { text: "Read more" }, healedText: "Learn more" }]);
-    expect(healedScenario?.steps[1]).toEqual({ kind: "click", target: { text: "Learn more" } });
+    expect(heals).toEqual([
+      { original: { text: "Read more" }, healed: { text: "Learn more", role: "link", index: 0 } },
+    ]);
+    expect(healedScenario?.steps[1]).toEqual({
+      kind: "click",
+      target: { text: "Learn more", role: "link", index: 0 },
+    });
   });
 });

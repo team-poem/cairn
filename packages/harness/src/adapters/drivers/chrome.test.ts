@@ -70,6 +70,18 @@ describe("resolveTargetUid — multi-locator", () => {
   it("returns undefined when neither name nor role+index resolves", () => {
     expect(resolveTargetUid(parseSnapshotRows(v2), { text: "Log in" })).toBeUndefined();
   });
+
+  it("refuses an ambiguous positional fallback so a reorder can't silently mis-select (P3)", () => {
+    // The frozen name is gone and several same-role candidates remain → guessing by index risks the
+    // wrong one after a reorder. Yield nothing so self-heal picks by intent.
+    const rows = `uid=3_1 button "Search"\nuid=3_2 button "Profile"\nuid=3_3 button "Help"`;
+    expect(resolveTargetUid(parseSnapshotRows(rows), { text: "Log in", role: "button", index: 0 })).toBeUndefined();
+  });
+
+  it("still honors a deliberate positional target (role+index, no text)", () => {
+    const rows = `uid=3_1 button "Search"\nuid=3_2 button "Profile"`;
+    expect(resolveTargetUid(parseSnapshotRows(rows), { role: "button", index: 1 })).toBe("3_2");
+  });
 });
 
 describe("parseNetwork", () => {

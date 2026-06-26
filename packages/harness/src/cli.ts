@@ -81,7 +81,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
 
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
-    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
+    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healed.text ?? h.healed.selector}"`);
   } else if (healedScenario) {
     // outcome-heal: the run failed its assertions, so the whole scenario was re-discovered.
     console.log(`\nrun failed its assertions → re-discovered the scenario (${healedScenario.steps.length} step(s))`);

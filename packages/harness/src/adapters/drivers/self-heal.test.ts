@@ -42,8 +42,11 @@ describe("SelfHealingDriver", () => {
 
     await driver.click({ text: "Read more" });
 
-    expect(inner.clicked).toEqual([{ text: "Learn more" }]); // retried with healed target
-    expect(driver.heals).toEqual([{ original: { text: "Read more" }, healedText: "Learn more" }]);
+    // retried with a re-located target carrying role/index, not a brittle text-only one (P5)
+    expect(inner.clicked).toEqual([{ text: "Learn more", role: "link", index: 0 }]);
+    expect(driver.heals).toEqual([
+      { original: { text: "Read more" }, healed: { text: "Learn more", role: "link", index: 0 } },
+    ]);
     expect(llm.calls).toBe(1);
   });
 
@@ -51,7 +54,7 @@ describe("SelfHealingDriver", () => {
     const inner = new FakeDriver({ evidence, elements: [{ role: "link", name: "Learn more" }], failOn: ["Read more"] });
     const seen: string[] = [];
     const driver = new SelfHealingDriver(inner, new ScriptedLlm('{"name":"Learn more"}'), {
-      onHeal: (h) => seen.push(`${h.original.text}→${h.healedText}`),
+      onHeal: (h) => seen.push(`${h.original.text}→${h.healed.text}`),
     });
     await driver.click({ text: "Read more" });
     expect(seen).toEqual(["Read more→Learn more"]);

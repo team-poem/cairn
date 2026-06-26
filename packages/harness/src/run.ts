@@ -15,7 +15,8 @@ import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
-import type { ContextProvider, Critic, Driver, LlmClient, Reporter } from "./core/ports.js";
+import { LlmStepHealer } from "./core/step-heal.js";
+import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, Scenario, StepProgress } from "./core/types.js";
 
@@ -50,9 +51,11 @@ export interface RunScenarioOptions {
 
 export interface RunScenarioResult {
   result: Result;
-  /** Substitutions self-heal made (empty unless `heal` was set and a step broke). */
+  /** Locator substitutions self-heal made (empty unless `heal` was set and a target broke). */
   heals: Heal[];
-  /** Scenario rewritten with healed targets, ready to re-freeze. Undefined if no heals. */
+  /** Surgical step repairs (empty unless `heal` was set and a step's `expect` diverged). */
+  stepHeals: StepHeal[];
+  /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals. */
   healedScenario?: Scenario;
 }
 
@@ -82,6 +85,13 @@ export function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
   };
 }
 
+/** Replace surgically-healed steps in place (keyed by index, so same-label steps don't collide). */
+export function applyStepHeals(scenario: Scenario, heals: StepHeal[]): Scenario {
+  if (!heals.length) return scenario;
+  const byIndex = new Map(heals.map((h) => [h.index, h.step]));
+  return { ...scenario, steps: scenario.steps.map((step, i) => byIndex.get(i) ?? step) };
+}
+
 export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
@@ -99,6 +109,7 @@ export async function runScenario(
   const driver = opts.heal
     ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal: opts.onHeal }))
     : baseDriver;
+  const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
 
   const result = await runHarness(
     {
@@ -109,14 +120,21 @@ export async function runScenario(
       reporter: opts.reporter ?? new ConsoleReporter(),
     },
     scenario.name,
-    { signal: opts.signal, onStep: opts.onStep, captureScreenshots: opts.screenshots, actions: opts.actions },
+    {
+      signal: opts.signal,
+      onStep: opts.onStep,
+      captureScreenshots: opts.screenshots,
+      actions: opts.actions,
+      stepHealer,
+    },
   );
 
   const heals = healer?.heals ?? [];
+  const stepHeals = stepHealer?.heals ?? [];
 
-  // Outcome-aware heal: the steps ran (locators may even have self-healed) but the run still failed
-  // its assertions — the frozen path no longer reaches the goal, a break locator-heal can't see.
-  // Re-discover from the start to repair it (invariant #4 sanctioned use (b)); only on failure.
+  // Outcome-aware heal: the steps ran (locators/steps may even have healed) but the run still failed
+  // its assertions — the frozen path no longer reaches the goal, a break surgical-heal couldn't fix.
+  // Re-discover from the start (invariant #4 sanctioned use (b)); only on failure.
   if (opts.heal && !result.verdict.passed) {
     const repaired = await discover(scenario.name, {
       driver: baseDriver,
@@ -126,13 +144,22 @@ export async function runScenario(
     });
     const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
     const evidence = await baseDriver.observe();
-    const verdict = await critic.judge(evidence, repaired.assertions, ctx);
+    // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
+    // else a path that reaches a different end-state passes as green (P2 false green).
+    const verdict = await critic.judge(evidence, scenario.assertions, ctx);
     return {
       result: { scenario: repaired.name, context: ctx, evidence, verdict },
       heals,
-      healedScenario: repaired,
+      stepHeals,
+      healedScenario: { ...repaired, assertions: scenario.assertions },
     };
   }
 
-  return { result, heals, healedScenario: heals.length ? applyHeals(scenario, heals) : undefined };
+  const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
+  return {
+    result,
+    heals,
+    stepHeals,
+    healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
+  };
 }

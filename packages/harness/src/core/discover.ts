@@ -4,7 +4,7 @@
  * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
 import type { Driver, LlmClient } from "./ports.js";
-import type { Assertion, Evidence, PageElement, Scenario, Step, Target } from "./types.js";
+import type { Assertion, Evidence, PageElement, Scenario, Step, Target, WaitUntil } from "./types.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -72,7 +72,7 @@ export function rankElements(elements: PageElement[], intent: string, limit: num
     .map((s) => s.e);
 }
 
-function renderElements(elements: PageElement[]): string {
+export function renderElements(elements: PageElement[]): string {
   return elements.map((e) => `- [${e.role}] ${e.name}`).join("\n");
 }
 
@@ -282,8 +282,18 @@ function destinationKey(url: string): string {
   }
 }
 
+/** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
+ * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
+ * weak expect would trigger false divergence. */
+async function stepExpect(driver: Driver, beforeUrl: string | undefined): Promise<WaitUntil | undefined> {
+  await driver.settle();
+  const afterUrl = (await driver.observe()).execution.finalUrl;
+  if (afterUrl && afterUrl !== beforeUrl) return { url: destinationKey(afterUrl) };
+  return undefined;
+}
+
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
   // Enrich the target with resilient locators (role + structural index) before acting, and
   // freeze the enriched target — so replay survives a UI rename without the LLM.
   const located = (): Promise<Target> => {
@@ -375,7 +385,12 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     }
 
     try {
+      const beforeUrl = (await driver.observe()).execution.finalUrl;
       const step = await applyDecision(driver, decision);
+      // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
+      if (decision.reason?.trim()) step.intent = decision.reason.trim();
+      const expect = await stepExpect(driver, beforeUrl);
+      if (expect) step.expect = expect;
       steps.push(step);
       onStep?.(decision, step);
     } catch (err) {

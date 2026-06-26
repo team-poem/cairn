@@ -4,20 +4,29 @@ export interface Context {
   intent: string;
 }
 
-export type Step =
-  | { kind: "goto"; url: string }
-  | { kind: "click"; target: Target }
-  | { kind: "doubleClick"; target: Target }
-  | { kind: "hover"; target: Target }
-  | { kind: "type"; target: Target; text: string }
-  | { kind: "select"; target: Target; value: string }
-  | { kind: "pressKey"; key: string }
-  | { kind: "scroll"; direction?: "down" | "up" }
-  /** Block until the app reaches a condition (auth ready, a request, an element) before continuing.
-   * Deterministic — polls the Driver's own observation, no LLM (invariant #4). */
-  | { kind: "waitFor"; until: WaitUntil; timeoutMs?: number }
-  /** A product-defined interaction: the host registers a handler for `name`. */
-  | { kind: "custom"; name: string; params?: Record<string, unknown> };
+/** Per-step surgical-heal metadata: `intent` is what a heal re-decides from; `expect` is a
+ * post-condition replay verifies deterministically (same shape as `waitFor`). See spec/core/surgical-heal.md. */
+export interface StepMeta {
+  intent?: string;
+  expect?: WaitUntil;
+}
+
+export type Step = StepMeta &
+  (
+    | { kind: "goto"; url: string }
+    | { kind: "click"; target: Target }
+    | { kind: "doubleClick"; target: Target }
+    | { kind: "hover"; target: Target }
+    | { kind: "type"; target: Target; text: string }
+    | { kind: "select"; target: Target; value: string }
+    | { kind: "pressKey"; key: string }
+    | { kind: "scroll"; direction?: "down" | "up" }
+    /** Block until the app reaches a condition (auth ready, a request, an element) before continuing.
+     * Deterministic — polls the Driver's own observation, no LLM (invariant #4). */
+    | { kind: "waitFor"; until: WaitUntil; timeoutMs?: number }
+    /** A product-defined interaction: the host registers a handler for `name`. */
+    | { kind: "custom"; name: string; params?: Record<string, unknown> }
+  );
 
 /**
  * A condition a `waitFor` step blocks on. All provided fields must hold (AND). Checked against the

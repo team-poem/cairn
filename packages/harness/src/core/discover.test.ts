@@ -65,11 +65,12 @@ describe("discover", () => {
 
     const scenario = await discover("checkout flow", { driver, llm, baseUrl: "https://shop" });
 
-    // targets are enriched with resilient locators (role + structural index) at freeze time
+    // targets are enriched with resilient locators (role + structural index) at freeze time;
+    // the decision's reason is captured as `intent` for surgical-heal (no URL change here → no expect)
     expect(scenario.steps).toEqual([
       { kind: "goto", url: "https://shop" },
-      { kind: "click", target: { text: "Add to cart", role: "link", index: 0 } },
-      { kind: "click", target: { text: "Checkout", role: "button", index: 0 } },
+      { kind: "click", target: { text: "Add to cart", role: "link", index: 0 }, intent: "add item" },
+      { kind: "click", target: { text: "Checkout", role: "button", index: 0 }, intent: "proceed" },
     ]);
     // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
     expect(scenario.assertions).toEqual([

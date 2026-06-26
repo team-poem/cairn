@@ -91,7 +91,9 @@ async function waitForCondition(
   }
 }
 
-async function conditionMet(driver: Driver, until: WaitUntil): Promise<boolean> {
+/** Whether every field of `until` holds now (Driver observation only, no LLM). Polled by `waitFor`
+ * and checked once per step for `expect` verification (spec/core/surgical-heal.md). */
+export async function conditionMet(driver: Driver, until: WaitUntil): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
     if (until.url !== undefined && !(execution.finalUrl ?? "").includes(until.url)) return false;

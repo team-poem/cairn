@@ -3,8 +3,8 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **`cairn-engine@1.1.0` npm 배포됨.** (1.0.0→1.1.0: browser-safe export `cairn-engine/browser`, handler-dispatch 통합, intent-grounded `expect` 판정, anti-slop AGENTS.md `#10`.) 리포트 대조→측정→견고화→유연성 개방.
-  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 54/54.
+- 단계: **`cairn-engine@1.3.0` npm 배포됨.** (1.0.0→1.3.0: browser-safe export, handler-dispatch, intent-grounded `expect`, waitFor/dialog/hover/target scoring, grounded discover assertions, outcome-aware heal.) 리포트 대조→측정→견고화→유연성 개방.
+  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 83/83.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
@@ -56,6 +56,8 @@
 - **Execute/Judge 디스패치:** 종류별 분기는 `StepHandler`/`AssertionHandler` 포트로 라우팅(`supports()→execute()/judge()`).
   built-in `switch`는 `BuiltinStepHandler`에 캡슐화(타입 누락검사 유지), custom 레지스트리는 핸들러로 흡수. 새 액션·단언=핸들러 등록(core 불변).
   기본 핸들러는 `core/steps.ts`(Driver포트·Step타입만 의존 → 의존방향 유지).
+- **Frozen skill 포맷:** 파일 자체가 bare `Scenario`다. wrapper `{name, scenario}`와 이중 `name`은 쓰지 않는다.
+  `SkillStore.resolve(name)`와 `loadSkillFile(path)`도 `Scenario`를 반환한다.
 - 기본 드라이버: Chrome DevTools MCP.
 - 형태: **임베드 엔진 + 얇은 CLI.** 데스크탑은 별도 프로젝트(엔진 install).
 - 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.

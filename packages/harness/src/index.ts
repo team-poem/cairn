@@ -4,8 +4,9 @@ export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
-export { runScenario, needsLlmCritic, applyHeals } from "./run.js";
+export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
+export { LlmStepHealer } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";

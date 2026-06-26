@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -26,12 +26,16 @@ describe("FileSkillStore", () => {
   it("freezes and resolves a scenario round-trip", async () => {
     const store = new FileSkillStore(dir);
     const path = await store.freeze("frozen-scenario", scenario);
-    const skill = await store.resolve("frozen-scenario");
-    expect(skill?.scenario).toEqual(scenario);
+    const resolved = await store.resolve("frozen-scenario");
+    expect(resolved).toEqual(scenario);
+
+    const frozen = JSON.parse(await readFile(path, "utf8"));
+    expect(frozen).toEqual(scenario);
+    expect(frozen).not.toHaveProperty("scenario");
 
     // loadSkillFile reads the same artifact by path.
     const byPath = await loadSkillFile(path);
-    expect(byPath.scenario).toEqual(scenario);
+    expect(byPath).toEqual(scenario);
   });
 
   it("returns undefined for a missing skill", async () => {

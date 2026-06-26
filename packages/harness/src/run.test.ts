@@ -35,12 +35,22 @@ describe("needsLlmCritic", () => {
 });
 
 describe("applyHeals", () => {
-  it("rewrites click/type targets and leaves the rest", () => {
-    const healed = applyHeals(scenario, [{ original: { text: "Learn more" }, healedText: "Read more" }]);
-    expect(healed.steps).toEqual([
-      { kind: "goto", url: "https://example.com" },
-      { kind: "click", target: { text: "Read more" } },
+  it("rewrites only the healed step's target by identity, leaving a duplicate label alone (#39)", () => {
+    const broken = { text: "Learn more" };
+    const s: Scenario = {
+      name: "t",
+      steps: [
+        { kind: "goto", url: "https://example.com" },
+        { kind: "click", target: broken },
+        { kind: "click", target: { text: "Learn more" } }, // same label, a different element
+      ],
+      assertions: [],
+    };
+    const healed = applyHeals(s, [
+      { original: broken, healed: { text: "Read more", role: "link", index: 0 } },
     ]);
+    expect(healed.steps[1]).toEqual({ kind: "click", target: { text: "Read more", role: "link", index: 0 } });
+    expect(healed.steps[2]).toEqual({ kind: "click", target: { text: "Learn more" } }); // untouched
   });
   it("returns the same scenario when there are no heals", () => {
     expect(applyHeals(scenario, [])).toBe(scenario);
@@ -77,24 +87,24 @@ describe("runScenario", () => {
     expect(driver.closed).toBe(true); // still cleaned up
   });
 
-  it("outcome-heals: a replay that fails its assertions is repaired by re-discovery", async () => {
+  it("outcome-heal judges the re-discovery against the ORIGINAL goal — no false green (P2)", async () => {
     const driver = new FakeDriver({ evidence: evidence(), elements: [] });
-    // Frozen scenario asserts a destination it never reaches → the replay verdict fails, but every
-    // step "ran" (no locator break), so only an outcome-aware heal can catch it.
+    // Original goal: reach the-moon; the flow only ever reaches iana.org. Re-discovery would ground
+    // its OWN assertions in iana.org and pass — but judged against the original goal it must fail,
+    // or a broken page that lands somewhere else passes as green.
     const broken: Scenario = {
       name: "reach the moon",
       steps: [{ kind: "goto", url: "https://example.com" }],
       assertions: [{ kind: "navigated", to: "the-moon" }],
     };
     let i = 0;
-    const replies = ['{"action":"done"}', "[]"]; // re-discover: done immediately, then no extra assertions
+    const replies = ['{"action":"done"}', "[]"]; // re-discover: done immediately, no extra assertions
     const llm = { id: "scripted", async complete() { return replies[i++] ?? '{"action":"done"}'; } };
 
     const { result, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
-    // re-discovery grounds assertions in the real evidence (reached iana.org) → the repaired run passes
-    expect(result.verdict.passed).toBe(true);
-    expect(healedScenario?.assertions).toContainEqual({ kind: "navigated", to: "iana.org" });
+    expect(result.verdict.passed).toBe(false); // reached iana.org, not the-moon → not a green
+    expect(healedScenario?.assertions).toEqual([{ kind: "navigated", to: "the-moon" }]); // original goal kept
   });
 
   it("self-heals a broken target and returns a re-frozen scenario", async () => {
@@ -115,7 +125,12 @@ describe("runScenario", () => {
 
     const { heals, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
-    expect(heals).toEqual([{ original: { text: "Read more" }, healedText: "Learn more" }]);
-    expect(healedScenario?.steps[1]).toEqual({ kind: "click", target: { text: "Learn more" } });
+    expect(heals).toEqual([
+      { original: { text: "Read more" }, healed: { text: "Learn more", role: "link", index: 0 } },
+    ]);
+    expect(healedScenario?.steps[1]).toEqual({
+      kind: "click",
+      target: { text: "Learn more", role: "link", index: 0 },
+    });
   });
 });

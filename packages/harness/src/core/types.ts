@@ -4,20 +4,29 @@ export interface Context {
   intent: string;
 }
 
-export type Step =
-  | { kind: "goto"; url: string }
-  | { kind: "click"; target: Target }
-  | { kind: "doubleClick"; target: Target }
-  | { kind: "hover"; target: Target }
-  | { kind: "type"; target: Target; text: string }
-  | { kind: "select"; target: Target; value: string }
-  | { kind: "pressKey"; key: string }
-  | { kind: "scroll"; direction?: "down" | "up" }
-  /** Block until the app reaches a condition (auth ready, a request, an element) before continuing.
-   * Deterministic — polls the Driver's own observation, no LLM (invariant #4). */
-  | { kind: "waitFor"; until: WaitUntil; timeoutMs?: number }
-  /** A product-defined interaction: the host registers a handler for `name`. */
-  | { kind: "custom"; name: string; params?: Record<string, unknown> };
+/** Per-step surgical-heal metadata: `intent` is what a heal re-decides from; `expect` is a
+ * post-condition replay verifies deterministically (same shape as `waitFor`). See spec/core/surgical-heal.md. */
+export interface StepMeta {
+  intent?: string;
+  expect?: WaitUntil;
+}
+
+export type Step = StepMeta &
+  (
+    | { kind: "goto"; url: string }
+    | { kind: "click"; target: Target }
+    | { kind: "doubleClick"; target: Target }
+    | { kind: "hover"; target: Target }
+    | { kind: "type"; target: Target; text: string }
+    | { kind: "select"; target: Target; value: string }
+    | { kind: "pressKey"; key: string }
+    | { kind: "scroll"; direction?: "down" | "up" }
+    /** Block until the app reaches a condition (auth ready, a request, an element) before continuing.
+     * Deterministic — polls the Driver's own observation, no LLM (invariant #4). */
+    | { kind: "waitFor"; until: WaitUntil; timeoutMs?: number }
+    /** A product-defined interaction: the host registers a handler for `name`. */
+    | { kind: "custom"; name: string; params?: Record<string, unknown> }
+  );
 
 /**
  * A condition a `waitFor` step blocks on. All provided fields must hold (AND). Checked against the
@@ -63,6 +72,9 @@ export interface Scenario {
   name: string;
   steps: Step[];
   assertions: Assertion[];
+  /** Set by discover when it stopped at the step cap without reaching "done" — the path may be
+   * incomplete, so a host can warn before trusting the freeze. Absent on a normal finish. */
+  truncated?: boolean;
 }
 
 /** An interactive element the discover loop perceives and acts on. */
@@ -94,7 +106,9 @@ export interface NetworkRequest {
   resourceType?: string;
 }
 
-/** Three observable layers the Critic judges on — never "the screen looked right". */
+/** Three observable layers. Execution + logic drive the deterministic verdict (never "the screen
+ * looked right"); perception (screenshots) feeds the host's visual replay and is available to custom
+ * checks — built-in critics don't judge it yet (LLM-vision assertions are future). */
 export interface Evidence {
   execution: {
     actions: ExecutedAction[];

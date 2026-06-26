@@ -39,7 +39,8 @@ function parseArgs(argv: string[]): { positionals: string[]; flags: Flags } {
   const positionals: string[] = [];
   const flags: Flags = new Map();
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
@@ -80,14 +81,14 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
 
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
-    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healedText}"`);
+    for (const h of heals) console.log(`  · "${h.original.text}" → "${h.healed.text ?? h.healed.selector}"`);
   } else if (healedScenario) {
     // outcome-heal: the run failed its assertions, so the whole scenario was re-discovered.
     console.log(`\nrun failed its assertions → re-discovered the scenario (${healedScenario.steps.length} step(s))`);
   }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
-    await writeFile(freeze, JSON.stringify({ name: healedScenario.name, scenario: healedScenario }, null, 2), "utf8");
+    await writeFile(freeze, JSON.stringify(healedScenario, null, 2), "utf8");
     console.log(`  re-frozen → ${freeze}`);
   }
   return result.verdict.passed ? 0 : 1;
@@ -108,10 +109,10 @@ async function cmdRun(flags: Flags): Promise<number> {
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out]");
-  const skill = await loadSkillFile(file);
+  const scenario = await loadSkillFile(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
-  console.log(`replaying frozen skill "${skill.name}" — ${mode}`);
-  return runScenarioCli(skill.scenario, flags);
+  console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
+  return runScenarioCli(scenario, flags);
 }
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
@@ -135,6 +136,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   console.log(`\ndiscovered scenario "${scenario.name}" — ${scenario.steps.length} steps:`);
   for (const step of scenario.steps) console.log(`  · ${JSON.stringify(step)}`);
 
+  if (scenario.truncated) {
+    console.log(`\n⚠ stopped at the step cap without reaching "done" — the path may be incomplete.`);
+  }
+
   // #14: flag weak (text-only) targets at freeze time, before a UI rename forces a self-heal.
   const weak = weakTargets(scenario);
   if (weak.length) {
@@ -144,7 +149,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   const freeze = flagStr(flags, "freeze");
   if (freeze) {
-    await writeFile(freeze, JSON.stringify({ name: scenario.name, scenario }, null, 2), "utf8");
+    await writeFile(freeze, JSON.stringify(scenario, null, 2), "utf8");
     console.log(`\nfrozen → ${freeze}  (replay with: cairn replay ${freeze})`);
   }
   return 0;

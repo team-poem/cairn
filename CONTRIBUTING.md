@@ -149,5 +149,5 @@ gives repo-specific guidelines for agent contributors.
 - `AGENTS.md` — rules and doc-routing for AI coding agents editing this repo
   (`CLAUDE.md` points here).
 - `spec/architecture.md` — the invariants above, in full.
-- `spec/state.md` — the living state and next steps.
+- `spec/journal/state.md` — the living state and next steps.
 - `docs/design.md` — the product design in full.

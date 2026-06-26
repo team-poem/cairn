@@ -76,7 +76,7 @@ export function defaultStepHandlers(actions: Record<string, CustomAction> = {}):
  * invariant #4). This is the explicit-wait primitive the heuristic `settle()` can't express —
  * e.g. "wait until /me returns 200" before the next step, instead of racing the app's readiness.
  */
-async function waitForCondition(
+export async function waitForCondition(
   driver: Driver,
   until: WaitUntil,
   timeoutMs = WAIT_TIMEOUT_MS,

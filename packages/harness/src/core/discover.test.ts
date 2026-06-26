@@ -46,6 +46,15 @@ describe("rankElements (#15)", () => {
     expect(ranked).toContainEqual({ role: "button", name: "Checkout now" });
     expect(ranked).toHaveLength(60);
   });
+
+  it("boosts an intent-relevant control for a non-ASCII (Korean) intent (P8)", () => {
+    const els = [
+      { role: "button", name: "취소" }, // interactive, not intent-relevant
+      { role: "button", name: "결제하기" }, // interactive + matches the "결제" token
+    ];
+    // before P8, `\W` split yielded no Korean tokens, so relevance never broke the tie
+    expect(rankElements(els, "결제 진행", 60)[0]).toEqual({ role: "button", name: "결제하기" });
+  });
 });
 
 describe("discover", () => {
@@ -98,6 +107,14 @@ describe("discover", () => {
     // The failed click is not recorded; only the successful one is.
     expect(scenario.steps).toEqual([{ kind: "click", target: { text: "Open", role: "link", index: 0 } }]);
     expect(driver.clicked).toEqual([{ text: "Open", role: "link", index: 0 }]);
+  });
+
+  it("flags a scenario truncated at the step cap (P10)", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "button", name: "Next" }] });
+    const llm = new ScriptedLlm(Array(5).fill('{"action":"click","text":"Next"}')); // never says done
+    const scenario = await discover("loops", { driver, llm, maxSteps: 3 });
+    expect(scenario.truncated).toBe(true);
+    expect(scenario.steps).toHaveLength(3);
   });
 
   it("grounds assertions in evidence — no `navigated` on a flow that didn't navigate (SPA)", async () => {

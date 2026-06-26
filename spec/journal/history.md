@@ -289,3 +289,8 @@
 - **P5 self-heal text-only 강등 픽스:** 치유한 이름을 `inner.locate`로 re-enrich → healed 타겟이 role/index 보존(freeze 점수와 일치). `Heal.healedText: string` → **`healed: Target`**(breaking — 익스텐션 재도그푸딩 시 적응). `applyHeals`·CLI·테스트 갱신.
 - **P3 positional silent 오선택 픽스:** `resolveTargetUid`에서 이름 미스 후 positional 폴백은 *모호하지 않을 때만*(같은 role 후보 1개) 신뢰 — 여러 개면 `undefined` → self-heal이 의도로 선택. 명시적 positional(text 없는 role+index)은 그대로.
 - **다음:** P4 discover waitFor · P7 주입 config · P8 한국어 토큰화 · P10 truncation 신호 · P6 perception · P9(노트).
+
+### 이어서 — P4·P8·P10 (92 테스트)
+- **P4 discover가 `waitFor` 생성:** `Decision`에 `waitFor`+`until` 추가, SYSTEM 프롬프트에 액션 노출, `applyDecision`이 `waitForCondition`(export)로 *탐색 중 실제 대기* 후 스텝 기록 → 사람이 frozen 수동 편집 불필요.
+- **P8 한국어 토큰화:** `rankElements`가 `split(/\W+/)`(ASCII만) → `match(/[\p{L}\p{N}]+/gu)`로 — 한국어 의도가 relevance 랭킹에 반영.
+- **P10 truncation 신호:** `Scenario += truncated?`. 캡 도달(미-done) 시 `true` → CLI 경고("path may be incomplete").

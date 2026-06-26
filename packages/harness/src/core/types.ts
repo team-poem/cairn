@@ -72,6 +72,9 @@ export interface Scenario {
   name: string;
   steps: Step[];
   assertions: Assertion[];
+  /** Set by discover when it stopped at the step cap without reaching "done" — the path may be
+   * incomplete, so a host can warn before trusting the freeze. Absent on a normal finish. */
+  truncated?: boolean;
 }
 
 /** An interactive element the discover loop perceives and acts on. */

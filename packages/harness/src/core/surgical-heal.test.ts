@@ -112,4 +112,14 @@ describe("discover captures intent + expect", () => {
     expect(found.steps[0]?.intent).toBe("select the item");
     expect(found.steps[0]?.expect).toEqual({ url: "app/cart" });
   });
+
+  it("can produce a waitFor step (P4 — discover synchronizes, not just replay)", async () => {
+    const driver = new StubDriver("https://app/dashboard"); // the awaited condition already holds
+    const llm = new ScriptedLlm([
+      '{"action":"waitFor","until":{"url":"dashboard"},"reason":"auth redirect lands"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("wait then done", { driver, llm });
+    expect(found.steps[0]).toMatchObject({ kind: "waitFor", until: { url: "dashboard" } });
+  });
 });

@@ -136,6 +136,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   console.log(`\ndiscovered scenario "${scenario.name}" — ${scenario.steps.length} steps:`);
   for (const step of scenario.steps) console.log(`  · ${JSON.stringify(step)}`);
 
+  if (scenario.truncated) {
+    console.log(`\n⚠ stopped at the step cap without reaching "done" — the path may be incomplete.`);
+  }
+
   // #14: flag weak (text-only) targets at freeze time, before a UI rename forces a self-heal.
   const weak = weakTargets(scenario);
   if (weak.length) {

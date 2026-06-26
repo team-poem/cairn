@@ -41,6 +41,11 @@ When a PR is merged into `develop`, `cairn-bot` closes issues referenced with
 `Closes #N`, `Fixes #N`, or `Resolves #N`. The later `develop` → `main` release merge
 is manual and does not close additional issues.
 
+Maintainers must configure these repository Actions secrets for `cairn-bot`:
+
+- `CAIRN_BOT_CLIENT_ID` — the GitHub App client ID, not the numeric app ID.
+- `CAIRN_BOT_PRIVATE_KEY` — a private key generated from the GitHub App settings.
+
 ## Development setup
 
 ```sh

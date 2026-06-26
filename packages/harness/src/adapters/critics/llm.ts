@@ -77,12 +77,12 @@ export class ExpectAssertionHandler implements AssertionHandler {
 export class LlmCritic implements Critic {
   private readonly handlers: AssertionHandler[];
 
-  constructor(llm: LlmClient, custom: CustomChecks = {}) {
+  constructor(llm: LlmClient, custom: CustomChecks = {}, benign: readonly string[] = []) {
     // `expect` → LLM (first, so it wins); everything else falls through to the same
     // mechanical/custom handlers AssertionCritic uses. The two critics differ only here.
     this.handlers = [
       new ExpectAssertionHandler(llm),
-      new MechanicalAssertionHandler(),
+      new MechanicalAssertionHandler(benign),
       new CustomAssertionHandler(custom),
     ];
   }

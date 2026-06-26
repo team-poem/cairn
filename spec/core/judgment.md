@@ -26,6 +26,9 @@ When discover proposes assertions, it **grounds them in what actually happened**
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 
-## Honesty gap (open — P6)
+## Perception's role (P6)
 
-`Evidence.perception.screenshot` is captured but **no critic reads it** → judgment is effectively *two-layer*. Either **wire** a visual assertion or correct the "three-layer" claim. (Also connects to per-step outcome verification — the `expect` of [surgical-heal](surgical-heal.md).)
+Three layers are *captured*, but the deterministic verdict rules on **two** — execution + logic.
+`Evidence.perception.screenshot` is **not judged by built-in critics**; it feeds the host's visual
+replay and is available to `custom` checks. LLM-vision assertions (a critic that reads the screenshot)
+are a future step — the claim is "three captured, two judged", not "three judged".

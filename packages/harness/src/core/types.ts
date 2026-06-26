@@ -106,7 +106,9 @@ export interface NetworkRequest {
   resourceType?: string;
 }
 
-/** Three observable layers the Critic judges on — never "the screen looked right". */
+/** Three observable layers. Execution + logic drive the deterministic verdict (never "the screen
+ * looked right"); perception (screenshots) feeds the host's visual replay and is available to custom
+ * checks — built-in critics don't judge it yet (LLM-vision assertions are future). */
 export interface Evidence {
   execution: {
     actions: ExecutedAction[];

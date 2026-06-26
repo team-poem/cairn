@@ -294,3 +294,9 @@
 - **P4 discover가 `waitFor` 생성:** `Decision`에 `waitFor`+`until` 추가, SYSTEM 프롬프트에 액션 노출, `applyDecision`이 `waitForCondition`(export)로 *탐색 중 실제 대기* 후 스텝 기록 → 사람이 frozen 수동 편집 불필요.
 - **P8 한국어 토큰화:** `rankElements`가 `split(/\W+/)`(ASCII만) → `match(/[\p{L}\p{N}]+/gu)`로 — 한국어 의도가 relevance 랭킹에 반영.
 - **P10 truncation 신호:** `Scenario += truncated?`. 캡 도달(미-done) 시 `true` → CLI 경고("path may be incomplete").
+
+### 이어서 — P7·P6·P9 (93 테스트, P1~P10 전부 처리)
+- **P7 benign-request 주입:** `isBenignRequest`+`checkAssertion`+critic 생성자+`runScenario opts.benign(string[])`로 스레드 → 제품이 자기 노이즈(analytics 4xx 등) URL 부분문자열을 `no-failed-requests`서 제외.
+- **P6 perception 정직화:** 3층은 *캡처*되나 빌트인 critic은 execution+logic만 판정 — perception(스크린샷)은 호스트 시각재생·custom 체크용, LLM-vision 단언은 future. types.ts·design.md·judgment.md의 "3층 판정" 과장 정정.
+- **P9 (한계 명시):** 로케이터-heal `applyHeals`는 데코레이터라 스텝 인덱스를 못 봐 같은 라벨 두 스텝이 함께 갈림. 인덱스 키 `applyStepHeals`(step-heal)가 그 경로의 정답 — 코멘트로 명시.
+- **검증:** 93 테스트·typecheck·build·browser 번들 OK. **`feat/surgical-heal` = P0 키스톤 + P2~P10 전부.** 다음: 익스텐션 재도그푸딩(실앱 검증) → 릴리스.

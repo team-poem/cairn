@@ -117,7 +117,9 @@ the engine; domain assets stay in the product.
 
 ## 6. Evidence and judgment
 
-The Critic receives observable facts in three layers before it rules.
+Three observable layers are captured. The deterministic Critic rules on two — execution and logic;
+the perception layer (per-step screenshots) feeds the host's visual replay and is available to custom
+checks, with LLM-vision assertions a future step — never "the screen looked right".
 
 ```ts
 Evidence = {

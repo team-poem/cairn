@@ -45,6 +45,8 @@ export interface RunScenarioOptions {
   screenshots?: boolean;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
+  /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
+  benign?: string[];
   /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
   actions?: Record<string, CustomAction>;
 }
@@ -69,7 +71,10 @@ function firstGotoUrl(scenario: Scenario): string | undefined {
   return first && first.kind === "goto" ? first.url : undefined;
 }
 
-/** Rewrite a scenario's targets with the (re-located) targets self-heal substituted, for re-freezing. */
+/** Rewrite a scenario's targets with the (re-located) targets self-heal substituted, for re-freezing.
+ * Keyed by name because the SelfHealingDriver decorator heals targets, not steps, so it can't see a
+ * step index (P9) — two steps with the same label rewrite together. The surgical step-heal path
+ * (`applyStepHeals`) keys by index and has no such collision; prefer it as that path matures. */
 export function applyHeals(scenario: Scenario, heals: Heal[]): Scenario {
   if (!heals.length) return scenario;
   const byOriginal = new Map(heals.map((h) => [h.original.text, h.healed]));
@@ -102,7 +107,9 @@ export async function runScenario(
 
   const critic =
     opts.critic ??
-    (needsLlmCritic(scenario) ? new LlmCritic(getLlm(), opts.custom) : new AssertionCritic(opts.custom));
+    (needsLlmCritic(scenario)
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign)
+      : new AssertionCritic(opts.custom, opts.benign));
 
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   let healer: SelfHealingDriver | undefined;

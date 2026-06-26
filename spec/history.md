@@ -243,3 +243,10 @@
 - **outcome-aware heal (`run.ts` `runScenario`, 피드백)** — locate-heal(`SelfHealingDriver`)은 *target resolve 실패*만 잡음. replay가 스텝은 다 돌았는데 **assertion이 실패**(결과/상태가 틀림 — PoC의 체크아웃 미도달)하면 못 잡았음. 이제 `heal` + verdict FAIL이면 시작점(`firstGotoUrl`)부터 **re-discover**로 시나리오를 복구하고 재판정 → `healedScenario` 반환(재-freeze). invariant #4 sanctioned use (b); green replay는 LLM 0 유지. CLI가 locate-heal 없이 outcome-heal만 일어나도 re-freeze.
 - **검증:** typecheck·build·**83 테스트**(+4: #16 grounding·expect gating, #15 ranking, outcome-heal). 불변식 유지(재생 기본 결정적, LLM은 탐색·heal에만, core가 adapter 비의존). `package.json` 1.3.0 bump.
 - **다음:** PR로 #15·#16 닫고 1.3.0 배포 → 익스텐션이 install해 재도그푸딩.
+
+## 2026-06-26 — #5 frozen skill wrapper 제거
+
+- **배경:** `Skill { name, scenario }`와 `Scenario.name`이 같은 이름을 중복 저장해 frozen JSON에서 값이 갈라질 수 있었다. `loadSkillFile`도 `{name,scenario}`와 bare `Scenario`를 모두 받는 normalization branch를 들고 있었다.
+- **결정:** 이슈 #5의 1안 채택 — frozen skill 파일은 곧 `Scenario`다. `Skill` wrapper 타입을 제거하고 `SkillStore.resolve(name)`/`loadSkillFile(path)`는 `Scenario`를 반환한다.
+- **변경:** `FileSkillStore.freeze`와 CLI `discover --freeze`, `replay --heal --freeze`가 bare scenario JSON만 쓴다. `cairn replay`는 loader가 반환한 scenario를 바로 실행한다. `docs/design.md` 포트 예시도 `resolve(name): Scenario`로 갱신.
+- **검증:** red→green 회귀테스트(`file-store.test.ts`)로 wrapper 없는 JSON을 고정. `typecheck`·전체 `vitest` **83/83**·`build`·TypeScript no-excuse 검사 통과. 빌드된 CLI로 `/private/tmp/cairn-issue5-scenario.json` bare scenario를 실제 브라우저 replay해 PASS.

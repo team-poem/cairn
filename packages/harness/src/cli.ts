@@ -39,7 +39,8 @@ function parseArgs(argv: string[]): { positionals: string[]; flags: Flags } {
   const positionals: string[] = [];
   const flags: Flags = new Map();
   for (let i = 0; i < argv.length; i++) {
-    const a = argv[i]!;
+    const a = argv[i];
+    if (a === undefined) continue;
     if (a.startsWith("--")) {
       const key = a.slice(2);
       const next = argv[i + 1];
@@ -87,7 +88,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
-    await writeFile(freeze, JSON.stringify({ name: healedScenario.name, scenario: healedScenario }, null, 2), "utf8");
+    await writeFile(freeze, JSON.stringify(healedScenario, null, 2), "utf8");
     console.log(`  re-frozen → ${freeze}`);
   }
   return result.verdict.passed ? 0 : 1;
@@ -108,10 +109,10 @@ async function cmdRun(flags: Flags): Promise<number> {
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out]");
-  const skill = await loadSkillFile(file);
+  const scenario = await loadSkillFile(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
-  console.log(`replaying frozen skill "${skill.name}" — ${mode}`);
-  return runScenarioCli(skill.scenario, flags);
+  console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
+  return runScenarioCli(scenario, flags);
 }
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
@@ -144,7 +145,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   const freeze = flagStr(flags, "freeze");
   if (freeze) {
-    await writeFile(freeze, JSON.stringify({ name: scenario.name, scenario }, null, 2), "utf8");
+    await writeFile(freeze, JSON.stringify(scenario, null, 2), "utf8");
     console.log(`\nfrozen → ${freeze}  (replay with: cairn replay ${freeze})`);
   }
   return 0;

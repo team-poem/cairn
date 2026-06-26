@@ -1,10 +1,10 @@
 /**
- * File-backed SkillStore. A frozen skill is plain JSON `{ name, scenario }`; freezing turns
+ * File-backed SkillStore. A frozen skill is a plain Scenario JSON file; freezing turns
  * an expensive LLM discovery into a cheap, repeatable, LLM-free replay (invariant #4).
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import type { SkillStore, Skill } from "../../core/ports.js";
+import type { SkillStore } from "../../core/ports.js";
 import type { Scenario } from "../../core/types.js";
 
 export class FileSkillStore implements SkillStore {
@@ -14,12 +14,11 @@ export class FileSkillStore implements SkillStore {
     return join(this.dir, `${name}.json`);
   }
 
-  async resolve(name: string): Promise<Skill | undefined> {
+  async resolve(name: string): Promise<Scenario | undefined> {
     try {
-      const raw = await readFile(this.pathFor(name), "utf8");
-      return JSON.parse(raw) as Skill;
+      return await loadSkillFile(this.pathFor(name));
     } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      if (isNotFoundError(err)) return undefined;
       throw err;
     }
   }
@@ -27,17 +26,38 @@ export class FileSkillStore implements SkillStore {
   async freeze(name: string, scenario: Scenario): Promise<string> {
     const path = this.pathFor(name);
     await mkdir(dirname(path), { recursive: true });
-    const skill: Skill = { name, scenario };
-    await writeFile(path, JSON.stringify(skill, null, 2), "utf8");
+    await writeFile(path, JSON.stringify(scenario, null, 2), "utf8");
     return path;
   }
 }
 
-/** Load a frozen skill by path, accepting either a full `{name,scenario}` or a bare scenario. */
-export async function loadSkillFile(path: string): Promise<Skill> {
+export class InvalidSkillFileError extends Error {
+  constructor(readonly path: string) {
+    super(`Invalid skill file: ${path}`);
+    this.name = "InvalidSkillFileError";
+  }
+}
+
+export async function loadSkillFile(path: string): Promise<Scenario> {
   const raw = await readFile(path, "utf8");
-  const parsed = JSON.parse(raw) as Skill | Scenario;
-  if ("scenario" in parsed) return parsed as Skill;
-  const scenario = parsed as Scenario;
-  return { name: scenario.name, scenario };
+  const parsed: unknown = JSON.parse(raw);
+  if (isScenario(parsed)) return parsed;
+  throw new InvalidSkillFileError(path);
+}
+
+function isScenario(value: unknown): value is Scenario {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    "steps" in value &&
+    "assertions" in value &&
+    typeof value.name === "string" &&
+    Array.isArray(value.steps) &&
+    Array.isArray(value.assertions)
+  );
+}
+
+function isNotFoundError(err: unknown): boolean {
+  return err instanceof Error && "code" in err && err.code === "ENOENT";
 }

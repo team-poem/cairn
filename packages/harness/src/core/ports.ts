@@ -63,13 +63,8 @@ export interface StepHandler {
   execute(step: Step, driver: Driver): Promise<void>;
 }
 
-export interface Skill {
-  name: string;
-  scenario: Scenario;
-}
-
 export interface SkillStore {
-  resolve(name: string): Promise<Skill | undefined>;
+  resolve(name: string): Promise<Scenario | undefined>;
 }
 
 /**

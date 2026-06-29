@@ -148,11 +148,16 @@ One engine, three entrances.
 **① Embed (recommended) + CLI · CI — now.** `import` the engine or use the CLI. Replay needs neither AI nor a key.
 
 ```
-$ cairn discover "log in, add the first product, open the cart" --url shop.example --freeze cart.json
-→ 6 steps · frozen → cart.json
-$ cairn replay cart.json            # deterministic, 0 AI
+$ cairn discover "log in, add the first product, open the cart" --url shop.example --freeze cart.skill.json
+→ 6 steps · frozen → cart.skill.json
+$ cairn replay cart.skill.json      # deterministic, 0 AI
 ✓ navigated → /cart.html  ✓ no-failed-requests  ✓ pass · exit 0
 ```
+
+When a project embeds the engine, name the runner file `*.agentic.ts` and pair it with
+the frozen bare Scenario file `*.skill.json` (for example, `cart.agentic.ts` +
+`cart.skill.json`). The first suffix marks cairn's agentic testing tier without colliding
+with `*.test.ts` / `*.spec.ts`; the second marks replayable frozen data.
 
 **② Desktop QA app — next (project 2).** The engine already exposes display seams — `onStep` (timeline) ·
 `screenshots` (per-step PNG) · `signal` (Stop) · `onHeal` (aging notice). The **UI is not put in the

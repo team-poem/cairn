@@ -14,11 +14,11 @@ npm install cairn-engine
 
 ```sh
 # discover an LLM walks the app once and writes a scenario
-cairn discover "follow the link to learn more" --url https://example.com --freeze t.json
+cairn discover "follow the link to learn more" --url https://example.com --freeze learn-more.skill.json
 # replay deterministic, no LLM; non-zero exit on failure (CI gate)
-cairn replay t.json
+cairn replay learn-more.skill.json
 # heal repair a broken step via the LLM and re-freeze
-cairn replay t.json --heal --freeze t.json
+cairn replay learn-more.skill.json --heal --freeze learn-more.skill.json
 ```
 
 Embed it — every stage is an injected port:
@@ -29,6 +29,12 @@ import { runScenario } from "cairn-engine";
 const { result } = await runScenario(scenario, { heal: true });
 if (!result.verdict.passed) process.exit(1);
 ```
+
+Name embedded cairn test files `*.agentic.ts`, paired with a frozen `*.skill.json`
+scenario. For example, `learn-more.agentic.ts` should load and run
+`learn-more.skill.json`. This keeps cairn's agentic tier visually separate from ordinary
+`*.test.ts` / `*.spec.ts` files and gives future tooling a stable glob:
+`**/*.agentic.ts`.
 
 Building a UI on top? The engine exposes the seams; you bring the UI:
 

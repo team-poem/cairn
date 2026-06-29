@@ -315,3 +315,9 @@
 - **(헤드라인) no-failed-requests grounding** — `deriveAssertions`가 *탐색 중 non-benign 실패가 없을 때만* 박는다(전엔 무조건). 노이즈 4xx 있는 실앱서 already-false 단언으로 매 replay FAIL 막음. `isBenignRequest`를 core로 추출(의존방향 유지, assertion.ts도 공유).
 - **곁다리:** #28 npm keywords 보강 · #3 `Planner` 포트 doc 정정("discovery는 Planner 아님 — discover()는 observe→act→adapt 자유함수, plan(ctx) 불가").
 - **검증:** 95 테스트·typecheck·build. version 2.1.0(minor, breaking 0). 다음: 익스텐션 2.1.0 재도그푸딩 → false-green 케이스 재현·해소 확인.
+
+## 2026-06-29 — #7 agentic test file naming convention
+
+- **결정:** cairn runner 파일은 `*.agentic.ts`, frozen bare Scenario 파일은 `*.skill.json`으로 문서화. 예: `checkout.agentic.ts` + `checkout.skill.json`.
+- **근거:** `*.agentic.ts`는 `*.test.ts`/`*.spec.ts`와 시각적으로 구분되고, 짧고 grep/glob하기 쉽다. `*.skill.json`은 기존 freeze/replay 용어와 bare Scenario 계약을 유지하면서 runner와 한 쌍으로 읽힌다.
+- **변경:** root README quickstart와 agentic test file 섹션, `packages/harness/README.md`, `docs/design.md`/`.html`, journal state 갱신.

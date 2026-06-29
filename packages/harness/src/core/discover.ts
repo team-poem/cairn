@@ -6,6 +6,7 @@
 import type { Driver, LlmClient } from "./ports.js";
 import type { Assertion, Evidence, PageElement, Scenario, Step, Target, WaitUntil } from "./types.js";
 import { waitForCondition } from "./steps.js";
+import { isBenignRequest, isMutation } from "./requests.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -173,7 +174,13 @@ function deriveAssertions(
   evidence: Evidence,
   semantic: boolean,
 ): Assertion[] {
-  const out: Assertion[] = [{ kind: "no-failed-requests" }];
+  const out: Assertion[] = [];
+  // Ground no-failed-requests: freeze it only if it actually HELD during discovery (no non-benign
+  // failure). A flow that survives a noisy 4xx would otherwise fail every replay on a check that was
+  // already false — the success-proving request below carries the real signal instead.
+  if (!evidence.logic.requests.some((r) => r.status >= 400 && !isBenignRequest(r.url))) {
+    out.push({ kind: "no-failed-requests" });
+  }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
   // that lands on an error/wrong page yet technically navigated.
@@ -208,10 +215,13 @@ function dedupeAssertions(assertions: Assertion[]): Assertion[] {
 const ASSERT_SYSTEM =
   "You propose verification assertions for a QA scenario, grounded ONLY in the observed evidence — " +
   "never invent a request or page that is not shown. Given the intent and what the run observed, " +
-  "return a JSON array of assertions confirming the intent was achieved. Prefer concrete deterministic " +
-  'checks: {"kind":"request-status","urlIncludes":"<url-substring>","status":200} for the key API call(s) ' +
-  'that prove success, and {"kind":"navigated","to":"<host+path>"} for the destination. ' +
-  "Return [] if the defaults already suffice. JSON array only, no prose, no code fences.";
+  "return a JSON array of assertions confirming the intent was achieved. " +
+  "Prove the ACTION, not just the destination: prefer a " +
+  '{"kind":"request-status","urlIncludes":"<url-substring>","status":200} on the state-changing request ' +
+  "that performed the goal (a POST/PUT/PATCH such as an order/submit/create call) — NOT a page navigation " +
+  "or GET, which a mere URL jump could satisfy without doing the work. " +
+  'Add {"kind":"navigated","to":"<host+path>"} for the destination too. ' +
+  "Return [] only if no meaningful action was observed. JSON array only, no prose, no code fences.";
 
 const ASSERT_SYSTEM_SEMANTIC =
   ' You may also add {"kind":"expect","criterion":"<natural-language success criterion>"} ' +
@@ -224,10 +234,16 @@ function renderEvidence(evidence: Evidence): string {
     .slice(0, 40)
     .map((r) => `${r.status} ${r.method} ${r.url}`)
     .join("\n");
+  // Surface successful mutations separately — these are what prove an action happened (a checkout
+  // POST, etc.), so the model grounds the success check on the work, not a page load.
+  const mutations = logic.requests
+    .filter((r) => isMutation(r.method) && r.status < 400)
+    .map((r) => `${r.status} ${r.method} ${r.url}`);
   const errors = logic.console.filter((m) => m.type === "error").map((m) => m.text);
   return [
     `finalUrl: ${execution.finalUrl ?? "(none)"} (navigated: ${execution.navigated})`,
-    `requests (${logic.requests.length}):`,
+    `state-changing requests that prove an action (prefer one of these): ${mutations.length ? "\n" + mutations.join("\n") : "(none)"}`,
+    `all requests (${logic.requests.length}):`,
     requests || "(none)",
     `console errors (${errors.length}): ${errors.slice(0, 5).join(" | ") || "(none)"}`,
   ].join("\n");

@@ -129,6 +129,29 @@ describe("discover", () => {
     expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }]);
   });
 
+  it("does not freeze no-failed-requests when discovery itself saw a real failure (grounding)", async () => {
+    const evFail: Evidence = {
+      ...evidence,
+      logic: { requests: [{ method: "GET", url: "https://shop/api/me", status: 404 }], console: [] },
+    };
+    const driver = new FakeDriver({ evidence: evFail, elements: [] });
+    const scenario = await discover("noop", { driver, llm: new ScriptedLlm(['{"action":"done"}']) });
+    // it didn't hold during discovery → freezing it would fail every replay on an already-false check
+    expect(scenario.assertions.some((a) => a.kind === "no-failed-requests")).toBe(false);
+  });
+
+  it("still freezes no-failed-requests when only a benign request failed (favicon)", async () => {
+    const evFavicon: Evidence = {
+      ...evidence,
+      logic: { requests: [{ method: "GET", url: "https://shop/favicon.ico", status: 404 }], console: [] },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evFavicon, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+  });
+
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
     const ev: Evidence = {
       execution: { actions: [], navigated: true, finalUrl: "https://shop/payment", blocked: false },

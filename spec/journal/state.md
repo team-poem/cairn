@@ -3,7 +3,7 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **`cairn-engine@1.3.0` npm 배포됨.** (1.0.0→1.3.0: browser-safe export, handler-dispatch, intent-grounded `expect`, waitFor/dialog/hover/target scoring, grounded discover assertions, outcome-aware heal.) 리포트 대조→측정→견고화→유연성 개방.
+- 단계: **`cairn-engine@2.0.0` npm 배포됨.** (1.3.0→2.0.0: **per-step outcome verification + surgical self-heal** — 스텝별 `intent`/`expect`, 결정적 skip/detect, `StepHealer`, #31~#40. **breaking:** `Heal.healed`·bare Scenario.) 리포트 대조→측정→견고화→유연성 개방.
   견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 83/83.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
@@ -51,7 +51,9 @@
    - **설계 정식화 완료 →** [`spec/core/surgical-heal.md`](../core/surgical-heal.md). 1.3.0 코드 직접 진단 + A급 평가로 *뿌리 = 스텝 단위 결과 검증 부재*로 재정의, P1~P10 인벤토리, **키스톤 = `expect`(감지)+`intent`(수정) 쌍**(순서 아님), `skip`은 post-condition 게이트. 흡수: #7(통째→스텝수술)·#6(스텝 expect)·#14 심화.
    - **v1 구현 완료** (`feat/surgical-heal`, **87 테스트·빌드 OK**): `Step += {intent, expect}`(expect=`WaitUntil` 재활용, `conditionMet`으로 결정적 검증) · discover가 intent(=reason)+expect(nav) 캡처 · 파이프라인 per-step 검증(*이미 hold면 결정적 skip*=idempotency, 어긋나면 detect) · `StepHealer` 포트+`LlmStepHealer`(intent 기반 수선) · `applyStepHeals` re-freeze · **P2 false-green 픽스**(outcome-heal이 *원래* 단언으로 판정).
    - **P1~P10 전부 구현 완료** (`feat/surgical-heal`, 93 테스트·build OK): P3 positional 모호-폴백 거부 · P4 discover waitFor 생성 · P5 heal role/index 보존 · P6 perception 정직화 · P7 benign 주입 · P8 한국어 토큰화 · P10 truncation 신호 · P9 identity-keying.
-   - **다음:** 익스텐션 재도그푸딩(실앱서 수술적 heal 검증, `Heal.healed` breaking 적응) → **한 번에 릴리스**. (이슈는 외부 발급.)
+   - **✅ 2.0.0 배포** (develop→main #42, tag v2.0.0, npm, GitHub Release). 익스텐션 재도그푸딩으로 실앱 검증 — 깨끗한 replay LLM 0 확인.
+   - **✅ 2.1.0 작업 중** (`feat/action-grounding`): 재도그푸딩이 *false green*을 드러냄(/payment 도착했지만 체크아웃 안 함 → 끝-단언만 보니 PASS). → **action-grounding**(단언을 *행위 POST*에 ground) + **no-failed-requests grounding**(탐색 중 실패 없을 때만 박음) + #28 keywords · #3 Planner doc. 95 테스트·build. breaking 0(minor).
+   - **다음:** 2.1.0 릴리스 → 익스텐션 2.1.0 재도그푸딩(false-green 케이스 해소 확인). 실앱 발견은 여기 cairn journal에 누적.
    - 안전(검토 후보): cairn 차원의 origin 경계/boundary(자동화가 외부 PG로 넘어가는 것 방지) — 익스텐션선 가드 추가됨.
 
 ## spec 재구성 (2026-06-26)

@@ -1,6 +1,6 @@
 {
   "name": "cairn-engine",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "An engine for self-healing E2E browser tests — discovered once by an AI, replayed deterministically.",
   "keywords": [
     "e2e",
@@ -13,7 +13,11 @@
     "ai",
     "chrome-devtools",
     "mcp",
-    "automation"
+    "automation",
+    "agentic",
+    "test-automation",
+    "regression-testing",
+    "playwright"
   ],
   "license": "MIT",
   "author": "team-poem (https://github.com/team-poem)",

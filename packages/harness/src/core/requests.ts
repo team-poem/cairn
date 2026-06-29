@@ -1,0 +1,13 @@
+/** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. Built-in
+ * universal noise (favicon, robots) plus any URL-substring a product marks benign. */
+export function isBenignRequest(url: string, benign: readonly string[] = []): boolean {
+  if (/\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url)) return true;
+  return benign.some((s) => url.includes(s));
+}
+
+/** Whether a request is a state-changing mutation (the kind that proves an action happened, vs a
+ * navigation/read) — used to ground a scenario's success assertion on what did the work. */
+export function isMutation(method: string): boolean {
+  const m = method.toUpperCase();
+  return m === "POST" || m === "PUT" || m === "PATCH" || m === "DELETE";
+}

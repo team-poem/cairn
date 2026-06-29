@@ -300,3 +300,18 @@
 - **P6 perception 정직화:** 3층은 *캡처*되나 빌트인 critic은 execution+logic만 판정 — perception(스크린샷)은 호스트 시각재생·custom 체크용, LLM-vision 단언은 future. types.ts·design.md·judgment.md의 "3층 판정" 과장 정정.
 - **P9 picked by identity:** `applyHeals`를 텍스트가 아니라 *타겟 객체 identity*로 키잉 — 타겟 레퍼런스가 step→driver→Heal로 그대로 흐르므로(StaticPlanner가 시나리오 객체 보존, 통합 테스트로 확인) 같은 라벨 두 스텝이 따로 갈림. (처음엔 데코레이터 한계로 오판 → 레퍼런스 흐름을 보고 제대로 픽스.)
 - **검증:** 93 테스트·typecheck·build·browser 번들 OK. **`feat/surgical-heal` = P0 키스톤 + P2~P10 전부(#31~#40).** 다음: 익스텐션 재도그푸딩(실앱 검증) → 릴리스.
+
+## 2026-06-26 (이어서) — cairn-engine 2.0.0 배포
+
+- **`feat/surgical-heal` → develop(PR #41) → main(PR #42).** `release/2.0.0` 스냅샷 브랜치 별도 푸시. **tag `v2.0.0`(fa9d8ad) · npm `cairn-engine@2.0.0` · GitHub Release 게시.**
+- **2.0.0 = major.** 헤드라인 = per-step outcome verification(스텝별 의도대로 됐는지 확인 + 어긋난 그 스텝만 수술적 복구). #31~#40 전부. breaking 2: `Heal.healedText`→`healed: Target`, frozen=bare Scenario(#5/PR27 릴리스 반영). 기존 expect 없는 시나리오는 그대로 재생.
+- **다음:** 익스텐션을 2.0.0으로 재도그푸딩 → 실앱서 수술적 heal 실측. 발견은 이 journal에 누적.
+
+## 2026-06-29 — 2.1.0: 단언이 *행위*를 본다 (action-grounding)
+
+- **2.0.0 재도그푸딩 발견:** 실앱 replay가 /payment 잘 도착했는데도 (1) `/me` 404 하나로 false FAIL, (2) 🩹데모가 outcome-heal(통째 재발견) 발동 → 재발견이 "이미 체크됨" 잘못 처리하다 `/payment`로 *직접 점프* → 끝-단언(navigated /payment·page 200)만 보니 **false PASS**(bare `/payment`, cartid 없음). 뿌리 = **목표(단언)가 *끝상태*만 보고 *행위*를 안 본다.**
+- **결정:** 사람이 엔드포인트 하드코딩 = cairn 전제(LLM이 관찰로 성공을 안다) 위반 → 새 이슈 없이 2.1.0에서 엔진이 직접 grounding.
+- **(헤드라인) action-grounding** — `proposeAssertions` 프롬프트가 *상태 바꾸는 요청*(POST/PUT/PATCH 2xx, 주문/제출 등)에 `request-status`를 박게(page nav/GET 말고 — URL 점프로 못 속이게). `renderEvidence`가 *성공한 mutation*을 별도 블록으로 강조. `isMutation` core 헬퍼.
+- **(헤드라인) no-failed-requests grounding** — `deriveAssertions`가 *탐색 중 non-benign 실패가 없을 때만* 박는다(전엔 무조건). 노이즈 4xx 있는 실앱서 already-false 단언으로 매 replay FAIL 막음. `isBenignRequest`를 core로 추출(의존방향 유지, assertion.ts도 공유).
+- **곁다리:** #28 npm keywords 보강 · #3 `Planner` 포트 doc 정정("discovery는 Planner 아님 — discover()는 observe→act→adapt 자유함수, plan(ctx) 불가").
+- **검증:** 95 테스트·typecheck·build. version 2.1.0(minor, breaking 0). 다음: 익스텐션 2.1.0 재도그푸딩 → false-green 케이스 재현·해소 확인.

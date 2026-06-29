@@ -1,6 +1,7 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
+import { isBenignRequest } from "../../core/requests.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
 export type CustomCheck = (
@@ -9,13 +10,6 @@ export type CustomCheck = (
 ) => boolean | { passed: boolean; detail?: string } | Promise<boolean | { passed: boolean; detail?: string }>;
 
 export type CustomChecks = Record<string, CustomCheck>;
-
-/** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. Built-in
- * universal noise plus any URL-substring a product marks benign (e.g. its own analytics 4xx). */
-function isBenignRequest(url: string, benign: readonly string[] = []): boolean {
-  if (/\/favicon\.ico(\?|$)/i.test(url) || /\/robots\.txt(\?|$)/i.test(url)) return true;
-  return benign.some((s) => url.includes(s));
-}
 
 /** Evaluate one mechanical assertion. `expect` is not mechanical — returns unsupported (LlmCritic handles it). */
 export function checkAssertion(

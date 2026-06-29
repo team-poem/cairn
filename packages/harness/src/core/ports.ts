@@ -21,7 +21,12 @@ export interface ContextProvider {
   provide(task: string): Promise<Context>;
 }
 
-/** Intent → ordered Scenario. Frozen-replay planning uses no LLM (invariant #4); discovery is a separate LLM planner. */
+/**
+ * Intent → ordered Scenario for the plan-then-execute pipeline (frozen replay uses no LLM, invariant #4).
+ * Discovery is NOT a Planner: `discover()` is a separate free function that interleaves observe→act→adapt
+ * against the live browser (invariant #3), so it can't be a pure `plan(ctx)`. The CLI's `discover` calls
+ * it directly, outside the Harness/Planner pipeline.
+ */
 export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }

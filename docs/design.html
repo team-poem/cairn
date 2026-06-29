@@ -318,10 +318,10 @@
       <div class="term">
         <div class="tt"><i></i><i></i><i></i><span>zsh — cairn</span></div>
         <div class="tb">
-<span class="pr">$</span> cairn discover <span class="acc">"로그인하고 첫 상품을 담아 카트를 연다"</span> --url shop.example --freeze cart.json<br>
+<span class="pr">$</span> cairn discover <span class="acc">"로그인하고 첫 상품을 담아 카트를 연다"</span> --url shop.example --freeze cart.skill.json<br>
 <span class="ok">→</span> 6 steps <span class="dim">· goto → type("Username") → click("Login") → click("Add to cart") → goto(/cart)</span><br>
-<span class="dim">frozen → cart.json</span><br>
-<span class="pr">$</span> cairn replay cart.json   <span class="dim"># 결정적, AI 0</span><br>
+<span class="dim">frozen → cart.skill.json</span><br>
+<span class="pr">$</span> cairn replay cart.skill.json   <span class="dim"># 결정적, AI 0</span><br>
 <span class="ok">✓</span> navigated → /cart.html&nbsp;&nbsp;<span class="ok">✓</span> no-failed-requests&nbsp;&nbsp;<span class="ok">✓ pass</span> <span class="dim">· exit 0</span>
         </div>
       </div>

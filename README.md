@@ -14,7 +14,7 @@ The whole idea is one loop. The LLM is expensive and non-deterministic, so it ru
   intent (plain English)
         │
         ▼
-   discover ──────────────► skill.json ──────────► replay ──────► verdict
+   discover ──────────────► *.skill.json ────────► replay ──────► verdict
    observe · act · adapt      (frozen marker)      no LLM ·        3-layer
    (LLM, once)                                     deterministic   evidence
                                                       │
@@ -47,16 +47,30 @@ npm install -g cairn-engine   # provides the `cairn` CLI
 ```sh
 # 1. discover — an LLM walks the app and writes a scenario
 cairn discover "from the example page, follow the link to learn more" \
-  --url https://example.com --freeze checkout.json
+  --url https://example.com --freeze checkout.skill.json
 
 # 2. replay — deterministic, no LLM; exits non-zero on failure (CI gate)
-cairn replay checkout.json
+cairn replay checkout.skill.json
 
 # 3. heal — when a frozen step breaks, repair it and re-freeze
-cairn replay checkout.json --heal --freeze checkout.json
+cairn replay checkout.skill.json --heal --freeze checkout.skill.json
 ```
 
 The LLM backend needs no API key if you have **Claude Code** installed (cairn shells out to it); set `ANTHROPIC_API_KEY` to use the Anthropic API instead. The default browser driver is **Chrome DevTools MCP**, launched automatically.
+
+## Agentic test files
+
+Use `*.agentic.ts` for the file that embeds cairn and calls `runScenario(...)` against a
+frozen scenario. Keep the frozen scenario beside it as `*.skill.json`:
+
+```
+checkout.agentic.ts     # imports cairn-engine and runs the scenario
+checkout.skill.json     # bare Scenario JSON written by discover/freeze
+```
+
+The suffix is intentionally distinct from `*.test.ts` and `*.spec.ts`: those are ordinary
+unit/e2e tests, while `*.agentic.ts` marks the agentic tier. It is also short and
+tool-friendly, so future runners can discover files with a glob like `**/*.agentic.ts`.
 
 Embed it instead of shelling out — every stage is an injected interface:
 

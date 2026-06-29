@@ -19,6 +19,7 @@
 - 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
 - **브랜치 전략(확정): git-flow.** `develop`=통합(여기서 `feat/*` 브랜치 → PR), `develop → main` 머지 = **릴리스(메인테이너만)** → 수동 태그 + `npm publish`. 정본 `CONTRIBUTING.md`. (옛 'main→develop→feature' 표기는 폐기.)
 - **cairn-bot 운영:** PR은 issue link가 필수이며, `develop`에 머지된 PR의 `Closes/Fixes/Resolves #N` 이슈는 `cairn-bot`이 자동 close한다. `develop → main` 릴리스 머지는 수동이며 issue close 기준이 아니다.
+- **파일명 컨벤션:** cairn 임베드 runner 파일은 `*.agentic.ts`, frozen bare Scenario는 `*.skill.json`으로 문서화한다. 예: `checkout.agentic.ts` + `checkout.skill.json`. → #7
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 

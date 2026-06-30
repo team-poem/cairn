@@ -7,7 +7,7 @@
 [![types](https://img.shields.io/npm/types/cairn-engine.svg)](https://www.npmjs.com/package/cairn-engine)
 [![license](https://img.shields.io/npm/l/cairn-engine.svg)](https://github.com/team-poem/cairn/blob/main/LICENSE)
 
-**Browser tests you write in plain language — that then run with zero AI in the loop.**
+**An AI writes your browser test once — then it runs forever with no AI at all, and heals itself when the UI changes.**
 
 An AI walks your app **once** to discover the flow and **freezes** it. From then on it replays
 **deterministically — no LLM, no hand-written selectors.** When the UI changes and a step breaks,

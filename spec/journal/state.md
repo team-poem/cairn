@@ -3,7 +3,7 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **`cairn-engine@2.0.0` npm 배포됨.** (1.3.0→2.0.0: **per-step outcome verification + surgical self-heal** — 스텝별 `intent`/`expect`, 결정적 skip/detect, `StepHealer`, #31~#40. **breaking:** `Heal.healed`·bare Scenario.) 리포트 대조→측정→견고화→유연성 개방.
+- 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor 추가.) 리포트 대조→측정→견고화→유연성 개방.
   견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 83/83.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
@@ -54,7 +54,8 @@
    - **P1~P10 전부 구현 완료** (`feat/surgical-heal`, 93 테스트·build OK): P3 positional 모호-폴백 거부 · P4 discover waitFor 생성 · P5 heal role/index 보존 · P6 perception 정직화 · P7 benign 주입 · P8 한국어 토큰화 · P10 truncation 신호 · P9 identity-keying.
    - **✅ 2.0.0 배포** (develop→main #42, tag v2.0.0, npm, GitHub Release). 익스텐션 재도그푸딩으로 실앱 검증 — 깨끗한 replay LLM 0 확인.
    - **✅ 2.1.0 작업 중** (`feat/action-grounding`): 재도그푸딩이 *false green*을 드러냄(/payment 도착했지만 체크아웃 안 함 → 끝-단언만 보니 PASS). → **action-grounding**(단언을 *행위 POST*에 ground) + **no-failed-requests grounding**(탐색 중 실패 없을 때만 박음) + #28 keywords · #3 Planner doc. 95 테스트·build. breaking 0(minor).
-   - **다음:** 2.1.0 릴리스 → 익스텐션 2.1.0 재도그푸딩(false-green 케이스 해소 확인). 실앱 발견은 여기 cairn journal에 누적.
+   - **✅ 2.1.0 배포 + 익스텐션 실앱 검증 완료.** action-grounding 동작 확인 — 재탐색 시 단언이 *체크아웃 POST*(`buy-request/validation`, buyRequestIds 담김)·로그인 POST에 ground됨(전엔 `/payment` GET만). 🩹데모가 *진짜 체크아웃*(cartid 있음)하고 통과 — `/payment` 직접 점프는 그 POST가 안 떠서 이제 FAIL = **false-green 구조적 해소.** no-failed-requests grounding도 동작(/me 404 봐서 안 박음). 사람 하드코딩 0.
+   - **다음:** 더 깊은 실앱 케이스 누적(상태 divergence·3층 판정). 당장 급한 엔진 갭은 없음.
    - 안전(검토 후보): cairn 차원의 origin 경계/boundary(자동화가 외부 PG로 넘어가는 것 방지) — 익스텐션선 가드 추가됨.
 
 ## spec 재구성 (2026-06-26)

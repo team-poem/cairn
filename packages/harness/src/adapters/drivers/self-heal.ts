@@ -5,7 +5,13 @@
  * and the substitution is recorded for re-freezing. No break → no LLM call.
  */
 import type { Driver, LlmClient } from "../../core/ports.js";
-import type { Evidence, PageElement, SettleOptions, Target } from "../../core/types.js";
+import type {
+  Evidence,
+  PageElement,
+  SettleOptions,
+  Target,
+} from "../../core/types.js";
+import { extractFirstJsonObject } from "../../core/json.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
  * role/index, not a brittle text-only one) was used instead. */
@@ -46,11 +52,8 @@ function healPrompt(target: Target, elements: PageElement[]): string {
 
 /** Parse the heal reply → a chosen element name, or undefined for "none". */
 export function parseHealChoice(text: string): string | undefined {
-  let s = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  const start = s.indexOf("{");
-  const end = s.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error(`no JSON in heal reply: ${text.slice(0, 200)}`);
-  const obj = JSON.parse(s.slice(start, end + 1)) as { name?: unknown };
+  const obj = extractFirstJsonObject(text) as { name?: unknown } | undefined;
+  if (!obj) throw new Error(`no JSON in heal reply: ${text.slice(0, 200)}`);
   return typeof obj.name === "string" && obj.name.trim() ? obj.name : undefined;
 }
 
@@ -146,14 +149,20 @@ export class SelfHealingDriver implements Driver {
 
   private async heal(target: Target, cause: unknown): Promise<Target> {
     if (this.heals.length >= this.maxHeals) {
-      throw new Error(`self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`);
+      throw new Error(
+        `self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`,
+      );
     }
     const elements = await this.inner.snapshot();
-    const reply = await this.llm.complete(healPrompt(target, elements), { system: HEAL_SYSTEM });
+    const reply = await this.llm.complete(healPrompt(target, elements), {
+      system: HEAL_SYSTEM,
+    });
     const choice = parseHealChoice(reply);
     if (!choice) {
       const why = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(`self-heal found no match for ${JSON.stringify(target)} (${why})`);
+      throw new Error(
+        `self-heal found no match for ${JSON.stringify(target)} (${why})`,
+      );
     }
     // Re-locate the chosen element so the healed target keeps strong locators (role/index), not a
     // brittle text-only one — matching what the freeze score rewards (P5).

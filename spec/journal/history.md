@@ -355,3 +355,10 @@
 - **한 일:** 공유 `http.ts`(fetch + 재시도 + 타임아웃) 추출 → anthropic·openai·gemini 셋이 공유(anthropic도 이걸 쓰게 리팩터, 동작 동일). OpenAI(Chat Completions)·Gemini(generateContent) 어댑터, SDK 없이 fetch. factory: 명시 `backend` 우선, 아니면 env 감지(Anthropic→OpenAI→Gemini→Claude Code). index·browser export.
 - **검증:** typecheck·build·**101 테스트**(+6). 미배포 — 커밋·푸시만(`feat/llm-backends`).
 - **문서:** npm README 갱신 — Models 노트 supported, 루프 단계별 설명 + .skill.json 실물 + heal/재freeze·seam 코드예시, 배지(npm·CI·types·license), "engine, not a test framework" 포지셔닝.
+
+## 2.2.1 — heal/critic JSON 파싱 견고화
+
+- **발견(익스텐션 도그푸딩):** 로그인 플로우 재생 중 step heal에서 `Unexpected non-whitespace character after JSON at position 27` 크래시.
+- **원인:** `parseHealChoice`(self-heal)·`parseVerdict`(llm critic)가 `indexOf("{")`+`lastIndexOf("}")` slice로 파싱 → LLM이 객체를 2개 뱉으면 둘을 다 먹어 `JSON.parse` 실패. discover는 이미 견고한 `extractFirstJsonObject`(깊이추적)를 쓰는데 이 둘만 안 씀.
+- **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
+- **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.

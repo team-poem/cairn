@@ -4,9 +4,18 @@
  * later replays with no LLM (invariant #4). LLM is behind the LlmClient seam (invariant #5).
  */
 import type { Driver, LlmClient } from "./ports.js";
-import type { Assertion, Evidence, PageElement, Scenario, Step, Target, WaitUntil } from "./types.js";
+import type {
+  Assertion,
+  Evidence,
+  PageElement,
+  Scenario,
+  Step,
+  Target,
+  WaitUntil,
+} from "./types.js";
 import { waitForCondition } from "./steps.js";
 import { isBenignRequest, isMutation } from "./requests.js";
+import { extractFirstJsonObject } from "./json.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -65,8 +74,21 @@ const SYSTEM =
 
 const ELEMENT_LIMIT = 60;
 const INTERACTIVE_ROLES = new Set([
-  "button", "link", "textbox", "checkbox", "radio", "combobox", "menuitem", "menuitemcheckbox",
-  "menuitemradio", "tab", "switch", "option", "searchbox", "slider", "spinbutton",
+  "button",
+  "link",
+  "textbox",
+  "checkbox",
+  "radio",
+  "combobox",
+  "menuitem",
+  "menuitemcheckbox",
+  "menuitemradio",
+  "tab",
+  "switch",
+  "option",
+  "searchbox",
+  "slider",
+  "spinbutton",
 ]);
 
 /**
@@ -74,10 +96,16 @@ const INTERACTIVE_ROLES = new Set([
  * controls first, then intent-relevant names. A flat `slice(0, N)` can drop the one control a flow
  * needs when a page has thousands of elements (seen in dogfooding) — ranking is correctness, not just cost.
  */
-export function rankElements(elements: PageElement[], intent: string, limit: number): PageElement[] {
+export function rankElements(
+  elements: PageElement[],
+  intent: string,
+  limit: number,
+): PageElement[] {
   // Unicode-aware tokens — `\W` treats every Korean (or any non-ASCII) char as a separator, so a
   // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
-  const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
+  const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter(
+    (w) => w.length >= 2,
+  );
   return elements
     .map((e, i) => {
       let score = INTERACTIVE_ROLES.has(e.role) ? 100 : 0;
@@ -105,12 +133,19 @@ function buildPrompt(
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
     : "(none yet)";
   // #15 — a stable page between steps doesn't need the whole list re-sent.
-  const elementsBlock = render && render === prevRender ? "(unchanged from previous step)" : render || "(none)";
+  const elementsBlock =
+    render && render === prevRender
+      ? "(unchanged from previous step)"
+      : render || "(none)";
   return [
     `Intent: ${intent}`,
     ``,
     ...(failures.length
-      ? [`These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`, ...failures.map((f) => `- ${f}`), ``]
+      ? [
+          `These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`,
+          ...failures.map((f) => `- ${f}`),
+          ``,
+        ]
       : []),
     `Actions taken so far:`,
     history,
@@ -125,40 +160,11 @@ function buildPrompt(
 /** First JSON object in a model reply, tolerating fences, prose, and trailing extra objects. */
 export function parseDecision(text: string): Decision {
   const obj = extractFirstJsonObject(text) as Decision | undefined;
-  if (!obj) throw new Error(`no JSON object in model reply: ${text.slice(0, 200)}`);
-  if (!obj.action) throw new Error(`decision missing "action": ${text.slice(0, 200)}`);
+  if (!obj)
+    throw new Error(`no JSON object in model reply: ${text.slice(0, 200)}`);
+  if (!obj.action)
+    throw new Error(`decision missing "action": ${text.slice(0, 200)}`);
   return obj;
-}
-
-/**
- * Extract the FIRST complete balanced {...} object. Slicing first-`{` to last-`}` breaks
- * when a model emits two objects or trailing text (a real crash seen on complex flows);
- * this scans braces (string-aware) and stops at the first balanced close.
- */
-function extractFirstJsonObject(text: string): unknown {
-  const s = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
-  const start = s.indexOf("{");
-  if (start === -1) return undefined;
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < s.length; i++) {
-    const ch = s[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-    } else if (ch === '"') inStr = true;
-    else if (ch === "{") depth++;
-    else if (ch === "}" && --depth === 0) {
-      try {
-        return JSON.parse(s.slice(start, i + 1));
-      } catch {
-        return undefined;
-      }
-    }
-  }
-  return undefined;
 }
 
 /**
@@ -178,13 +184,18 @@ function deriveAssertions(
   // Ground no-failed-requests: freeze it only if it actually HELD during discovery (no non-benign
   // failure). A flow that survives a noisy 4xx would otherwise fail every replay on a check that was
   // already false — the success-proving request below carries the real signal instead.
-  if (!evidence.logic.requests.some((r) => r.status >= 400 && !isBenignRequest(r.url))) {
+  if (
+    !evidence.logic.requests.some(
+      (r) => r.status >= 400 && !isBenignRequest(r.url),
+    )
+  ) {
     out.push({ kind: "no-failed-requests" });
   }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
   // that lands on an error/wrong page yet technically navigated.
-  if (navigated && finalUrl) out.push({ kind: "navigated", to: destinationKey(finalUrl) });
+  if (navigated && finalUrl)
+    out.push({ kind: "navigated", to: destinationKey(finalUrl) });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") continue;
@@ -193,8 +204,18 @@ function deriveAssertions(
       const matches = evidence.logic.requests.some(
         (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
       );
-      if (matches) out.push({ kind: "request-status", urlIncludes: a.urlIncludes, status: a.status });
-    } else if (a.kind === "expect" && semantic && typeof a.criterion === "string" && a.criterion.trim()) {
+      if (matches)
+        out.push({
+          kind: "request-status",
+          urlIncludes: a.urlIncludes,
+          status: a.status,
+        });
+    } else if (
+      a.kind === "expect" &&
+      semantic &&
+      typeof a.criterion === "string" &&
+      a.criterion.trim()
+    ) {
       out.push({ kind: "expect", criterion: a.criterion.trim() });
     }
   }
@@ -239,7 +260,9 @@ function renderEvidence(evidence: Evidence): string {
   const mutations = logic.requests
     .filter((r) => isMutation(r.method) && r.status < 400)
     .map((r) => `${r.status} ${r.method} ${r.url}`);
-  const errors = logic.console.filter((m) => m.type === "error").map((m) => m.text);
+  const errors = logic.console
+    .filter((m) => m.type === "error")
+    .map((m) => m.text);
   return [
     `finalUrl: ${execution.finalUrl ?? "(none)"} (navigated: ${execution.navigated})`,
     `state-changing requests that prove an action (prefer one of these): ${mutations.length ? "\n" + mutations.join("\n") : "(none)"}`,
@@ -260,7 +283,9 @@ async function proposeAssertions(
   evidence: Evidence,
   semantic: boolean,
 ): Promise<Assertion[]> {
-  const system = semantic ? ASSERT_SYSTEM + ASSERT_SYSTEM_SEMANTIC : ASSERT_SYSTEM;
+  const system = semantic
+    ? ASSERT_SYSTEM + ASSERT_SYSTEM_SEMANTIC
+    : ASSERT_SYSTEM;
   const prompt = [
     `Intent: ${intent}`,
     ``,
@@ -279,7 +304,10 @@ async function proposeAssertions(
 
 /** First balanced [...] array in a model reply, tolerant of fences/prose; [] on failure. */
 function extractJsonArray(text: string): Assertion[] {
-  const s = text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+  const s = text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "");
   const start = s.indexOf("[");
   if (start === -1) return [];
   let depth = 0;
@@ -318,19 +346,27 @@ function destinationKey(url: string): string {
 /** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
  * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
  * weak expect would trigger false divergence. */
-async function stepExpect(driver: Driver, beforeUrl: string | undefined): Promise<WaitUntil | undefined> {
+async function stepExpect(
+  driver: Driver,
+  beforeUrl: string | undefined,
+): Promise<WaitUntil | undefined> {
   await driver.settle();
   const afterUrl = (await driver.observe()).execution.finalUrl;
-  if (afterUrl && afterUrl !== beforeUrl) return { url: destinationKey(afterUrl) };
+  if (afterUrl && afterUrl !== beforeUrl)
+    return { url: destinationKey(afterUrl) };
   return undefined;
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(
+  driver: Driver,
+  decision: Decision,
+): Promise<Step> {
   // Enrich the target with resilient locators (role + structural index) before acting, and
   // freeze the enriched target — so replay survives a UI rename without the LLM.
   const located = (): Promise<Target> => {
-    if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
+    if (!decision.text)
+      throw new Error(`${decision.action} decision missing "text"`);
     return driver.locate({ text: decision.text });
   };
   switch (decision.action) {
@@ -379,8 +415,19 @@ export async function applyDecision(driver: Driver, decision: Decision): Promise
   }
 }
 
-export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 8, onStep, signal, semanticChecks = false } = opts;
+export async function discover(
+  intent: string,
+  opts: DiscoverOptions,
+): Promise<Scenario> {
+  const {
+    driver,
+    llm,
+    baseUrl,
+    maxSteps = 8,
+    onStep,
+    signal,
+    semanticChecks = false,
+  } = opts;
   const steps: Step[] = [];
 
   if (baseUrl) {
@@ -396,10 +443,15 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     signal?.throwIfAborted();
     await driver.settle();
     const elements = await driver.snapshot();
-    const render = renderElements(rankElements(elements, intent, ELEMENT_LIMIT));
-    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures), {
-      system: SYSTEM,
-    });
+    const render = renderElements(
+      rankElements(elements, intent, ELEMENT_LIMIT),
+    );
+    const reply = await llm.complete(
+      buildPrompt(intent, render, prevRender, steps, failures),
+      {
+        system: SYSTEM,
+      },
+    );
     prevRender = render;
 
     let decision: Decision;
@@ -407,7 +459,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       decision = parseDecision(reply);
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
-      failures.push("your previous reply was not a single valid JSON action object");
+      failures.push(
+        "your previous reply was not a single valid JSON action object",
+      );
       continue;
     }
 
@@ -418,7 +472,11 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         ...(decision.assertions ?? []),
         ...(await proposeAssertions(llm, intent, evidence, semanticChecks)),
       ];
-      return { name: intent, steps, assertions: deriveAssertions(proposed, evidence, semanticChecks) };
+      return {
+        name: intent,
+        steps,
+        assertions: deriveAssertions(proposed, evidence, semanticChecks),
+      };
     }
 
     try {
@@ -432,14 +490,21 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       onStep?.(decision, step);
     } catch (err) {
       const what = `${decision.action}${decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : ""}`;
-      failures.push(`${what} — ${err instanceof Error ? err.message : String(err)}`);
+      failures.push(
+        `${what} — ${err instanceof Error ? err.message : String(err)}`,
+      );
       onStep?.(decision);
     }
   }
 
   // Safety cap reached without an explicit "done" — flag it so the path isn't trusted as complete.
   const evidence = await driver.observe();
-  const proposed = await proposeAssertions(llm, intent, evidence, semanticChecks);
+  const proposed = await proposeAssertions(
+    llm,
+    intent,
+    evidence,
+    semanticChecks,
+  );
   return {
     name: intent,
     steps,

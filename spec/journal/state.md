@@ -3,8 +3,8 @@
 > 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
 
 ## 지금 상태
-- 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor 추가.) 리포트 대조→측정→견고화→유연성 개방.
-  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 83/83.
+- 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포, PR #46 review 반영).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor 추가.) 리포트 대조→측정→견고화→유연성 개방.
+  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 101/101.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

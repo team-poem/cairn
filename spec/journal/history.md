@@ -355,3 +355,9 @@
 - **한 일:** 공유 `http.ts`(fetch + 재시도 + 타임아웃) 추출 → anthropic·openai·gemini 셋이 공유(anthropic도 이걸 쓰게 리팩터, 동작 동일). OpenAI(Chat Completions)·Gemini(generateContent) 어댑터, SDK 없이 fetch. factory: 명시 `backend` 우선, 아니면 env 감지(Anthropic→OpenAI→Gemini→Claude Code). index·browser export.
 - **검증:** typecheck·build·**101 테스트**(+6). 미배포 — 커밋·푸시만(`feat/llm-backends`).
 - **문서:** npm README 갱신 — Models 노트 supported, 루프 단계별 설명 + .skill.json 실물 + heal/재freeze·seam 코드예시, 배지(npm·CI·types·license), "engine, not a test framework" 포지셔닝.
+
+### PR #46 review 반영
+
+- **리뷰 수정:** LLM factory의 backend 선택을 `switch` 대신 provider strategy 테이블로 정리. API key env 목록은 `LLM_API_KEY_ENV_VARS`로 단일화해 factory/client 테스트가 같은 상수를 공유.
+- **rebase 확인:** PR head는 이미 최신 `origin/develop`(`a1e33c3`) 위에 있음.
+- **검증:** `npm run typecheck -w cairn-engine` · `npm test -w cairn-engine -- src/adapters/llm` · `npm test -w cairn-engine`(101) · `npm run build -w cairn-engine`.

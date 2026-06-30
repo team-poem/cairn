@@ -1,16 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createLlmClient } from "./factory.js";
-
-const KEYS = [
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "GEMINI_API_KEY",
-  "GOOGLE_API_KEY",
-];
+import { createLlmClient, LLM_API_KEY_ENV_VARS } from "./factory.js";
 
 describe("createLlmClient", () => {
   beforeEach(() => {
-    for (const k of KEYS) delete process.env[k];
+    for (const k of LLM_API_KEY_ENV_VARS) delete process.env[k];
   });
 
   it("uses Claude Code when forced (no key needed)", () => {

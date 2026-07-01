@@ -362,3 +362,10 @@
 - **원인:** `parseHealChoice`(self-heal)·`parseVerdict`(llm critic)가 `indexOf("{")`+`lastIndexOf("}")` slice로 파싱 → LLM이 객체를 2개 뱉으면 둘을 다 먹어 `JSON.parse` 실패. discover는 이미 견고한 `extractFirstJsonObject`(깊이추적)를 쓰는데 이 둘만 안 씀.
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
+
+## 2026-07-01 — LLM 어댑터 공용 client 헬퍼 (makeHttpLlmClient) — ⑤ + ④
+
+- **발견(#46 악취 분석 ⑤·④):** anthropic/openai/gemini 세 어댑터가 클라이언트 골격(6필드·키해소+throw·model/baseUrl 기본값·`id="provider:model"`·postJsonWithRetry 호출·trim)을 거의 동일하게 복붙 — 진짜 다른 건 env키·request body·응답 파싱뿐(⑤). anthropic만 `?? 60_000/?? 2`를 생성자에서 이중소유(http.ts가 이미 소유)해 기본값 드리프트 위험(④). `1024` maxTokens도 3중 복제.
+- **한 일:** `http-client.ts` — `makeHttpLlmClient(spec, opts)` 헬퍼가 공용 골격을 소유. 각 어댑터는 provider별 `HttpLlmClientSpec`(provider·label·defaults·resolveApiKey·buildRequest·parseResponse)만 선언하고 얇은 클래스로 위임(공개 `new XxxLlmClient()` API·browser export 보존). ④ 해소 — 세 어댑터 모두 timeoutMs/maxRetries를 http.ts에 위임(단일 소유, effective 60s/2 불변). `DEFAULT_MAX_TOKENS=1024` 단일 상수.
+- **behavior-preserving:** 요청 URL·헤더·body·응답 추출·에러 메시지·기본값 전부 동일. #52의 http.test.ts(17)로 대조 검증(임시 반입, 이 PR 미포함). 적대적 리뷰로 3어댑터 parity 확인.
+- **검증:** typecheck·build·**111 테스트**(+4: `http-client.test.ts` 헬퍼 계약). breaking 0(공개 클래스 API 보존). 새 헬퍼는 내부 전용(index barrel 미노출).

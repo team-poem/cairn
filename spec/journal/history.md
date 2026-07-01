@@ -369,3 +369,11 @@
 - **한 일:** 공용 `extractFirstBalanced(text, open, close)` 프리미티브 — 균형 영역 파싱 실패 시 *그 영역 다음(형제)부터 스캔 재개*(중첩/문자열 내부 진입 금지), truncated(미닫힘)는 `undefined` 유지. `extractFirstJsonObject`·새 `extractFirstJsonArray`가 공유. `discover.ts`의 28줄 인라인 배열 스캐너 삭제 → 위임(`Array.isArray` 게이트 보존). 스캐너가 대체하는 죽은 markdown-fence strip 제거.
 - **함정(적대적 리뷰서 포착·수정):** resume를 `start+1`로 하면 무효 외곽 영역의 *중첩* opener(또는 문자열 리터럴 내부 bracket)를 집어 fail-closed→fail-open 회귀(critic false-PASS = QA 하네스에 최악). → `from = end`로 형제 영역만 재개 + O(n) 회복. 회귀 테스트 2건으로 락다운.
 - **검증:** typecheck·build·**114 테스트**(+7: 객체·배열 resume·no-parse·nested-dig·string-interior). breaking 0(순수 core, 소비자 계약 보존).
+
+## 2026-07-01 — LLM 전송·어댑터 계층 테스트 (http.test.ts)
+
+- **발견(#46 악취 분석):** PR #46이 추가한 전송 백본(`postJsonWithRetry`)과 3개 어댑터 `complete()`가 fetch 스텁 테스트 0줄 — 재시도/타임아웃/응답 파싱 회귀가 CI 초록으로 통과. 분기 가장 미묘한데 미검증.
+- **한 일:** `adapters/llm/http.test.ts` 추가(+17) — `fetch`를 `vi.stubGlobal`로 스텁. 전송: 200 성공(헤더·POST·signal 검증), 429·5xx 재시도→성공, 지속 5xx maxRetries 소진 후 label+status throw, 비재시도 4xx 즉시 실패, abort→timeout 매핑·재시도, 비-abort 연결오류 즉시 전파. 어댑터: openai(system+user messages·max_tokens·choices 추출), gemini(systemInstruction·parts join), anthropic(system `cache_control`·text 블록 필터/join) 각각 정상+빈/기형 응답. 백오프는 fake timer로 결정적.
+- **소스 무변경(테스트만).** 특성화 테스트가 픽스 후보를 노출 — 연결오류 미재시도(⑥) 등은 별도 PR.
+- **검증:** typecheck·build·**124 테스트**(+17).
+

@@ -363,6 +363,13 @@
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
 
+## 2026-07-01 — LLM 어댑터 공용 client 헬퍼 (makeHttpLlmClient) — ⑤ + ④
+
+- **발견(#46 악취 분석 ⑤·④):** anthropic/openai/gemini 세 어댑터가 클라이언트 골격(6필드·키해소+throw·model/baseUrl 기본값·`id="provider:model"`·postJsonWithRetry 호출·trim)을 거의 동일하게 복붙 — 진짜 다른 건 env키·request body·응답 파싱뿐(⑤). anthropic만 `?? 60_000/?? 2`를 생성자에서 이중소유(http.ts가 이미 소유)해 기본값 드리프트 위험(④). `1024` maxTokens도 3중 복제.
+- **한 일:** `http-client.ts` — `makeHttpLlmClient(spec, opts)` 헬퍼가 공용 골격을 소유. 각 어댑터는 provider별 `HttpLlmClientSpec`(provider·label·defaults·resolveApiKey·buildRequest·parseResponse)만 선언하고 얇은 클래스로 위임(공개 `new XxxLlmClient()` API·browser export 보존). ④ 해소 — 세 어댑터 모두 timeoutMs/maxRetries를 http.ts에 위임(단일 소유, effective 60s/2 불변). `DEFAULT_MAX_TOKENS=1024` 단일 상수.
+- **behavior-preserving:** 요청 URL·헤더·body·응답 추출·에러 메시지·기본값 전부 동일. #52의 http.test.ts(17)로 대조 검증(임시 반입, 이 PR 미포함). 적대적 리뷰로 3어댑터 parity 확인.
+- **검증:** typecheck·build·**111 테스트**(+4: `http-client.test.ts` 헬퍼 계약). breaking 0(공개 클래스 API 보존). 새 헬퍼는 내부 전용(index barrel 미노출).
+
 ## 2026-07-01 — LLM factory: switch → strategy registry (#46 리뷰 반영)
 
 - **발견(PR #46 리뷰 코멘트):** (a) `factory.ts` 클라이언트 생성 switch → "factory/strategy" 요청, (b) `clients.test.ts`의 인라인 env-key 배열을 `factory.test.ts`처럼 모듈 상수로. + 악취 분석 ⑦(switch `default`가 anthropic과 unknown을 겸함 → 오타 backend가 조용히 Anthropic → 뒤늦게 "requires ANTHROPIC_API_KEY"로 오해성 실패).

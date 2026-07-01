@@ -362,3 +362,10 @@
 - **원인:** `parseHealChoice`(self-heal)·`parseVerdict`(llm critic)가 `indexOf("{")`+`lastIndexOf("}")` slice로 파싱 → LLM이 객체를 2개 뱉으면 둘을 다 먹어 `JSON.parse` 실패. discover는 이미 견고한 `extractFirstJsonObject`(깊이추적)를 쓰는데 이 둘만 안 씀.
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
+
+## 2026-07-01 — LLM 전송·어댑터 계층 테스트 (http.test.ts)
+
+- **발견(#46 악취 분석):** PR #46이 추가한 전송 백본(`postJsonWithRetry`)과 3개 어댑터 `complete()`가 fetch 스텁 테스트 0줄 — 재시도/타임아웃/응답 파싱 회귀가 CI 초록으로 통과. 분기 가장 미묘한데 미검증.
+- **한 일:** `adapters/llm/http.test.ts` 추가(+17) — `fetch`를 `vi.stubGlobal`로 스텁. 전송: 200 성공(헤더·POST·signal 검증), 429·5xx 재시도→성공, 지속 5xx maxRetries 소진 후 label+status throw, 비재시도 4xx 즉시 실패, abort→timeout 매핑·재시도, 비-abort 연결오류 즉시 전파. 어댑터: openai(system+user messages·max_tokens·choices 추출), gemini(systemInstruction·parts join), anthropic(system `cache_control`·text 블록 필터/join) 각각 정상+빈/기형 응답. 백오프는 fake timer로 결정적.
+- **소스 무변경(테스트만).** 특성화 테스트가 픽스 후보를 노출 — 연결오류 미재시도(⑥) 등은 별도 PR.
+- **검증:** typecheck·build·**124 테스트**(+17).

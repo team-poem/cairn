@@ -362,3 +362,10 @@
 - **원인:** `parseHealChoice`(self-heal)·`parseVerdict`(llm critic)가 `indexOf("{")`+`lastIndexOf("}")` slice로 파싱 → LLM이 객체를 2개 뱉으면 둘을 다 먹어 `JSON.parse` 실패. discover는 이미 견고한 `extractFirstJsonObject`(깊이추적)를 쓰는데 이 둘만 안 씀.
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
+
+## 2026-07-01 — JSON 추출 resume-scan + 배열 트윈 통합 (refactor)
+
+- **발견(#46/#49 악취 분석):** `extractFirstJsonObject`가 첫 균형 `{…}` 영역의 `JSON.parse` 실패 시 뒤의 유효 객체를 안 찾고 `undefined` 반환 → 프로즈성 `{action}` 플레이스홀더가 진짜 JSON 앞에 하나만 있어도 추출 붕괴(critic FAIL·heal 중단·단언 전량 드롭). 같은 버그가 `discover.ts`의 배열 트윈 `extractJsonArray`에도 복제됨(#49가 객체만 `core/json.ts`로 중앙화, 배열은 인라인 방치).
+- **한 일:** 공용 `extractFirstBalanced(text, open, close)` 프리미티브 — 균형 영역 파싱 실패 시 *그 영역 다음(형제)부터 스캔 재개*(중첩/문자열 내부 진입 금지), truncated(미닫힘)는 `undefined` 유지. `extractFirstJsonObject`·새 `extractFirstJsonArray`가 공유. `discover.ts`의 28줄 인라인 배열 스캐너 삭제 → 위임(`Array.isArray` 게이트 보존). 스캐너가 대체하는 죽은 markdown-fence strip 제거.
+- **함정(적대적 리뷰서 포착·수정):** resume를 `start+1`로 하면 무효 외곽 영역의 *중첩* opener(또는 문자열 리터럴 내부 bracket)를 집어 fail-closed→fail-open 회귀(critic false-PASS = QA 하네스에 최악). → `from = end`로 형제 영역만 재개 + O(n) 회복. 회귀 테스트 2건으로 락다운.
+- **검증:** typecheck·build·**114 테스트**(+7: 객체·배열 resume·no-parse·nested-dig·string-interior). breaking 0(순수 core, 소비자 계약 보존).

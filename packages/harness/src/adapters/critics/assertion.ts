@@ -2,6 +2,7 @@
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
 import { isBenignRequest } from "../../core/requests.js";
+import { urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
 export type CustomCheck = (
@@ -21,8 +22,8 @@ export function checkAssertion(
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
-      if (assertion.to && !(finalUrl ?? "").includes(assertion.to)) {
-        return { assertion, passed: false, detail: `final url ${finalUrl} does not include ${assertion.to}` };
+      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to)) {
+        return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
       }
       return { assertion, passed: true, detail: finalUrl };
     }

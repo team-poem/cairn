@@ -1,0 +1,2 @@
+# Append-only journal — auto-combine both sides on merge instead of conflicting.
+spec/journal/history.md merge=union

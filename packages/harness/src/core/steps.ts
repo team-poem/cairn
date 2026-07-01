@@ -11,6 +11,35 @@ const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+// host + path, dropping a leading locale segment (…/en, …/ko, …/en-US) — locale prefixes vary by
+// environment/user, so they must not affect matching. Host is kept, not guessed away.
+function localeStrippedKey(u: string): string {
+  let host: string, path: string;
+  try {
+    const x = new URL(u);
+    host = x.host;
+    path = x.pathname;
+  } catch {
+    const s = u.replace(/^https?:\/\//, "").replace(/[?#].*$/, "");
+    const i = s.indexOf("/");
+    host = i === -1 ? s : s.slice(0, i);
+    path = i === -1 ? "" : s.slice(i);
+  }
+  const segs = path.split("/").filter(Boolean);
+  if (segs[0] && /^[a-z]{2}(-[A-Za-z0-9]{2,8})?$/.test(segs[0])) segs.shift();
+  const p = segs.join("/");
+  return host ? (p ? `${host}/${p}` : host) : p;
+}
+
+/** Whether `finalUrl` reached `want`, matched at a path boundary (not raw substring) and
+ * locale-agnostic — so a parent path ("…/en") never counts as reaching "…/en/signin", and a
+ * differing locale still matches. `want` may be a full host+path or a bare suffix. */
+export function urlReached(finalUrl: string, want: string): boolean {
+  const dest = localeStrippedKey(finalUrl);
+  const w = localeStrippedKey(want);
+  return dest === w || dest.endsWith("/" + w);
+}
+
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
   supports(step: Step): boolean {
@@ -96,7 +125,7 @@ export async function waitForCondition(
 export async function conditionMet(driver: Driver, until: WaitUntil): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
-    if (until.url !== undefined && !(execution.finalUrl ?? "").includes(until.url)) return false;
+    if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url)) return false;
     if (until.requestStatus) {
       const { urlIncludes, status } = until.requestStatus;
       if (!logic.requests.some((r) => r.url.includes(urlIncludes) && r.status === status)) return false;

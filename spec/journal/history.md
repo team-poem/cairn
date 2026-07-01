@@ -390,3 +390,9 @@
 - **소스 무변경(테스트만).** 특성화 테스트가 픽스 후보를 노출 — 연결오류 미재시도(⑥) 등은 별도 PR.
 - **검증:** typecheck·build·**124 테스트**(+17).
 
+## 2.2.2 — URL 매칭 경계·로케일 정밀화 (스킵·navigated false-positive)
+
+- **발견(익스텐션 도그푸딩):** 로그인 테스트 재생이 로그인 없이 빈 카트로 가 FAIL(sign-in POST 미발생). **탐색은 되는데 재생만** 실패 — 같은 스텝인데.
+- **원인:** URL 판정이 raw substring(`finalUrl.includes(...)`)이었다. ① `runStep`의 멱등 스킵(스텝 `expect` 이미 충족이면 건너뜀): 로그인 Enter 스텝 `expect`가 로그인 후 도착지 `/en`인데 재생 시 직전 `/en/signin`이 `/en`을 포함 → "이미 충족"으로 오판해 **로그인 스텝 통째 스킵**. discover엔 스킵 로직이 없어 재생만 깨짐. ② 같은 substring 계열로 `navigated` 단언도 `/en` 도착이 `/en/signin`에 false-pass.
+- **한 일:** `urlReached`(core/steps) — 경로 경계 매칭(부모 경로가 더 깊은 경로를 "도달"로 안 봄) + **로케일 무시**(`/en`·`/ko`·`/jp`·`/en-US` 세그먼트를 버려 환경/로케일 달라도 매칭). `conditionMet`(skip/waitFor)과 `navigated` 단언(critic) 둘 다 이걸로 통일. 순수 함수(불변식 #4 유지).
+- **검증:** 단위테스트 +6(경계·로케일·navigated), 총 **113**. 익스텐션 로컬 패치로 실앱 재생 로그인 통과 확인. patch(2.2.2), breaking 0.

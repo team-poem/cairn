@@ -1,7 +1,35 @@
 import { describe, expect, it } from "vitest";
-import { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./steps.js";
+import {
+  BuiltinStepHandler,
+  CustomStepHandler,
+  defaultStepHandlers,
+  urlReached,
+} from "./steps.js";
 import { FakeDriver } from "../adapters/drivers/fake.js";
 import type { Evidence, Step } from "./types.js";
+
+describe("urlReached", () => {
+  it("matches an exact host+path and ignores scheme/query/hash/trailing slash", () => {
+    expect(urlReached("https://x.co/en/cart?a=1#h", "x.co/en/cart")).toBe(true);
+    expect(urlReached("https://x.co/en/", "x.co/en")).toBe(true);
+  });
+
+  it("matches a bare suffix at a path boundary", () => {
+    expect(urlReached("https://x.co/en/cart", "cart")).toBe(true);
+    expect(urlReached("https://x.co/en/cart", "/en/cart")).toBe(true);
+  });
+
+  it("does NOT treat a parent path as reaching a deeper one (the skip bug)", () => {
+    expect(urlReached("https://x.co/en/signin", "x.co/en")).toBe(false);
+    expect(urlReached("https://x.co/en/signin", "/en")).toBe(false);
+  });
+
+  it("ignores the locale segment so a frozen destination survives another env/locale", () => {
+    expect(urlReached("https://x.co/ko/cart", "x.co/en/cart")).toBe(true);
+    expect(urlReached("https://x.co/jp/payment", "x.co/en/payment")).toBe(true);
+    expect(urlReached("https://x.co/ko/signin", "x.co/en/cart")).toBe(false);
+  });
+});
 
 const EVIDENCE: Evidence = {
   execution: { actions: [], navigated: false, blocked: false },

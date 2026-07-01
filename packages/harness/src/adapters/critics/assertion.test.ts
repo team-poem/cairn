@@ -36,6 +36,20 @@ describe("no-failed-requests", () => {
   });
 });
 
+describe("navigated — path boundary, not raw substring", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  it("passes when the destination is reached", () => {
+    expect(checkAssertion({ kind: "navigated", to: "x.co/en/cart" }, at("https://x.co/en/cart?q=1")).passed).toBe(true);
+  });
+  it("does NOT false-pass on a parent path (…/en must not match …/en/signin)", () => {
+    expect(checkAssertion({ kind: "navigated", to: "x.co/en" }, at("https://x.co/en/signin")).passed).toBe(false);
+  });
+});
+
 describe("custom assertions — the host defines success", () => {
   it("runs a product-registered check", async () => {
     const critic = new AssertionCritic({

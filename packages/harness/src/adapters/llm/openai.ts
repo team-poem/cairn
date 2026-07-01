@@ -2,63 +2,56 @@
  * LlmClient backed by the OpenAI Chat Completions API (OPENAI_API_KEY). Uses fetch — no SDK.
  */
 import type { CompleteOptions, LlmClient } from "../../core/ports.js";
-import { postJsonWithRetry } from "./http.js";
+import {
+  DEFAULT_MAX_TOKENS,
+  makeHttpLlmClient,
+  type HttpLlmClientOptions,
+  type HttpLlmClientSpec,
+} from "./http-client.js";
 
-export interface OpenAIOptions {
-  apiKey?: string;
-  model?: string;
-  baseUrl?: string;
-  timeoutMs?: number;
-  maxRetries?: number;
-}
+export type OpenAIOptions = HttpLlmClientOptions;
 
 interface ChatResponse {
   choices?: Array<{ message?: { content?: string } }>;
 }
 
+const SPEC: HttpLlmClientSpec = {
+  provider: "openai",
+  label: "OpenAI",
+  defaultModel: "gpt-4o",
+  defaultBaseUrl: "https://api.openai.com",
+  resolveApiKey: (explicit) => {
+    const apiKey = explicit ?? process.env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("OpenAILlmClient requires OPENAI_API_KEY");
+    return apiKey;
+  },
+  buildRequest: ({ prompt, options, model, baseUrl, apiKey }) => {
+    const messages: Array<{ role: string; content: string }> = [];
+    if (options.system) messages.push({ role: "system", content: options.system });
+    messages.push({ role: "user", content: prompt });
+    return {
+      url: `${baseUrl}/v1/chat/completions`,
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: { model, max_tokens: options.maxTokens ?? DEFAULT_MAX_TOKENS, messages },
+    };
+  },
+  parseResponse: (json) =>
+    (json as ChatResponse).choices?.[0]?.message?.content ?? "",
+};
+
 export class OpenAILlmClient implements LlmClient {
   readonly id: string;
-  private readonly apiKey: string;
-  private readonly model: string;
-  private readonly baseUrl: string;
-  private readonly timeoutMs?: number;
-  private readonly maxRetries?: number;
+  private readonly delegate: LlmClient;
 
   constructor(opts: OpenAIOptions = {}) {
-    const apiKey = opts.apiKey ?? process.env.OPENAI_API_KEY;
-    if (!apiKey) throw new Error("OpenAILlmClient requires OPENAI_API_KEY");
-    this.apiKey = apiKey;
-    this.model = opts.model ?? "gpt-4o";
-    this.baseUrl = opts.baseUrl ?? "https://api.openai.com";
-    this.timeoutMs = opts.timeoutMs;
-    this.maxRetries = opts.maxRetries;
-    this.id = `openai:${this.model}`;
+    this.delegate = makeHttpLlmClient(SPEC, opts);
+    this.id = this.delegate.id;
   }
 
-  async complete(prompt: string, opts: CompleteOptions = {}): Promise<string> {
-    const messages: Array<{ role: string; content: string }> = [];
-    if (opts.system) messages.push({ role: "system", content: opts.system });
-    messages.push({ role: "user", content: prompt });
-
-    const data = await postJsonWithRetry<ChatResponse>(
-      `${this.baseUrl}/v1/chat/completions`,
-      {
-        headers: {
-          "content-type": "application/json",
-          authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          max_tokens: opts.maxTokens ?? 1024,
-          messages,
-        }),
-      },
-      {
-        timeoutMs: this.timeoutMs,
-        maxRetries: this.maxRetries,
-        label: "OpenAI",
-      },
-    );
-    return (data.choices?.[0]?.message?.content ?? "").trim();
+  complete(prompt: string, opts: CompleteOptions = {}): Promise<string> {
+    return this.delegate.complete(prompt, opts);
   }
 }

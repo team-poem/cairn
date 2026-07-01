@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createLlmClient } from "./factory.js";
+import { createLlmClient, type LlmBackend } from "./factory.js";
 
 const KEYS = [
   "ANTHROPIC_API_KEY",
@@ -17,6 +17,28 @@ describe("createLlmClient", () => {
     expect(createLlmClient({ backend: "claude-code", model: "haiku" }).id).toBe(
       "claude-code:haiku",
     );
+  });
+
+  it("builds an Anthropic client when forced", () => {
+    process.env.ANTHROPIC_API_KEY = "a-test";
+    expect(createLlmClient({ backend: "anthropic" }).id.startsWith("anthropic:")).toBe(
+      true,
+    );
+  });
+
+  it("throws on an unknown backend instead of silently defaulting", () => {
+    expect(() =>
+      createLlmClient({ backend: "mistral" as unknown as LlmBackend }),
+    ).toThrow(/Unknown LLM backend: mistral/);
+  });
+
+  it("rejects prototype keys (__proto__, constructor) rather than resolving them", () => {
+    expect(() =>
+      createLlmClient({ backend: "__proto__" as unknown as LlmBackend }),
+    ).toThrow(/Unknown LLM backend: __proto__/);
+    expect(() =>
+      createLlmClient({ backend: "constructor" as unknown as LlmBackend }),
+    ).toThrow(/Unknown LLM backend: constructor/);
   });
 
   it("builds an OpenAI client when forced", () => {

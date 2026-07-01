@@ -2,10 +2,11 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { GeminiLlmClient } from "./gemini.js";
 import { OpenAILlmClient } from "./openai.js";
 
+const KEYS = ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"];
+
 describe("OpenAI / Gemini clients", () => {
   beforeEach(() => {
-    for (const k of ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"])
-      delete process.env[k];
+    for (const k of KEYS) delete process.env[k];
   });
 
   it("carry their model in the id", () => {

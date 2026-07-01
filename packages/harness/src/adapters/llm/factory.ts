@@ -23,16 +23,22 @@ function detectBackend(): LlmBackend {
   return "claude-code";
 }
 
+/**
+ * Strategy registry: each backend owns its client constructor. Adding a backend is one entry here —
+ * no control-flow edit — and an unrecognised backend is a lookup miss (surfaced below) rather than a
+ * silent default. A Map (not a plain object) so stray keys like "__proto__"/"constructor" miss
+ * cleanly instead of resolving to something on Object.prototype.
+ */
+const BACKENDS = new Map<LlmBackend, (opts: LlmFactoryOptions) => LlmClient>([
+  ["anthropic", (o) => new AnthropicLlmClient({ model: o.model })],
+  ["openai", (o) => new OpenAILlmClient({ model: o.model })],
+  ["gemini", (o) => new GeminiLlmClient({ model: o.model })],
+  ["claude-code", (o) => new ClaudeCodeLlmClient({ model: o.model })],
+]);
+
 export function createLlmClient(opts: LlmFactoryOptions = {}): LlmClient {
   const backend = opts.backend ?? detectBackend();
-  switch (backend) {
-    case "openai":
-      return new OpenAILlmClient({ model: opts.model });
-    case "gemini":
-      return new GeminiLlmClient({ model: opts.model });
-    case "claude-code":
-      return new ClaudeCodeLlmClient({ model: opts.model });
-    default:
-      return new AnthropicLlmClient({ model: opts.model });
-  }
+  const make = BACKENDS.get(backend);
+  if (!make) throw new Error(`Unknown LLM backend: ${backend}`);
+  return make(opts);
 }

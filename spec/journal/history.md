@@ -363,6 +363,12 @@
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
 
+## 2026-07-01 — LLM factory: switch → strategy registry (#46 리뷰 반영)
+
+- **발견(PR #46 리뷰 코멘트):** (a) `factory.ts` 클라이언트 생성 switch → "factory/strategy" 요청, (b) `clients.test.ts`의 인라인 env-key 배열을 `factory.test.ts`처럼 모듈 상수로. + 악취 분석 ⑦(switch `default`가 anthropic과 unknown을 겸함 → 오타 backend가 조용히 Anthropic → 뒤늦게 "requires ANTHROPIC_API_KEY"로 오해성 실패).
+- **한 일:** `createLlmClient` switch → `Map<LlmBackend, (opts)=>LlmClient>` strategy registry. anthropic 명시 + unknown backend는 `Unknown LLM backend: <x>` throw(조용한 default 제거). Map이라 `__proto__`/`constructor` 같은 프로토타입 키도 깨끗이 miss(객체 리터럴이면 `constructor`가 함수라 가드를 새는 걸 회피). `clients.test.ts` env-key 배열 `const KEYS` 추출.
+- **검증:** typecheck·build·**110 테스트**(+3: anthropic-forced·unknown·prototype-key). 유효 backend 동작 보존(기존 테스트 그린), breaking 0(무효 입력 경로만 변경).
+
 ## 2026-07-01 — JSON 추출 resume-scan + 배열 트윈 통합 (refactor)
 
 - **발견(#46/#49 악취 분석):** `extractFirstJsonObject`가 첫 균형 `{…}` 영역의 `JSON.parse` 실패 시 뒤의 유효 객체를 안 찾고 `undefined` 반환 → 프로즈성 `{action}` 플레이스홀더가 진짜 JSON 앞에 하나만 있어도 추출 붕괴(critic FAIL·heal 중단·단언 전량 드롭). 같은 버그가 `discover.ts`의 배열 트윈 `extractJsonArray`에도 복제됨(#49가 객체만 `core/json.ts`로 중앙화, 배열은 인라인 방치).

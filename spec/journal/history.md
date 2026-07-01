@@ -363,6 +363,33 @@
 - **한 일:** `extractFirstJsonObject`를 `core/json.ts`로 추출 → discover·self-heal·llm critic 셋이 공유. 허술한 두 파서 교체. `json.test.ts`(멀티객체·fences·trailing prose·문자열 내 중괄호).
 - **검증:** tsc·**107 테스트**(+6). patch(2.2.1), breaking 0.
 
+## 2026-07-01 — LLM 어댑터 공용 client 헬퍼 (makeHttpLlmClient) — ⑤ + ④
+
+- **발견(#46 악취 분석 ⑤·④):** anthropic/openai/gemini 세 어댑터가 클라이언트 골격(6필드·키해소+throw·model/baseUrl 기본값·`id="provider:model"`·postJsonWithRetry 호출·trim)을 거의 동일하게 복붙 — 진짜 다른 건 env키·request body·응답 파싱뿐(⑤). anthropic만 `?? 60_000/?? 2`를 생성자에서 이중소유(http.ts가 이미 소유)해 기본값 드리프트 위험(④). `1024` maxTokens도 3중 복제.
+- **한 일:** `http-client.ts` — `makeHttpLlmClient(spec, opts)` 헬퍼가 공용 골격을 소유. 각 어댑터는 provider별 `HttpLlmClientSpec`(provider·label·defaults·resolveApiKey·buildRequest·parseResponse)만 선언하고 얇은 클래스로 위임(공개 `new XxxLlmClient()` API·browser export 보존). ④ 해소 — 세 어댑터 모두 timeoutMs/maxRetries를 http.ts에 위임(단일 소유, effective 60s/2 불변). `DEFAULT_MAX_TOKENS=1024` 단일 상수.
+- **behavior-preserving:** 요청 URL·헤더·body·응답 추출·에러 메시지·기본값 전부 동일. #52의 http.test.ts(17)로 대조 검증(임시 반입, 이 PR 미포함). 적대적 리뷰로 3어댑터 parity 확인.
+- **검증:** typecheck·build·**111 테스트**(+4: `http-client.test.ts` 헬퍼 계약). breaking 0(공개 클래스 API 보존). 새 헬퍼는 내부 전용(index barrel 미노출).
+
+## 2026-07-01 — LLM factory: switch → strategy registry (#46 리뷰 반영)
+
+- **발견(PR #46 리뷰 코멘트):** (a) `factory.ts` 클라이언트 생성 switch → "factory/strategy" 요청, (b) `clients.test.ts`의 인라인 env-key 배열을 `factory.test.ts`처럼 모듈 상수로. + 악취 분석 ⑦(switch `default`가 anthropic과 unknown을 겸함 → 오타 backend가 조용히 Anthropic → 뒤늦게 "requires ANTHROPIC_API_KEY"로 오해성 실패).
+- **한 일:** `createLlmClient` switch → `Map<LlmBackend, (opts)=>LlmClient>` strategy registry. anthropic 명시 + unknown backend는 `Unknown LLM backend: <x>` throw(조용한 default 제거). Map이라 `__proto__`/`constructor` 같은 프로토타입 키도 깨끗이 miss(객체 리터럴이면 `constructor`가 함수라 가드를 새는 걸 회피). `clients.test.ts` env-key 배열 `const KEYS` 추출.
+- **검증:** typecheck·build·**110 테스트**(+3: anthropic-forced·unknown·prototype-key). 유효 backend 동작 보존(기존 테스트 그린), breaking 0(무효 입력 경로만 변경).
+
+## 2026-07-01 — JSON 추출 resume-scan + 배열 트윈 통합 (refactor)
+
+- **발견(#46/#49 악취 분석):** `extractFirstJsonObject`가 첫 균형 `{…}` 영역의 `JSON.parse` 실패 시 뒤의 유효 객체를 안 찾고 `undefined` 반환 → 프로즈성 `{action}` 플레이스홀더가 진짜 JSON 앞에 하나만 있어도 추출 붕괴(critic FAIL·heal 중단·단언 전량 드롭). 같은 버그가 `discover.ts`의 배열 트윈 `extractJsonArray`에도 복제됨(#49가 객체만 `core/json.ts`로 중앙화, 배열은 인라인 방치).
+- **한 일:** 공용 `extractFirstBalanced(text, open, close)` 프리미티브 — 균형 영역 파싱 실패 시 *그 영역 다음(형제)부터 스캔 재개*(중첩/문자열 내부 진입 금지), truncated(미닫힘)는 `undefined` 유지. `extractFirstJsonObject`·새 `extractFirstJsonArray`가 공유. `discover.ts`의 28줄 인라인 배열 스캐너 삭제 → 위임(`Array.isArray` 게이트 보존). 스캐너가 대체하는 죽은 markdown-fence strip 제거.
+- **함정(적대적 리뷰서 포착·수정):** resume를 `start+1`로 하면 무효 외곽 영역의 *중첩* opener(또는 문자열 리터럴 내부 bracket)를 집어 fail-closed→fail-open 회귀(critic false-PASS = QA 하네스에 최악). → `from = end`로 형제 영역만 재개 + O(n) 회복. 회귀 테스트 2건으로 락다운.
+- **검증:** typecheck·build·**114 테스트**(+7: 객체·배열 resume·no-parse·nested-dig·string-interior). breaking 0(순수 core, 소비자 계약 보존).
+
+## 2026-07-01 — LLM 전송·어댑터 계층 테스트 (http.test.ts)
+
+- **발견(#46 악취 분석):** PR #46이 추가한 전송 백본(`postJsonWithRetry`)과 3개 어댑터 `complete()`가 fetch 스텁 테스트 0줄 — 재시도/타임아웃/응답 파싱 회귀가 CI 초록으로 통과. 분기 가장 미묘한데 미검증.
+- **한 일:** `adapters/llm/http.test.ts` 추가(+17) — `fetch`를 `vi.stubGlobal`로 스텁. 전송: 200 성공(헤더·POST·signal 검증), 429·5xx 재시도→성공, 지속 5xx maxRetries 소진 후 label+status throw, 비재시도 4xx 즉시 실패, abort→timeout 매핑·재시도, 비-abort 연결오류 즉시 전파. 어댑터: openai(system+user messages·max_tokens·choices 추출), gemini(systemInstruction·parts join), anthropic(system `cache_control`·text 블록 필터/join) 각각 정상+빈/기형 응답. 백오프는 fake timer로 결정적.
+- **소스 무변경(테스트만).** 특성화 테스트가 픽스 후보를 노출 — 연결오류 미재시도(⑥) 등은 별도 PR.
+- **검증:** typecheck·build·**124 테스트**(+17).
+
 ## 2.2.2 — URL 매칭 경계·로케일 정밀화 (스킵·navigated false-positive)
 
 - **발견(익스텐션 도그푸딩):** 로그인 테스트 재생이 로그인 없이 빈 카트로 가 FAIL(sign-in POST 미발생). **탐색은 되는데 재생만** 실패 — 같은 스텝인데.

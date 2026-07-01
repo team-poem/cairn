@@ -15,7 +15,7 @@ import type {
 } from "./types.js";
 import { waitForCondition } from "./steps.js";
 import { isBenignRequest, isMutation } from "./requests.js";
-import { extractFirstJsonObject } from "./json.js";
+import { extractFirstJsonArray, extractFirstJsonObject } from "./json.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -304,33 +304,8 @@ async function proposeAssertions(
 
 /** First balanced [...] array in a model reply, tolerant of fences/prose; [] on failure. */
 function extractJsonArray(text: string): Assertion[] {
-  const s = text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "");
-  const start = s.indexOf("[");
-  if (start === -1) return [];
-  let depth = 0;
-  let inStr = false;
-  let esc = false;
-  for (let i = start; i < s.length; i++) {
-    const ch = s[i];
-    if (inStr) {
-      if (esc) esc = false;
-      else if (ch === "\\") esc = true;
-      else if (ch === '"') inStr = false;
-    } else if (ch === '"') inStr = true;
-    else if (ch === "[") depth++;
-    else if (ch === "]" && --depth === 0) {
-      try {
-        const arr = JSON.parse(s.slice(start, i + 1));
-        return Array.isArray(arr) ? (arr as Assertion[]) : [];
-      } catch {
-        return [];
-      }
-    }
-  }
-  return [];
+  const arr = extractFirstJsonArray(text);
+  return Array.isArray(arr) ? (arr as Assertion[]) : [];
 }
 
 /** host + path of a url (query/hash dropped) — a stable, meaningful destination to assert. */

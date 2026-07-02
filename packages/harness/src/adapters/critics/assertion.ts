@@ -1,7 +1,7 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
-import { isBenignRequest } from "../../core/requests.js";
+import { findRequestStatus, isBenignRequest } from "../../core/requests.js";
 import { urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
@@ -41,11 +41,16 @@ export function checkAssertion(
         : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };
     }
     case "request-status": {
-      const match = evidence.logic.requests.find((r) => r.url.includes(assertion.urlIncludes));
-      if (!match) return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
-      return match.status === assertion.status
-        ? { assertion, passed: true, detail: `${match.status} ${match.url}` }
-        : { assertion, passed: false, detail: `expected ${assertion.status}, got ${match.status} for ${match.url}` };
+      // Any matching request satisfies the assertion (same predicate as conditionMet) — the
+      // verdict must not depend on arrival order when an endpoint responds more than once.
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status);
+      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
+      const near = evidence.logic.requests.filter((r) => r.url.includes(assertion.urlIncludes));
+      if (near.length === 0) {
+        return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
+      }
+      const seen = [...new Set(near.map((r) => r.status))].join(", ");
+      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };
     }
     case "expect":
       return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };

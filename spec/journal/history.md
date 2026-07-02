@@ -396,3 +396,12 @@
 - **원인:** URL 판정이 raw substring(`finalUrl.includes(...)`)이었다. ① `runStep`의 멱등 스킵(스텝 `expect` 이미 충족이면 건너뜀): 로그인 Enter 스텝 `expect`가 로그인 후 도착지 `/en`인데 재생 시 직전 `/en/signin`이 `/en`을 포함 → "이미 충족"으로 오판해 **로그인 스텝 통째 스킵**. discover엔 스킵 로직이 없어 재생만 깨짐. ② 같은 substring 계열로 `navigated` 단언도 `/en` 도착이 `/en/signin`에 false-pass.
 - **한 일:** `urlReached`(core/steps) — 경로 경계 매칭(부모 경로가 더 깊은 경로를 "도달"로 안 봄) + **로케일 무시**(`/en`·`/ko`·`/jp`·`/en-US` 세그먼트를 버려 환경/로케일 달라도 매칭). `conditionMet`(skip/waitFor)과 `navigated` 단언(critic) 둘 다 이걸로 통일. 순수 함수(불변식 #4 유지).
 - **검증:** 단위테스트 +6(경계·로케일·navigated), 총 **113**. 익스텐션 로컬 패치로 실앱 재생 로그인 통과 확인. patch(2.2.2), breaking 0.
+
+## 2026-07-02 — #68 request-status any-match (false-FAIL·순서민감성 픽스)
+
+- **문제(#68):** critic의 `request-status`가 URL **첫 매치**의 status만 비교 — 같은 엔드포인트가 여러 번 응답하면(401→200 재시도) 매칭 성공이 있어도 FAIL. 같은 조건을 `conditionMet`(waitFor/step expect)은 `.some(url && status)`로 올바르게 검사 → 동일 evidence에서 waitFor PASS / 단언 FAIL 모순.
+- **기원:** 6/22 PoC(엔드포인트당 요청 1개 픽스처)에서 `.find` 작성 → 6/25 waitFor가 술어를 독립 재구현하며 `.some` 선택(중복이 낳은 드리프트) → 2.1.0 action-grounding이 request-status를 자동 심으며 실앱 노출 확대.
+- **파급(왜 심각):** false-FAIL이 `--heal`에서 outcome-heal(LLM re-discover + re-freeze)을 트리거 — $0 replay 약속 파기 + 멀쩡한 스킬 덮어쓰기. 요청 도착 순서에 verdict가 좌우돼 invariant #4의 "same input, same verdict"도 침식.
+- **픽스:** 공유 술어 `findRequestStatus(requests, urlIncludes, status)`를 `core/requests.ts`에 추출(첫 "url+status 모두 매칭" 반환) — critic과 `conditionMet` 둘 다 이걸 사용(세 번째 구현이 생겨도 재분기 방지, `isBenignRequest` 추출 전례). 실패 detail은 URL 매치들의 관측 status 전부 표시(`expected 200, got 401, 500 for …`).
+- **의미론 노트:** any-match는 `.find` 통과 케이스의 상위집합 — 기존 green 시나리오 회귀 0, 변화는 FAIL→PASS 단방향(재시도 성공). "실행 중 실패 있었나"는 `no-failed-requests`의 역할(분담 유지). frozen 파일 재생성 불필요(판정 로직만 변경).
+- **검증:** typecheck·build·**148 테스트**(+4: 401→200 통과 · 단일응답 불변 · 미스매치 시 status 전부 표시 · no-match detail 구분).

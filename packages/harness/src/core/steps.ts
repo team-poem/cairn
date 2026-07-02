@@ -6,6 +6,7 @@
  */
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
+import { findRequestStatus } from "./requests.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -128,7 +129,7 @@ export async function conditionMet(driver: Driver, until: WaitUntil): Promise<bo
     if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url)) return false;
     if (until.requestStatus) {
       const { urlIncludes, status } = until.requestStatus;
-      if (!logic.requests.some((r) => r.url.includes(urlIncludes) && r.status === status)) return false;
+      if (!findRequestStatus(logic.requests, urlIncludes, status)) return false;
     }
   }
   if (until.text !== undefined) {

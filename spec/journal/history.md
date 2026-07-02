@@ -406,3 +406,9 @@
 - **한 일:** `saveSkillFile(path, scenario)` export 추가(`adapters/skills/file-store.ts`) — mkdir 재귀 + bare Scenario JSON(2-space, utf8). `FileSkillStore.freeze`가 이를 위임(동작 동일). index 배럴에 `loadSkillFile` 옆 export. README 2곳: `writeFileSync` import 제거 → `await saveSkillFile(...)`, replay 예시 `await loadSkillFile` 수정, heal 재freeze도 `saveSkillFile`.
 - **계약 유지:** frozen 파일 = bare `Scenario`(wrapper 없음), replay 결정성·런타임 동작 변화 0. 범용 writeJson이 아닌 도메인 언어(save**Skill**File).
 - **검증:** typecheck · file-store 테스트 3/3(+1: saveSkillFile이 bare Scenario를 쓰고 loadSkillFile이 되읽음, 중첩 dir 생성) · build.
+## 2026-07-02 — codex 서드파티 LLM 백엔드 (CodexLlmClient + CAIRN_LLM_BACKEND)
+
+- **동기:** API 키 없이 ChatGPT 구독(OpenAI Codex CLI 로그인)으로 discover/heal을 돌리고 싶다 — `claude -p` 기반 `ClaudeCodeLlmClient`와 정확히 같은 계열의 CLI 백엔드.
+- **한 일:** ① `adapters/llm/codex.ts` — `CodexLlmClient`(`codex exec` spawn). 헤르메틱 호출: `--ignore-user-config`(사용자 훅·플러그인·notify 부작용 차단) + `--sandbox read-only` + `--ephemeral`(completion 호출이 명령 실행·세션 영속 금지) + `-o <tmpfile>`(사람용 stdout 로그 파싱 대신 마지막 메시지를 파일로). system 프롬프트는 codex exec에 플래그가 없어 `<system>` 블록으로 프롬프트에 실음. 기본 모델 `gpt-5.5` — `--ignore-user-config` 시 CLI 자체 기본(`*-codex` 변형)은 ChatGPT 플랜에서 400. ② factory에 `"codex"` 등록(전략 테이블 한 줄, invariant #5). ③ `CAIRN_LLM_BACKEND` env 오버라이드 — 명시 opts > env > 키 자동감지. CLI에 백엔드 플래그가 없어도 `CAIRN_LLM_BACKEND=codex cairn discover …`로 키 없는 백엔드 선택 가능.
+- **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
+- **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).

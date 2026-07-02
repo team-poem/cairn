@@ -460,3 +460,9 @@
 - **한 일:** `ActionPolicy` seam — `vet(decision): {ok}|{ok:false,reason}`(실행 전 거부 → failures로 LLM 재선택, 실행 안 함) + optional `stop(steps)`(조기 종료, truncated 아님). `DiscoverOptions.policy`로 주입, 기본 없음=무변화. 앱-특정 규칙(삭제 단어 등)은 소비자 몫(불변식 #1 앱-agnostic). 공통 종료 로직을 `finish()`로 추출. index/browser에 export.
 - **스펙:** `the-loop.md` discover 항목에 policy seam 명시.
 - **검증:** typecheck·**151 테스트**(+2: 파괴적 거부→재선택·stop→비truncated)·build OK.
+
+## 2026-07-02 — #67 구현: discover 정리 (브랜치 `refactor/discover-overhead`)
+
+- **한 일:** `maxSteps` 기본 8→20(실플로우가 8에 잘림 방지) · **M1** `chrome.resolveTargetUid` 모호한 substring(여러 부분일치)은 첫 매칭 추측 대신 `undefined`로 → self-heal이 의도로 고름(positional P3 가드와 일관) · **M3** cli `cmdRun`이 `JSON.parse ... as Scenario` blind cast 대신 `loadSkillFile`(shape 검증)로 → 잘못된 파일이 명확한 에러.
+- **④(observe 축소) 스킵:** #64가 `beforeObs`로 요청까지 캡처(async expect)하게 만들어, "beforeUrl은 url()만" 최적화가 무의미해짐. 저널·PR에 명시.
+- **검증:** typecheck·**152 테스트**(+1: M1 모호 substring)·build OK.

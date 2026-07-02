@@ -12,7 +12,7 @@
  * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover.js";
 import { weakTargets } from "./core/freeze.js";
@@ -101,7 +101,9 @@ async function cmdRun(flags: Flags): Promise<number> {
   } else {
     const path = flagStr(flags, "scenario");
     if (!path) throw new Error("provide --scenario <file.json> or --dogfood");
-    scenario = JSON.parse(await readFile(path, "utf8")) as Scenario;
+    // Validate the shape (name/steps/assertions) instead of a blind cast — a malformed file fails
+    // here with a clear error rather than deep in the run.
+    scenario = await loadSkillFile(path);
   }
   return runScenarioCli(scenario, flags);
 }

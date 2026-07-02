@@ -34,7 +34,7 @@ export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 export { createLlmClient } from "./adapters/llm/factory.js";
 export type { LlmBackend, LlmFactoryOptions } from "./adapters/llm/factory.js";
 
-export { FileSkillStore, loadSkillFile } from "./adapters/skills/file-store.js";
+export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/file-store.js";
 
 export { discover, parseDecision } from "./core/discover.js";
 export type { DiscoverOptions, Decision } from "./core/discover.js";

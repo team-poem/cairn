@@ -396,3 +396,13 @@
 - **원인:** URL 판정이 raw substring(`finalUrl.includes(...)`)이었다. ① `runStep`의 멱등 스킵(스텝 `expect` 이미 충족이면 건너뜀): 로그인 Enter 스텝 `expect`가 로그인 후 도착지 `/en`인데 재생 시 직전 `/en/signin`이 `/en`을 포함 → "이미 충족"으로 오판해 **로그인 스텝 통째 스킵**. discover엔 스킵 로직이 없어 재생만 깨짐. ② 같은 substring 계열로 `navigated` 단언도 `/en` 도착이 `/en/signin`에 false-pass.
 - **한 일:** `urlReached`(core/steps) — 경로 경계 매칭(부모 경로가 더 깊은 경로를 "도달"로 안 봄) + **로케일 무시**(`/en`·`/ko`·`/jp`·`/en-US` 세그먼트를 버려 환경/로케일 달라도 매칭). `conditionMet`(skip/waitFor)과 `navigated` 단언(critic) 둘 다 이걸로 통일. 순수 함수(불변식 #4 유지).
 - **검증:** 단위테스트 +6(경계·로케일·navigated), 총 **113**. 익스텐션 로컬 패치로 실앱 재생 로그인 통과 확인. patch(2.2.2), breaking 0.
+- **리뷰 수정:** LLM factory의 backend 선택을 `switch` 대신 provider strategy 테이블로 정리. API key env 목록은 `LLM_API_KEY_ENV_VARS`로 단일화해 factory/client 테스트가 같은 상수를 공유.
+- **rebase 확인:** PR head는 이미 최신 `origin/develop`(`a1e33c3`) 위에 있음.
+- **검증:** `npm run typecheck -w cairn-engine` · `npm test -w cairn-engine -- src/adapters/llm` · `npm test -w cairn-engine`(101) · `npm run build -w cairn-engine`.
+
+## 2026-07-02 — saveSkillFile: README/API 스킬 저장 인체공학
+
+- **문제:** README quickstart가 `writeFileSync` + `JSON.stringify`로 raw Node 파일 I/O를 노출 — 이미 파일 기반 스킬 추상(`loadSkillFile`)이 있는데 저장만 저수준으로 새는 비대칭. 또 replay 예시가 async `loadSkillFile`을 await 없이 `runScenario`에 직접 넘김(타입 에러).
+- **한 일:** `saveSkillFile(path, scenario)` export 추가(`adapters/skills/file-store.ts`) — mkdir 재귀 + bare Scenario JSON(2-space, utf8). `FileSkillStore.freeze`가 이를 위임(동작 동일). index 배럴에 `loadSkillFile` 옆 export. README 2곳: `writeFileSync` import 제거 → `await saveSkillFile(...)`, replay 예시 `await loadSkillFile` 수정, heal 재freeze도 `saveSkillFile`.
+- **계약 유지:** frozen 파일 = bare `Scenario`(wrapper 없음), replay 결정성·런타임 동작 변화 0. 범용 writeJson이 아닌 도메인 언어(save**Skill**File).
+- **검증:** typecheck · file-store 테스트 3/3(+1: saveSkillFile이 bare Scenario를 쓰고 loadSkillFile이 되읽음, 중첩 dir 생성) · build.

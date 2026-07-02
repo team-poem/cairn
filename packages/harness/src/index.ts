@@ -28,6 +28,7 @@ export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 
 export { ClaudeCodeLlmClient } from "./adapters/llm/claude-code.js";
+export { CodexLlmClient } from "./adapters/llm/codex.js";
 export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";

@@ -7,6 +7,7 @@ import type { Driver, LlmClient } from "./ports.js";
 import type {
   Assertion,
   Evidence,
+  NetworkRequest,
   PageElement,
   Scenario,
   Step,
@@ -318,18 +319,39 @@ function destinationKey(url: string): string {
   }
 }
 
-/** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
- * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
- * weak expect would trigger false divergence. */
+/** A grounded post-condition for a step, so a step that runs but doesn't reach its outcome is caught
+ * (and, at replay, waited-for then healed). Navigation → expect that destination. Else, if the step
+ * fired a fresh successful mutation (POST/PUT/PATCH/DELETE — a submit/create), expect that request:
+ * this covers async actions (a login submit) the URL-only check missed. A step that changes nothing
+ * stays unchecked — a weak expect would trigger false divergence. */
 async function stepExpect(
   driver: Driver,
-  beforeUrl: string | undefined,
+  before: { url: string | undefined; requests: NetworkRequest[] },
 ): Promise<WaitUntil | undefined> {
   await driver.settle();
-  const afterUrl = (await driver.observe()).execution.finalUrl;
-  if (afterUrl && afterUrl !== beforeUrl)
-    return { url: destinationKey(afterUrl) };
-  return undefined;
+  const after = await driver.observe();
+  const afterUrl = after.execution.finalUrl;
+  if (afterUrl && afterUrl !== before.url) return { url: destinationKey(afterUrl) };
+  return freshMutationExpect(before.requests, after.logic.requests);
+}
+
+/** A `requestStatus` post-condition for a mutation request that fired during the step (present after,
+ * absent before) and succeeded — the request that proves the action, so replay can wait for it. */
+function freshMutationExpect(
+  before: NetworkRequest[],
+  after: NetworkRequest[],
+): WaitUntil | undefined {
+  const seen = new Set(before.map((r) => `${r.method} ${r.url} ${r.status}`));
+  const fresh = after.find(
+    (r) =>
+      isMutation(r.method) &&
+      r.status >= 200 &&
+      r.status < 400 &&
+      !seen.has(`${r.method} ${r.url} ${r.status}`),
+  );
+  return fresh
+    ? { requestStatus: { urlIncludes: destinationKey(fresh.url), status: fresh.status } }
+    : undefined;
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
@@ -455,11 +477,15 @@ export async function discover(
     }
 
     try {
-      const beforeUrl = (await driver.observe()).execution.finalUrl;
+      const beforeObs = await driver.observe();
+      const before = {
+        url: beforeObs.execution.finalUrl,
+        requests: beforeObs.logic.requests,
+      };
       const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
-      const expect = await stepExpect(driver, beforeUrl);
+      const expect = await stepExpect(driver, before);
       if (expect) step.expect = expect;
       steps.push(step);
       onStep?.(decision, step);

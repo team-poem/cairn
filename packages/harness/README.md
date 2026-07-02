@@ -27,8 +27,7 @@ npm install cairn-engine
 **Author once** — an AI discovers the flow; you freeze it to a file:
 
 ```ts
-import { discover, ChromeDevToolsDriver, createLlmClient } from "cairn-engine";
-import { writeFileSync } from "node:fs";
+import { discover, ChromeDevToolsDriver, createLlmClient, saveSkillFile } from "cairn-engine";
 
 const scenario = await discover(
   "log in, add the first product, open the cart",
@@ -38,26 +37,23 @@ const scenario = await discover(
     baseUrl: "https://shop.example",
   },
 );
-writeFileSync("cart.skill.json", JSON.stringify(scenario, null, 2));
+await saveSkillFile("cart.skill.json", scenario);
 ```
 
 **Replay forever** — deterministic, no LLM. When the UI drifts, `heal` repairs the step and you
 re-freeze the fixed path:
 
 ```ts
-import { runScenario, loadSkillFile } from "cairn-engine";
-import { writeFileSync } from "node:fs";
+import { runScenario, loadSkillFile, saveSkillFile } from "cairn-engine";
 
-const { result, healedScenario } = await runScenario(
-  loadSkillFile("cart.skill.json"),
-  {
-    heal: true, // repair a broken step with the LLM instead of going red
-  },
-);
+const scenario = await loadSkillFile("cart.skill.json");
+const { result, healedScenario } = await runScenario(scenario, {
+  heal: true, // repair a broken step with the LLM instead of going red
+});
 
 if (healedScenario) {
   // the UI changed and cairn adapted — write the repaired path back
-  writeFileSync("cart.skill.json", JSON.stringify(healedScenario, null, 2));
+  await saveSkillFile("cart.skill.json", healedScenario);
 }
 if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 ```

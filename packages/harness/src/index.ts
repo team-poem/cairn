@@ -28,13 +28,14 @@ export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 
 export { ClaudeCodeLlmClient } from "./adapters/llm/claude-code.js";
+export { CodexLlmClient } from "./adapters/llm/codex.js";
 export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 export { createLlmClient } from "./adapters/llm/factory.js";
 export type { LlmBackend, LlmFactoryOptions } from "./adapters/llm/factory.js";
 
-export { FileSkillStore, loadSkillFile } from "./adapters/skills/file-store.js";
+export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/file-store.js";
 
 export { discover, parseDecision } from "./core/discover.js";
 export type { DiscoverOptions, Decision } from "./core/discover.js";

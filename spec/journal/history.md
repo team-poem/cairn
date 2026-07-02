@@ -396,3 +396,19 @@
 - **원인:** URL 판정이 raw substring(`finalUrl.includes(...)`)이었다. ① `runStep`의 멱등 스킵(스텝 `expect` 이미 충족이면 건너뜀): 로그인 Enter 스텝 `expect`가 로그인 후 도착지 `/en`인데 재생 시 직전 `/en/signin`이 `/en`을 포함 → "이미 충족"으로 오판해 **로그인 스텝 통째 스킵**. discover엔 스킵 로직이 없어 재생만 깨짐. ② 같은 substring 계열로 `navigated` 단언도 `/en` 도착이 `/en/signin`에 false-pass.
 - **한 일:** `urlReached`(core/steps) — 경로 경계 매칭(부모 경로가 더 깊은 경로를 "도달"로 안 봄) + **로케일 무시**(`/en`·`/ko`·`/jp`·`/en-US` 세그먼트를 버려 환경/로케일 달라도 매칭). `conditionMet`(skip/waitFor)과 `navigated` 단언(critic) 둘 다 이걸로 통일. 순수 함수(불변식 #4 유지).
 - **검증:** 단위테스트 +6(경계·로케일·navigated), 총 **113**. 익스텐션 로컬 패치로 실앱 재생 로그인 통과 확인. patch(2.2.2), breaking 0.
+- **리뷰 수정:** LLM factory의 backend 선택을 `switch` 대신 provider strategy 테이블로 정리. API key env 목록은 `LLM_API_KEY_ENV_VARS`로 단일화해 factory/client 테스트가 같은 상수를 공유.
+- **rebase 확인:** PR head는 이미 최신 `origin/develop`(`a1e33c3`) 위에 있음.
+- **검증:** `npm run typecheck -w cairn-engine` · `npm test -w cairn-engine -- src/adapters/llm` · `npm test -w cairn-engine`(101) · `npm run build -w cairn-engine`.
+
+## 2026-07-02 — saveSkillFile: README/API 스킬 저장 인체공학
+
+- **문제:** README quickstart가 `writeFileSync` + `JSON.stringify`로 raw Node 파일 I/O를 노출 — 이미 파일 기반 스킬 추상(`loadSkillFile`)이 있는데 저장만 저수준으로 새는 비대칭. 또 replay 예시가 async `loadSkillFile`을 await 없이 `runScenario`에 직접 넘김(타입 에러).
+- **한 일:** `saveSkillFile(path, scenario)` export 추가(`adapters/skills/file-store.ts`) — mkdir 재귀 + bare Scenario JSON(2-space, utf8). `FileSkillStore.freeze`가 이를 위임(동작 동일). index 배럴에 `loadSkillFile` 옆 export. README 2곳: `writeFileSync` import 제거 → `await saveSkillFile(...)`, replay 예시 `await loadSkillFile` 수정, heal 재freeze도 `saveSkillFile`.
+- **계약 유지:** frozen 파일 = bare `Scenario`(wrapper 없음), replay 결정성·런타임 동작 변화 0. 범용 writeJson이 아닌 도메인 언어(save**Skill**File).
+- **검증:** typecheck · file-store 테스트 3/3(+1: saveSkillFile이 bare Scenario를 쓰고 loadSkillFile이 되읽음, 중첩 dir 생성) · build.
+## 2026-07-02 — codex 서드파티 LLM 백엔드 (CodexLlmClient + CAIRN_LLM_BACKEND)
+
+- **동기:** API 키 없이 ChatGPT 구독(OpenAI Codex CLI 로그인)으로 discover/heal을 돌리고 싶다 — `claude -p` 기반 `ClaudeCodeLlmClient`와 정확히 같은 계열의 CLI 백엔드.
+- **한 일:** ① `adapters/llm/codex.ts` — `CodexLlmClient`(`codex exec` spawn). 헤르메틱 호출: `--ignore-user-config`(사용자 훅·플러그인·notify 부작용 차단) + `--sandbox read-only` + `--ephemeral`(completion 호출이 명령 실행·세션 영속 금지) + `-o <tmpfile>`(사람용 stdout 로그 파싱 대신 마지막 메시지를 파일로). system 프롬프트는 codex exec에 플래그가 없어 `<system>` 블록으로 프롬프트에 실음. 기본 모델 `gpt-5.5` — `--ignore-user-config` 시 CLI 자체 기본(`*-codex` 변형)은 ChatGPT 플랜에서 400. ② factory에 `"codex"` 등록(전략 테이블 한 줄, invariant #5). ③ `CAIRN_LLM_BACKEND` env 오버라이드 — 명시 opts > env > 키 자동감지. CLI에 백엔드 플래그가 없어도 `CAIRN_LLM_BACKEND=codex cairn discover …`로 키 없는 백엔드 선택 가능.
+- **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
+- **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).

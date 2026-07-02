@@ -32,6 +32,9 @@ export interface DiscoverOptions {
    * When off, only evidence-grounded mechanical assertions are frozen — replay stays LLM-free.
    */
   semanticChecks?: boolean;
+  /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
+   * gate (every action runs) — behaviour unchanged. */
+  policy?: ActionPolicy;
 }
 
 export interface Decision {
@@ -54,6 +57,21 @@ export interface Decision {
   until?: WaitUntil;
   reason?: string;
   assertions?: Assertion[];
+}
+
+export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
+
+/**
+ * A deterministic gate the discover loop consults before executing each proposed action (invariant #2:
+ * inject behavior, don't branch in the loop). Kept app-agnostic (invariant #1) — the engine offers the
+ * seam; a consumer supplies the rules (block destructive controls, cap wandering, stop on a goal).
+ */
+export interface ActionPolicy {
+  /** Vet an action before it runs. Rejected → recorded as a failure so the LLM re-decides; it never
+   * executes. A stateful policy may count calls across the run (e.g. a consecutive-scroll cap). */
+  vet(decision: Decision): PolicyVerdict;
+  /** Optionally end discovery early (goal reached, hard bound) — checked each loop iteration. */
+  stop?(steps: readonly Step[]): boolean;
 }
 
 const SYSTEM =
@@ -424,8 +442,17 @@ export async function discover(
     onStep,
     signal,
     semanticChecks = false,
+    policy,
   } = opts;
   const steps: Step[] = [];
+
+  // Emit the freeze: observe, propose+ground assertions, done. `truncated` marks a step-cap stop.
+  const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
+    const evidence = await driver.observe();
+    const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
+    const assertions = deriveAssertions(all, evidence, semanticChecks);
+    return truncated ? { name: intent, steps, assertions, truncated: true } : { name: intent, steps, assertions };
+  };
 
   if (baseUrl) {
     await driver.goto(baseUrl);
@@ -438,6 +465,7 @@ export async function discover(
   let prevRender = "";
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
+    if (policy?.stop?.(steps)) return finish(false); // policy ended discovery (goal reached / bound hit)
     await driver.settle();
     const elements = await driver.snapshot();
     const render = renderElements(
@@ -464,16 +492,15 @@ export async function discover(
 
     if (decision.action === "done") {
       onStep?.(decision);
-      const evidence = await driver.observe();
-      const proposed = [
-        ...(decision.assertions ?? []),
-        ...(await proposeAssertions(llm, intent, evidence, semanticChecks)),
-      ];
-      return {
-        name: intent,
-        steps,
-        assertions: deriveAssertions(proposed, evidence, semanticChecks),
-      };
+      return finish(false, decision.assertions ?? []);
+    }
+
+    // Policy gate: a rejected action never executes — recorded as a failure so the LLM re-decides.
+    const verdict = policy?.vet(decision) ?? { ok: true as const };
+    if (!verdict.ok) {
+      failures.push(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
+      onStep?.(decision);
+      continue;
     }
 
     try {
@@ -490,26 +517,19 @@ export async function discover(
       steps.push(step);
       onStep?.(decision, step);
     } catch (err) {
-      const what = `${decision.action}${decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : ""}`;
       failures.push(
-        `${what} — ${err instanceof Error ? err.message : String(err)}`,
+        `${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`,
       );
       onStep?.(decision);
     }
   }
 
   // Safety cap reached without an explicit "done" — flag it so the path isn't trusted as complete.
-  const evidence = await driver.observe();
-  const proposed = await proposeAssertions(
-    llm,
-    intent,
-    evidence,
-    semanticChecks,
-  );
-  return {
-    name: intent,
-    steps,
-    assertions: deriveAssertions(proposed, evidence, semanticChecks),
-    truncated: true,
-  };
+  return finish(true);
+}
+
+/** A short "action \"text\"|url" label for failure/policy messages. */
+function describeAction(decision: Decision): string {
+  const detail = decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : "";
+  return `${decision.action}${detail}`;
 }

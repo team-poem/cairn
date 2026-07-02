@@ -15,6 +15,7 @@ export {
   checkAssertion,
   resolveAssertion,
   judgeAssertion,
+  toVerdict,
   MechanicalAssertionHandler,
   CustomAssertionHandler,
 } from "./adapters/critics/assertion.js";

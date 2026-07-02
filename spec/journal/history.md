@@ -412,3 +412,10 @@
 - **한 일:** ① `adapters/llm/codex.ts` — `CodexLlmClient`(`codex exec` spawn). 헤르메틱 호출: `--ignore-user-config`(사용자 훅·플러그인·notify 부작용 차단) + `--sandbox read-only` + `--ephemeral`(completion 호출이 명령 실행·세션 영속 금지) + `-o <tmpfile>`(사람용 stdout 로그 파싱 대신 마지막 메시지를 파일로). system 프롬프트는 codex exec에 플래그가 없어 `<system>` 블록으로 프롬프트에 실음. 기본 모델 `gpt-5.5` — `--ignore-user-config` 시 CLI 자체 기본(`*-codex` 변형)은 ChatGPT 플랜에서 400. ② factory에 `"codex"` 등록(전략 테이블 한 줄, invariant #5). ③ `CAIRN_LLM_BACKEND` env 오버라이드 — 명시 opts > env > 키 자동감지. CLI에 백엔드 플래그가 없어도 `CAIRN_LLM_BACKEND=codex cairn discover …`로 키 없는 백엔드 선택 가능.
 - **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
 - **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).
+
+## 2026-07-02 — #69 빈 단언 세트 fail-closed (공허한 PASS 차단)
+
+- **문제(#69):** 단언 0개 시나리오가 항상 PASS — `[].every()`가 true. `deriveAssertions`가 `[]`를 반환하는 실경로 존재(navigated=false SPA + 탐색 중 non-benign 실패로 no-failed-requests 드롭 + grounded request-status 없음 + semanticChecks off). **추가 발견:** `LlmCritic.judge`도 같은 `every()` 집계 — 이슈 코멘트로 보고 후 둘 다 수정.
+- **픽스:** 공유 집계 `toVerdict(results)`(assertion.ts, index export) — 빈 세트면 `passed:false` + `Verdict.detail`("scenario has no assertions to verify"). 양 critic이 공유(#68 술어 추출과 같은 드리프트 방지 패턴). `Verdict.detail` optional 추가(additive) + ConsoleReporter가 detail 표시. discover-side freeze 거부는 기각 — `[]` 경로엔 안전한 폴백 단언이 없음(no-failed-requests는 방금 의도적 드롭, navigated는 false, expect는 결정성 위반).
+- **행동 변화(의도):** 스텝 `expect`만 있고 단언 0개인 시나리오도 이제 FAIL — 최소 1개 단언 필요(surgical-heal 테스트 픽스처에 `navigated` 추가로 반영). heal:true면 FAIL이 outcome-heal을 태우므로 특히 공허-PASS 방치 불가.
+- **검증:** typecheck·build·**150 테스트**(+3: AssertionCritic 빈 세트 fail-closed · 단언 있으면 불변 · LlmCritic 동일 + LLM 호출 0 유지).

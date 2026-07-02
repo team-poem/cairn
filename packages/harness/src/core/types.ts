@@ -145,6 +145,8 @@ export interface AssertionResult {
 export interface Verdict {
   passed: boolean;
   results: AssertionResult[];
+  /** Set when the verdict didn't come from the results alone — e.g. failing closed on an empty assertion set. */
+  detail?: string;
 }
 
 export interface Result {

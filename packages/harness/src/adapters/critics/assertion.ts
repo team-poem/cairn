@@ -84,6 +84,15 @@ export class CustomAssertionHandler implements AssertionHandler {
   }
 }
 
+/** Aggregate assertion results into a verdict, failing closed on an empty set — a scenario that
+ * verifies nothing must not look green (#69). Shared by both critics so the semantics can't drift. */
+export function toVerdict(results: AssertionResult[]): Verdict {
+  if (results.length === 0) {
+    return { passed: false, results, detail: "scenario has no assertions to verify" };
+  }
+  return { passed: results.every((r) => r.passed), results };
+}
+
 /** Route one assertion to the first handler that supports it (mirror of the Execute-stage step dispatch). */
 export async function judgeAssertion(
   handlers: AssertionHandler[],
@@ -118,6 +127,6 @@ export class AssertionCritic implements Critic {
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
     const results = await Promise.all(assertions.map((a) => judgeAssertion(this.handlers, a, evidence)));
-    return { passed: results.every((r) => r.passed), results };
+    return toVerdict(results);
   }
 }

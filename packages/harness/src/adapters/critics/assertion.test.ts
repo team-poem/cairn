@@ -50,6 +50,20 @@ describe("navigated — path boundary, not raw substring", () => {
   });
 });
 
+describe("empty assertion set — fail closed, not vacuously green (#69)", () => {
+  it("a scenario with zero assertions does not pass", async () => {
+    const v = await new AssertionCritic().judge(ev([]), []);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toContain("no assertions");
+  });
+
+  it("a scenario with assertions is unaffected", async () => {
+    const v = await new AssertionCritic().judge(ev([]), [{ kind: "navigated" }]);
+    expect(v.passed).toBe(true);
+    expect(v.detail).toBeUndefined();
+  });
+});
+
 describe("custom assertions — the host defines success", () => {
   it("runs a product-registered check", async () => {
     const critic = new AssertionCritic({

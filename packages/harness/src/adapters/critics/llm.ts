@@ -9,6 +9,7 @@ import {
   CustomAssertionHandler,
   MechanicalAssertionHandler,
   judgeAssertion,
+  toVerdict,
 } from "./assertion.js";
 import type { CustomChecks } from "./assertion.js";
 import type { AssertionHandler, Critic, LlmClient } from "../../core/ports.js";
@@ -126,6 +127,6 @@ export class LlmCritic implements Critic {
     const results = await Promise.all(
       assertions.map((a) => judgeAssertion(this.handlers, a, evidence, ctx)),
     );
-    return { passed: results.every((r) => r.passed), results };
+    return toVerdict(results);
   }
 }

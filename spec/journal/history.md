@@ -412,3 +412,12 @@
 - **한 일:** ① `adapters/llm/codex.ts` — `CodexLlmClient`(`codex exec` spawn). 헤르메틱 호출: `--ignore-user-config`(사용자 훅·플러그인·notify 부작용 차단) + `--sandbox read-only` + `--ephemeral`(completion 호출이 명령 실행·세션 영속 금지) + `-o <tmpfile>`(사람용 stdout 로그 파싱 대신 마지막 메시지를 파일로). system 프롬프트는 codex exec에 플래그가 없어 `<system>` 블록으로 프롬프트에 실음. 기본 모델 `gpt-5.5` — `--ignore-user-config` 시 CLI 자체 기본(`*-codex` 변형)은 ChatGPT 플랜에서 400. ② factory에 `"codex"` 등록(전략 테이블 한 줄, invariant #5). ③ `CAIRN_LLM_BACKEND` env 오버라이드 — 명시 opts > env > 키 자동감지. CLI에 백엔드 플래그가 없어도 `CAIRN_LLM_BACKEND=codex cairn discover …`로 키 없는 백엔드 선택 가능.
 - **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
 - **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).
+
+## 2026-07-02 — #68 request-status any-match (false-FAIL·순서민감성 픽스)
+
+- **문제(#68):** critic의 `request-status`가 URL **첫 매치**의 status만 비교 — 같은 엔드포인트가 여러 번 응답하면(401→200 재시도) 매칭 성공이 있어도 FAIL. 같은 조건을 `conditionMet`(waitFor/step expect)은 `.some(url && status)`로 올바르게 검사 → 동일 evidence에서 waitFor PASS / 단언 FAIL 모순.
+- **기원:** 6/22 PoC(엔드포인트당 요청 1개 픽스처)에서 `.find` 작성 → 6/25 waitFor가 술어를 독립 재구현하며 `.some` 선택(중복이 낳은 드리프트) → 2.1.0 action-grounding이 request-status를 자동 심으며 실앱 노출 확대.
+- **파급(왜 심각):** false-FAIL이 `--heal`에서 outcome-heal(LLM re-discover + re-freeze)을 트리거 — $0 replay 약속 파기 + 멀쩡한 스킬 덮어쓰기. 요청 도착 순서에 verdict가 좌우돼 invariant #4의 "same input, same verdict"도 침식.
+- **픽스:** 공유 술어 `findRequestStatus(requests, urlIncludes, status)`를 `core/requests.ts`에 추출(첫 "url+status 모두 매칭" 반환) — critic과 `conditionMet` 둘 다 이걸 사용(세 번째 구현이 생겨도 재분기 방지, `isBenignRequest` 추출 전례). 실패 detail은 URL 매치들의 관측 status 전부 표시(`expected 200, got 401, 500 for …`).
+- **의미론 노트:** any-match는 `.find` 통과 케이스의 상위집합 — 기존 green 시나리오 회귀 0, 변화는 FAIL→PASS 단방향(재시도 성공). "실행 중 실패 있었나"는 `no-failed-requests`의 역할(분담 유지). frozen 파일 재생성 불필요(판정 로직만 변경).
+- **검증:** typecheck·build·**151 테스트**(+4: 401→200 통과 · 단일응답 불변 · 미스매치 시 status 전부 표시 · no-match detail 구분).

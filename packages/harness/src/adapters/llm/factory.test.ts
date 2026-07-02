@@ -6,6 +6,7 @@ const KEYS = [
   "OPENAI_API_KEY",
   "GEMINI_API_KEY",
   "GOOGLE_API_KEY",
+  "CAIRN_LLM_BACKEND",
 ];
 
 describe("createLlmClient", () => {
@@ -17,6 +18,13 @@ describe("createLlmClient", () => {
     expect(createLlmClient({ backend: "claude-code", model: "haiku" }).id).toBe(
       "claude-code:haiku",
     );
+  });
+
+  it("uses Codex when forced (no key needed)", () => {
+    expect(createLlmClient({ backend: "codex", model: "gpt-5.5" }).id).toBe(
+      "codex:gpt-5.5",
+    );
+    expect(createLlmClient({ backend: "codex" }).id).toBe("codex:gpt-5.5");
   });
 
   it("builds an Anthropic client when forced", () => {
@@ -51,6 +59,15 @@ describe("createLlmClient", () => {
     expect(createLlmClient({ backend: "gemini" }).id).toBe(
       "gemini:gemini-2.0-flash",
     );
+  });
+
+  it("CAIRN_LLM_BACKEND overrides key detection, explicit opts win over it", () => {
+    process.env.ANTHROPIC_API_KEY = "a";
+    process.env.CAIRN_LLM_BACKEND = "codex";
+    expect(createLlmClient().id.startsWith("codex:")).toBe(true);
+    expect(createLlmClient({ backend: "claude-code" }).id.startsWith("claude-code:")).toBe(true);
+    process.env.CAIRN_LLM_BACKEND = "mistral";
+    expect(() => createLlmClient()).toThrow(/Unknown LLM backend: mistral/);
   });
 
   it("detects from env — Anthropic wins over OpenAI", () => {

@@ -4,7 +4,8 @@
 
 ## 지금 상태
 - 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor. **2.2.1: heal/critic JSON 파싱 견고화** — 멀티객체 응답 크래시 수정, patch. **2.2.2: URL 매칭 경계·로케일 정밀화** — raw substring이 부모 경로·다른 로케일에 오판(스킵 false-positive + navigated false-pass)하던 것을 `urlReached`(경계 매칭 + 로케일 무시)로 수정, patch, 미배포.) 리포트 대조→측정→견고화→유연성 개방.
-  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 83/83.
+  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 151/151 (+`saveSkillFile` 저장 API — README raw fs 제거).
+- **(2026-07-02, 미배포) codex 서드파티 백엔드** — `CodexLlmClient`(`codex exec`, ChatGPT 로그인 재사용·키 불필요, 기본 `gpt-5.5`) + factory `"codex"` 등록 + `CAIRN_LLM_BACKEND` env 오버라이드(명시 opts > env > 키 감지). 테스트 147. 실기 discover→freeze→replay PASS. 다음 릴리스에 minor(2.3.0 후보)로 포함. 상세 = history 2026-07-02.
 - **(2026-07-02, 미배포) #68 request-status any-match 픽스** — critic이 URL 첫 매치만 보던 것을 공유 술어 `findRequestStatus`(core/requests)로 교체, `conditionMet`과 의미 통일(401→200 재시도 false-FAIL + verdict 순서민감성 해소). 실패 detail은 관측 status 전부 표시. patch 후보. 상세 = history 2026-07-02.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
@@ -73,6 +74,7 @@
   기본 핸들러는 `core/steps.ts`(Driver포트·Step타입만 의존 → 의존방향 유지).
 - **Frozen skill 포맷:** 파일 자체가 bare `Scenario`다. wrapper `{name, scenario}`와 이중 `name`은 쓰지 않는다.
   `SkillStore.resolve(name)`와 `loadSkillFile(path)`도 `Scenario`를 반환한다.
+  저장도 도메인 API로: `saveSkillFile(path, scenario)`(mkdir 재귀 + bare Scenario JSON) — README에서 raw `writeFileSync` 노출 금지.
 - 기본 드라이버: Chrome DevTools MCP.
 - 형태: **임베드 엔진 + 얇은 CLI.** 데스크탑은 별도 프로젝트(엔진 install).
 - 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.

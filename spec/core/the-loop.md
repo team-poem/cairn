@@ -6,7 +6,7 @@ Describe what you want in plain language; the AI finds that path **once** and fr
 
 ## Four stages
 
-- **discover** — the LLM observes, acts, and adapts its way through an *unfamiliar app* to find a path. The agent loop lives **only here** (invariant #3). It produces an *intent (`reason`)* for every action.
+- **discover** — the LLM observes, acts, and adapts its way through an *unfamiliar app* to find a path. The agent loop lives **only here** (invariant #3). It produces an *intent (`reason`)* for every action. An optional **`ActionPolicy`** (injected, invariant #2) gates each proposed action before it runs — a consumer can block destructive/irreversible controls, cap wandering, or stop on a goal, all app-agnostically (the engine offers the seam; the rules come from the host). Absent → every action runs (unchanged).
 - **freeze** — the discovered path is hardened into a deterministic asset (`Scenario`). Targets are stored by *intent* (multi-locator), not by handle → see [targeting](targeting.md).
 - **replay** — the frozen path runs with **zero LLM** (invariant #4). Same result every time.
 - **self-heal** — when a step diverges at replay, the LLM repairs **just that step** and re-freezes (convergence). No break → no LLM. See [surgical-heal](surgical-heal.md).

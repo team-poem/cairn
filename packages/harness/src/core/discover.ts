@@ -7,6 +7,7 @@ import type { Driver, LlmClient } from "./ports.js";
 import type {
   Assertion,
   Evidence,
+  NetworkRequest,
   PageElement,
   Scenario,
   Step,
@@ -31,6 +32,9 @@ export interface DiscoverOptions {
    * When off, only evidence-grounded mechanical assertions are frozen — replay stays LLM-free.
    */
   semanticChecks?: boolean;
+  /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
+   * gate (every action runs) — behaviour unchanged. */
+  policy?: ActionPolicy;
 }
 
 export interface Decision {
@@ -53,6 +57,21 @@ export interface Decision {
   until?: WaitUntil;
   reason?: string;
   assertions?: Assertion[];
+}
+
+export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
+
+/**
+ * A deterministic gate the discover loop consults before executing each proposed action (invariant #2:
+ * inject behavior, don't branch in the loop). Kept app-agnostic (invariant #1) — the engine offers the
+ * seam; a consumer supplies the rules (block destructive controls, cap wandering, stop on a goal).
+ */
+export interface ActionPolicy {
+  /** Vet an action before it runs. Rejected → recorded as a failure so the LLM re-decides; it never
+   * executes. A stateful policy may count calls across the run (e.g. a consecutive-scroll cap). */
+  vet(decision: Decision): PolicyVerdict;
+  /** Optionally end discovery early (goal reached, hard bound) — checked each loop iteration. */
+  stop?(steps: readonly Step[]): boolean;
 }
 
 const SYSTEM =
@@ -318,18 +337,39 @@ function destinationKey(url: string): string {
   }
 }
 
-/** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
- * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
- * weak expect would trigger false divergence. */
+/** A grounded post-condition for a step, so a step that runs but doesn't reach its outcome is caught
+ * (and, at replay, waited-for then healed). Navigation → expect that destination. Else, if the step
+ * fired a fresh successful mutation (POST/PUT/PATCH/DELETE — a submit/create), expect that request:
+ * this covers async actions (a login submit) the URL-only check missed. A step that changes nothing
+ * stays unchecked — a weak expect would trigger false divergence. */
 async function stepExpect(
   driver: Driver,
-  beforeUrl: string | undefined,
+  before: { url: string | undefined; requests: NetworkRequest[] },
 ): Promise<WaitUntil | undefined> {
   await driver.settle();
-  const afterUrl = (await driver.observe()).execution.finalUrl;
-  if (afterUrl && afterUrl !== beforeUrl)
-    return { url: destinationKey(afterUrl) };
-  return undefined;
+  const after = await driver.observe();
+  const afterUrl = after.execution.finalUrl;
+  if (afterUrl && afterUrl !== before.url) return { url: destinationKey(afterUrl) };
+  return freshMutationExpect(before.requests, after.logic.requests);
+}
+
+/** A `requestStatus` post-condition for a mutation request that fired during the step (present after,
+ * absent before) and succeeded — the request that proves the action, so replay can wait for it. */
+function freshMutationExpect(
+  before: NetworkRequest[],
+  after: NetworkRequest[],
+): WaitUntil | undefined {
+  const seen = new Set(before.map((r) => `${r.method} ${r.url} ${r.status}`));
+  const fresh = after.find(
+    (r) =>
+      isMutation(r.method) &&
+      r.status >= 200 &&
+      r.status < 400 &&
+      !seen.has(`${r.method} ${r.url} ${r.status}`),
+  );
+  return fresh
+    ? { requestStatus: { urlIncludes: destinationKey(fresh.url), status: fresh.status } }
+    : undefined;
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
@@ -398,12 +438,21 @@ export async function discover(
     driver,
     llm,
     baseUrl,
-    maxSteps = 8,
+    maxSteps = 20,
     onStep,
     signal,
     semanticChecks = false,
+    policy,
   } = opts;
   const steps: Step[] = [];
+
+  // Emit the freeze: observe, propose+ground assertions, done. `truncated` marks a step-cap stop.
+  const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
+    const evidence = await driver.observe();
+    const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
+    const assertions = deriveAssertions(all, evidence, semanticChecks);
+    return truncated ? { name: intent, steps, assertions, truncated: true } : { name: intent, steps, assertions };
+  };
 
   if (baseUrl) {
     await driver.goto(baseUrl);
@@ -416,6 +465,7 @@ export async function discover(
   let prevRender = "";
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
+    if (policy?.stop?.(steps)) return finish(false); // policy ended discovery (goal reached / bound hit)
     await driver.settle();
     const elements = await driver.snapshot();
     const render = renderElements(
@@ -442,48 +492,44 @@ export async function discover(
 
     if (decision.action === "done") {
       onStep?.(decision);
-      const evidence = await driver.observe();
-      const proposed = [
-        ...(decision.assertions ?? []),
-        ...(await proposeAssertions(llm, intent, evidence, semanticChecks)),
-      ];
-      return {
-        name: intent,
-        steps,
-        assertions: deriveAssertions(proposed, evidence, semanticChecks),
-      };
+      return finish(false, decision.assertions ?? []);
+    }
+
+    // Policy gate: a rejected action never executes — recorded as a failure so the LLM re-decides.
+    const verdict = policy?.vet(decision) ?? { ok: true as const };
+    if (!verdict.ok) {
+      failures.push(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
+      onStep?.(decision);
+      continue;
     }
 
     try {
-      const beforeUrl = (await driver.observe()).execution.finalUrl;
+      const beforeObs = await driver.observe();
+      const before = {
+        url: beforeObs.execution.finalUrl,
+        requests: beforeObs.logic.requests,
+      };
       const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
-      const expect = await stepExpect(driver, beforeUrl);
+      const expect = await stepExpect(driver, before);
       if (expect) step.expect = expect;
       steps.push(step);
       onStep?.(decision, step);
     } catch (err) {
-      const what = `${decision.action}${decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : ""}`;
       failures.push(
-        `${what} — ${err instanceof Error ? err.message : String(err)}`,
+        `${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`,
       );
       onStep?.(decision);
     }
   }
 
   // Safety cap reached without an explicit "done" — flag it so the path isn't trusted as complete.
-  const evidence = await driver.observe();
-  const proposed = await proposeAssertions(
-    llm,
-    intent,
-    evidence,
-    semanticChecks,
-  );
-  return {
-    name: intent,
-    steps,
-    assertions: deriveAssertions(proposed, evidence, semanticChecks),
-    truncated: true,
-  };
+  return finish(true);
+}
+
+/** A short "action \"text\"|url" label for failure/policy messages. */
+function describeAction(decision: Decision): string {
+  const detail = decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : "";
+  return `${decision.action}${detail}`;
 }

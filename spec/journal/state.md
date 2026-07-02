@@ -24,6 +24,40 @@
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 
+## 2.3.0 계획 — 코어 전수조사 + QA 도그푸딩 발 (미착수, 현재 2.2.2)
+
+> QA 익스텐션 도그푸딩 + **코어 전 소스 라인단위 리뷰**(2026-07-02)로 확정한 스코프. 익스텐션에서 먼저
+> 겪은 것들이 전부 엔진 문제로 귀결됨 — 근거 = history 2026-07-02. GitHub 이슈 **#64–#69**(team-poem/cairn, 개인 계정) 등록됨.
+
+**담당 분배(파일 소유권 기준, 충돌 0):** 우리 = **#64·#65·#67**(`core/discover.ts` 단독 소유, 근원+안전+정리) · 팀원 = **#66·#68·#69**(`adapters/critics/assertion.ts`+`llm.ts`+`requests.ts` 단독 소유, 판정 정확성+노이즈). discover.ts 안에선 우리가 64→65→67 순차.
+
+**verdict를 틀리게 하는 크리티컬은 #68·#69뿐**(전수조사 확인). 그 외 코어는 견고(HTTP retry·subprocess timeout·JSON fail-closed·factory Map·다중로케이터 P3 가드·grounded 단언·locale URL).
+
+### 우리 몫 (#64·#65·#67 — `core/discover.ts` 소유)
+- **#64 ✅ 구현 완료** (브랜치 `fix/replay-readiness`, 149테스트·build OK): `runStep`이 `expect`를 **폴링**(readiness, 기본 2000ms `expectTimeoutMs` 옵션) → async 효과를 race 안 함 · `steps.pollCondition` 프리미티브 · `stepExpect`가 **fresh 성공 mutation을 requestStatus expect로** 캡처(navigation 밖) · 레퍼런스 `chrome.ts` type/select 후 settle(입력 커밋)+resolveUid 재시도(승격 ④) · `ports.settle` 계약 문구 + `spec/core/surgical-heal.md` 갱신 · 신규 테스트 2(async 폴링·mutation expect). ⑤ fast/careful 다이얼은 이걸로 obviate.
+- **#64 🔴 근원 — replay가 app readiness를 race.** ① `settle()`이 network-idle only라 `type` 후 다음 동작이 폼/JS 처리를 앞지름(no-op). ② `stepExpect`(`core/discover.ts`)가 **즉시 URL 변화만** expect로 잡아 async 동작(submit)이 검증/치유 밖 → surgical-heal(`pipeline.ts runStep`)이 안 걸리고 하드 FAIL. 제안: readiness-aware wait + `stepExpect`를 async 결과(요청/요소)까지 확장. (+M5: `ports.ts` settle 계약 문구도 갱신.)
+  - **흡수(승격 ④): resolve 재시도(요소 등장 대기)** — 프로즌 타겟이 즉시 안 잡히면 짧게 재시도(늦게 렌더되는 요소 flaky↓). "늦게 뜨는 걸 기다림"=readiness라 여기 가족. 익스텐션 드라이버에만 있던 걸 엔진으로.
+  - **해소(승격 ⑤): fast/careful 다이얼 obviate** — settle이 readiness를 알아서 기다리면 "느리게 모드"라는 수동 땜빵이 불필요해짐. #64가 제대로 되면 별도 노브 안 만듦(익스텐션의 다이얼은 임시방편이었음).
+  - ⚠ 기존 **#61**(discover Tab/keypress false-PASS submissions)과 영토 겹침 — 착수 전 대조.
+- **#65 ✅ 구현 완료** (브랜치 `feat/discover-guardrails`, 151테스트·build OK): `ActionPolicy` seam(`vet(decision)` 거부 + `stop(steps)` 조기종료)을 `DiscoverOptions.policy`로 주입. 거부된 액션은 실행 안 하고 failures에 넣어 LLM 재선택. 앱-특정 규칙(파괴적 단어 등)은 소비자가 주입(불변식 #1). index/browser export + `the-loop.md` 갱신 + 테스트 2(거부·stop). 기본 무정책 → 무변화.
+- **#65 🟠 안전 — discover에 action-policy 게이트 없음.** `applyDecision`이 LLM 제안을 무검증 실행 → 파괴적 클릭·배회·초과 스텝(도그푸딩서 관측). 제안: 액션 policy seam(파괴적 차단·목표 정지·배회 상한)을 포트로 주입. 프롬프트 부탁 → 구조.
+- **#67 ✅ 구현 완료** (브랜치 `refactor/discover-overhead`, 152테스트·build OK): `maxSteps` 기본 8→20 · **M1** `chrome.resolveTargetUid` 모호한 substring은 첫 매칭 추측 대신 undefined(→self-heal, P3 일관) · **M3** cli `cmdRun`이 blind cast 대신 `loadSkillFile`로 검증. (④ observe 축소는 #64가 `beforeObs`로 요청 캡처를 필요로 만들어 무의미해짐 — 스킵.)
+- **#67 ⚪ 정리 — discover 스텝당 관측 중복 + 낮은 default cap.** `beforeUrl`에 full `observe()` 대신 `url()`; `maxSteps=8` 재고. (+**M1**: `chrome.ts resolveTargetUid` substring 첫-매칭 오resolve, +**M3/M4**: cli 시나리오 미검증·플래그 엣지.)
+
+### 팀원 몫 (#66·#68·#69 — critics 소유)
+- **#68 🔴 오판정 — `request-status`가 첫 URL 매칭만 검사** (`assertion.ts`). 엔드포인트가 401→200처럼 여러 번 응답하면 첫(401) 잡아 false-FAIL. `conditionMet`(`some`)과 불일치. 픽스: `some(url && status)`. (+**M2**: outcome-heal이 재발견 후 `observe()`에서 원래 run 요청까지 섞여 request-status false-PASS 가능 — 같이 정리.)
+- **#69 🔴 오판정 — 단언 0개 → vacuous PASS.** `AssertionCritic`·`LlmCritic` 둘 다 `[].every===true`. 아무것도 검증 안 하는데 green. 픽스: fail-closed(또는 freeze 거부).
+- **#66 🟡 노이즈 — critic false-FAIL.** no-failed-requests transient-ok(같은 엔드포인트 후속 2xx면 앞 4xx 무시) + no-console-errors benign 리스트(`core/requests.ts`, `critics/assertion.ts`). 익스텐션서 evidence 정규화로 선구현·검증됨.
+
+**착수 순서:** 우리 discover.ts에선 근원 **#64 먼저**(설계부터) → #65 → #67. 팀원 critics에선 작은 **#68·#69 워밍업** → #66. 잔버그(M1~M5)는 해당 이슈 처리 중 흡수.
+
+### 후속(2.3.0 이후 후보)
+- **discover 배치(look-ahead) 플래닝** — 탐색 왕복 절감(하이브리드: N스텝 계획→어긋나면 재계획). 부품 = `StepMeta.expect` + `LlmStepHealer`. 익스텐션 프롬프트 가속 실측 후.
+- **멀티모달 expect 판정(vision)** — `LlmCritic`이 스크린샷을 vision 모델로(텍스트-only 한계). 큼.
+- **뷰포트/레이아웃 강제 · refine gate** — 익스텐션서 해결됨(드라이버 줌 / 탐색 전 애매성 1콜). 범용화 시 엔진(작음, 6개엔 안 겹쳐 별도).
+- _(승격 ④ resolve-재시도·⑤ fast/careful 다이얼은 #64로 흡수/해소 — 위 참조.)_
+- (기존 이월: 파라미터 슬롯 · setup chain semantics · `mustProve` seam · `Driver.reset` 포트.)
+
 ## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
 
 > delivered QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **1.2.0으로 배포·소비 완료.**

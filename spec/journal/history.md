@@ -412,3 +412,10 @@
 - **한 일:** ① `adapters/llm/codex.ts` — `CodexLlmClient`(`codex exec` spawn). 헤르메틱 호출: `--ignore-user-config`(사용자 훅·플러그인·notify 부작용 차단) + `--sandbox read-only` + `--ephemeral`(completion 호출이 명령 실행·세션 영속 금지) + `-o <tmpfile>`(사람용 stdout 로그 파싱 대신 마지막 메시지를 파일로). system 프롬프트는 codex exec에 플래그가 없어 `<system>` 블록으로 프롬프트에 실음. 기본 모델 `gpt-5.5` — `--ignore-user-config` 시 CLI 자체 기본(`*-codex` 변형)은 ChatGPT 플랜에서 400. ② factory에 `"codex"` 등록(전략 테이블 한 줄, invariant #5). ③ `CAIRN_LLM_BACKEND` env 오버라이드 — 명시 opts > env > 키 자동감지. CLI에 백엔드 플래그가 없어도 `CAIRN_LLM_BACKEND=codex cairn discover …`로 키 없는 백엔드 선택 가능.
 - **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
 - **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).
+
+## 2026-07-02 — #66 critic이 회복된 실패·benign 콘솔 노이즈를 오판하지 않게
+
+- **문제(#66):** ① `no-failed-requests`가 4xx→재시도→2xx로 회복된 흐름을 FAIL(첫 4xx만 보고). ② `no-console-errors`가 프레임워크/i18n 노이즈에 FAIL. 둘 다 false-FAIL → `--heal`이면 outcome-heal(LLM+스킬 덮어쓰기) 캐스케이드(#68과 동일 파급).
+- **픽스:** ① `isRecoveredFailure(requests, i)`(core/requests) — 같은 **method + host/path(쿼리 무시)** 엔드포인트가 *나중에* <400으로 응답하면 그 실패는 회복된 노이즈. method 매칭 필수(성공 GET이 실패 POST를 가리면 안 됨 — 이슈 제안에 없던 안전장치). endpointKey는 discover의 destinationKey와 같은 host+pathname 방식(로케일 스트립은 페이지 URL용이라 API 엔드포인트엔 미적용). ② `benignConsole` substring 리스트 — `RunScenarioOptions.benignConsole` → 양 critic → `checkAssertion` 4번째 인자. predicate 미지원(복잡한 판정은 custom 단언의 몫).
+- **의미론:** 회복 판정은 캡처 순서를 *의미*로 사용(실패 후 성공 = 회복) — evidence의 순수 함수라 결정성(invariant #4) 유지. 회복 없는 실패·리스트 밖 콘솔 에러는 계속 FAIL(acceptance). frozen 파일 무변경.
+- **검증:** typecheck·build·**153 테스트**(+6: 재시도 회복 pass · 미회복 fail · GET이 POST 못 가림 · 선행 성공은 회복 아님 · benign 콘솔 pass · 그 외 콘솔 에러 fail).

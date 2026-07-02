@@ -47,6 +47,8 @@ export interface RunScenarioOptions {
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
   benign?: string[];
+  /** Console-text substrings that are product noise (e.g. i18n warnings), excluded from `no-console-errors`. */
+  benignConsole?: string[];
   /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
   actions?: Record<string, CustomAction>;
 }
@@ -107,8 +109,8 @@ export async function runScenario(
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign)
-      : new AssertionCritic(opts.custom, opts.benign));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole));
 
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   let healer: SelfHealingDriver | undefined;

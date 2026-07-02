@@ -6,6 +6,7 @@
 - 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor. **2.2.1: heal/critic JSON 파싱 견고화** — 멀티객체 응답 크래시 수정, patch. **2.2.2: URL 매칭 경계·로케일 정밀화** — raw substring이 부모 경로·다른 로케일에 오판(스킵 false-positive + navigated false-pass)하던 것을 `urlReached`(경계 매칭 + 로케일 무시)로 수정, patch, 미배포.) 리포트 대조→측정→견고화→유연성 개방.
   견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 147/147 (+`saveSkillFile` 저장 API — README raw fs 제거).
 - **(2026-07-02, 미배포) codex 서드파티 백엔드** — `CodexLlmClient`(`codex exec`, ChatGPT 로그인 재사용·키 불필요, 기본 `gpt-5.5`) + factory `"codex"` 등록 + `CAIRN_LLM_BACKEND` env 오버라이드(명시 opts > env > 키 감지). 테스트 147. 실기 discover→freeze→replay PASS. 다음 릴리스에 minor(2.3.0 후보)로 포함. 상세 = history 2026-07-02.
+- **(2026-07-02, 미배포) #66 critic 노이즈 완화** — `no-failed-requests`가 재시도로 회복된 실패(같은 method+host/path가 나중에 <400)를 benign 처리(`isRecoveredFailure`, core/requests) + `no-console-errors`에 `benignConsole` substring 리스트(benign request 미러, RunScenarioOptions·양 critic 배선). 진짜 실패는 계속 FAIL. minor 후보. 상세 = history 2026-07-02.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

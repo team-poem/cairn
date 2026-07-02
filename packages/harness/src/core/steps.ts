@@ -110,13 +110,28 @@ export async function waitForCondition(
   until: WaitUntil,
   timeoutMs = WAIT_TIMEOUT_MS,
 ): Promise<void> {
+  if (!(await pollCondition(driver, until, timeoutMs))) {
+    throw new Error(`waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
+  }
+}
+
+/**
+ * Poll `conditionMet` until it holds or the deadline passes; returns whether it held. The readiness
+ * primitive `waitForCondition` and the per-step `expect` check both build on this — a step's
+ * post-condition is *waited for*, not checked once, so an async effect (a submit's request landing, a
+ * deferred re-render) is caught instead of raced. Returns immediately when the condition already holds.
+ */
+export async function pollCondition(
+  driver: Driver,
+  until: WaitUntil,
+  timeoutMs: number,
+  pollMs = WAIT_POLL_MS,
+): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (await conditionMet(driver, until)) return;
-    if (Date.now() >= deadline) {
-      throw new Error(`waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
-    }
-    await sleep(WAIT_POLL_MS);
+    if (await conditionMet(driver, until)) return true;
+    if (Date.now() >= deadline) return false;
+    await sleep(pollMs);
   }
 }
 

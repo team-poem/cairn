@@ -49,7 +49,10 @@ export interface Driver {
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
   snapshot(): Promise<PageElement[]>;
-  /** Execute-stage auto-wait for network idle (design §3). Best-effort, time-bounded, never throws. */
+  /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
+   * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
+   * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an
+   * explicit `waitFor`; `settle` just reduces the race, it doesn't replace them (design §3). */
   settle(options?: SettleOptions): Promise<void>;
   observe(): Promise<Evidence>;
   close(): Promise<void>;

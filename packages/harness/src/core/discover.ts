@@ -353,23 +353,44 @@ async function stepExpect(
   return freshMutationExpect(before.requests, after.logic.requests);
 }
 
-/** A `requestStatus` post-condition for a mutation request that fired during the step (present after,
- * absent before) and succeeded — the request that proves the action, so replay can wait for it. */
+/** A `requestStatus` post-condition for a mutation request the step itself fired and that succeeded —
+ * the request that proves the action, so replay can wait for it. Benign noise is excluded, the method
+ * is frozen for exact matching (a same-path GET must not satisfy a submit), and the frozen path stops
+ * before a run-specific id segment (which would never match on a later replay). */
 function freshMutationExpect(
   before: NetworkRequest[],
   after: NetworkRequest[],
 ): WaitUntil | undefined {
-  const seen = new Set(before.map((r) => `${r.method} ${r.url} ${r.status}`));
-  const fresh = after.find(
-    (r) =>
-      isMutation(r.method) &&
-      r.status >= 200 &&
-      r.status < 400 &&
-      !seen.has(`${r.method} ${r.url} ${r.status}`),
-  );
+  // The request log is append-only within a run and only non-navigating steps reach here
+  // (navigation short-circuits above), so the step's own requests are exactly the tail past
+  // `before` — a repeated identical mutation (a second add-to-cart) still counts as fresh.
+  const fresh = after
+    .slice(before.length)
+    .find(
+      (r) => isMutation(r.method) && r.status >= 200 && r.status < 400 && !isBenignRequest(r.url),
+    );
   return fresh
-    ? { requestStatus: { urlIncludes: destinationKey(fresh.url), status: fresh.status } }
+    ? {
+        requestStatus: {
+          urlIncludes: stableEndpointPrefix(fresh.url),
+          status: fresh.status,
+          method: fresh.method.toUpperCase(),
+        },
+      }
     : undefined;
+}
+
+/** host + path cut at the first dynamic-looking segment (all digits, or ≥8 chars containing one —
+ * ids, uuids, timestamps) — a stable prefix that still substring-matches the full request URL on a
+ * later replay, where a run-specific id would never match again. */
+function stableEndpointPrefix(url: string): string {
+  const [host = "", ...segs] = destinationKey(url).split("/");
+  const stable: string[] = [];
+  for (const seg of segs) {
+    if (/^\d+$/.test(seg) || (seg.length >= 8 && /\d/.test(seg))) break;
+    stable.push(seg);
+  }
+  return [host, ...stable].join("/");
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */

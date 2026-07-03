@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { extractFirstJsonArray, extractFirstJsonObject } from "./json.js";
+import { extractFirstJsonArray, extractFirstJsonObject } from "../../src/core/json.js";
 
 describe("extractFirstJsonObject", () => {
   it("parses a bare object", () => {

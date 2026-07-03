@@ -4,9 +4,9 @@ import {
   CustomStepHandler,
   defaultStepHandlers,
   urlReached,
-} from "./steps.js";
-import { FakeDriver } from "../adapters/drivers/fake.js";
-import type { Evidence, Step } from "./types.js";
+} from "../../src/core/steps.js";
+import { FakeDriver } from "../../src/adapters/drivers/fake.js";
+import type { Evidence, Step } from "../../src/core/types.js";
 
 describe("urlReached", () => {
   it("matches an exact host+path and ignores scheme/query/hash/trailing slash", () => {

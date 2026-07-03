@@ -14,7 +14,7 @@
  */
 import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
-import { discover } from "./core/discover.js";
+import { discover } from "./core/discover/index.js";
 import { weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";

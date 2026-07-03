@@ -11,7 +11,7 @@ import {
   parseNetwork,
   parsePageIds,
   parseSelectedUrl,
-} from "./chrome.js";
+} from "../../../src/adapters/drivers/chrome.js";
 
 // Sample text mirrors real chrome-devtools-mcp output observed during dogfooding.
 

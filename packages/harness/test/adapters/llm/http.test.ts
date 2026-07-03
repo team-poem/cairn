@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { postJsonWithRetry } from "./http.js";
-import { AnthropicLlmClient } from "./anthropic.js";
-import { GeminiLlmClient } from "./gemini.js";
-import { OpenAILlmClient } from "./openai.js";
+import { postJsonWithRetry } from "../../../src/adapters/llm/http.js";
+import { AnthropicLlmClient } from "../../../src/adapters/llm/anthropic.js";
+import { GeminiLlmClient } from "../../../src/adapters/llm/gemini.js";
+import { OpenAILlmClient } from "../../../src/adapters/llm/openai.js";
 
 /** A minimal fetch Response stand-in — only the members postJsonWithRetry touches. */
 function res(

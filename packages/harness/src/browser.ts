@@ -34,8 +34,8 @@ export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
-export { discover, parseDecision } from "./core/discover.js";
-export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover.js";
+export { discover, parseDecision } from "./core/discover/index.js";
+export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { TargetScore, ScoredTarget } from "./core/freeze.js";

@@ -1,62 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { discover, parseDecision, rankElements } from "./discover.js";
-import type { ActionPolicy, Decision } from "./discover.js";
-import { FakeDriver } from "../adapters/drivers/fake.js";
-import type { LlmClient } from "./ports.js";
-import type { Evidence } from "./types.js";
-
-/** Replays a fixed sequence of model replies — keeps discover deterministic in tests. */
-class ScriptedLlm implements LlmClient {
-  readonly id = "scripted";
-  private i = 0;
-  constructor(private readonly replies: string[]) {}
-  async complete(): Promise<string> {
-    return this.replies[this.i++] ?? '{"action":"done"}';
-  }
-}
+import { discover } from "../../../src/core/discover/index.js";
+import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js";
+import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
+import { ScriptedLlm } from "../../support/doubles.js";
+import type { Evidence } from "../../../src/core/types.js";
 
 const evidence: Evidence = {
   execution: { actions: [], navigated: true, finalUrl: "https://shop/cart", blocked: false },
   perception: {},
   logic: { requests: [], console: [] },
 };
-
-describe("parseDecision", () => {
-  it("tolerates code fences and surrounding prose", () => {
-    const d = parseDecision('Sure!\n```json\n{"action":"click","text":"Add to cart"}\n```');
-    expect(d).toEqual({ action: "click", text: "Add to cart" });
-  });
-  it("takes the first object when a model emits two (real crash on complex flows)", () => {
-    const d = parseDecision('{"action":"type","text":"User","value":"a"}\n{"action":"done"}');
-    expect(d).toEqual({ action: "type", text: "User", value: "a" });
-  });
-  it("ignores braces inside string values", () => {
-    expect(parseDecision('{"action":"type","text":"Name","value":"a{b}c"}')).toEqual({
-      action: "type",
-      text: "Name",
-      value: "a{b}c",
-    });
-  });
-});
-
-describe("rankElements (#15)", () => {
-  it("keeps an interactive, intent-relevant control inside the cutoff past a wall of noise", () => {
-    const noise = Array.from({ length: 70 }, (_, i) => ({ role: "paragraph", name: `text ${i}` }));
-    const ranked = rankElements([...noise, { role: "button", name: "Checkout now" }], "checkout", 60);
-    // a flat slice(0, 60) would drop the button at index 70; ranking pulls it in.
-    expect(ranked).toContainEqual({ role: "button", name: "Checkout now" });
-    expect(ranked).toHaveLength(60);
-  });
-
-  it("boosts an intent-relevant control for a non-ASCII (Korean) intent (P8)", () => {
-    const els = [
-      { role: "button", name: "취소" }, // interactive, not intent-relevant
-      { role: "button", name: "결제하기" }, // interactive + matches the "결제" token
-    ];
-    // before P8, `\W` split yielded no Korean tokens, so relevance never broke the tie
-    expect(rankElements(els, "결제 진행", 60)[0]).toEqual({ role: "button", name: "결제하기" });
-  });
-});
 
 describe("discover", () => {
   it("turns an intent into a Scenario via observe→act→adapt", async () => {

@@ -5,7 +5,7 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer } from "./ports.js";
 import type { PageElement, Step } from "./types.js";
-import { applyDecision, parseDecision, renderElements, type Decision } from "./discover.js";
+import { applyDecision, parseDecision, renderElements, type Decision } from "./discover/index.js";
 
 const MAX_STEP_HEALS = 5;
 

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { GeminiLlmClient } from "./gemini.js";
-import { OpenAILlmClient } from "./openai.js";
+import { GeminiLlmClient } from "../../../src/adapters/llm/gemini.js";
+import { OpenAILlmClient } from "../../../src/adapters/llm/openai.js";
 
 const KEYS = ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"];
 

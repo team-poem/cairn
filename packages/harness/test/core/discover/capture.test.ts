@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
+import { assignStepExpects } from "../../../src/core/discover/capture.js";
+import type { Step } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { Evidence, Target } from "../../../src/core/types.js";
 
@@ -100,6 +102,66 @@ describe("discover captures intent + expect", () => {
     expect(found.steps[1]?.expect).toEqual({
       requestStatus: { urlIncludes: "api.app/cart", status: 200, method: "POST" },
     });
+  });
+
+  it("waits out an in-flight mutation at freeze time, then assigns the expect (capture-side race, #81)", async () => {
+    // The submit's POST is still pending (status 0) when the loop moves on and resolves only on a
+    // later observation — a mid-run snapshot would have frozen NO expect, leaving the step
+    // unverifiable at replay. Expects are now decided retroactively at freeze time, where the
+    // final (bounded) observation sees the resolved status.
+    class SlowResponseStub extends StubDriver {
+      private observes = 0;
+      private fired = false;
+      override async pressKey(): Promise<void> {
+        this.fired = true;
+      }
+      override async observe(): Promise<Evidence> {
+        this.observes += 1;
+        const status = this.observes > 3 ? 200 : 0; // response lands only on a later observation
+        const requests = this.fired
+          ? [{ method: "POST", url: "https://api.app/auth/sign-in", status }]
+          : [];
+        return {
+          execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: { requests, console: [] },
+        };
+      }
+    }
+    const driver = new SlowResponseStub();
+    const llm = new ScriptedLlm([
+      '{"action":"pressKey","key":"Enter","reason":"submit login"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("log in", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "api.app/auth/sign-in", status: 200, method: "POST" },
+    });
+  });
+
+  it("assignStepExpects attributes each request tail to its own step (retroactive slicing)", () => {
+    // Step 1 fired the POST (tail [0,1)); step 2 navigated (url differs at the final evidence).
+    const steps: Step[] = [
+      { kind: "click", target: { text: "Submit" } },
+      { kind: "click", target: { text: "Go" } },
+    ];
+    const marks = [
+      { url: "https://app/form", requestCount: 0 },
+      { url: "https://app/form", requestCount: 1 },
+    ];
+    const evidence: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://app/done", blocked: false },
+      perception: {},
+      logic: {
+        requests: [{ method: "POST", url: "https://api.app/orders", status: 201 }],
+        console: [],
+      },
+    };
+    assignStepExpects(steps, marks, evidence);
+    expect(steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "api.app/orders", status: 201, method: "POST" },
+    });
+    expect(steps[1]?.expect).toEqual({ url: "app/done" });
   });
 
   it("can produce a waitFor step (P4 — discover synchronizes, not just replay)", async () => {

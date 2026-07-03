@@ -11,7 +11,8 @@ import type { Assertion, Scenario, Step } from "../types.js";
 import { ELEMENT_LIMIT, SYSTEM, buildPrompt, rankElements, renderElements } from "./prompt.js";
 import { applyDecision, describeAction, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
-import { stepExpect } from "./capture.js";
+import { assignStepExpects, observeOutcomes } from "./capture.js";
+import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyVerdict } from "./decision.js";
@@ -40,10 +41,17 @@ export interface DiscoverOptions {
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, policy } = opts;
   const steps: Step[] = [];
+  // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
+  // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
+  // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
+  const marks: (OutcomeMark | null)[] = [];
 
-  // Emit the freeze: observe, propose+ground assertions, done. `truncated` marks a step-cap stop.
+  // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
+  // then propose+ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
-    const evidence = await driver.observe();
+    const firstCount = marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? 0;
+    const evidence = await observeOutcomes(driver, firstCount);
+    assignStepExpects(steps, marks, evidence);
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const assertions = deriveAssertions(all, evidence, semanticChecks);
     return truncated
@@ -54,6 +62,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   if (baseUrl) {
     await driver.goto(baseUrl);
     steps.push({ kind: "goto", url: baseUrl });
+    marks.push(null);
   }
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
@@ -95,13 +104,16 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
 
     try {
       const beforeObs = await driver.observe();
-      const before = { url: beforeObs.execution.finalUrl, requests: beforeObs.logic.requests };
+      const mark: OutcomeMark = {
+        url: beforeObs.execution.finalUrl,
+        requestCount: beforeObs.logic.requests.length,
+      };
       const step = await applyDecision(driver, decision);
-      // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
+      // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
+      // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
-      const expect = await stepExpect(driver, before);
-      if (expect) step.expect = expect;
       steps.push(step);
+      marks.push(mark);
       onStep?.(decision, step);
     } catch (err) {
       failures.push(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);

@@ -5,6 +5,7 @@ AI 코딩 에이전트가 이 레포를 수정하기 전에 따르는 규칙과,
 
 ## 0. 세션 시작 — 먼저 읽기
 - `spec/journal/state.md` — 현재 상태·결정·다음 스텝(살아있는 핸드오프). 항상 먼저.
+- `spec/journal/entries/` 최근 파일 몇 개 — 진행 중인 작업 맥락.
 - 작업이 설계에 닿으면 `spec/architecture.md`(불변식) · `spec/core/`(핵심 메커니즘 스펙).
 
 ## 1. 라우팅 — 작업 종류 → 문서
@@ -32,8 +33,12 @@ AI 코딩 에이전트가 이 레포를 수정하기 전에 따르는 규칙과,
 - review 단계(생기면 `spec/code/.../review-checklist.md`) 통과.
 
 ## 5. 메모리 갱신 — 완료 후
-- `spec/journal/state.md` — 바뀐 현재 상태·새 계약·다음 스텝으로 갱신(작게 유지).
-- `spec/journal/history.md` — 이번 작업을 append(과정·결정·결과). 길어지면 `spec/journal/archive/`로 이관.
+- `spec/journal/entries/`에 **새 파일 하나**(`YYYY-MM-DD-<slug>.md`)로 이번 작업을 기록
+  (브랜치·과정·결정·결과·**state 변화** 요약). **기존 파일은 건드리지 않는다** — 브랜치마다
+  새 파일만 추가하므로 병합 충돌이 구조적으로 없다.
+- `spec/journal/state.md` — **develop에서만** 갱신(작업 브랜치/PR에서 수정 금지).
+  entry에 적어둔 "state 변화"를 머지 후 develop에서 반영한다.
+- `spec/journal/history.md` — 아카이브(2026-07-03 동결). 더 이상 append하지 않는다.
 
 ## 6. 규칙 진화
 작업 중 반복되는 결정이나 규칙 충돌이 보이면 `spec/journal/state.md`의 **"규칙 후보"**에

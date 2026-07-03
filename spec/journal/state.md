@@ -1,6 +1,7 @@
 # state — 현재 상태 (세션 시작 시 먼저 읽기)
 
-> 작게 유지. 사실·결정·다음 스텝만. 장황한 로그는 `history.md`로.
+> 작게 유지. 사실·결정·다음 스텝만. 상세 기록은 `entries/`로.
+> **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
 - 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor. **2.2.1: heal/critic JSON 파싱 견고화** — 멀티객체 응답 크래시 수정, patch. **2.2.2: URL 매칭 경계·로케일 정밀화** — raw substring이 부모 경로·다른 로케일에 오판(스킵 false-positive + navigated false-pass)하던 것을 `urlReached`(경계 매칭 + 로케일 무시)로 수정, patch, 미배포.) 리포트 대조→측정→견고화→유연성 개방.

@@ -4,7 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { runHarness } from "./core/pipeline.js";
-import { discover } from "./core/discover.js";
+import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
 import { StaticPlanner } from "./adapters/planners/static.js";
@@ -47,8 +47,12 @@ export interface RunScenarioOptions {
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
   benign?: string[];
+  /** Console-text substrings that are product noise (e.g. i18n warnings), excluded from `no-console-errors`. */
+  benignConsole?: string[];
   /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
   actions?: Record<string, CustomAction>;
+  /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
+  expectTimeoutMs?: number;
 }
 
 export interface RunScenarioResult {
@@ -107,8 +111,8 @@ export async function runScenario(
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign)
-      : new AssertionCritic(opts.custom, opts.benign));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole));
 
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   let healer: SelfHealingDriver | undefined;
@@ -132,6 +136,7 @@ export async function runScenario(
       captureScreenshots: opts.screenshots,
       actions: opts.actions,
       stepHealer,
+      expectTimeoutMs: opts.expectTimeoutMs,
     },
   );
 

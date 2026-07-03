@@ -1,14 +1,16 @@
 /**
- * Picks the LLM backend (invariant #5). An explicit `backend` wins; otherwise the first provider
+ * Picks the LLM backend (invariant #5). An explicit `backend` wins; then `CAIRN_LLM_BACKEND`
+ * (lets the CLI pick key-less backends like codex/claude-code); otherwise the first provider
  * whose API key is present, in order Anthropic → OpenAI → Gemini, falling back to local Claude Code.
  */
 import type { LlmClient } from "../../core/ports.js";
 import { AnthropicLlmClient } from "./anthropic.js";
 import { ClaudeCodeLlmClient } from "./claude-code.js";
+import { CodexLlmClient } from "./codex.js";
 import { GeminiLlmClient } from "./gemini.js";
 import { OpenAILlmClient } from "./openai.js";
 
-export type LlmBackend = "anthropic" | "openai" | "gemini" | "claude-code";
+export type LlmBackend = "anthropic" | "openai" | "gemini" | "claude-code" | "codex";
 
 export interface LlmFactoryOptions {
   /** Force a backend regardless of environment. */
@@ -17,6 +19,7 @@ export interface LlmFactoryOptions {
 }
 
 function detectBackend(): LlmBackend {
+  if (process.env.CAIRN_LLM_BACKEND) return process.env.CAIRN_LLM_BACKEND as LlmBackend;
   if (process.env.ANTHROPIC_API_KEY) return "anthropic";
   if (process.env.OPENAI_API_KEY) return "openai";
   if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) return "gemini";
@@ -34,6 +37,7 @@ const BACKENDS = new Map<LlmBackend, (opts: LlmFactoryOptions) => LlmClient>([
   ["openai", (o) => new OpenAILlmClient({ model: o.model })],
   ["gemini", (o) => new GeminiLlmClient({ model: o.model })],
   ["claude-code", (o) => new ClaudeCodeLlmClient({ model: o.model })],
+  ["codex", (o) => new CodexLlmClient({ model: o.model })],
 ]);
 
 export function createLlmClient(opts: LlmFactoryOptions = {}): LlmClient {

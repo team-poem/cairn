@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { scoreScenario, scoreTarget, weakTargets } from "./freeze.js";
-import type { Scenario } from "./types.js";
+import { scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import type { Scenario } from "../../src/core/types.js";
 
 describe("scoreTarget", () => {
   it("selector is strongest and not weak", () => {

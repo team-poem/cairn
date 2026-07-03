@@ -12,16 +12,18 @@
  * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
-import { discover } from "./core/discover.js";
+import { discover } from "./core/discover/index.js";
 import { weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { loadSkillFile } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
+import { flagStr, parseArgs } from "./cli-args.js";
 import type { Reporter, Scenario } from "./index.js";
+import type { Flags } from "./cli-args.js";
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {
@@ -31,35 +33,6 @@ const DOGFOOD: Scenario = {
     { kind: "click", target: { text: "Learn more" } },
   ],
   assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }],
-};
-
-type Flags = Map<string, string | boolean>;
-
-function parseArgs(argv: string[]): { positionals: string[]; flags: Flags } {
-  const positionals: string[] = [];
-  const flags: Flags = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === undefined) continue;
-    if (a.startsWith("--")) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
-        flags.set(key, next);
-        i++;
-      } else {
-        flags.set(key, true);
-      }
-    } else {
-      positionals.push(a);
-    }
-  }
-  return { positionals, flags };
-}
-
-const flagStr = (flags: Flags, key: string): string | undefined => {
-  const v = flags.get(key);
-  return typeof v === "string" ? v : undefined;
 };
 
 function reporterFor(flags: Flags): Reporter {
@@ -101,7 +74,9 @@ async function cmdRun(flags: Flags): Promise<number> {
   } else {
     const path = flagStr(flags, "scenario");
     if (!path) throw new Error("provide --scenario <file.json> or --dogfood");
-    scenario = JSON.parse(await readFile(path, "utf8")) as Scenario;
+    // Validate the shape (name/steps/assertions) instead of a blind cast — a malformed file fails
+    // here with a clear error rather than deep in the run.
+    scenario = await loadSkillFile(path);
   }
   return runScenarioCli(scenario, flags);
 }

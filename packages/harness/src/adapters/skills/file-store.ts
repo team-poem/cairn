@@ -25,10 +25,15 @@ export class FileSkillStore implements SkillStore {
 
   async freeze(name: string, scenario: Scenario): Promise<string> {
     const path = this.pathFor(name);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, JSON.stringify(scenario, null, 2), "utf8");
+    await saveSkillFile(path, scenario);
     return path;
   }
+}
+
+/** Freeze a scenario to a skill file. The file is the bare Scenario JSON, nothing wrapped. */
+export async function saveSkillFile(path: string, scenario: Scenario): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, JSON.stringify(scenario, null, 2), "utf8");
 }
 
 export class InvalidSkillFileError extends Error {

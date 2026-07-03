@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { LlmCritic } from "./llm.js";
-import type { LlmClient } from "../../core/ports.js";
-import type { Evidence } from "../../core/types.js";
+import { LlmCritic } from "../../../src/adapters/critics/llm.js";
+import type { LlmClient } from "../../../src/core/ports.js";
+import type { Evidence } from "../../../src/core/types.js";
 
 class ScriptedLlm implements LlmClient {
   readonly id = "scripted";
@@ -38,6 +38,15 @@ describe("LlmCritic", () => {
     const critic = new LlmCritic(llm);
     const verdict = await critic.judge(evidence, [{ kind: "navigated" }, { kind: "no-failed-requests" }]);
     expect(verdict.passed).toBe(true);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("fails closed on an empty assertion set without calling the LLM (#69)", async () => {
+    const llm = new ScriptedLlm("{}");
+    const spy = vi.spyOn(llm, "complete");
+    const verdict = await new LlmCritic(llm).judge(evidence, []);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.detail).toContain("no assertions");
     expect(spy).not.toHaveBeenCalled();
   });
 

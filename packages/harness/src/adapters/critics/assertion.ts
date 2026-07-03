@@ -1,7 +1,7 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
-import { isBenignRequest } from "../../core/requests.js";
+import { findRequestStatus, isBenignRequest, isRecoveredFailure } from "../../core/requests.js";
 import { urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
@@ -17,6 +17,7 @@ export function checkAssertion(
   assertion: Assertion,
   evidence: Evidence,
   benign: readonly string[] = [],
+  benignConsole: readonly string[] = [],
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
@@ -28,24 +29,36 @@ export function checkAssertion(
       return { assertion, passed: true, detail: finalUrl };
     }
     case "no-console-errors": {
-      const errors = evidence.logic.console.filter((m) => m.type === "error");
+      // Product-marked patterns (framework/i18n noise) are not regressions — mirror of benign requests.
+      const errors = evidence.logic.console.filter(
+        (m) => m.type === "error" && !benignConsole.some((s) => m.text.includes(s)),
+      );
       return errors.length === 0
         ? { assertion, passed: true }
         : { assertion, passed: false, detail: `${errors.length} console error(s): ${errors[0]?.text}` };
     }
     case "no-failed-requests": {
-      // Ignore universally-benign noise (a missing favicon shouldn't fail a checkout test).
-      const failed = evidence.logic.requests.filter((r) => r.status >= 400 && !isBenignRequest(r.url, benign));
+      // Ignore universally-benign noise (a missing favicon shouldn't fail a checkout test) and
+      // transient failures the app retried and recovered (#66) — an unrecovered failure still fails.
+      const requests = evidence.logic.requests;
+      const failed = requests.filter(
+        (r, i) => r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(requests, i),
+      );
       return failed.length === 0
         ? { assertion, passed: true }
         : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };
     }
     case "request-status": {
-      const match = evidence.logic.requests.find((r) => r.url.includes(assertion.urlIncludes));
-      if (!match) return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
-      return match.status === assertion.status
-        ? { assertion, passed: true, detail: `${match.status} ${match.url}` }
-        : { assertion, passed: false, detail: `expected ${assertion.status}, got ${match.status} for ${match.url}` };
+      // Any matching request satisfies the assertion (same predicate as conditionMet) — the
+      // verdict must not depend on arrival order when an endpoint responds more than once.
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status);
+      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
+      const near = evidence.logic.requests.filter((r) => r.url.includes(assertion.urlIncludes));
+      if (near.length === 0) {
+        return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
+      }
+      const seen = [...new Set(near.map((r) => r.status))].join(", ");
+      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };
     }
     case "expect":
       return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };
@@ -56,14 +69,17 @@ export function checkAssertion(
 
 /** Built-in mechanical checks — every kind except product `custom` (`expect` yields its LlmCritic hint). */
 export class MechanicalAssertionHandler implements AssertionHandler {
-  constructor(private readonly benign: readonly string[] = []) {}
+  constructor(
+    private readonly benign: readonly string[] = [],
+    private readonly benignConsole: readonly string[] = [],
+  ) {}
 
   supports(assertion: Assertion): boolean {
     return assertion.kind !== "custom";
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole);
   }
 }
 
@@ -82,6 +98,15 @@ export class CustomAssertionHandler implements AssertionHandler {
     const r = await check(assertion.params ?? {}, evidence);
     return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
   }
+}
+
+/** Aggregate assertion results into a verdict, failing closed on an empty set — a scenario that
+ * verifies nothing must not look green (#69). Shared by both critics so the semantics can't drift. */
+export function toVerdict(results: AssertionResult[]): Verdict {
+  if (results.length === 0) {
+    return { passed: false, results, detail: "scenario has no assertions to verify" };
+  }
+  return { passed: results.every((r) => r.passed), results };
 }
 
 /** Route one assertion to the first handler that supports it (mirror of the Execute-stage step dispatch). */
@@ -111,13 +136,18 @@ export class AssertionCritic implements Critic {
   /**
    * @param custom product-defined checks for `custom` assertions, keyed by name.
    * @param benign URL substrings whose 4xx/5xx is product noise, not a regression (P7).
+   * @param benignConsole console-text substrings that are product noise (framework/i18n), not errors (#66).
    */
-  constructor(custom: CustomChecks = {}, benign: readonly string[] = []) {
-    this.handlers = [new MechanicalAssertionHandler(benign), new CustomAssertionHandler(custom)];
+  constructor(
+    custom: CustomChecks = {},
+    benign: readonly string[] = [],
+    benignConsole: readonly string[] = [],
+  ) {
+    this.handlers = [new MechanicalAssertionHandler(benign, benignConsole), new CustomAssertionHandler(custom)];
   }
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {
     const results = await Promise.all(assertions.map((a) => judgeAssertion(this.handlers, a, evidence)));
-    return { passed: results.every((r) => r.passed), results };
+    return toVerdict(results);
   }
 }

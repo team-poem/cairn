@@ -52,7 +52,7 @@ Judgment happens **once, at the end** of a scenario (the single `runHarness` ver
 ## 3. Mechanism (replay = deterministic + step surgery)
 
 For each step:
-1. **Check `expect` before executing** → if it already holds, **safe skip** (idempotency; e.g. already logged in).
+1. **Check `expect` before executing** → if it already holds, **safe skip** (idempotency; e.g. already logged in). *State-like conditions only (`url`/`text`)* — a `requestStatus` expect is **event evidence** over the run's cumulative request log, so an idempotency pre-check would be satisfied by an earlier step's request and silently skip this one; those steps always execute.
 2. Otherwise execute.
 3. **Wait for `expect` after executing** (poll up to `expectTimeoutMs`, default 2000ms — *readiness*, not a single check, so an async effect like a submit's request landing or a deferred redirect is caught instead of raced; #64):
    - holds within the window → next step (still deterministic, no LLM).
@@ -76,6 +76,12 @@ with no new type or port. discover derives `expect` from a step's navigation (`{
 async action that doesn't navigate, a fresh successful mutation request it fired (`{ requestStatus }`) —
 so a submit is verifiable/healable, not just a URL jump (#64). `settle` is a heuristic that only reduces
 the race; the polled `expect` is what gates readiness deterministically.
+
+`requestStatus` matching is guarded on both sides. At **freeze**: only the step's own requests (the
+appended tail of the run's log) qualify, benign noise is excluded, the **method** is frozen for exact
+matching (a same-path GET must not satisfy a submit), and the path stops before a run-specific id
+segment. At **replay**: `conditionMet` takes a per-step **watermark** and only counts requests observed
+after the step started — an earlier step's request can never satisfy this step's post-condition.
 
 ## 5. Invariants (preserved)
 

@@ -121,29 +121,49 @@ export async function waitForCondition(
  * post-condition is *waited for*, not checked once, so an async effect (a submit's request landing, a
  * deferred re-render) is caught instead of raced. Returns immediately when the condition already holds.
  */
+export interface PollOptions {
+  pollMs?: number;
+  /** Only count requests at/after this index of the run's request log for `requestStatus` — a
+   * per-step watermark, so an earlier step's request can't satisfy this step's post-condition. */
+  sinceRequestIndex?: number;
+}
+
 export async function pollCondition(
   driver: Driver,
   until: WaitUntil,
   timeoutMs: number,
-  pollMs = WAIT_POLL_MS,
+  opts: PollOptions = {},
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (await conditionMet(driver, until)) return true;
+    if (await conditionMet(driver, until, opts.sinceRequestIndex)) return true;
     if (Date.now() >= deadline) return false;
-    await sleep(pollMs);
+    await sleep(opts.pollMs ?? WAIT_POLL_MS);
   }
 }
 
 /** Whether every field of `until` holds now (Driver observation only, no LLM). Polled by `waitFor`
- * and checked once per step for `expect` verification (spec/core/surgical-heal.md). */
-export async function conditionMet(driver: Driver, until: WaitUntil): Promise<boolean> {
+ * and checked once per step for `expect` verification (spec/core/surgical-heal.md). `requestStatus`
+ * is event evidence over a cumulative log, so callers verifying a single step pass a watermark. */
+export async function conditionMet(
+  driver: Driver,
+  until: WaitUntil,
+  sinceRequestIndex = 0,
+): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
     if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url)) return false;
     if (until.requestStatus) {
-      const { urlIncludes, status } = until.requestStatus;
-      if (!logic.requests.some((r) => r.url.includes(urlIncludes) && r.status === status)) return false;
+      const { urlIncludes, status, method } = until.requestStatus;
+      const held = logic.requests
+        .slice(sinceRequestIndex)
+        .some(
+          (r) =>
+            r.url.includes(urlIncludes) &&
+            r.status === status &&
+            (!method || r.method.toUpperCase() === method.toUpperCase()),
+        );
+      if (!held) return false;
     }
   }
   if (until.text !== undefined) {

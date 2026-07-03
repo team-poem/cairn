@@ -466,3 +466,9 @@
 - **한 일:** `maxSteps` 기본 8→20(실플로우가 8에 잘림 방지) · **M1** `chrome.resolveTargetUid` 모호한 substring(여러 부분일치)은 첫 매칭 추측 대신 `undefined`로 → self-heal이 의도로 고름(positional P3 가드와 일관) · **M3** cli `cmdRun`이 `JSON.parse ... as Scenario` blind cast 대신 `loadSkillFile`(shape 검증)로 → 잘못된 파일이 명확한 에러.
 - **④(observe 축소) 스킵:** #64가 `beforeObs`로 요청까지 캡처(async expect)하게 만들어, "beforeUrl은 url()만" 최적화가 무의미해짐. 저널·PR에 명시.
 - **검증:** typecheck·**152 테스트**(+1: M1 모호 substring)·build OK.
+
+### PR #72 review 픽스 — requestStatus expect 검증 의미론
+
+- **리뷰 발견:** `requestStatus` 스텝 expect가 replay에서 run 누적 요청 로그로 평가 + method 미검사 → ① 이전 스텝/페이지로드 요청이 pre-check("이미 충족")를 만족시켜 스텝 통째 스킵, ② 자기 mutation이 안 나간 스텝이 과거 요청으로 통과(healer 미발동), ③ 같은 경로 GET이 POST expect 충족(REST 목록/생성 동일 경로, GraphQL 전멸), ④ 동적 ID 경로가 얼어 매 replay 영구 divergence(+heal이 mutation 재실행), ⑤ 첫 fresh mutation을 노이즈 필터 없이 freeze(비컨), ⑥ seen-set 키잉이 반복 동일 mutation의 expect를 소실.
+- **픽스:** `conditionMet`/`pollCondition`에 **per-step 워터마크**(`sinceRequestIndex` — 스텝 시작 후 요청만 매칭) · `requestStatus.method?` 추가(additive, freeze 시 기록·있으면 정확 매칭) · requestStatus expect는 **pre-check 제외**(이벤트 증거 ≠ 상태) · discover freeze는 `after.slice(before.length)`(append-only tail — 반복 mutation 보존) + `isBenignRequest` 필터 + **동적 세그먼트 전 안정 prefix**만 freeze(`stableEndpointPrefix`). spec(surgical-heal §3·§4) 갱신.
+- **검증:** typecheck·build·**153 테스트**(+4: 워터마크 no-pre-skip·GET≠POST·반복 mutation expect 보존·안정 prefix).

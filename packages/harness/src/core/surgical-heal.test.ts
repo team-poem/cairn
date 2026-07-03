@@ -124,6 +124,61 @@ describe("per-step expect verification", () => {
     expect(result.evidence.execution.actions[0]?.ok).toBe(true); // async effect caught by polling
     expect(driver.clicked).toEqual(["Checkout"]); // clicked once, not re-clicked or healed
   });
+
+  it("a requestStatus expect is NOT satisfied by an earlier request (watermark, no pre-skip)", async () => {
+    // The matching POST is already in the run's cumulative log (an earlier step / page load fired
+    // it). This step's own click sends nothing — it must execute (no idempotency pre-skip) and then
+    // diverge, not pass off the stale request.
+    class StaleRequestStub extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        return {
+          execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: { requests: [{ method: "POST", url: "https://api.app/cart", status: 200 }], console: [] },
+        };
+      }
+    }
+    const driver = new StaleRequestStub();
+    const s = scn([
+      {
+        kind: "click",
+        target: { text: "Add" },
+        expect: { requestStatus: { urlIncludes: "api.app/cart", status: 200, method: "POST" } },
+      },
+    ]);
+    const { result } = await runScenario(s, { driver, reporter: silent, expectTimeoutMs: 50 });
+    expect(driver.clicked).toEqual(["Add"]); // executed — not skipped as "already satisfied"
+    expect(result.evidence.execution.actions[0]?.ok).toBe(false); // stale request doesn't count
+  });
+
+  it("a same-path GET does not satisfy a mutation-derived expect (method match)", async () => {
+    // After the click, only a GET to the same endpoint+status arrives (a list re-fetch) — the
+    // frozen POST expect must not accept it.
+    class GetOnlyStub extends StubDriver {
+      readonly requests: { method: string; url: string; status: number }[] = [];
+      override async click(t: Target): Promise<void> {
+        this.clicked.push(t.text ?? "");
+        this.requests.push({ method: "GET", url: "https://api.app/orders", status: 200 });
+      }
+      override async observe(): Promise<Evidence> {
+        return {
+          execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: { requests: [...this.requests], console: [] },
+        };
+      }
+    }
+    const driver = new GetOnlyStub();
+    const s = scn([
+      {
+        kind: "click",
+        target: { text: "Place order" },
+        expect: { requestStatus: { urlIncludes: "api.app/orders", status: 200, method: "POST" } },
+      },
+    ]);
+    const { result } = await runScenario(s, { driver, reporter: silent, expectTimeoutMs: 50 });
+    expect(result.evidence.execution.actions[0]?.ok).toBe(false);
+  });
 });
 
 describe("discover captures intent + expect", () => {
@@ -166,7 +221,62 @@ describe("discover captures intent + expect", () => {
     ]);
     const found = await discover("place an order", { driver, llm });
     expect(found.steps[0]?.expect).toEqual({
-      requestStatus: { urlIncludes: "api.app/v1/orders", status: 200 },
+      requestStatus: { urlIncludes: "api.app/v1/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("freezes a stable path prefix, not a run-specific id segment", async () => {
+    class IdMutationStub extends StubDriver {
+      private submitted = false;
+      override async click(t: Target): Promise<void> {
+        this.clicked.push(t.text ?? "");
+        if (t.text === "Confirm") this.submitted = true;
+      }
+      override async observe(): Promise<Evidence> {
+        const requests = this.submitted
+          ? [{ method: "POST", url: "https://api.app/orders/ord_8f3a2c/confirm", status: 200 }]
+          : [];
+        return {
+          execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: { requests, console: [] },
+        };
+      }
+    }
+    const driver = new IdMutationStub();
+    const llm = new ScriptedLlm(['{"action":"click","text":"Confirm"}', '{"action":"done"}']);
+    const found = await discover("confirm order", { driver, llm });
+    // "ord_8f3a2c" is a fresh id every run — freezing it would never match a later replay.
+    expect(found.steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "api.app/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("a repeated identical mutation still gets an expect (append-only tail, not a seen-set)", async () => {
+    class RepeatStub extends StubDriver {
+      readonly requests: { method: string; url: string; status: number }[] = [];
+      override async click(t: Target): Promise<void> {
+        this.clicked.push(t.text ?? "");
+        if (t.text === "Add") this.requests.push({ method: "POST", url: "https://api.app/cart", status: 200 });
+      }
+      override async observe(): Promise<Evidence> {
+        return {
+          execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: { requests: [...this.requests], console: [] },
+        };
+      }
+    }
+    const driver = new RepeatStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Add"}',
+      '{"action":"click","text":"Add"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("add two items", { driver, llm });
+    // The second POST is identical to the first — it must still freeze this step's post-condition.
+    expect(found.steps[1]?.expect).toEqual({
+      requestStatus: { urlIncludes: "api.app/cart", status: 200, method: "POST" },
     });
   });
 

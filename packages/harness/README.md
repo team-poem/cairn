@@ -18,7 +18,47 @@ already reach for:
 - **LLM agents** — plain language, but a slow, costly, flaky model in _every_ run.
 - **cairn** — plain-language authoring **and** deterministic, free, self-healing replay.
 
+## See it
+
+```console
+$ cairn discover "log in and open the cart" --url=https://shop.example --freeze=cart.skill.json
+discovering with anthropic:claude-sonnet-4-6 …
+
+discovered scenario "log in and open the cart" — 6 steps:
+  · {"kind":"goto","url":"https://shop.example"}
+  · {"kind":"click","target":{"text":"Log in","role":"button","index":0},"intent":"submit the login form"}
+  ⋮
+
+frozen → cart.skill.json  (replay with: cairn replay cart.skill.json)
+
+$ cairn replay cart.skill.json
+replaying frozen skill "log in and open the cart" — deterministic, no LLM
+
+log in and open the cart
+  ✓ navigated → https://shop.example/cart
+  ✓ no-failed-requests
+  ✓ request-status — 200 https://shop.example/api/auth
+
+✓ pass — 3 assertion(s)
+```
+
+That second command is your regression suite: same input, same verdict, **zero LLM calls**. And
+when a redesign renames the login button, `--heal` repairs just that step and re-freezes:
+
+```console
+$ cairn replay cart.skill.json --heal --freeze=cart.skill.json
+✓ pass — 3 assertion(s)
+
+self-healed 1 step(s):
+  · "Log in" → "Sign in"
+  re-frozen → cart.skill.json
+```
+
 ## Use it
+
+You need **Node ≥ 20**, **Chrome**, and a model — a provider key (`ANTHROPIC_API_KEY` /
+`OPENAI_API_KEY` / `GEMINI_API_KEY`), or no key at all with a local **Claude Code** or
+**Codex CLI** install.
 
 ```sh
 npm install cairn-engine
@@ -61,10 +101,11 @@ if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 Prefer a one-off from the terminal? The same steps are CLI commands —
 `cairn discover … --freeze cart.skill.json` · `cairn replay cart.skill.json` · `… --heal`.
 
-**Models** — set a key and cairn picks the backend: **Anthropic** (`ANTHROPIC_API_KEY`, or a local
-**Claude Code** install with no key), **OpenAI** (`OPENAI_API_KEY`), or **Gemini**
-(`GEMINI_API_KEY`). Force one with `createLlmClient({ backend: "openai" })`, or implement the
-`LlmClient` port for any other model.
+**Models** — set a key and cairn picks the backend: **Anthropic** (`ANTHROPIC_API_KEY`),
+**OpenAI** (`OPENAI_API_KEY`), or **Gemini** (`GEMINI_API_KEY`). No key at all? A local
+**Claude Code** install (the default fallback) or the **OpenAI Codex CLI** (reuses your ChatGPT
+login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the
+`CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.
 
 ## How the loop works
 
@@ -97,7 +138,7 @@ by hand:
       "kind": "click",
       "target": { "text": "Log in" },
       "intent": "submit the login form",
-      "expect": { "requestStatus": { "urlIncludes": "/auth", "status": 200 } }
+      "expect": { "requestStatus": { "urlIncludes": "/auth", "status": 200, "method": "POST" } }
     },
     { "kind": "click", "target": { "text": "Add to cart" } },
     { "kind": "click", "target": { "text": "Cart", "role": "link" } },
@@ -141,7 +182,9 @@ suite by hand.
 
 The core knows no app — **you** supply what "success" means and how to drive the browser. Every
 stage is a replaceable port — your own `Driver` (e.g. Playwright), `Critic`, `Reporter`,
-`ContextProvider` (auth/fixtures), `LlmClient` (any model). Too much for a full port? `custom`
+`ContextProvider` (auth/fixtures), `LlmClient` (any model). Discovery itself takes an
+**`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs (block
+destructive controls, cap wandering, stop on a goal). Too much for a full port? `custom`
 assertions/actions define success inline:
 
 ```ts

@@ -21,6 +21,38 @@ cairn is an **engine, not a product** — a model- and browser-agnostic core (`c
 **embed** to build QA tools, CI gates, or monitors. It's _general in mechanism, specific in
 meaning_: the core knows no app; you supply what "success" means and how to drive the browser.
 
+## See it
+
+Pay the LLM once to author; replay is free, forever:
+
+```console
+$ cairn discover "log in and open the cart" --url=https://shop.example --freeze=cart.skill.json
+discovering with anthropic:claude-sonnet-4-6 …
+
+discovered scenario "log in and open the cart" — 6 steps:
+  · {"kind":"goto","url":"https://shop.example"}
+  · {"kind":"type","target":{"text":"Email","role":"textbox","index":0},"text":"you@shop.example"}
+  · {"kind":"click","target":{"text":"Log in","role":"button","index":0},"intent":"submit the login form"}
+  ⋮
+
+frozen → cart.skill.json  (replay with: cairn replay cart.skill.json)
+
+$ cairn replay cart.skill.json
+replaying frozen skill "log in and open the cart" — deterministic, no LLM
+
+log in and open the cart
+  ✓ navigated → https://shop.example/cart
+  · 6 actions · 34 requests · 0 console msgs
+  ✓ no-failed-requests
+  ✓ navigated — https://shop.example/cart
+  ✓ request-status — 200 https://shop.example/api/auth
+
+✓ pass — 3 assertion(s)
+```
+
+That second command is your regression suite now: same input, same verdict, **zero LLM calls** —
+run it on every push for free.
+
 ## Why cairn
 
 It sits in the gap between two things people already reach for — and don't love:
@@ -35,40 +67,37 @@ It sits in the gap between two things people already reach for — and don't lov
 You don't maintain selectors, and you don't pay an LLM on every CI run. **Discovery is paid once;
 regression is free.**
 
-## The loop
-
-```
-intent ─► discover (LLM, once) ─► cart.skill.json ─► replay (no LLM, forever)
-                                                          │ a step breaks
-                                                          ▼
-                                                  self-heal (LLM, just that step)
-```
-
-- **discover** _(LLM · once)_ — observes the live page, picks one action, acts, and repeats until your intent is met. Out comes a `Scenario`.
-- **freeze** — that scenario is plain JSON (`*.skill.json`): a flat list of steps + assertions, each target carrying several locators. No model, no LLM — just data.
-- **replay** _(no LLM)_ — runs the steps through a `Driver`, auto-waiting for the page to settle; a `Critic` rules on three layers of evidence — _did it act_ · _what it looked like_ · _the requests & console_. Same input, same verdict.
-- **heal** _(LLM · only on a break)_ — when a target stops resolving or the outcome diverges, the LLM maps your original step `intent` onto the new page, repairs that one step, retries, and returns a scenario to re-freeze. A green replay never calls it.
-
 **Measured, not claimed** — a real multi-step checkout, via cairn's [`bench/`](bench):
 
 - **4/4 deterministic** replays · **0 LLM calls** on replay
 - discovery **~$0.50 once** → every replay after is **$0** (a full LLM agent runs **~$15–30 _per run_**)
 - a renamed button broke hand-written selectors; cairn **healed it and stayed green**
 
-## Use it
+## Try it in 60 seconds
+
+You need **Node ≥ 20**, **Chrome**, and a model — an `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
+`GEMINI_API_KEY`, or no key at all with a local **Claude Code** or **Codex CLI** install. The
+browser is driven via Chrome DevTools MCP, launched automatically.
 
 ```sh
-npm install cairn-engine
+npm install -g cairn-engine
+
+cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
+cairn replay cart.skill.json            # deterministic — exit 1 on failure, a ready CI gate
+cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 
-**Author once** — an AI discovers the flow; you freeze it to a file:
+## Embed it
+
+The CLI is a convenience; the engine is the point. **Author once** — an AI discovers the flow; you
+freeze it to a file:
 
 ```ts
 import { discover, ChromeDevToolsDriver, createLlmClient, saveSkillFile } from "cairn-engine";
 
 const scenario = await discover("log in, add the first product, open the cart", {
   driver: new ChromeDevToolsDriver(),
-  llm: createLlmClient(), // Claude Code if installed, else a provider key (below)
+  llm: createLlmClient(), // picks a backend from your environment (below)
   baseUrl: "https://shop.example",
 });
 await saveSkillFile("cart.skill.json", scenario);
@@ -92,14 +121,25 @@ if (healedScenario) {
 if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 ```
 
-Prefer the terminal? The same steps are CLI commands —
-`cairn discover … --freeze cart.skill.json` · `cairn replay cart.skill.json` · `… --heal`.
+**Models** — set a key and cairn picks the backend: **Anthropic** (`ANTHROPIC_API_KEY`),
+**OpenAI** (`OPENAI_API_KEY`), or **Gemini** (`GEMINI_API_KEY`). No key at all? A local
+**Claude Code** install (the default fallback) or the **OpenAI Codex CLI** (reuses your ChatGPT
+login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the
+`CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.
 
-**Models** — set a key and cairn picks the backend: **Anthropic** (`ANTHROPIC_API_KEY`, or a local
-**Claude Code** install with no key), **OpenAI** (`OPENAI_API_KEY`), or **Gemini**
-(`GEMINI_API_KEY`). Force one with `createLlmClient({ backend: "openai" })`, or implement the
-`LlmClient` port for any other model. The default browser driver is **Chrome DevTools MCP**,
-launched automatically.
+## The loop
+
+```
+intent ─► discover (LLM, once) ─► cart.skill.json ─► replay (no LLM, forever)
+                                                          │ a step breaks
+                                                          ▼
+                                                  self-heal (LLM, just that step)
+```
+
+- **discover** _(LLM · once)_ — observes the live page, picks one action, acts, and repeats until your intent is met. Out comes a `Scenario`.
+- **freeze** — that scenario is plain JSON (`*.skill.json`): a flat list of steps + assertions, each target carrying several locators. No model, no LLM — just data.
+- **replay** _(no LLM)_ — runs the steps through a `Driver`, auto-waiting for the page to settle; a `Critic` rules on three layers of evidence — _did it act_ · _what it looked like_ · _the requests & console_. Same input, same verdict.
+- **heal** _(LLM · only on a break)_ — when a target stops resolving or the outcome diverges, the LLM maps your original step `intent` onto the new page, repairs that one step, retries, and returns a scenario to re-freeze. A green replay never calls it.
 
 ## A frozen scenario is just data
 
@@ -115,7 +155,7 @@ launched automatically.
       "kind": "click",
       "target": { "text": "Log in" },
       "intent": "submit the login form",
-      "expect": { "requestStatus": { "urlIncludes": "/auth", "status": 200 } }
+      "expect": { "requestStatus": { "urlIncludes": "/auth", "status": 200, "method": "POST" } }
     },
     { "kind": "click", "target": { "text": "Add to cart" } },
     { "kind": "click", "target": { "text": "Cart", "role": "link" } },
@@ -130,8 +170,37 @@ launched automatically.
 
 Each `target` keeps several locators — `text` (accessible name) first, `role` + `index` as a
 rename-resilient fallback, `selector` as a CSS escape hatch — which is what lets replay survive a
-redesign without falling back to the LLM. A step's `expect` is its post-condition: replay checks
-it deterministically and only heals if it diverges.
+redesign without falling back to the LLM. A step's `expect` is its post-condition: replay waits
+for it deterministically (so an async submit isn't raced) and only heals if it truly diverges.
+
+## When the UI changes — self-heal
+
+Say a redesign renames the login button, `Log in` → `Sign in`. A scripted test goes red until
+someone fixes the selector. cairn notices the frozen target no longer resolves, asks the LLM to
+map the step's recorded *intent* onto the new page, repairs **that one step**, and finishes the
+run:
+
+```console
+$ cairn replay cart.skill.json --heal --freeze=cart.skill.json
+replaying frozen skill "log in and open the cart" — self-heal on
+
+log in and open the cart
+  ✓ navigated → https://shop.example/cart
+  · 6 actions · 34 requests · 0 console msgs
+  ✓ no-failed-requests
+  ✓ navigated — https://shop.example/cart
+  ✓ request-status — 200 https://shop.example/api/auth
+
+✓ pass — 3 assertion(s)
+
+self-healed 1 step(s):
+  · "Log in" → "Sign in"
+  re-frozen → cart.skill.json
+```
+
+The repaired path is written back — the next replay is deterministic again, with zero LLM calls.
+Healing is *surgical*: one step, judged against your original assertions, so a heal can never turn
+a genuinely broken flow green.
 
 ## How it works — one pipeline, six ports
 
@@ -177,8 +246,10 @@ kinds of tools are built _from_.
 ## Extend it
 
 Every stage is a replaceable port — bring your own `Driver` (e.g. Playwright), `Critic`,
-`Reporter`, `ContextProvider` (auth/fixtures), or `LlmClient` (any model). Compose them directly
-with `runHarness`, or define success inline with `custom`:
+`Reporter`, `ContextProvider` (auth/fixtures), or `LlmClient` (any model). Discovery itself takes
+an **`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs (block
+destructive controls, cap wandering, stop on a goal). Compose them directly with `runHarness`, or
+define success inline with `custom`:
 
 ```ts
 import {
@@ -198,6 +269,36 @@ const result = await runHarness({
 Building a UI on top? The engine streams what a screen needs — `signal` (Stop) · `screenshots` ·
 `onStep` (live timeline). **No Node** (browser / extension)? Import from `cairn-engine/browser` and
 compose `runHarness` with your own `Driver` (e.g. one over `chrome.debugger`).
+
+## FAQ
+
+**Discovery uses an LLM — can I trust the result as a test?**
+Discovery is *authoring*, not running: it happens once, and what it produces is plain JSON you can
+read, diff, and edit before you commit it. Frozen assertions are grounded in what the run actually
+observed (a hallucinated check is dropped), a scenario with nothing to verify **fails closed**,
+and every replay after that is deterministic.
+
+**What stops the agent from clicking something destructive while exploring?**
+An **`ActionPolicy`** — a deterministic gate the discover loop consults before executing each
+proposed action. Block delete/checkout-style controls, cap wandering, or stop on a goal; a
+rejected action never runs, and the LLM picks another path.
+
+**What about logins and sessions?**
+Drive them like a user: put the credentials in the intent and the agent types them, and the frozen
+step carries a post-condition on the auth request itself (method-matched, e.g. `POST /auth →
+200`), so replay *waits* for login to really happen instead of racing it. For anything heavier
+(seeded sessions, 2FA, fixtures), supply a `ContextProvider` or your own `Driver`.
+
+## Learn more
+
+| Doc | What it covers |
+| --- | --- |
+| [`docs/design.md`](docs/design.md) | the full design, end to end |
+| [`spec/core/the-loop.md`](spec/core/the-loop.md) | why discover → freeze → replay → heal |
+| [`spec/core/surgical-heal.md`](spec/core/surgical-heal.md) | per-step divergence detection & repair |
+| [`spec/core/targeting.md`](spec/core/targeting.md) | multi-locator targets that survive redesigns |
+| [`spec/core/judgment.md`](spec/core/judgment.md) | three-layer evidence & deterministic verdicts |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | workflow, invariants, how to send a PR |
 
 ## Conventions — agentic test files
 
@@ -221,21 +322,22 @@ them. Dependencies point inward — adapters depend on core, never the reverse.
 cairn/
 ├── packages/
 │   └── harness/                  # cairn-engine — the engine
-│       └── src/
-│           ├── core/             # domain + ports (depends on nothing else)
-│           │   ├── types.ts        # Context · Scenario · Evidence · Verdict …
-│           │   ├── ports.ts        # the extension points (interfaces)
-│           │   ├── pipeline.ts     # Context → Plan → Execute → Judge → Report
-│           │   └── discover.ts     # the LLM discover loop (the only loop)
-│           ├── adapters/         # port implementations (the things you plug in)
-│           │   ├── drivers/        # ChromeDevTools (MCP) · self-heal · fake
-│           │   ├── critics/        # deterministic assertions · LLM
-│           │   ├── reporters/      # console · json
-│           │   ├── llm/            # Claude Code · Anthropic · OpenAI · Gemini · factory
-│           │   └── context/ · planners/ · skills/
-│           ├── run.ts            # composition: runScenario with defaults
-│           ├── index.ts          # public API
-│           └── cli.ts            # thin CLI over the library
+│       ├── src/
+│       │   ├── core/             # domain + ports (depends on nothing else)
+│       │   │   ├── types.ts        # Context · Scenario · Evidence · Verdict …
+│       │   │   ├── ports.ts        # the extension points (interfaces)
+│       │   │   ├── pipeline.ts     # Context → Plan → Execute → Judge → Report
+│       │   │   └── discover/       # the LLM discover loop (the only loop)
+│       │   ├── adapters/         # port implementations (the things you plug in)
+│       │   │   ├── drivers/        # ChromeDevTools (MCP) · self-heal · fake
+│       │   │   ├── critics/        # deterministic assertions · LLM
+│       │   │   ├── reporters/      # console · json
+│       │   │   ├── llm/            # Claude Code · Codex · Anthropic · OpenAI · Gemini · factory
+│       │   │   └── context/ · planners/ · skills/
+│       │   ├── run.ts            # composition: runScenario with defaults
+│       │   ├── index.ts          # public API
+│       │   └── cli.ts            # thin CLI over the library
+│       └── test/                 # unit suites, mirroring src/
 ├── docs/design.md               # the design, in full
 └── spec/                        # architecture invariants + living state
 ```
@@ -245,7 +347,8 @@ cairn/
 `cairn-engine` is on npm. The full loop — **discover → freeze → replay → self-heal** — works today
 and is benchmarked: deterministic, LLM-free replay on real multi-step flows; discovery paid once
 (~$0.5) against $0 replays; survival across UI renames without re-reasoning. Multiple LLM backends
-(Anthropic, OpenAI, Gemini) and a browser/extension entry ship in the box.
+(Anthropic, OpenAI, Gemini, plus key-less Claude Code and Codex CLI) and a browser/extension entry
+ship in the box.
 
 What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a
 separate desktop app that embeds it for visual replay. The interfaces are the contract.

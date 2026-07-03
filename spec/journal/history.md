@@ -406,6 +406,7 @@
 - **한 일:** `saveSkillFile(path, scenario)` export 추가(`adapters/skills/file-store.ts`) — mkdir 재귀 + bare Scenario JSON(2-space, utf8). `FileSkillStore.freeze`가 이를 위임(동작 동일). index 배럴에 `loadSkillFile` 옆 export. README 2곳: `writeFileSync` import 제거 → `await saveSkillFile(...)`, replay 예시 `await loadSkillFile` 수정, heal 재freeze도 `saveSkillFile`.
 - **계약 유지:** frozen 파일 = bare `Scenario`(wrapper 없음), replay 결정성·런타임 동작 변화 0. 범용 writeJson이 아닌 도메인 언어(save**Skill**File).
 - **검증:** typecheck · file-store 테스트 3/3(+1: saveSkillFile이 bare Scenario를 쓰고 loadSkillFile이 되읽음, 중첩 dir 생성) · build.
+
 ## 2026-07-02 — codex 서드파티 LLM 백엔드 (CodexLlmClient + CAIRN_LLM_BACKEND)
 
 - **동기:** API 키 없이 ChatGPT 구독(OpenAI Codex CLI 로그인)으로 discover/heal을 돌리고 싶다 — `claude -p` 기반 `ClaudeCodeLlmClient`와 정확히 같은 계열의 CLI 백엔드.
@@ -413,6 +414,12 @@
 - **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
 - **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).
 
+## 2026-07-02 — #69 빈 단언 세트 fail-closed (공허한 PASS 차단)
+
+- **문제(#69):** 단언 0개 시나리오가 항상 PASS — `[].every()`가 true. `deriveAssertions`가 `[]`를 반환하는 실경로 존재(navigated=false SPA + 탐색 중 non-benign 실패로 no-failed-requests 드롭 + grounded request-status 없음 + semanticChecks off). **추가 발견:** `LlmCritic.judge`도 같은 `every()` 집계 — 이슈 코멘트로 보고 후 둘 다 수정.
+- **픽스:** 공유 집계 `toVerdict(results)`(assertion.ts, index export) — 빈 세트면 `passed:false` + `Verdict.detail`("scenario has no assertions to verify"). 양 critic이 공유(#68 술어 추출과 같은 드리프트 방지 패턴). `Verdict.detail` optional 추가(additive) + ConsoleReporter가 detail 표시. discover-side freeze 거부는 기각 — `[]` 경로엔 안전한 폴백 단언이 없음(no-failed-requests는 방금 의도적 드롭, navigated는 false, expect는 결정성 위반).
+- **행동 변화(의도):** 스텝 `expect`만 있고 단언 0개인 시나리오도 이제 FAIL — 최소 1개 단언 필요(surgical-heal 테스트 픽스처에 `navigated` 추가로 반영). heal:true면 FAIL이 outcome-heal을 태우므로 특히 공허-PASS 방치 불가.
+- **검증:** typecheck·build·**150 테스트**(+3: AssertionCritic 빈 세트 fail-closed · 단언 있으면 불변 · LlmCritic 동일 + LLM 호출 0 유지).
 ## 2026-07-02 — #68 request-status any-match (false-FAIL·순서민감성 픽스)
 
 - **문제(#68):** critic의 `request-status`가 URL **첫 매치**의 status만 비교 — 같은 엔드포인트가 여러 번 응답하면(401→200 재시도) 매칭 성공이 있어도 FAIL. 같은 조건을 `conditionMet`(waitFor/step expect)은 `.some(url && status)`로 올바르게 검사 → 동일 evidence에서 waitFor PASS / 단언 FAIL 모순.

@@ -19,7 +19,7 @@ export class ConsoleReporter implements Reporter {
     console.log(
       verdict.passed
         ? `\n${mark(true)} pass — ${verdict.results.length} assertion(s)`
-        : `\n${mark(false)} ${failed} issue(s) — evidence captured`,
+        : `\n${mark(false)} ${verdict.detail ?? `${failed} issue(s)`} — evidence captured`,
     );
   }
 }

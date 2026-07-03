@@ -55,7 +55,8 @@ class ScriptedLlm implements LlmClient {
 }
 
 const silent: Reporter = { emit: async () => {} };
-const scn = (steps: Step[]): Scenario => ({ name: "t", steps, assertions: [] });
+// One real assertion — an empty set now fails closed (#69), which would trigger outcome-heal here.
+const scn = (steps: Step[]): Scenario => ({ name: "t", steps, assertions: [{ kind: "navigated" }] });
 
 describe("per-step expect verification", () => {
   it("skips a step whose expect already holds (idempotency)", async () => {

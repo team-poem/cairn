@@ -1,3 +1,17 @@
+import type { NetworkRequest } from "./types.js";
+
+/** The one request-status predicate: the first captured request matching BOTH url and status.
+ * Shared by the deterministic critic (`request-status`) and `conditionMet` (waitFor / step
+ * `expect`) so a verdict can never depend on which matching request arrived first — an endpoint
+ * that answered 401 and then 200 on retry satisfies `status: 200`. */
+export function findRequestStatus(
+  requests: readonly NetworkRequest[],
+  urlIncludes: string,
+  status: number,
+): NetworkRequest | undefined {
+  return requests.find((r) => r.url.includes(urlIncludes) && r.status === status);
+}
+
 /** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. Built-in
  * universal noise (favicon, robots) plus any URL-substring a product marks benign. */
 export function isBenignRequest(url: string, benign: readonly string[] = []): boolean {

@@ -59,20 +59,27 @@ async function runStep(
   expectTimeoutMs: number,
   healer?: StepHealer,
 ): Promise<ExecutedAction> {
-  if (step.expect && (await conditionMet(driver, step.expect))) {
+  // A `requestStatus` expect is event evidence over the run's CUMULATIVE request log, not page
+  // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
+  // matching request and silently skip this step. Pre-check only state-like conditions, and gate
+  // request matching to requests observed after this step started (watermark).
+  if (step.expect && step.expect.requestStatus === undefined && (await conditionMet(driver, step.expect))) {
     return { step, ok: true }; // already satisfied — safe skip
   }
+  const sinceRequestIndex = step.expect?.requestStatus
+    ? (await driver.observe()).logic.requests.length
+    : 0;
   const result = await executeStep(handlers, step, driver);
   if (!result.ok || !step.expect) return result;
 
   // Wait for the post-condition (readiness), don't check once — an async effect may land after the step.
-  if (await pollCondition(driver, step.expect, expectTimeoutMs)) return result;
+  if (await pollCondition(driver, step.expect, expectTimeoutMs, { sinceRequestIndex })) return result;
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
   if (healer) {
     const healed = await healer.heal(step, index, driver);
     if (healed) {
-      if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs)) {
+      if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs, { sinceRequestIndex })) {
         return { step: healed.step, ok: true };
       }
     }

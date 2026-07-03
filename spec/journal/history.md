@@ -453,3 +453,9 @@
 - **한 일(A, 드라이버):** 레퍼런스 `chrome.ts` type/select 후 `settle()`(입력 커밋 대기)·`resolveUid` 바운드 재시도(늦게 뜨는 요소 = 승격 ④). `ports.settle` 계약 문구를 "휴리스틱, readiness는 expect가 결정" 으로 갱신(M5).
 - **스펙:** `spec/core/surgical-heal.md` §3·§4 — expect는 폴링·async 결과까지 잡는다로 갱신. ⑤ fast/careful 다이얼은 이걸로 obviate.
 - **검증:** typecheck·**149 테스트**(+2: async 폴링·mutation expect)·build OK. 도그푸딩은 익스텐션 소비 시.
+
+### PR #72 review 픽스 — requestStatus expect 검증 의미론
+
+- **리뷰 발견:** `requestStatus` 스텝 expect가 replay에서 run 누적 요청 로그로 평가 + method 미검사 → ① 이전 스텝/페이지로드 요청이 pre-check("이미 충족")를 만족시켜 스텝 통째 스킵, ② 자기 mutation이 안 나간 스텝이 과거 요청으로 통과(healer 미발동), ③ 같은 경로 GET이 POST expect 충족(REST 목록/생성 동일 경로, GraphQL 전멸), ④ 동적 ID 경로가 얼어 매 replay 영구 divergence(+heal이 mutation 재실행), ⑤ 첫 fresh mutation을 노이즈 필터 없이 freeze(비컨), ⑥ seen-set 키잉이 반복 동일 mutation의 expect를 소실.
+- **픽스:** `conditionMet`/`pollCondition`에 **per-step 워터마크**(`sinceRequestIndex` — 스텝 시작 후 요청만 매칭) · `requestStatus.method?` 추가(additive, freeze 시 기록·있으면 정확 매칭) · requestStatus expect는 **pre-check 제외**(이벤트 증거 ≠ 상태) · discover freeze는 `after.slice(before.length)`(append-only tail — 반복 mutation 보존) + `isBenignRequest` 필터 + **동적 세그먼트 전 안정 prefix**만 freeze(`stableEndpointPrefix`). spec(surgical-heal §3·§4) 갱신.
+- **검증:** typecheck·build·**153 테스트**(+4: 워터마크 no-pre-skip·GET≠POST·반복 mutation expect 보존·안정 prefix).

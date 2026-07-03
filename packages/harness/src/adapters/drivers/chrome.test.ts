@@ -82,6 +82,14 @@ describe("resolveTargetUid — multi-locator", () => {
     const rows = `uid=3_1 button "Search"\nuid=3_2 button "Profile"`;
     expect(resolveTargetUid(parseSnapshotRows(rows), { role: "button", index: 1 })).toBe("3_2");
   });
+
+  it("refuses an ambiguous substring match instead of guessing the first (M1)", () => {
+    // No exact "Add" — two controls contain it; picking the first would silently mis-click.
+    const rows = `uid=4_1 button "Add to cart"\nuid=4_2 button "Add to wishlist"`;
+    expect(resolveTargetUid(parseSnapshotRows(rows), { text: "Add" })).toBeUndefined();
+    // a single substring match still resolves
+    expect(resolveTargetUid(parseSnapshotRows(rows), { text: "wishlist" })).toBe("4_2");
+  });
 });
 
 describe("parseNetwork", () => {

@@ -406,6 +406,7 @@
 - **한 일:** `saveSkillFile(path, scenario)` export 추가(`adapters/skills/file-store.ts`) — mkdir 재귀 + bare Scenario JSON(2-space, utf8). `FileSkillStore.freeze`가 이를 위임(동작 동일). index 배럴에 `loadSkillFile` 옆 export. README 2곳: `writeFileSync` import 제거 → `await saveSkillFile(...)`, replay 예시 `await loadSkillFile` 수정, heal 재freeze도 `saveSkillFile`.
 - **계약 유지:** frozen 파일 = bare `Scenario`(wrapper 없음), replay 결정성·런타임 동작 변화 0. 범용 writeJson이 아닌 도메인 언어(save**Skill**File).
 - **검증:** typecheck · file-store 테스트 3/3(+1: saveSkillFile이 bare Scenario를 쓰고 loadSkillFile이 되읽음, 중첩 dir 생성) · build.
+
 ## 2026-07-02 — codex 서드파티 LLM 백엔드 (CodexLlmClient + CAIRN_LLM_BACKEND)
 
 - **동기:** API 키 없이 ChatGPT 구독(OpenAI Codex CLI 로그인)으로 discover/heal을 돌리고 싶다 — `claude -p` 기반 `ClaudeCodeLlmClient`와 정확히 같은 계열의 CLI 백엔드.
@@ -419,3 +420,71 @@
 - **픽스:** 공유 집계 `toVerdict(results)`(assertion.ts, index export) — 빈 세트면 `passed:false` + `Verdict.detail`("scenario has no assertions to verify"). 양 critic이 공유(#68 술어 추출과 같은 드리프트 방지 패턴). `Verdict.detail` optional 추가(additive) + ConsoleReporter가 detail 표시. discover-side freeze 거부는 기각 — `[]` 경로엔 안전한 폴백 단언이 없음(no-failed-requests는 방금 의도적 드롭, navigated는 false, expect는 결정성 위반).
 - **행동 변화(의도):** 스텝 `expect`만 있고 단언 0개인 시나리오도 이제 FAIL — 최소 1개 단언 필요(surgical-heal 테스트 픽스처에 `navigated` 추가로 반영). heal:true면 FAIL이 outcome-heal을 태우므로 특히 공허-PASS 방치 불가.
 - **검증:** typecheck·build·**150 테스트**(+3: AssertionCritic 빈 세트 fail-closed · 단언 있으면 불변 · LlmCritic 동일 + LLM 호출 0 유지).
+## 2026-07-02 — #68 request-status any-match (false-FAIL·순서민감성 픽스)
+
+- **문제(#68):** critic의 `request-status`가 URL **첫 매치**의 status만 비교 — 같은 엔드포인트가 여러 번 응답하면(401→200 재시도) 매칭 성공이 있어도 FAIL. 같은 조건을 `conditionMet`(waitFor/step expect)은 `.some(url && status)`로 올바르게 검사 → 동일 evidence에서 waitFor PASS / 단언 FAIL 모순.
+- **기원:** 6/22 PoC(엔드포인트당 요청 1개 픽스처)에서 `.find` 작성 → 6/25 waitFor가 술어를 독립 재구현하며 `.some` 선택(중복이 낳은 드리프트) → 2.1.0 action-grounding이 request-status를 자동 심으며 실앱 노출 확대.
+- **파급(왜 심각):** false-FAIL이 `--heal`에서 outcome-heal(LLM re-discover + re-freeze)을 트리거 — $0 replay 약속 파기 + 멀쩡한 스킬 덮어쓰기. 요청 도착 순서에 verdict가 좌우돼 invariant #4의 "same input, same verdict"도 침식.
+- **픽스:** 공유 술어 `findRequestStatus(requests, urlIncludes, status)`를 `core/requests.ts`에 추출(첫 "url+status 모두 매칭" 반환) — critic과 `conditionMet` 둘 다 이걸 사용(세 번째 구현이 생겨도 재분기 방지, `isBenignRequest` 추출 전례). 실패 detail은 URL 매치들의 관측 status 전부 표시(`expected 200, got 401, 500 for …`).
+- **의미론 노트:** any-match는 `.find` 통과 케이스의 상위집합 — 기존 green 시나리오 회귀 0, 변화는 FAIL→PASS 단방향(재시도 성공). "실행 중 실패 있었나"는 `no-failed-requests`의 역할(분담 유지). frozen 파일 재생성 불필요(판정 로직만 변경).
+- **검증:** typecheck·build·**151 테스트**(+4: 401→200 통과 · 단일응답 불변 · 미스매치 시 status 전부 표시 · no-match detail 구분).
+
+## 2026-07-02 — 후보 기록: discover 배치(look-ahead) 플래닝 (QA 도그푸딩 발)
+
+- **동기:** delivered QA 익스텐션 도그푸딩에서 탐색 시간이 길다(로그인+장바구니 ~40–57초). 병목은 "LLM 왕복 × 스텝 수"이고, E2E는 순차 의존이라 병렬로 못 줄인다 → **스텝당 왕복을 줄이는 게 유일한 구조적 레버.** (익스텐션 쪽 완화는 별개로 적용: 효율 프롬프트 지침·스냅샷 상한 축소.)
+- **제안(하이브리드 배치):** discover가 매 스텝 LLM을 부르는 대신, **한 번에 N스텝을 계획**하고 쭉 실행하다 **어긋날 때만** 재관찰+재계획으로 왕복. 정상 경로에선 왕복 절감, 돌발엔 반응성 유지.
+- **왜 엔진(cairn)인가:** 탐색 루프는 엔진 소유(소비자는 `discover()` 호출만). 리트머스("다른 소비자도 원하나?") 통과 — look-ahead는 범용 QA 가속. 익스텐션에서 discover 재구현은 슬롭(self-heal·action-grounding 상실).
+- **이미 있는 부품:** ① `StepMeta.expect` = 스텝별 사후조건을 **결정적으로** 검사(LLM 0) → "싼 어긋남 감지"에 그대로. ② `LlmStepHealer`(surgical-heal) = 어긋난 스텝만 LLM 재결정 → "재계획"의 절반. 배치 = *플래너가 expect 달린 N스텝을 산출 → 실행 → expect 깨지면 재관찰·재계획*.
+- **트레이드오프:** 예측 가능한 페이지엔 손실 0(빨라짐만), 돌발 많은 페이지엔 계획이 중간에 상해 헛발질→재계획 확률↑. 최종 판정·재생은 무관(discover 녹화 견고성만 영향).
+- **상태:** 미착수(설계 후보). 익스텐션의 프롬프트 레벨 가속 실측 후, 부족하면 착수. 착수 시 `core/discover.ts` 열어 플래너 seam 설계.
+
+## 2026-07-02 — 엔진 승격 후보 모음 (QA 도그푸딩, 익스텐션서 선구현·검증)
+
+> 익스텐션(`delivered-qa-chrome-extension`)에서 먼저 구현/실앱 검증한 뒤 범용성(리트머스 통과)이라 cairn 후보로 남김. 익스텐션엔 이미 반영, 엔진엔 미착수. state "엔진 승격 후보"와 대응.
+
+- **② no-failed-requests: transient-ok.** 앱이 로그인 직후 카트 API를 401→refresh→200으로 재시도하는데, `no-failed-requests`가 첫 401로 false FAIL. → **같은 엔드포인트(host+path)가 나중에 2xx로 성공했으면 그 앞의 4xx/5xx는 회복된 일시적 실패로 무시**(성공 없는 실패는 그대로 FAIL). 익스텐션 `observe()` evidence 정규화에 구현(콘솔 노이즈 필터 옆). 엔진 위치 = 크리틱 옵션. 카트 통째 화이트리스트는 진짜 실패도 못 잡아 위험 → "나중에 성공하면 무시"가 정확.
+- **③ no-console-errors: benign 콘솔 패턴.** `benign` 요청 화이트리스트의 콘솔판. 스테이징 i18n `FORMATTING_ERROR` 등 기능 무관 노이즈로 false FAIL. 엔진 위치 = 크리틱 `benignConsole` 파라미터.
+- **④ resolve 재시도(요소 등장 대기).** 프로즌 타겟 즉시 미해석 시 짧게(예 1.5–4s) 재시도 → 늦게 렌더되는 요소 타이밍 flaky 감소. 있으면 지연 0, 끝내 없으면 throw→self-heal. 드라이버/replay 범용 견고성.
+- **⑤ thoroughness 다이얼(fast/careful).** settle idle·resolve 타임아웃·(링크)스텝후 검증을 한 노브로 묶어 속도↔견고성 튜닝. 파이프라인/드라이버 옵션.
+- **⑥ 멀티모달 expect 판정(vision).** `LlmCritic`이 `expect`를 텍스트(요청·URL·콘솔)로만 판정 → 화면을 못 봐 "상품이 보이면 성공" 류 시각 기준에 약함(+헛다리로 flaky). **스크린샷을 vision 모델에 전달**하면 해결. 큼(멀티모달 LLM 포트/증거에 perception 활용). 익스텐션은 그래서 AI 판정을 opt-in·기본off로 뒀고 기본은 결정적 단언.
+- **⑦ 뷰포트/레이아웃 강제.** 임베더 창이 좁으면(사이드패널) 반응형이 모바일로 튀어 프로즌 타겟 불일치. 데스크탑 미디어쿼리 고정 필요. headful에선 device-metrics override가 창보다 큰 폭을 못 잡아 익스텐션은 **페이지 줌**으로 해결. 드라이버 능력(레퍼런스 드라이버엔 없음).
+- **⑧ refine gate(탐색 전 애매성 스크리닝).** 비싼 discover 전 싼 1콜로 의도 애매성 판정→역질문(fail-open). 범용 QA 위생. 익스텐션은 보수적(플로우+성공기준이면 숏컷)으로 과다질문 억제.
+
+## 2026-07-02 — 코어 전수조사 + 2.3.0 스코프 확정
+
+- **범위:** QA 익스텐션 도그푸딩으로 드러난 것들을 엔진에서 잡기로 하고, 착수 전 `packages/harness/src` **전 소스 라인단위 리뷰**(core 9 + adapters 20 + run/cli/browser). 익스텐션 컨셉은 바뀔 수 있어도 **cairn이 토대**라는 판단 — 겪은 실패(Enter 타이밍·탐색 편차·배회·삭제·노이즈)가 전부 엔진의 실행·탐색·판정 견고성 문제로 귀결됨.
+- **크리티컬(오판정)은 둘:**
+  - **request-status가 첫 URL 매칭만 검사**(`adapters/critics/assertion.ts`) — 엔드포인트가 여러 번 응답(401→200)하면 첫(401) 잡아 false-FAIL. `conditionMet`의 `some`과 불일치. → `some(url && status)`.
+  - **단언 0개면 vacuous PASS** — 두 critic 다 `[].every===true`. 아무것도 검증 안 하는데 green. → fail-closed.
+- **근원(신뢰성):** replay가 app readiness를 race. `settle()`이 network-idle only(→ `type` 후 다음 동작이 앞지름) + `stepExpect`가 즉시 URL 변화만 잡아 async 동작이 검증/치유 밖(surgical-heal 커버 좁음). "same frozen → 다른 결과"의 진짜 뿌리.
+- **안전:** discover에 action-policy 게이트 없음(`applyDecision` 무검증) → 파괴적 클릭·배회. 프롬프트 부탁이 아니라 구조로.
+- **경미(전수조사 발견):** M1 `chrome.ts resolveTargetUid` substring 첫-매칭 오resolve · M2 outcome-heal 요청 누적 → heal 경로 request-status false-PASS · M3 cli 시나리오 미검증 · M4 cli 플래그 엣지 · M5 `ports.ts` settle 계약 문구. 해당 이슈 처리 중 흡수.
+- **견고 확인(안 건드림):** HTTP retry/backoff · subprocess timeout+SIGKILL · JSON 파서 fail-closed · factory Map(proto 안전) · dialog 자동수락 · 다중로케이터 P3 가드 · grounded 단언(환각 드롭) · locale-agnostic URL.
+- **결과:** GitHub 이슈 **#64–#69**(team-poem/cairn, 개인 계정) 등록. **2.3.0**(minor, breaking 0) = 신뢰성(#64)+안전(#65)+판정정확성(#68·#69)+노이즈(#66)+정리(#67). **담당 분배(파일 소유권):** 우리 = #64·#65·#67(`discover.ts`), 팀원 = #66·#68·#69(critics). 착수: 우리 #64(근원, 설계 우선)→#65→#67, 팀원 #68·#69 워밍업→#66. #64는 기존 #61(Tab/keypress false-PASS)과 영토 겹침 주의. 상세 = state "2.3.0 계획".
+
+## 2026-07-02 — #64 구현: replay readiness (브랜치 `fix/replay-readiness`)
+
+- **문제:** 느린 페이스에서 통과한 frozen이 빠른 페이스에서 FAIL — settle이 network-idle only + `stepExpect`가 즉시 URL 변화만 잡아 async 동작이 검증/치유 밖.
+- **한 일(B, 구조적):** `runStep`이 `expect`를 **1회 검사→폴링**(`steps.pollCondition`, readiness 창 `expectTimeoutMs` 기본 2000ms, 옵션 주입) → async 효과(제출 요청 landing·지연 리다이렉트)를 race 안 함. `stepExpect`를 **fresh 성공 mutation(requestStatus)** 까지 확장(navigation 밖). 둘 다 결정적(LLM0), heal은 폴 실패 후만.
+- **한 일(A, 드라이버):** 레퍼런스 `chrome.ts` type/select 후 `settle()`(입력 커밋 대기)·`resolveUid` 바운드 재시도(늦게 뜨는 요소 = 승격 ④). `ports.settle` 계약 문구를 "휴리스틱, readiness는 expect가 결정" 으로 갱신(M5).
+- **스펙:** `spec/core/surgical-heal.md` §3·§4 — expect는 폴링·async 결과까지 잡는다로 갱신. ⑤ fast/careful 다이얼은 이걸로 obviate.
+- **검증:** typecheck·**149 테스트**(+2: async 폴링·mutation expect)·build OK. 도그푸딩은 익스텐션 소비 시.
+
+## 2026-07-02 — #65 구현: discover action-policy 게이트 (브랜치 `feat/discover-guardrails`)
+
+- **문제:** discover가 LLM 제안을 무검증 실행(`applyDecision`) → 파괴적 클릭·배회. 가드가 프롬프트(soft)에만.
+- **한 일:** `ActionPolicy` seam — `vet(decision): {ok}|{ok:false,reason}`(실행 전 거부 → failures로 LLM 재선택, 실행 안 함) + optional `stop(steps)`(조기 종료, truncated 아님). `DiscoverOptions.policy`로 주입, 기본 없음=무변화. 앱-특정 규칙(삭제 단어 등)은 소비자 몫(불변식 #1 앱-agnostic). 공통 종료 로직을 `finish()`로 추출. index/browser에 export.
+- **스펙:** `the-loop.md` discover 항목에 policy seam 명시.
+- **검증:** typecheck·**151 테스트**(+2: 파괴적 거부→재선택·stop→비truncated)·build OK.
+
+## 2026-07-02 — #67 구현: discover 정리 (브랜치 `refactor/discover-overhead`)
+
+- **한 일:** `maxSteps` 기본 8→20(실플로우가 8에 잘림 방지) · **M1** `chrome.resolveTargetUid` 모호한 substring(여러 부분일치)은 첫 매칭 추측 대신 `undefined`로 → self-heal이 의도로 고름(positional P3 가드와 일관) · **M3** cli `cmdRun`이 `JSON.parse ... as Scenario` blind cast 대신 `loadSkillFile`(shape 검증)로 → 잘못된 파일이 명확한 에러.
+- **④(observe 축소) 스킵:** #64가 `beforeObs`로 요청까지 캡처(async expect)하게 만들어, "beforeUrl은 url()만" 최적화가 무의미해짐. 저널·PR에 명시.
+- **검증:** typecheck·**152 테스트**(+1: M1 모호 substring)·build OK.
+
+### PR #72 review 픽스 — requestStatus expect 검증 의미론
+
+- **리뷰 발견:** `requestStatus` 스텝 expect가 replay에서 run 누적 요청 로그로 평가 + method 미검사 → ① 이전 스텝/페이지로드 요청이 pre-check("이미 충족")를 만족시켜 스텝 통째 스킵, ② 자기 mutation이 안 나간 스텝이 과거 요청으로 통과(healer 미발동), ③ 같은 경로 GET이 POST expect 충족(REST 목록/생성 동일 경로, GraphQL 전멸), ④ 동적 ID 경로가 얼어 매 replay 영구 divergence(+heal이 mutation 재실행), ⑤ 첫 fresh mutation을 노이즈 필터 없이 freeze(비컨), ⑥ seen-set 키잉이 반복 동일 mutation의 expect를 소실.
+- **픽스:** `conditionMet`/`pollCondition`에 **per-step 워터마크**(`sinceRequestIndex` — 스텝 시작 후 요청만 매칭) · `requestStatus.method?` 추가(additive, freeze 시 기록·있으면 정확 매칭) · requestStatus expect는 **pre-check 제외**(이벤트 증거 ≠ 상태) · discover freeze는 `after.slice(before.length)`(append-only tail — 반복 mutation 보존) + `isBenignRequest` 필터 + **동적 세그먼트 전 안정 prefix**만 freeze(`stableEndpointPrefix`). spec(surgical-heal §3·§4) 갱신.
+- **검증:** typecheck·build·**153 테스트**(+4: 워터마크 no-pre-skip·GET≠POST·반복 mutation expect 보존·안정 prefix).

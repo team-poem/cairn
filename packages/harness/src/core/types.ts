@@ -36,7 +36,7 @@ export interface WaitUntil {
   /** the final URL includes this substring */
   url?: string;
   /** a captured request whose URL includes `urlIncludes` reached `status` */
-  requestStatus?: { urlIncludes: string; status: number };
+  requestStatus?: { urlIncludes: string; status: number; method?: string };
   /** an element with this accessible name is present (optionally constrained by `role`) */
   text?: string;
   role?: string;

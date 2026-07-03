@@ -41,6 +41,15 @@ describe("LlmCritic", () => {
     expect(spy).not.toHaveBeenCalled();
   });
 
+  it("fails closed on an empty assertion set without calling the LLM (#69)", async () => {
+    const llm = new ScriptedLlm("{}");
+    const spy = vi.spyOn(llm, "complete");
+    const verdict = await new LlmCritic(llm).judge(evidence, []);
+    expect(verdict.passed).toBe(false);
+    expect(verdict.detail).toContain("no assertions");
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it("fails the criterion (not the run) when the LLM errors", async () => {
     const llm: LlmClient = {
       id: "boom",

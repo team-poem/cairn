@@ -102,6 +102,52 @@ describe("navigated — path boundary, not raw substring", () => {
   });
 });
 
+describe("empty assertion set — fail closed, not vacuously green (#69)", () => {
+  it("a scenario with zero assertions does not pass", async () => {
+    const v = await new AssertionCritic().judge(ev([]), []);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toContain("no assertions");
+  });
+
+  it("a scenario with assertions is unaffected", async () => {
+    const v = await new AssertionCritic().judge(ev([]), [{ kind: "navigated" }]);
+    expect(v.passed).toBe(true);
+    expect(v.detail).toBeUndefined();
+  });
+});
+
+describe("request-status — any matching request, not the first (#68)", () => {
+  it("passes when an earlier request to the same endpoint failed (401 retried to 200)", () => {
+    const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/auth", status: 200 }, ev([
+      { method: "POST", url: "https://app/api/auth", status: 401 },
+      { method: "POST", url: "https://app/api/auth", status: 200 },
+    ]));
+    expect(r.passed).toBe(true);
+    expect(r.detail).toContain("200");
+  });
+
+  it("keeps single-response behavior unchanged", () => {
+    const hit = ev([{ method: "GET", url: "https://app/api/me", status: 200 }]);
+    expect(checkAssertion({ kind: "request-status", urlIncludes: "/api/me", status: 200 }, hit).passed).toBe(true);
+    expect(checkAssertion({ kind: "request-status", urlIncludes: "/api/me", status: 204 }, hit).passed).toBe(false);
+  });
+
+  it("fails with every observed status when none matches", () => {
+    const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/auth", status: 200 }, ev([
+      { method: "POST", url: "https://app/api/auth", status: 401 },
+      { method: "POST", url: "https://app/api/auth", status: 500 },
+    ]));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("401, 500");
+  });
+
+  it("still reports a missing endpoint distinctly", () => {
+    const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/orders", status: 200 }, ev([]));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("no request matching");
+  });
+});
+
 describe("custom assertions — the host defines success", () => {
   it("runs a product-registered check", async () => {
     const critic = new AssertionCritic({

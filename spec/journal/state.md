@@ -41,6 +41,7 @@
   - ⚠ 기존 **#61**(discover Tab/keypress false-PASS submissions)과 영토 겹침 — 착수 전 대조.
 - **#65 ✅ 구현 완료** (브랜치 `feat/discover-guardrails`, 151테스트·build OK): `ActionPolicy` seam(`vet(decision)` 거부 + `stop(steps)` 조기종료)을 `DiscoverOptions.policy`로 주입. 거부된 액션은 실행 안 하고 failures에 넣어 LLM 재선택. 앱-특정 규칙(파괴적 단어 등)은 소비자가 주입(불변식 #1). index/browser export + `the-loop.md` 갱신 + 테스트 2(거부·stop). 기본 무정책 → 무변화.
 - **#65 🟠 안전 — discover에 action-policy 게이트 없음.** `applyDecision`이 LLM 제안을 무검증 실행 → 파괴적 클릭·배회·초과 스텝(도그푸딩서 관측). 제안: 액션 policy seam(파괴적 차단·목표 정지·배회 상한)을 포트로 주입. 프롬프트 부탁 → 구조.
+- **#67 ✅ 구현 완료** (브랜치 `refactor/discover-overhead`, 152테스트·build OK): `maxSteps` 기본 8→20 · **M1** `chrome.resolveTargetUid` 모호한 substring은 첫 매칭 추측 대신 undefined(→self-heal, P3 일관) · **M3** cli `cmdRun`이 blind cast 대신 `loadSkillFile`로 검증. (④ observe 축소는 #64가 `beforeObs`로 요청 캡처를 필요로 만들어 무의미해짐 — 스킵.)
 - **#67 ⚪ 정리 — discover 스텝당 관측 중복 + 낮은 default cap.** `beforeUrl`에 full `observe()` 대신 `url()`; `maxSteps=8` 재고. (+**M1**: `chrome.ts resolveTargetUid` substring 첫-매칭 오resolve, +**M3/M4**: cli 시나리오 미검증·플래그 엣지.)
 
 ### 팀원 몫 (#66·#68·#69 — critics 소유)

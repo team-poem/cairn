@@ -459,7 +459,7 @@ export async function discover(
     driver,
     llm,
     baseUrl,
-    maxSteps = 8,
+    maxSteps = 20,
     onStep,
     signal,
     semanticChecks = false,

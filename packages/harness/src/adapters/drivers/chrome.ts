@@ -350,8 +350,10 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     const needle = target.text.trim().toLowerCase();
     const exact = rows.find((r) => roleOk(r) && r.name.toLowerCase() === needle);
     if (exact) return exact.uid;
-    const sub = rows.find((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
-    if (sub) return sub.uid;
+    // Substring fallback only when it's unambiguous — several partial matches is a guess (like the
+    // positional guard below), so yield nothing and let self-heal pick by intent instead of mis-clicking.
+    const subs = rows.filter((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
+    if (subs.length === 1) return subs[0]!.uid;
   }
   if (target.role && target.index !== undefined) {
     const sameRole = rows.filter((r) => r.role === target.role);

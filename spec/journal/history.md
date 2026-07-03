@@ -414,12 +414,20 @@
 - **검증:** typecheck·build·**147 테스트**(+2: factory codex 강제/기본 id, env 오버라이드·우선순위)·browser 엔트리 node import 0(codex는 index.ts에만 export). **실기 E2E:** `codex exec` 라이브 completion(CAIRN-OK) → `CAIRN_LLM_BACKEND=codex cairn discover`(example.com, 2스텝 발견·expect grounding 포함) → freeze → `cairn replay` 결정적 재생 PASS(LLM 0).
 - **참고:** codex-cli 0.129.0은 `~/.codex/config.toml`의 `service_tier="default"`를 거부(`fast`/`flex`만) — 해당 머신 config에서 라인 제거로 해결(cairn 무관, 소비자 환경 이슈).
 
+## 2026-07-02 — #66 critic이 회복된 실패·benign 콘솔 노이즈를 오판하지 않게
+
+- **문제(#66):** ① `no-failed-requests`가 4xx→재시도→2xx로 회복된 흐름을 FAIL(첫 4xx만 보고). ② `no-console-errors`가 프레임워크/i18n 노이즈에 FAIL. 둘 다 false-FAIL → `--heal`이면 outcome-heal(LLM+스킬 덮어쓰기) 캐스케이드(#68과 동일 파급).
+- **픽스:** ① `isRecoveredFailure(requests, i)`(core/requests) — 같은 **method + host/path(쿼리 무시)** 엔드포인트가 *나중에* <400으로 응답하면 그 실패는 회복된 노이즈. method 매칭 필수(성공 GET이 실패 POST를 가리면 안 됨 — 이슈 제안에 없던 안전장치). endpointKey는 discover의 destinationKey와 같은 host+pathname 방식(로케일 스트립은 페이지 URL용이라 API 엔드포인트엔 미적용). ② `benignConsole` substring 리스트 — `RunScenarioOptions.benignConsole` → 양 critic → `checkAssertion` 4번째 인자. predicate 미지원(복잡한 판정은 custom 단언의 몫).
+- **의미론:** 회복 판정은 캡처 순서를 *의미*로 사용(실패 후 성공 = 회복) — evidence의 순수 함수라 결정성(invariant #4) 유지. 회복 없는 실패·리스트 밖 콘솔 에러는 계속 FAIL(acceptance). frozen 파일 무변경.
+- **검증:** typecheck·build·**153 테스트**(+6: 재시도 회복 pass · 미회복 fail · GET이 POST 못 가림 · 선행 성공은 회복 아님 · benign 콘솔 pass · 그 외 콘솔 에러 fail).
+
 ## 2026-07-02 — #69 빈 단언 세트 fail-closed (공허한 PASS 차단)
 
 - **문제(#69):** 단언 0개 시나리오가 항상 PASS — `[].every()`가 true. `deriveAssertions`가 `[]`를 반환하는 실경로 존재(navigated=false SPA + 탐색 중 non-benign 실패로 no-failed-requests 드롭 + grounded request-status 없음 + semanticChecks off). **추가 발견:** `LlmCritic.judge`도 같은 `every()` 집계 — 이슈 코멘트로 보고 후 둘 다 수정.
 - **픽스:** 공유 집계 `toVerdict(results)`(assertion.ts, index export) — 빈 세트면 `passed:false` + `Verdict.detail`("scenario has no assertions to verify"). 양 critic이 공유(#68 술어 추출과 같은 드리프트 방지 패턴). `Verdict.detail` optional 추가(additive) + ConsoleReporter가 detail 표시. discover-side freeze 거부는 기각 — `[]` 경로엔 안전한 폴백 단언이 없음(no-failed-requests는 방금 의도적 드롭, navigated는 false, expect는 결정성 위반).
 - **행동 변화(의도):** 스텝 `expect`만 있고 단언 0개인 시나리오도 이제 FAIL — 최소 1개 단언 필요(surgical-heal 테스트 픽스처에 `navigated` 추가로 반영). heal:true면 FAIL이 outcome-heal을 태우므로 특히 공허-PASS 방치 불가.
 - **검증:** typecheck·build·**150 테스트**(+3: AssertionCritic 빈 세트 fail-closed · 단언 있으면 불변 · LlmCritic 동일 + LLM 호출 0 유지).
+
 ## 2026-07-02 — #68 request-status any-match (false-FAIL·순서민감성 픽스)
 
 - **문제(#68):** critic의 `request-status`가 URL **첫 매치**의 status만 비교 — 같은 엔드포인트가 여러 번 응답하면(401→200 재시도) 매칭 성공이 있어도 FAIL. 같은 조건을 `conditionMet`(waitFor/step expect)은 `.some(url && status)`로 올바르게 검사 → 동일 evidence에서 waitFor PASS / 단언 FAIL 모순.

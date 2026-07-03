@@ -36,6 +36,58 @@ describe("no-failed-requests", () => {
   });
 });
 
+describe("no-failed-requests — a retried endpoint that recovered is benign (#66)", () => {
+  it("passes when the same endpoint (method + path, query ignored) later succeeds", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "POST", url: "https://app/api/auth?attempt=1", status: 401 },
+      { method: "POST", url: "https://app/api/auth?attempt=2", status: 200 },
+    ]));
+    expect(r.passed).toBe(true);
+  });
+
+  it("still fails when the endpoint never recovers", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "POST", url: "https://app/api/auth", status: 401 },
+      { method: "GET", url: "https://app/api/items", status: 200 },
+    ]));
+    expect(r.passed).toBe(false);
+  });
+
+  it("a successful GET does not mask a failed POST to the same path", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "POST", url: "https://app/api/order", status: 500 },
+      { method: "GET", url: "https://app/api/order", status: 200 },
+    ]));
+    expect(r.passed).toBe(false);
+  });
+
+  it("a success BEFORE the failure does not count as recovery", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "GET", url: "https://app/api/me", status: 200 },
+      { method: "GET", url: "https://app/api/me", status: 500 },
+    ]));
+    expect(r.passed).toBe(false);
+  });
+});
+
+describe("no-console-errors — product-marked noise is benign (#66)", () => {
+  const withConsole = (text: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl: "https://x", blocked: false },
+    perception: {},
+    logic: { requests: [], console: [{ type: "error", text }] },
+  });
+
+  it("ignores configured benign patterns", () => {
+    const e = withConsole("Missing translation for key checkout.title");
+    expect(checkAssertion({ kind: "no-console-errors" }, e, [], ["Missing translation"]).passed).toBe(true);
+  });
+
+  it("still fails on unmarked console errors", () => {
+    const e = withConsole("TypeError: cart is undefined");
+    expect(checkAssertion({ kind: "no-console-errors" }, e, [], ["Missing translation"]).passed).toBe(false);
+  });
+});
+
 describe("navigated — path boundary, not raw substring", () => {
   const at = (finalUrl: string): Evidence => ({
     execution: { actions: [], navigated: true, finalUrl, blocked: false },

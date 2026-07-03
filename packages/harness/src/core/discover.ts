@@ -7,6 +7,7 @@ import type { Driver, LlmClient } from "./ports.js";
 import type {
   Assertion,
   Evidence,
+  NetworkRequest,
   PageElement,
   Scenario,
   Step,
@@ -318,18 +319,60 @@ function destinationKey(url: string): string {
   }
 }
 
-/** A grounded post-condition for a step: if it navigated, expect that destination on replay (so a
- * step that should navigate but doesn't is caught). Non-navigating steps stay unchecked — deriving a
- * weak expect would trigger false divergence. */
+/** A grounded post-condition for a step, so a step that runs but doesn't reach its outcome is caught
+ * (and, at replay, waited-for then healed). Navigation → expect that destination. Else, if the step
+ * fired a fresh successful mutation (POST/PUT/PATCH/DELETE — a submit/create), expect that request:
+ * this covers async actions (a login submit) the URL-only check missed. A step that changes nothing
+ * stays unchecked — a weak expect would trigger false divergence. */
 async function stepExpect(
   driver: Driver,
-  beforeUrl: string | undefined,
+  before: { url: string | undefined; requests: NetworkRequest[] },
 ): Promise<WaitUntil | undefined> {
   await driver.settle();
-  const afterUrl = (await driver.observe()).execution.finalUrl;
-  if (afterUrl && afterUrl !== beforeUrl)
-    return { url: destinationKey(afterUrl) };
-  return undefined;
+  const after = await driver.observe();
+  const afterUrl = after.execution.finalUrl;
+  if (afterUrl && afterUrl !== before.url) return { url: destinationKey(afterUrl) };
+  return freshMutationExpect(before.requests, after.logic.requests);
+}
+
+/** A `requestStatus` post-condition for a mutation request the step itself fired and that succeeded —
+ * the request that proves the action, so replay can wait for it. Benign noise is excluded, the method
+ * is frozen for exact matching (a same-path GET must not satisfy a submit), and the frozen path stops
+ * before a run-specific id segment (which would never match on a later replay). */
+function freshMutationExpect(
+  before: NetworkRequest[],
+  after: NetworkRequest[],
+): WaitUntil | undefined {
+  // The request log is append-only within a run and only non-navigating steps reach here
+  // (navigation short-circuits above), so the step's own requests are exactly the tail past
+  // `before` — a repeated identical mutation (a second add-to-cart) still counts as fresh.
+  const fresh = after
+    .slice(before.length)
+    .find(
+      (r) => isMutation(r.method) && r.status >= 200 && r.status < 400 && !isBenignRequest(r.url),
+    );
+  return fresh
+    ? {
+        requestStatus: {
+          urlIncludes: stableEndpointPrefix(fresh.url),
+          status: fresh.status,
+          method: fresh.method.toUpperCase(),
+        },
+      }
+    : undefined;
+}
+
+/** host + path cut at the first dynamic-looking segment (all digits, or ≥8 chars containing one —
+ * ids, uuids, timestamps) — a stable prefix that still substring-matches the full request URL on a
+ * later replay, where a run-specific id would never match again. */
+function stableEndpointPrefix(url: string): string {
+  const [host = "", ...segs] = destinationKey(url).split("/");
+  const stable: string[] = [];
+  for (const seg of segs) {
+    if (/^\d+$/.test(seg) || (seg.length >= 8 && /\d/.test(seg))) break;
+    stable.push(seg);
+  }
+  return [host, ...stable].join("/");
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
@@ -455,11 +498,15 @@ export async function discover(
     }
 
     try {
-      const beforeUrl = (await driver.observe()).execution.finalUrl;
+      const beforeObs = await driver.observe();
+      const before = {
+        url: beforeObs.execution.finalUrl,
+        requests: beforeObs.logic.requests,
+      };
       const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) + a grounded per-step post-condition.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
-      const expect = await stepExpect(driver, beforeUrl);
+      const expect = await stepExpect(driver, before);
       if (expect) step.expect = expect;
       steps.push(step);
       onStep?.(decision, step);

@@ -52,11 +52,11 @@ Judgment happens **once, at the end** of a scenario (the single `runHarness` ver
 ## 3. Mechanism (replay = deterministic + step surgery)
 
 For each step:
-1. **Check `expect` before executing** → if it already holds, **safe skip** (idempotency; e.g. already logged in).
+1. **Check `expect` before executing** → if it already holds, **safe skip** (idempotency; e.g. already logged in). *State-like conditions only (`url`/`text`)* — a `requestStatus` expect is **event evidence** over the run's cumulative request log, so an idempotency pre-check would be satisfied by an earlier step's request and silently skip this one; those steps always execute.
 2. Otherwise execute.
-3. **Check `expect` after executing**:
-   - holds → next step (still deterministic, no LLM).
-   - violated → **heal only this step**: give the LLM `step.intent` + the current snapshot → a corrective decision (re-target / alternative, **preserving role/index locators** — P5) → execute → re-check `expect`.
+3. **Wait for `expect` after executing** (poll up to `expectTimeoutMs`, default 2000ms — *readiness*, not a single check, so an async effect like a submit's request landing or a deferred redirect is caught instead of raced; #64):
+   - holds within the window → next step (still deterministic, no LLM).
+   - never holds → **heal only this step**: give the LLM `step.intent` + the current snapshot → a corrective decision (re-target / alternative, **preserving role/index locators** — P5) → execute → re-check `expect`.
 4. The healed step → **re-freeze** (avoid P9: key by step position, not label).
 
 No divergence (all `expect` hold) → **zero LLM.**
@@ -72,8 +72,16 @@ Step += {
 
 `expect` reuses the existing `WaitUntil` (`{ url?, requestStatus?, text?, role? }`) — the same shape
 `waitFor` blocks on, verified by the same `conditionMet()`, so per-step verification is deterministic
-with no new type or port. v1 derives `expect` from a step's navigation (`{ url }`); request- and
-element-based post-conditions are a follow-up.
+with no new type or port. discover derives `expect` from a step's navigation (`{ url }`) **or**, for an
+async action that doesn't navigate, a fresh successful mutation request it fired (`{ requestStatus }`) —
+so a submit is verifiable/healable, not just a URL jump (#64). `settle` is a heuristic that only reduces
+the race; the polled `expect` is what gates readiness deterministically.
+
+`requestStatus` matching is guarded on both sides. At **freeze**: only the step's own requests (the
+appended tail of the run's log) qualify, benign noise is excluded, the **method** is frozen for exact
+matching (a same-path GET must not satisfy a submit), and the path stops before a run-specific id
+segment. At **replay**: `conditionMet` takes a per-step **watermark** and only counts requests observed
+after the step started — an earlier step's request can never satisfy this step's post-condition.
 
 ## 5. Invariants (preserved)
 

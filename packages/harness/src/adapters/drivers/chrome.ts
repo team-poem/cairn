@@ -25,6 +25,12 @@ const MCP_COMMAND = "npx";
 // never collides with another chrome-devtools-mcp using the default profile.
 const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
 
+// Target resolution retries — a late-rendering element (SPA hydration, a just-opened panel) may not
+// be in the snapshot on the first look. Retry briefly before failing, so replay doesn't miss it and
+// fall to self-heal for a purely timing gap. Zero cost when the element is already present.
+const RESOLVE_RETRIES = 3;
+const RESOLVE_RETRY_MS = 300;
+
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
@@ -169,12 +175,16 @@ export class ChromeDevToolsDriver implements Driver {
   async type(target: Target, text: string): Promise<void> {
     await this.callAccepting("fill", { uid: await this.resolveUid(target), value: text });
     this.snapshotCache = undefined;
+    // Let the app apply the input (controlled inputs, validation) before the next action — otherwise
+    // a fast submit races an un-committed field. settle's idle floor gives that beat (readiness, #64).
+    await this.settle();
   }
 
   async select(target: Target, value: string): Promise<void> {
     // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
     await this.callAccepting("fill", { uid: await this.resolveUid(target), value });
     this.snapshotCache = undefined;
+    await this.settle();
   }
 
   async pressKey(key: string): Promise<void> {
@@ -283,9 +293,13 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async resolveUid(target: Target): Promise<string> {
-    const uid = resolveTargetUid(parseSnapshotRows(await this.getSnapshot()), target);
-    if (!uid) throw new Error(`no element matching ${JSON.stringify(target)}`);
-    return uid;
+    for (let attempt = 0; ; attempt++) {
+      const uid = resolveTargetUid(parseSnapshotRows(await this.getSnapshot()), target);
+      if (uid) return uid;
+      if (attempt >= RESOLVE_RETRIES) throw new Error(`no element matching ${JSON.stringify(target)}`);
+      this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
+      await delay(RESOLVE_RETRY_MS);
+    }
   }
 }
 

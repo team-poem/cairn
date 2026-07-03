@@ -39,6 +39,7 @@
   - **흡수(승격 ④): resolve 재시도(요소 등장 대기)** — 프로즌 타겟이 즉시 안 잡히면 짧게 재시도(늦게 렌더되는 요소 flaky↓). "늦게 뜨는 걸 기다림"=readiness라 여기 가족. 익스텐션 드라이버에만 있던 걸 엔진으로.
   - **해소(승격 ⑤): fast/careful 다이얼 obviate** — settle이 readiness를 알아서 기다리면 "느리게 모드"라는 수동 땜빵이 불필요해짐. #64가 제대로 되면 별도 노브 안 만듦(익스텐션의 다이얼은 임시방편이었음).
   - ⚠ 기존 **#61**(discover Tab/keypress false-PASS submissions)과 영토 겹침 — 착수 전 대조.
+- **#65 ✅ 구현 완료** (브랜치 `feat/discover-guardrails`, 151테스트·build OK): `ActionPolicy` seam(`vet(decision)` 거부 + `stop(steps)` 조기종료)을 `DiscoverOptions.policy`로 주입. 거부된 액션은 실행 안 하고 failures에 넣어 LLM 재선택. 앱-특정 규칙(파괴적 단어 등)은 소비자가 주입(불변식 #1). index/browser export + `the-loop.md` 갱신 + 테스트 2(거부·stop). 기본 무정책 → 무변화.
 - **#65 🟠 안전 — discover에 action-policy 게이트 없음.** `applyDecision`이 LLM 제안을 무검증 실행 → 파괴적 클릭·배회·초과 스텝(도그푸딩서 관측). 제안: 액션 policy seam(파괴적 차단·목표 정지·배회 상한)을 포트로 주입. 프롬프트 부탁 → 구조.
 - **#67 ⚪ 정리 — discover 스텝당 관측 중복 + 낮은 default cap.** `beforeUrl`에 full `observe()` 대신 `url()`; `maxSteps=8` 재고. (+**M1**: `chrome.ts resolveTargetUid` substring 첫-매칭 오resolve, +**M3/M4**: cli 시나리오 미검증·플래그 엣지.)
 

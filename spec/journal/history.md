@@ -454,6 +454,13 @@
 - **스펙:** `spec/core/surgical-heal.md` §3·§4 — expect는 폴링·async 결과까지 잡는다로 갱신. ⑤ fast/careful 다이얼은 이걸로 obviate.
 - **검증:** typecheck·**149 테스트**(+2: async 폴링·mutation expect)·build OK. 도그푸딩은 익스텐션 소비 시.
 
+## 2026-07-02 — #65 구현: discover action-policy 게이트 (브랜치 `feat/discover-guardrails`)
+
+- **문제:** discover가 LLM 제안을 무검증 실행(`applyDecision`) → 파괴적 클릭·배회. 가드가 프롬프트(soft)에만.
+- **한 일:** `ActionPolicy` seam — `vet(decision): {ok}|{ok:false,reason}`(실행 전 거부 → failures로 LLM 재선택, 실행 안 함) + optional `stop(steps)`(조기 종료, truncated 아님). `DiscoverOptions.policy`로 주입, 기본 없음=무변화. 앱-특정 규칙(삭제 단어 등)은 소비자 몫(불변식 #1 앱-agnostic). 공통 종료 로직을 `finish()`로 추출. index/browser에 export.
+- **스펙:** `the-loop.md` discover 항목에 policy seam 명시.
+- **검증:** typecheck·**151 테스트**(+2: 파괴적 거부→재선택·stop→비truncated)·build OK.
+
 ### PR #72 review 픽스 — requestStatus expect 검증 의미론
 
 - **리뷰 발견:** `requestStatus` 스텝 expect가 replay에서 run 누적 요청 로그로 평가 + method 미검사 → ① 이전 스텝/페이지로드 요청이 pre-check("이미 충족")를 만족시켜 스텝 통째 스킵, ② 자기 mutation이 안 나간 스텝이 과거 요청으로 통과(healer 미발동), ③ 같은 경로 GET이 POST expect 충족(REST 목록/생성 동일 경로, GraphQL 전멸), ④ 동적 ID 경로가 얼어 매 replay 영구 divergence(+heal이 mutation 재실행), ⑤ 첫 fresh mutation을 노이즈 필터 없이 freeze(비컨), ⑥ seen-set 키잉이 반복 동일 mutation의 expect를 소실.

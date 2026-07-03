@@ -9,6 +9,7 @@
 - **(2026-07-02, 미배포) #66 critic 노이즈 완화** — `no-failed-requests`가 재시도로 회복된 실패(같은 method+host/path가 나중에 <400)를 benign 처리(`isRecoveredFailure`, core/requests) + `no-console-errors`에 `benignConsole` substring 리스트(benign request 미러, RunScenarioOptions·양 critic 배선). 진짜 실패는 계속 FAIL. minor 후보. 상세 = history 2026-07-02.
 - **(2026-07-02, 미배포) #69 빈 단언 fail-closed** — 단언 0개 시나리오가 `[].every()`로 공허하게 PASS하던 것을 공유 집계 `toVerdict`(양 critic 사용)로 fail-closed(`Verdict.detail` 추가). 스텝 expect만 있는 시나리오도 이제 단언 ≥1 필요. patch 후보. 상세 = history 2026-07-02.
 - **(2026-07-02, 미배포) #68 request-status any-match 픽스** — critic이 URL 첫 매치만 보던 것을 공유 술어 `findRequestStatus`(core/requests)로 교체, `conditionMet`과 의미 통일(401→200 재시도 false-FAIL + verdict 순서민감성 해소). 실패 detail은 관측 status 전부 표시. patch 후보. 상세 = history 2026-07-02.
+- **(2026-07-03, PR 후보) #80 CLI 플래그 `--key=value` 파싱** — CLI 파서를 테스트 가능한 `cli-args` 헬퍼로 분리하고 `--url=https://…`, `--model=haiku` 형식을 지원. 기존 space-separated 값·boolean 플래그 동작 유지. 검증: typecheck·build·173 tests. 상세 = history 2026-07-03.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

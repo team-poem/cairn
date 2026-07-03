@@ -496,3 +496,9 @@
 - **리뷰 발견:** `requestStatus` 스텝 expect가 replay에서 run 누적 요청 로그로 평가 + method 미검사 → ① 이전 스텝/페이지로드 요청이 pre-check("이미 충족")를 만족시켜 스텝 통째 스킵, ② 자기 mutation이 안 나간 스텝이 과거 요청으로 통과(healer 미발동), ③ 같은 경로 GET이 POST expect 충족(REST 목록/생성 동일 경로, GraphQL 전멸), ④ 동적 ID 경로가 얼어 매 replay 영구 divergence(+heal이 mutation 재실행), ⑤ 첫 fresh mutation을 노이즈 필터 없이 freeze(비컨), ⑥ seen-set 키잉이 반복 동일 mutation의 expect를 소실.
 - **픽스:** `conditionMet`/`pollCondition`에 **per-step 워터마크**(`sinceRequestIndex` — 스텝 시작 후 요청만 매칭) · `requestStatus.method?` 추가(additive, freeze 시 기록·있으면 정확 매칭) · requestStatus expect는 **pre-check 제외**(이벤트 증거 ≠ 상태) · discover freeze는 `after.slice(before.length)`(append-only tail — 반복 mutation 보존) + `isBenignRequest` 필터 + **동적 세그먼트 전 안정 prefix**만 freeze(`stableEndpointPrefix`). spec(surgical-heal §3·§4) 갱신.
 - **검증:** typecheck·build·**153 테스트**(+4: 워터마크 no-pre-skip·GET≠POST·반복 mutation expect 보존·안정 prefix).
+
+## 2026-07-03 — #80 CLI 플래그 `--key=value` 파싱
+
+- **문제(#80):** `parseArgs`가 `--key value`만 지원하고 값이 `--`로 시작하면 boolean 플래그로 오해했다. `--url=https://a`, `--model=haiku`처럼 표준적인 equals-style 입력도 지원하지 못했다.
+- **픽스:** CLI 인자 파서를 `cli-args` 헬퍼로 분리해 단위테스트 가능하게 만들고, `--key=value`를 첫 `=` 기준으로 파싱한다. 기존 space-separated 값과 boolean 플래그 의미론은 유지한다.
+- **검증:** typecheck·build·**173 테스트**(+4: equals-style, 첫 `=` 분리, `--`로 시작하는 equals 값, 기존 동작 보존).

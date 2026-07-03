@@ -21,7 +21,9 @@ import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { loadSkillFile } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
+import { flagStr, parseArgs } from "./cli-args.js";
 import type { Reporter, Scenario } from "./index.js";
+import type { Flags } from "./cli-args.js";
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {
@@ -31,35 +33,6 @@ const DOGFOOD: Scenario = {
     { kind: "click", target: { text: "Learn more" } },
   ],
   assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }],
-};
-
-type Flags = Map<string, string | boolean>;
-
-function parseArgs(argv: string[]): { positionals: string[]; flags: Flags } {
-  const positionals: string[] = [];
-  const flags: Flags = new Map();
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === undefined) continue;
-    if (a.startsWith("--")) {
-      const key = a.slice(2);
-      const next = argv[i + 1];
-      if (next !== undefined && !next.startsWith("--")) {
-        flags.set(key, next);
-        i++;
-      } else {
-        flags.set(key, true);
-      }
-    } else {
-      positionals.push(a);
-    }
-  }
-  return { positionals, flags };
-}
-
-const flagStr = (flags: Flags, key: string): string | undefined => {
-  const v = flags.get(key);
-  return typeof v === "string" ? v : undefined;
 };
 
 function reporterFor(flags: Flags): Reporter {

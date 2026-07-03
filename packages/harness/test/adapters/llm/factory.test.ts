@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createLlmClient, type LlmBackend } from "./factory.js";
+import { createLlmClient, type LlmBackend } from "../../../src/adapters/llm/factory.js";
 
 const KEYS = [
   "ANTHROPIC_API_KEY",

@@ -5,8 +5,8 @@ import {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
   judgeAssertion,
-} from "./assertion.js";
-import type { Evidence } from "../../core/types.js";
+} from "../../../src/adapters/critics/assertion.js";
+import type { Evidence } from "../../../src/core/types.js";
 
 function ev(requests: { method: string; url: string; status: number }[]): Evidence {
   return {

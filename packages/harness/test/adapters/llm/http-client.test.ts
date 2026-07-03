@@ -3,7 +3,7 @@ import {
   DEFAULT_MAX_TOKENS,
   makeHttpLlmClient,
   type HttpLlmClientSpec,
-} from "./http-client.js";
+} from "../../../src/adapters/llm/http-client.js";
 
 function okResponse(body: unknown): Response {
   return {

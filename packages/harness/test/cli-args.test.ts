@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { flagStr, parseArgs } from "./cli-args.js";
+import { flagStr, parseArgs } from "../src/cli-args.js";
 
 describe("parseArgs", () => {
   it("supports --key=value flags", () => {

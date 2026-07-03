@@ -4,7 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { runHarness } from "./core/pipeline.js";
-import { discover } from "./core/discover.js";
+import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
 import { StaticPlanner } from "./adapters/planners/static.js";

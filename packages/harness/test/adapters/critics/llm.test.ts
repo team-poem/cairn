@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { LlmCritic } from "./llm.js";
-import type { LlmClient } from "../../core/ports.js";
-import type { Evidence } from "../../core/types.js";
+import { LlmCritic } from "../../../src/adapters/critics/llm.js";
+import type { LlmClient } from "../../../src/core/ports.js";
+import type { Evidence } from "../../../src/core/types.js";
 
 class ScriptedLlm implements LlmClient {
   readonly id = "scripted";

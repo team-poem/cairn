@@ -2,8 +2,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { FileSkillStore, loadSkillFile, saveSkillFile } from "./file-store.js";
-import type { Scenario } from "../../core/types.js";
+import { FileSkillStore, loadSkillFile, saveSkillFile } from "../../../src/adapters/skills/file-store.js";
+import type { Scenario } from "../../../src/core/types.js";
 
 const scenario: Scenario = {
   name: "frozen-scenario",

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discover, parseDecision, rankElements } from "./discover.js";
+import type { ActionPolicy, Decision } from "./discover.js";
 import { FakeDriver } from "../adapters/drivers/fake.js";
 import type { LlmClient } from "./ports.js";
 import type { Evidence } from "./types.js";
@@ -190,5 +191,42 @@ describe("discover", () => {
       semanticChecks: true,
     });
     expect(on.assertions).toContainEqual({ kind: "expect", criterion: "order confirmed" });
+  });
+});
+
+describe("discover action policy (#65)", () => {
+  it("blocks a policy-rejected action — it never runs; the LLM re-decides", async () => {
+    const driver = new FakeDriver({
+      evidence,
+      elements: [
+        { role: "button", name: "Delete" },
+        { role: "link", name: "Add to cart" },
+      ],
+    });
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Delete","reason":"remove"}', // blocked
+      '{"action":"click","text":"Add to cart","reason":"add"}', // re-decided, allowed
+      '{"action":"done"}',
+    ]);
+    const policy: ActionPolicy = {
+      vet: (d: Decision) =>
+        d.text === "Delete" ? { ok: false, reason: "destructive" } : { ok: true },
+    };
+    const found = await discover("buy", { driver, llm, policy });
+    expect(driver.clicked.some((t) => t.text === "Delete")).toBe(false); // never executed
+    expect(driver.clicked.some((t) => t.text === "Add to cart")).toBe(true);
+    expect(found.steps.every((s) => !("target" in s && s.target.text === "Delete"))).toBe(true);
+  });
+
+  it("ends discovery when the policy says stop (not a truncation)", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Add to cart" }] });
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Add to cart","reason":"add"}',
+      '{"action":"click","text":"Add to cart"}', // would keep going, but policy stops first
+    ]);
+    const policy: ActionPolicy = { vet: () => ({ ok: true }), stop: (steps) => steps.length >= 1 };
+    const found = await discover("buy", { driver, llm, policy });
+    expect(found.steps).toHaveLength(1); // stopped after the first step
+    expect(found.truncated).toBeUndefined(); // intentional stop, not a step-cap truncation
   });
 });

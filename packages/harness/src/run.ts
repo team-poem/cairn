@@ -49,6 +49,8 @@ export interface RunScenarioOptions {
   benign?: string[];
   /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
   actions?: Record<string, CustomAction>;
+  /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
+  expectTimeoutMs?: number;
 }
 
 export interface RunScenarioResult {
@@ -132,6 +134,7 @@ export async function runScenario(
       captureScreenshots: opts.screenshots,
       actions: opts.actions,
       stepHealer,
+      expectTimeoutMs: opts.expectTimeoutMs,
     },
   );
 

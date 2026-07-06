@@ -38,6 +38,7 @@ describe("discover", () => {
     // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests" },
+      { kind: "no-console-errors" },
       { kind: "navigated", to: "shop/cart" },
     ]);
     expect(driver.clicked).toHaveLength(2);
@@ -80,7 +81,7 @@ describe("discover", () => {
     // LLM wrongly proposes `navigated`; grounding must drop it.
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
-    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }]);
+    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "no-console-errors" }]);
   });
 
   it("does not freeze no-failed-requests when discovery itself saw a real failure (grounding)", async () => {
@@ -179,9 +180,53 @@ describe("discover", () => {
     const scenario = await discover("pay", { driver, llm });
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests" },
+      { kind: "no-console-errors" },
       { kind: "navigated", to: "shop/payment" },
       { kind: "request-status", urlIncludes: "/api/orders", status: 200 },
     ]);
+  });
+
+  it("#99: freezes no-console-errors only when the console stayed clean throughout discovery", async () => {
+    const clean = await discover("noop", {
+      driver: new FakeDriver({ evidence, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(clean.assertions).toContainEqual({ kind: "no-console-errors" });
+
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "error", text: "TypeError: x is undefined" }] },
+    };
+    const noisy = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(noisy.assertions.some((a) => a.kind === "no-console-errors")).toBe(false);
+  });
+
+  it("#99: a proposed no-console-errors cannot override a dirty console (grounding wins)", async () => {
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "error", text: "boom" }] },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      // the prompt offers no-console-errors with done — grounding must still drop it here
+      llm: new ScriptedLlm(['{"action":"done","assertions":[{"kind":"no-console-errors"}]}']),
+    });
+    expect(scenario.assertions.some((a) => a.kind === "no-console-errors")).toBe(false);
+  });
+
+  it("#99: non-error console noise (warnings/logs) does not strip no-console-errors", async () => {
+    const evWarn: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "warning", text: "deprecated API" }] },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evWarn, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors" });
   });
 
   it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {

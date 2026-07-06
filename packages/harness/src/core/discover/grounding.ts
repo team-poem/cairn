@@ -4,7 +4,7 @@
  * deterministic (invariant #4).
  */
 import type { LlmClient } from "../ports.js";
-import type { Assertion, Evidence, NetworkRequest } from "../types.js";
+import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
 import { isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { extractFirstJsonArray } from "../json.js";
 import { destinationKey } from "./capture.js";
@@ -32,6 +32,12 @@ export function deriveAssertions(
   // freeze is stricter than the verdict and a legitimate transient retry loses this assertion.
   if (!sawRequestFailure(evidence.logic.requests, benign)) {
     out.push({ kind: "no-failed-requests" });
+  }
+  // Ground no-console-errors the same way (#99): the prompt offers the kind with `done`, so honor
+  // it — but only when the console was actually observed clean throughout discovery. A flow that
+  // works despite a pre-existing console error must not freeze a check that was already false.
+  if (!sawConsoleErrors(evidence.logic.console)) {
+    out.push({ kind: "no-console-errors" });
   }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
@@ -64,6 +70,13 @@ function sawRequestFailure(
   return requests.some(
     (r, i) => r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(requests, i),
   );
+}
+
+/** Did discovery observe any console error? Symmetric with `sawRequestFailure` — the freeze
+ * carries `no-console-errors` only when the check held during the observed run. (The replay-time
+ * critic additionally filters a product's `benignConsole` list — #66.) */
+function sawConsoleErrors(console: readonly ConsoleMessage[]): boolean {
+  return console.some((m) => m.type === "error");
 }
 
 /** Drop duplicate assertions (e.g. a proposed request-status the LLM listed twice). */

@@ -48,11 +48,22 @@ export function deriveAssertions(
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") continue;
     if (a.kind === "request-status") {
       // grounding: keep only if a real captured request matches this URL + status.
-      const matches = evidence.logic.requests.some(
+      const match = evidence.logic.requests.find(
         (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
       );
-      if (matches)
-        out.push({ kind: "request-status", urlIncludes: a.urlIncludes, status: a.status });
+      // #105: when the proving request is a mutation, freeze its method too — a same-prefix GET
+      // must not satisfy the check at replay (parity with step-level expect capture).
+      if (match)
+        out.push(
+          isMutation(match.method)
+            ? {
+                kind: "request-status",
+                urlIncludes: a.urlIncludes,
+                status: a.status,
+                method: match.method.toUpperCase(),
+              }
+            : { kind: "request-status", urlIncludes: a.urlIncludes, status: a.status },
+        );
     } else if (a.kind === "expect" && semantic && typeof a.criterion === "string" && a.criterion.trim()) {
       out.push({ kind: "expect", criterion: a.criterion.trim() });
     }

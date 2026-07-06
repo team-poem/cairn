@@ -178,12 +178,36 @@ describe("discover", () => {
       '[{"kind":"request-status","urlIncludes":"/api/orders","status":200},{"kind":"request-status","urlIncludes":"/api/ghost","status":200}]',
     ]);
     const scenario = await discover("pay", { driver, llm });
+    // #105: the matched proving request is a mutation, so its method is frozen too — a
+    // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests" },
       { kind: "no-console-errors" },
       { kind: "navigated", to: "shop/payment" },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200 },
+      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST" },
     ]);
+  });
+
+  it("#105: a grounded request-status matching a non-mutation freezes without a method", async () => {
+    const ev: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [{ method: "GET", url: "https://shop/api/cart", status: 200 }],
+        console: [],
+      },
+    };
+    const scenario = await discover("view cart", {
+      driver: new FakeDriver({ evidence: ev, elements: [] }),
+      llm: new ScriptedLlm([
+        '{"action":"done"}',
+        '[{"kind":"request-status","urlIncludes":"/api/cart","status":200}]',
+      ]),
+    });
+    expect(scenario.assertions).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "/api/cart",
+      status: 200,
+    });
   });
 
   it("#99: freezes no-console-errors only when the console stayed clean throughout discovery", async () => {

@@ -68,6 +68,14 @@ describe("no-failed-requests — a retried endpoint that recovered is benign (#6
     ]));
     expect(r.passed).toBe(false);
   });
+
+  it("an in-flight retry (status 0) does not count as recovery (#97)", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "POST", url: "https://app/api/auth", status: 401 },
+      { method: "POST", url: "https://app/api/auth", status: 0 },
+    ]));
+    expect(r.passed).toBe(false);
+  });
 });
 
 describe("no-console-errors — product-marked noise is benign (#66)", () => {

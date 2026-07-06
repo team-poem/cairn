@@ -369,12 +369,15 @@ export function findUidByName(snapshot: string, text: string): string | undefine
   return resolveTargetUid(parseSnapshotRows(snapshot), { text });
 }
 
-/** `reqid=5 GET https://… [200]` → NetworkRequest[]. */
+/** `reqid=5 GET https://… [200]` → NetworkRequest[]; a non-numeric status (`[pending]` = in-flight) → 0. */
 export function parseNetwork(text: string): NetworkRequest[] {
   const out: NetworkRequest[] = [];
   for (const line of text.split("\n")) {
-    const m = line.match(/^reqid=\d+\s+(\w+)\s+(\S+)\s+\[(\d+)\]/);
-    if (m) out.push({ method: m[1]!, url: m[2]!, status: Number(m[3]) });
+    const m = line.match(/^reqid=\d+\s+(\w+)\s+(\S+)\s+\[([^\]]+)\]/);
+    if (m) {
+      const status = /^\d+$/.test(m[3]!) ? Number(m[3]) : 0;
+      out.push({ method: m[1]!, url: m[2]!, status });
+    }
   }
   return out;
 }

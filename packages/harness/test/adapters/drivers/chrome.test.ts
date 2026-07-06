@@ -103,6 +103,15 @@ reqid=6 GET https://www.iana.org/static/iana_website.css [503]`;
       { method: "GET", url: "https://www.iana.org/static/iana_website.css", status: 503 },
     ]);
   });
+
+  it("parses an in-flight [pending] row as status 0 instead of dropping it (#97)", () => {
+    const text = `reqid=7 POST https://app/api/orders [pending]
+reqid=8 GET https://app/api/me [200]`;
+    expect(parseNetwork(text)).toEqual([
+      { method: "POST", url: "https://app/api/orders", status: 0 },
+      { method: "GET", url: "https://app/api/me", status: 200 },
+    ]);
+  });
 });
 
 describe("parseSelectedUrl", () => {

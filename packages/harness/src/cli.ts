@@ -12,18 +12,20 @@
  * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
-import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover/index.js";
 import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
-import { loadSkillFile } from "./adapters/skills/file-store.js";
+import { FileSkillStore } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
 import type { Reporter, Scenario } from "./index.js";
 import type { Flags } from "./cli-args.js";
+
+/** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
+const skills = new FileSkillStore();
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {
@@ -64,7 +66,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
-    await writeFile(freeze, JSON.stringify(healedScenario, null, 2), "utf8");
+    await skills.freeze(freeze, healedScenario);
     console.log(`  re-frozen → ${freeze}`);
   }
   return result.verdict.passed ? 0 : 1;
@@ -79,7 +81,7 @@ async function cmdRun(flags: Flags): Promise<number> {
     if (!path) throw new Error("provide --scenario <file.json> or --dogfood");
     // Validate the shape (name/steps/assertions) instead of a blind cast — a malformed file fails
     // here with a clear error rather than deep in the run.
-    scenario = await loadSkillFile(path);
+    scenario = await skills.load(path);
   }
   return runScenarioCli(scenario, flags);
 }
@@ -87,7 +89,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out] [--expect-timeout ms]");
-  const scenario = await loadSkillFile(file);
+  const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
   return runScenarioCli(scenario, flags);
@@ -146,7 +148,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 
   const freeze = flagStr(flags, "freeze");
   if (freeze) {
-    await writeFile(freeze, JSON.stringify(scenario, null, 2), "utf8");
+    await skills.freeze(freeze, scenario);
     console.log(`\nfrozen → ${freeze}  (replay with: cairn replay ${freeze})`);
   }
   return 0;

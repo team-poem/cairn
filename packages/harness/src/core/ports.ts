@@ -88,8 +88,16 @@ export interface StepHeal {
   step: Step;
 }
 
+/**
+ * Persists frozen scenarios. `ref` is a store-defined reference — a file path for the built-in
+ * `FileSkillStore`; an S3 key, DB id, or registry name for another store. `load` throws when the
+ * reference is missing or the artifact isn't a bare Scenario; `freeze` returns the canonical
+ * reference it wrote. The CLI's load/replay/freeze paths all route through this port
+ * (invariant #2) — the frozen skill itself stays plain data either way (pattern ≠ data).
+ */
 export interface SkillStore {
-  resolve(name: string): Promise<Scenario | undefined>;
+  load(ref: string): Promise<Scenario>;
+  freeze(ref: string, scenario: Scenario): Promise<string>;
 }
 
 /**
@@ -123,7 +131,6 @@ export interface Harness {
   driver: Driver;
   critic: Critic;
   reporter: Reporter;
-  skills?: SkillStore;
 }
 
 /** Model-agnostic LLM seam (invariant #5); `createLlmClient` picks the implementation. */

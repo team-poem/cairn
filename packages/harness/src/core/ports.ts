@@ -31,7 +31,11 @@ export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }
 
-/** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles. */
+/** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles.
+ *
+ * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
+ * (`runScenario`'s default); a caller-supplied driver is closed by the caller. `close()` ends the
+ * session permanently: a closed driver must not be reused — construct a new instance instead (#98). */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;

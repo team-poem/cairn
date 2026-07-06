@@ -106,6 +106,7 @@ export function buildPrompt(
   prevRender: string,
   steps: Step[],
   failures: string[],
+  currentUrl?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -115,6 +116,8 @@ export function buildPrompt(
     render && render === prevRender ? "(unchanged from previous step)" : render || "(none)";
   return [
     `Intent: ${intent}`,
+    // #116 — where the browser is (from the last action's observation; may lag one action).
+    `Current page: ${currentUrl ?? "(unknown)"}`,
     ``,
     ...(failures.length
       ? [

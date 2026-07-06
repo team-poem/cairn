@@ -258,3 +258,22 @@ describe("action policy observation context (#77)", () => {
     expect(found.truncated).toBeUndefined(); // cap hit, but the stop re-check trusted it
   });
 });
+
+describe("current page url in the prompt (#116)", () => {
+  it("first turn shows the baseUrl; later turns show the observed url", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Go" }] });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = ['{"action":"click","text":"Go"}', '{"action":"done"}'];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) {
+        prompts.push(prompt);
+        return replies[i++] ?? '{"action":"done"}';
+      },
+    };
+    await discover("go", { driver, llm, baseUrl: "https://example.com" });
+    expect(prompts[0]).toContain("Current page: https://example.com");
+    expect(prompts[1]).toContain(`Current page: ${evidence.execution.finalUrl}`);
+  });
+});

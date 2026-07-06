@@ -63,10 +63,15 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       : { name: intent, steps, assertions };
   };
 
+  // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,
+  // so it can lag by at most one action; no extra observe per turn.
+  let currentUrl: string | undefined = undefined;
+
   if (baseUrl) {
     await driver.goto(baseUrl);
     steps.push({ kind: "goto", url: baseUrl });
     marks.push(null);
+    currentUrl = baseUrl;
   }
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
@@ -83,9 +88,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     await driver.settle();
     const elements = await driver.snapshot();
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
-    if (policy?.stop?.(steps, { elements })) return finish(false);
+    if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);
-    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures), {
+    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
       system: SYSTEM,
     });
     prevRender = render;
@@ -106,6 +111,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
 
     try {
       const beforeObs = await driver.observe();
+      currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
       // vet is a recorded rejection, not a lost discovery. A rejected action never executes.
       const verdict = policy?.vet(decision, { elements, url: beforeObs.execution.finalUrl }) ?? {

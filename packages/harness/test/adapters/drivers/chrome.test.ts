@@ -51,6 +51,25 @@ describe("parseElements", () => {
       { role: "StaticText", name: "Learn more" },
     ]);
   });
+
+  it("parses form state from the attribute tail — real formatter tokens (#93)", () => {
+    const snap = [
+      `uid=2_1 checkbox "Terms" checkable checked`,
+      `uid=2_2 checkbox "Marketing" checkable`,
+      `uid=2_3 checkbox "Partial" checkable checked="mixed"`,
+      `uid=2_4 button "Pay" disableable disabled`,
+      `uid=2_5 textbox "Email" value="a@b.com"`,
+      `uid=2_6 button "I have checked the box"`, // state words inside a NAME must not match
+    ].join("\n");
+    expect(parseElements(snap)).toEqual([
+      { role: "checkbox", name: "Terms", checked: true },
+      { role: "checkbox", name: "Marketing" },
+      { role: "checkbox", name: "Partial", checked: "mixed" },
+      { role: "button", name: "Pay", disabled: true },
+      { role: "textbox", name: "Email", value: "a@b.com" },
+      { role: "button", name: "I have checked the box" },
+    ]);
+  });
 });
 
 describe("findUidByName", () => {

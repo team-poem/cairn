@@ -4,9 +4,9 @@
  *
  *   cairn run --dogfood                       built-in example.com → first link → network
  *   cairn run --scenario s.json [--json out]  run a scenario file (deterministic)
- *   cairn replay <skill.json> [--json out]    replay a frozen skill (deterministic, no LLM)
+ *   cairn replay <skill.json> [--json out] [--expect-timeout ms]   replay a frozen skill (deterministic, no LLM)
  *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, re-freeze
- *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m]
+ *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m] [--max-steps n]
  *
  * All orchestration lives in the library (`runScenario` / `discover`). This file only
  * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
@@ -14,13 +14,13 @@
  */
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover/index.js";
-import { weakTargets } from "./core/freeze.js";
+import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { FileSkillStore } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
-import { flagStr, parseArgs } from "./cli-args.js";
+import { flagNum, flagStr, parseArgs } from "./cli-args.js";
 import type { Reporter, Scenario } from "./index.js";
 import type { Flags } from "./cli-args.js";
 
@@ -52,6 +52,9 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
     reporter: reporterFor(flags),
     model: flagStr(flags, "model"),
     heal: Boolean(flags.get("heal")),
+    // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
+    // a slow app (3-5s list loads) needs more than the 2s default (#95).
+    expectTimeoutMs: flagNum(flags, "expect-timeout"),
   });
 
   if (heals.length) {
@@ -85,7 +88,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out] [--expect-timeout ms]");
   const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
@@ -94,7 +97,11 @@ async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
   const intent = positionals[0];
-  if (!intent) throw new Error('usage: cairn discover "<intent>" --url <u> [--freeze f] [--model m] [--semantic]');
+  if (!intent) {
+    throw new Error(
+      'usage: cairn discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]',
+    );
+  }
   const url = flagStr(flags, "url");
   const model = flagStr(flags, "model");
 
@@ -105,7 +112,14 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   let scenario: Scenario;
   try {
     // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
-    scenario = await discover(intent, { driver, llm, baseUrl: url, semanticChecks: Boolean(flags.get("semantic")) });
+    // --max-steps: step cap for the loop — a realistic form flow can need more than the default (#95).
+    scenario = await discover(intent, {
+      driver,
+      llm,
+      baseUrl: url,
+      maxSteps: flagNum(flags, "max-steps"),
+      semanticChecks: Boolean(flags.get("semantic")),
+    });
   } finally {
     await driver.close();
   }
@@ -122,6 +136,14 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   if (weak.length) {
     console.log(`\n⚠ ${weak.length} weak target(s) — a UI rename may force a self-heal; strengthen up front:`);
     for (const w of weak) console.log(`  · step ${w.stepIndex + 1} (${w.step.kind}): ${w.score.reason}`);
+  }
+
+  // #61: flag blind key-press chains — a guessed step can act on the wrong element yet pass.
+  for (const run of guessedKeyRuns(scenario)) {
+    console.log(
+      `\n⚠ steps ${run.startIndex + 1}–${run.startIndex + run.keys.length} press keys blindly (${run.keys.join(", ")}) — ` +
+        `discover guessed instead of resolving a target; review before trusting.`,
+    );
   }
 
   const freeze = flagStr(flags, "freeze");

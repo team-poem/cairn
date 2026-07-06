@@ -6,6 +6,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { extractFirstJsonObject } from "../../core/json.js";
 import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
@@ -46,6 +47,8 @@ export class ChromeDevToolsDriver implements Driver {
   private initialUrl?: string;
   private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
+  private closed = false; // close() is terminal — a new session needs a new instance (#98)
+  private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -60,11 +63,11 @@ export class ChromeDevToolsDriver implements Driver {
   /** If the last action opened a new tab, switch to it — else later actions silently hit the wrong page. */
   private async followNewTab(): Promise<void> {
     try {
-      const ids = parsePageIds(await this.call("list_pages"));
-      const fresh = ids.filter((id) => !this.seenPages.has(id));
-      ids.forEach((id) => this.seenPages.add(id));
-      if (fresh.length) {
-        await this.call("select_page", { pageId: Math.max(...fresh) });
+      const entries = parsePageEntries(await this.call("list_pages"));
+      const followable = followableTab(entries, this.seenPages);
+      entries.forEach((e) => this.seenPages.add(e.id));
+      if (followable !== undefined) {
+        await this.call("select_page", { pageId: followable });
         this.snapshotCache = undefined; // different tab → different DOM
       }
     } catch {
@@ -88,17 +91,25 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async ensureConnected(): Promise<Client> {
+    if (this.closed) {
+      throw new Error("driver closed — construct a new ChromeDevToolsDriver for a new session");
+    }
+    if (this.crashed) {
+      throw new Error("browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
+    }
     if (this.client) return this.client;
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
-    // If the subprocess dies mid-run, drop the dead client so the next call reconnects.
+    // An unexpected transport close mid-run is fatal for this session: a silent reconnect would
+    // resume the run on a fresh browser (about:blank, empty storage) and fail confusingly (#88).
     transport.onclose = () => {
       if (this.client === client) {
         this.client = undefined;
         this.transport = undefined;
+        this.crashed = true;
       }
     };
     try {
@@ -142,13 +153,11 @@ export class ChromeDevToolsDriver implements Driver {
   async click(target: Target): Promise<void> {
     await this.callAccepting("click", { uid: await this.resolveUid(target) });
     this.snapshotCache = undefined;
-    await this.followNewTab();
   }
 
   async doubleClick(target: Target): Promise<void> {
     await this.callAccepting("click", { uid: await this.resolveUid(target), dblClick: true });
     this.snapshotCache = undefined;
-    await this.followNewTab();
   }
 
   /**
@@ -165,6 +174,8 @@ export class ChromeDevToolsDriver implements Driver {
       if (!isOpenDialog(err)) throw err;
       await this.call("handle_dialog", { action: "accept" });
     }
+    // Any interactive verb can open a tab (Enter submit, select onchange) — not just click (#89).
+    await this.followNewTab();
   }
 
   async hover(target: Target): Promise<void> {
@@ -223,6 +234,9 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async snapshot(): Promise<PageElement[]> {
+    // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
+    // self-rendered content (#85). The cache still serves locate() within the same turn.
+    this.snapshotCache = undefined;
     return parseElements(await this.getSnapshot());
   }
 
@@ -278,7 +292,10 @@ export class ChromeDevToolsDriver implements Driver {
     const transport = this.transport;
     this.client = undefined; // clear first so onclose treats this as an intentional close
     this.transport = undefined;
+    this.closed = true;
     this.seenPages.clear();
+    this.snapshotCache = undefined;
+    this.initialUrl = undefined;
     await client?.close().catch(() => {});
     await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }
@@ -294,11 +311,27 @@ export class ChromeDevToolsDriver implements Driver {
 
   private async resolveUid(target: Target): Promise<string> {
     for (let attempt = 0; ; attempt++) {
-      const uid = resolveTargetUid(parseSnapshotRows(await this.getSnapshot()), target);
+      const rows = parseSnapshotRows(await this.getSnapshot());
+      const uid =
+        (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
+        resolveTargetUid(rows, target);
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) throw new Error(`no element matching ${JSON.stringify(target)}`);
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
+    }
+  }
+
+  /** Resolve a CSS selector to a snapshot uid: read the element's accessible name in-page, then
+   * join it back to the a11y snapshot (the MCP text interface has no direct CSS→uid mapping). */
+  private async resolveSelectorUid(rows: SnapshotRow[], selector: string): Promise<string | undefined> {
+    try {
+      const reply = await this.call("evaluate_script", { function: selectorProbeScript(selector) });
+      const probe = extractFirstJsonObject(reply) as { name?: unknown } | undefined;
+      const name = typeof probe?.name === "string" ? probe.name.trim() : "";
+      return name ? resolveTargetUid(rows, { text: name }) : undefined;
+    } catch {
+      return undefined; // fall through to text/role locators, then self-heal
     }
   }
 }
@@ -311,12 +344,23 @@ export function isOpenDialog(err: unknown): boolean {
   return /open dialog/i.test(m) || /handle_dialog/i.test(m);
 }
 
-/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
+/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows, with form
+ * state (#93) parsed from the attribute tail: booleans render bare (`checked`, `disabled` — not
+ * the `checkable`/`disableable` capability tokens), strings as `attr="…"`. */
 export function parseElements(snapshot: string): PageElement[] {
   const out: PageElement[] = [];
   for (const line of snapshot.split("\n")) {
     const m = line.match(/uid=\S+\s+(\w+)\s+"([^"]*)"/);
-    if (m && m[2]!.trim()) out.push({ role: m[1]!, name: m[2]! });
+    if (!m || !m[2]!.trim()) continue;
+    const el: PageElement = { role: m[1]!, name: m[2]! };
+    // Only the tail after the quoted name — a name like "I have checked the box" must not match.
+    const tail = line.slice(m.index! + m[0].length);
+    if (/(?:^|\s)checked="mixed"/.test(tail)) el.checked = "mixed";
+    else if (/(?:^|\s)checked(?:\s|$)/.test(tail)) el.checked = true;
+    if (/(?:^|\s)disabled(?:\s|$)/.test(tail)) el.disabled = true;
+    const value = tail.match(/(?:^|\s)value="([^"]*)"/);
+    if (value) el.value = value[1]!;
+    out.push(el);
   }
   return out;
 }
@@ -369,12 +413,15 @@ export function findUidByName(snapshot: string, text: string): string | undefine
   return resolveTargetUid(parseSnapshotRows(snapshot), { text });
 }
 
-/** `reqid=5 GET https://… [200]` → NetworkRequest[]. */
+/** `reqid=5 GET https://… [200]` → NetworkRequest[]; a non-numeric status (`[pending]` = in-flight) → 0. */
 export function parseNetwork(text: string): NetworkRequest[] {
   const out: NetworkRequest[] = [];
   for (const line of text.split("\n")) {
-    const m = line.match(/^reqid=\d+\s+(\w+)\s+(\S+)\s+\[(\d+)\]/);
-    if (m) out.push({ method: m[1]!, url: m[2]!, status: Number(m[3]) });
+    const m = line.match(/^reqid=\d+\s+(\w+)\s+(\S+)\s+\[([^\]]+)\]/);
+    if (m) {
+      const status = /^\d+$/.test(m[3]!) ? Number(m[3]) : 0;
+      out.push({ method: m[1]!, url: m[2]!, status });
+    }
   }
   return out;
 }
@@ -405,14 +452,43 @@ export function isNavigation(initialUrl: string | undefined, finalUrl: string): 
   return normalizeUrl(initialUrl) !== normalizeUrl(finalUrl);
 }
 
+/** In-page probe returning the selector-matched element's accessible name as JSON (or null). */
+export function selectorProbeScript(selector: string): string {
+  return (
+    `() => { const el = document.querySelector(${JSON.stringify(selector)}); ` +
+    `return el ? { name: (el.getAttribute("aria-label") ?? el.textContent ?? "").trim() } : null; }`
+  );
+}
+
 /** `4: Example Domain (…) [selected]` → page ids [4]. Ids are stable, increasing numbers. */
 export function parsePageIds(text: string): number[] {
-  const ids: number[] = [];
+  return parsePageEntries(text).map((e) => e.id);
+}
+
+export interface PageEntry {
+  id: number;
+  url?: string;
+}
+
+/** `2: Example Domain (https://example.com/) [selected]` / `1: about:blank` → {id, url}. */
+export function parsePageEntries(text: string): PageEntry[] {
+  const out: PageEntry[] = [];
   for (const line of text.split("\n")) {
-    const m = line.match(/^\s*(\d+):/);
-    if (m) ids.push(Number(m[1]));
+    const m = line.match(/^\s*(\d+):\s*(.*)$/);
+    if (!m) continue;
+    const rest = m[2]!;
+    const paren = rest.match(/\((https?:\/\/[^)]+)\)/);
+    const bare = rest.match(/^(\S+:\S*)/);
+    out.push({ id: Number(m[1]), url: paren?.[1] ?? bare?.[1] });
   }
-  return ids;
+  return out;
+}
+
+/** The newest unseen tab that is a real page — a fresh `about:blank`/url-less tab is not a
+ * destination to follow (#89), it's a popup shell or a page still initialising. */
+export function followableTab(entries: PageEntry[], seen: ReadonlySet<number>): number | undefined {
+  const real = entries.filter((e) => !seen.has(e.id) && e.url && e.url !== "about:blank");
+  return real.length ? Math.max(...real.map((e) => e.id)) : undefined;
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

@@ -38,6 +38,7 @@ describe("discover", () => {
     // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests" },
+      { kind: "no-console-errors" },
       { kind: "navigated", to: "shop/cart" },
     ]);
     expect(driver.clicked).toHaveLength(2);
@@ -80,7 +81,7 @@ describe("discover", () => {
     // LLM wrongly proposes `navigated`; grounding must drop it.
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
-    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }]);
+    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "no-console-errors" }]);
   });
 
   it("does not freeze no-failed-requests when discovery itself saw a real failure (grounding)", async () => {
@@ -106,6 +107,60 @@ describe("discover", () => {
     expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
   });
 
+  it("#79: still freezes no-failed-requests when the only failure recovered (401 → retry → 2xx)", async () => {
+    const evRecovered: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [
+          { method: "POST", url: "https://shop/api/login", status: 401 },
+          { method: "POST", url: "https://shop/api/login", status: 200 },
+        ],
+        console: [],
+      },
+    };
+    const scenario = await discover("login", {
+      driver: new FakeDriver({ evidence: evRecovered, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    // the critic already tolerates recovered failures (#66) — the freeze must not be stricter
+    // than the verdict, or a legitimate transient retry costs the flow this assertion.
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+  });
+
+  it("#79: does not freeze no-failed-requests when a failure never recovered", async () => {
+    const evUnrecovered: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [
+          { method: "POST", url: "https://shop/api/login", status: 401 },
+          { method: "GET", url: "https://shop/api/login", status: 200 }, // different method — not a recovery
+        ],
+        console: [],
+      },
+    };
+    const scenario = await discover("login", {
+      driver: new FakeDriver({ evidence: evUnrecovered, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(scenario.assertions.some((a) => a.kind === "no-failed-requests")).toBe(false);
+  });
+
+  it("#79: a product benign list keeps a marked noisy endpoint from stripping no-failed-requests", async () => {
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [{ method: "GET", url: "https://shop/api/flaky-analytics", status: 500 }],
+        console: [],
+      },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+      benign: ["/api/flaky-analytics"],
+    });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+  });
+
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
     const ev: Evidence = {
       execution: { actions: [], navigated: true, finalUrl: "https://shop/payment", blocked: false },
@@ -123,11 +178,79 @@ describe("discover", () => {
       '[{"kind":"request-status","urlIncludes":"/api/orders","status":200},{"kind":"request-status","urlIncludes":"/api/ghost","status":200}]',
     ]);
     const scenario = await discover("pay", { driver, llm });
+    // #105: the matched proving request is a mutation, so its method is frozen too — a
+    // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests" },
+      { kind: "no-console-errors" },
       { kind: "navigated", to: "shop/payment" },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200 },
+      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST" },
     ]);
+  });
+
+  it("#105: a grounded request-status matching a non-mutation freezes without a method", async () => {
+    const ev: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [{ method: "GET", url: "https://shop/api/cart", status: 200 }],
+        console: [],
+      },
+    };
+    const scenario = await discover("view cart", {
+      driver: new FakeDriver({ evidence: ev, elements: [] }),
+      llm: new ScriptedLlm([
+        '{"action":"done"}',
+        '[{"kind":"request-status","urlIncludes":"/api/cart","status":200}]',
+      ]),
+    });
+    expect(scenario.assertions).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "/api/cart",
+      status: 200,
+    });
+  });
+
+  it("#99: freezes no-console-errors only when the console stayed clean throughout discovery", async () => {
+    const clean = await discover("noop", {
+      driver: new FakeDriver({ evidence, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(clean.assertions).toContainEqual({ kind: "no-console-errors" });
+
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "error", text: "TypeError: x is undefined" }] },
+    };
+    const noisy = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(noisy.assertions.some((a) => a.kind === "no-console-errors")).toBe(false);
+  });
+
+  it("#99: a proposed no-console-errors cannot override a dirty console (grounding wins)", async () => {
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "error", text: "boom" }] },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      // the prompt offers no-console-errors with done — grounding must still drop it here
+      llm: new ScriptedLlm(['{"action":"done","assertions":[{"kind":"no-console-errors"}]}']),
+    });
+    expect(scenario.assertions.some((a) => a.kind === "no-console-errors")).toBe(false);
+  });
+
+  it("#99: non-error console noise (warnings/logs) does not strip no-console-errors", async () => {
+    const evWarn: Evidence = {
+      ...evidence,
+      logic: { requests: [], console: [{ type: "warning", text: "deprecated API" }] },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evWarn, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors" });
   });
 
   it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {
@@ -181,5 +304,99 @@ describe("discover action policy (#65)", () => {
     const found = await discover("buy", { driver, llm, policy });
     expect(found.steps).toHaveLength(1); // stopped after the first step
     expect(found.truncated).toBeUndefined(); // intentional stop, not a step-cap truncation
+  });
+});
+
+describe("action policy observation context (#77)", () => {
+  const elements = [{ role: "button", name: "Confirm" }];
+
+  it("vet sees the page — elements and current url", async () => {
+    const driver = new FakeDriver({ evidence, elements });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Confirm"}', '{"action":"done"}']);
+    const seen: unknown[] = [];
+    const policy: ActionPolicy = {
+      vet: (_d, ctx) => {
+        seen.push(ctx);
+        return { ok: true };
+      },
+    };
+    await discover("confirm", { driver, llm, policy });
+    expect(seen[0]).toMatchObject({ elements, url: evidence.execution.finalUrl });
+  });
+
+  it("stop sees the fresh page elements — a goal is a page property", async () => {
+    const driver = new FakeDriver({ evidence, elements });
+    const llm = new ScriptedLlm(['{"action":"done"}']);
+    let ctxElements: unknown;
+    const policy: ActionPolicy = {
+      vet: () => ({ ok: true }),
+      stop: (_steps, ctx) => {
+        ctxElements = ctx?.elements;
+        return false;
+      },
+    };
+    await discover("confirm", { driver, llm, policy });
+    expect(ctxElements).toEqual(elements);
+  });
+
+  it("a throwing vet is a recorded rejection, not a lost discovery", async () => {
+    const driver = new FakeDriver({ evidence, elements });
+    const llm = new ScriptedLlm([
+      '{"action":"scroll"}', // no text → a naive policy reading decision.text.toLowerCase() throws
+      '{"action":"click","text":"Confirm"}',
+      '{"action":"done"}',
+    ]);
+    const policy: ActionPolicy = {
+      vet: (d) => (d.text!.toLowerCase() === "delete" ? { ok: false, reason: "x" } : { ok: true }),
+    };
+    const found = await discover("confirm", { driver, llm, policy });
+    expect(found.steps.some((s) => s.kind === "click")).toBe(true); // survived the throw
+  });
+
+  it("gives up after 3 consecutive blocks instead of burning LLM calls to the cap", async () => {
+    const driver = new FakeDriver({ evidence, elements });
+    let llmCalls = 0;
+    const llm = {
+      id: "scripted",
+      async complete() {
+        llmCalls++;
+        return '{"action":"click","text":"Confirm"}';
+      },
+    };
+    const policy: ActionPolicy = { vet: () => ({ ok: false, reason: "blocked" }) };
+    const found = await discover("confirm", { driver, llm, policy });
+    expect(found.truncated).toBe(true); // blocked out — not a trusted path
+    expect(llmCalls).toBeLessThanOrEqual(4); // 3 decisions + at most the assertion proposal
+  });
+
+  it("a goal reached on the final iteration is a trusted finish, not a truncation", async () => {
+    const driver = new FakeDriver({ evidence, elements });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Confirm"}', "[]"]);
+    const policy: ActionPolicy = {
+      vet: () => ({ ok: true }),
+      stop: (steps) => steps.length >= 1,
+    };
+    const found = await discover("confirm", { driver, llm, policy, maxSteps: 1 });
+    expect(found.steps).toHaveLength(1);
+    expect(found.truncated).toBeUndefined(); // cap hit, but the stop re-check trusted it
+  });
+});
+
+describe("current page url in the prompt (#116)", () => {
+  it("first turn shows the baseUrl; later turns show the observed url", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Go" }] });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = ['{"action":"click","text":"Go"}', '{"action":"done"}'];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) {
+        prompts.push(prompt);
+        return replies[i++] ?? '{"action":"done"}';
+      },
+    };
+    await discover("go", { driver, llm, baseUrl: "https://example.com" });
+    expect(prompts[0]).toContain("Current page: https://example.com");
+    expect(prompts[1]).toContain(`Current page: ${evidence.execution.finalUrl}`);
   });
 });

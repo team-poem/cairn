@@ -4,13 +4,11 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`cairn-engine@2.1.0` npm 배포됨 · 2.2.0 작업 완료(미배포).** (2.0.0: per-step outcome verification + surgical self-heal, #31~#40, breaking. 2.1.0: action-grounding, minor. **2.2.0: 멀티 LLM 백엔드** — OpenAI·Gemini 어댑터 + factory env 자동선택, minor. **2.2.1: heal/critic JSON 파싱 견고화** — 멀티객체 응답 크래시 수정, patch. **2.2.2: URL 매칭 경계·로케일 정밀화** — raw substring이 부모 경로·다른 로케일에 오판(스킵 false-positive + navigated false-pass)하던 것을 `urlReached`(경계 매칭 + 로케일 무시)로 수정, patch, 미배포.) 리포트 대조→측정→견고화→유연성 개방.
-  견고성·데스크탑포트(onStep·screenshot·signal)·벤치마크2종·다중로케이터·self-heal신호·**판정/액션 개방(custom)**. 테스트 151/151 (+`saveSkillFile` 저장 API — README raw fs 제거).
-- **(2026-07-02, 미배포) codex 서드파티 백엔드** — `CodexLlmClient`(`codex exec`, ChatGPT 로그인 재사용·키 불필요, 기본 `gpt-5.5`) + factory `"codex"` 등록 + `CAIRN_LLM_BACKEND` env 오버라이드(명시 opts > env > 키 감지). 테스트 147. 실기 discover→freeze→replay PASS. 다음 릴리스에 minor(2.3.0 후보)로 포함. 상세 = history 2026-07-02.
-- **(2026-07-02, 미배포) #66 critic 노이즈 완화** — `no-failed-requests`가 재시도로 회복된 실패(같은 method+host/path가 나중에 <400)를 benign 처리(`isRecoveredFailure`, core/requests) + `no-console-errors`에 `benignConsole` substring 리스트(benign request 미러, RunScenarioOptions·양 critic 배선). 진짜 실패는 계속 FAIL. minor 후보. 상세 = history 2026-07-02.
-- **(2026-07-02, 미배포) #69 빈 단언 fail-closed** — 단언 0개 시나리오가 `[].every()`로 공허하게 PASS하던 것을 공유 집계 `toVerdict`(양 critic 사용)로 fail-closed(`Verdict.detail` 추가). 스텝 expect만 있는 시나리오도 이제 단언 ≥1 필요. patch 후보. 상세 = history 2026-07-02.
-- **(2026-07-02, 미배포) #68 request-status any-match 픽스** — critic이 URL 첫 매치만 보던 것을 공유 술어 `findRequestStatus`(core/requests)로 교체, `conditionMet`과 의미 통일(401→200 재시도 false-FAIL + verdict 순서민감성 해소). 실패 detail은 관측 status 전부 표시. patch 후보. 상세 = history 2026-07-02.
-- **(2026-07-03, PR 후보) #80 CLI 플래그 `--key=value` 파싱** — CLI 파서를 테스트 가능한 `cli-args` 헬퍼로 분리하고 `--url=https://…`, `--model=haiku` 형식을 지원. 기존 space-separated 값·boolean 플래그 동작 유지. 검증: typecheck·build·173 tests. 상세 = history 2026-07-03.
+- 단계: **`cairn-engine@2.3.0` npm 배포됨(2026-07-06 기준 최신).** 2.3.0 = 이슈 #64–#69 → PR #70–#75:
+  readiness replay(expect 폴링 + #81 소급 캡처) · any-match request-status · fail-closed 빈 단언 ·
+  회복 실패/콘솔 노이즈 흡수 · ActionPolicy · 탐색 기본값/CLI 검증 정리. + codex 백엔드 · #80 `--key=value` 파싱.
+  breaking 0. 테스트 177/177. 익스텐션이 `^2.3.0` 소비 중(땜빵 필터 제거 완료). 상세 = history 2026-07-02/03 + entries.
+  (계보: 2.0.0 surgical self-heal(breaking) → 2.1.0 action-grounding → 2.2.x 멀티 LLM 백엔드·파싱/URL 견고화 → 2.3.0.)
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
@@ -29,39 +27,54 @@
 - 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
 - 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
 
-## 2.3.0 계획 — 코어 전수조사 + QA 도그푸딩 발 (미착수, 현재 2.2.2)
+## 2.3.0 — 완료 (배포됨)
 
-> QA 익스텐션 도그푸딩 + **코어 전 소스 라인단위 리뷰**(2026-07-02)로 확정한 스코프. 익스텐션에서 먼저
-> 겪은 것들이 전부 엔진 문제로 귀결됨 — 근거 = history 2026-07-02. GitHub 이슈 **#64–#69**(team-poem/cairn, 개인 계정) 등록됨.
+> 스코프였던 #64–#69 전부 PR #70–#75로 develop 머지 → main 머지·태그·npm 배포. 과정·설계 근거는
+> history 2026-07-02/03 + entries(`2026-07-03-*`)로 이관. 이 섹션의 옛 계획 상세는 git 이력에 있음.
 
-**담당 분배(파일 소유권 기준, 충돌 0):** 우리 = **#64·#65·#67**(`core/discover.ts` 단독 소유, 근원+안전+정리) · 팀원 = **#66·#68·#69**(`adapters/critics/assertion.ts`+`llm.ts`+`requests.ts` 단독 소유, 판정 정확성+노이즈). discover.ts 안에선 우리가 64→65→67 순차.
+## 2.4.0 계획 — 이슈 슬레이트 #96–#105 (2026-07-06 등록, 미착수)
 
-**verdict를 틀리게 하는 크리티컬은 #68·#69뿐**(전수조사 확인). 그 외 코어는 견고(HTTP retry·subprocess timeout·JSON fail-closed·factory Map·다중로케이터 P3 가드·grounded 단언·locale URL).
+> 계기: 외부 관점 평가(Slack agentic-testing·에이전트 비용 구조) + 코어 전소스 재리뷰 + 익스텐션
+> next-steps 리포트 교차. 기존 오픈 19건과 겹침 전수 확인 후 신규만 등록. 상세 =
+> `entries/2026-07-06-issue-slate-2.4.0.md`.
 
-### 우리 몫 (#64·#65·#67 — `core/discover.ts` 소유)
-- **#64 ✅ 구현 완료** (브랜치 `fix/replay-readiness`, 149테스트·build OK): `runStep`이 `expect`를 **폴링**(readiness, 기본 2000ms `expectTimeoutMs` 옵션) → async 효과를 race 안 함 · `steps.pollCondition` 프리미티브 · `stepExpect`가 **fresh 성공 mutation을 requestStatus expect로** 캡처(navigation 밖) · 레퍼런스 `chrome.ts` type/select 후 settle(입력 커밋)+resolveUid 재시도(승격 ④) · `ports.settle` 계약 문구 + `spec/core/surgical-heal.md` 갱신 · 신규 테스트 2(async 폴링·mutation expect). ⑤ fast/careful 다이얼은 이걸로 obviate.
-- **#64 🔴 근원 — replay가 app readiness를 race.** ① `settle()`이 network-idle only라 `type` 후 다음 동작이 폼/JS 처리를 앞지름(no-op). ② `stepExpect`(`core/discover.ts`)가 **즉시 URL 변화만** expect로 잡아 async 동작(submit)이 검증/치유 밖 → surgical-heal(`pipeline.ts runStep`)이 안 걸리고 하드 FAIL. 제안: readiness-aware wait + `stepExpect`를 async 결과(요청/요소)까지 확장. (+M5: `ports.ts` settle 계약 문구도 갱신.)
-  - **흡수(승격 ④): resolve 재시도(요소 등장 대기)** — 프로즌 타겟이 즉시 안 잡히면 짧게 재시도(늦게 렌더되는 요소 flaky↓). "늦게 뜨는 걸 기다림"=readiness라 여기 가족. 익스텐션 드라이버에만 있던 걸 엔진으로.
-  - **해소(승격 ⑤): fast/careful 다이얼 obviate** — settle이 readiness를 알아서 기다리면 "느리게 모드"라는 수동 땜빵이 불필요해짐. #64가 제대로 되면 별도 노브 안 만듦(익스텐션의 다이얼은 임시방편이었음).
-  - ⚠ 기존 **#61**(discover Tab/keypress false-PASS submissions)과 영토 겹침 — 착수 전 대조.
-- **#65 ✅ 구현 완료** (브랜치 `feat/discover-guardrails`, 151테스트·build OK): `ActionPolicy` seam(`vet(decision)` 거부 + `stop(steps)` 조기종료)을 `DiscoverOptions.policy`로 주입. 거부된 액션은 실행 안 하고 failures에 넣어 LLM 재선택. 앱-특정 규칙(파괴적 단어 등)은 소비자가 주입(불변식 #1). index/browser export + `the-loop.md` 갱신 + 테스트 2(거부·stop). 기본 무정책 → 무변화.
-- **#65 🟠 안전 — discover에 action-policy 게이트 없음.** `applyDecision`이 LLM 제안을 무검증 실행 → 파괴적 클릭·배회·초과 스텝(도그푸딩서 관측). 제안: 액션 policy seam(파괴적 차단·목표 정지·배회 상한)을 포트로 주입. 프롬프트 부탁 → 구조.
-- **#67 ✅ 구현 완료** (브랜치 `refactor/discover-overhead`, 152테스트·build OK): `maxSteps` 기본 8→20 · **M1** `chrome.resolveTargetUid` 모호한 substring은 첫 매칭 추측 대신 undefined(→self-heal, P3 일관) · **M3** cli `cmdRun`이 blind cast 대신 `loadSkillFile`로 검증. (④ observe 축소는 #64가 `beforeObs`로 요청 캡처를 필요로 만들어 무의미해짐 — 스킵.)
-- **#67 ⚪ 정리 — discover 스텝당 관측 중복 + 낮은 default cap.** `beforeUrl`에 full `observe()` 대신 `url()`; `maxSteps=8` 재고. (+**M1**: `chrome.ts resolveTargetUid` substring 첫-매칭 오resolve, +**M3/M4**: cli 시나리오 미검증·플래그 엣지.)
+- **신규 버그(판정 신뢰성):**
+  - **#96 🔴** freeze가 쿼리/해시-only 이동에 URL expect 오배정(풀URL로 감지, host+path로 얼림) →
+    replay 사전체크가 스텝을 조용히 skip. #86·#87과 "expect URL 가족" — 묶어 처리 권장.
+  - **#97 🔴** `parseNetwork`가 `[pending]` 드랍 → 레퍼런스 드라이버에서 #81의 mutation 대기가 dead code.
+    영향 = MCP 드라이버 사용자(CLI·신규 임베더); CDP-직결 드라이버는 무관.
+  - **#98 🟠** outcome-heal 드라이버 수명주기(close된 드라이버 재사용·재발견 후 누수·`close()` 부분 리셋).
+    **⚠ #88과 동반 설계 필수** — #88(재연결 fatal화) 단독 구현 시 outcome-heal이 깨짐. 기존 이월
+    `Driver.reset` 포트 아이디어는 여기로 흡수.
+- **잔손질:** #99(프롬프트-grounding vocabulary 드리프트 — no-console-errors) · #105(request-status
+  단언 method 파리티, #94 잔여 — #94는 2.3.0 `459315c`로 기해소되어 close).
+- **방향성(리포트 유래):** #100(LLM usage/비용 리포팅 — 측정은 `LlmClient` seam이 소유, 호스트 클라이언트
+  주입 호환) · #101(look-ahead 배치 플래닝 — 익스텐션 수요 확정, 프롬프트 캐싱과 곱 효과) ·
+  #102(freeze-less 탐색 모드) · #103(벤치 복잡도축·대수 — replay 반복 $0 이점 활용) ·
+  #104(vision — 결정적 스크린샷 diff 게이트 + 발산 시에만 opt-in vision, surgical-heal 패턴 반복).
+- **스코프 제안:** 2.4.0(minor, breaking 0) = 신뢰성 버그(#85–#87·#90–#91·#96–#98) + 이월(#76·#78·#79)
+  + 잔손질(#95·#99·#105) + 헤드라인 #100. need-to-discussion(#92·#101·#102·#104)은 합의 후 편입,
+  #103은 릴리스 무관. 도그푸딩 막히면 #96·#97만 **2.3.1 패치** 선행 옵션.
+- **착수 묶음(같은 파일 = 한 브랜치, A·B·C 파일 비겹침 → 병렬 가능):** A=#96·#86·#87(expect URL,
+  capture/steps) · B=#97·#85·#91(chrome.ts, +#89 합류 가능) · C=#98·#78·#76(run.ts outcome-heal,
+  #88 의미론 동반 결정) · D=#93·#99(discover 프롬프트/grounding, #61은 재트리아지) ·
+  E=#90·#105(critic 소품) · F=#2·#13(타입 위생).
+- **설계 장치(이번 사이클 완료 조건에 포함 — 꼬리물기 근본 차단):** ① 묶음 A는 **URL 매칭 반례
+  코퍼스 테스트**(테이블 주도)와 함께 출고 — #86은 로케일 리스트 정교화(휴리스틱↑)가 아니라
+  **주입 seam**(benign 패턴)으로. ② #97은 **실물 픽스처 규칙**과 함께(규칙 후보 승격). ③ 체인 위
+  이슈(#96·#86·#87·#97)는 "이전 수정이 왜 못 잡았나"를 커버하는 회귀 테스트 포함 — 단 **#96의
+  계보는 #56이 아니라 #81**(assignStepExpects, `8f696bc`)이므로 테스트 위치 주의. ④ 회귀 체인
+  분석 중 "#68 불완전 수정" 주장은 오류(PR #70이 critic까지 수정, #94는 2.2.2 버전 랙 제보)로 판명.
+- **담당 분배(파일 소유권 기준, 2.3.0 방식 — 총 21건 확정):** 우리(solp721) = **#97·#85·#91·#89(chrome.ts)
+  → #98·#78·#76·#88(run.ts+연결 의미론) → #93·#77(discover 실행측) → #100·#13(usage/Result 표면)**
+  (+#61 재트리아지). 팀원(amazon7737) = **#96·#86·#87(steps/capture URL 판정) → #99·#79(grounding.ts)
+  → #90·#105(critics/pipeline 판정) → #95·#2(소품)** (+#103 여유 시). ⚠ ports.ts는 #100(우리)·#2(팀원)가
+  스치므로 머지 순서만 조율. 논의 트랙 #92·#101·#102·#104는 별도 합의, #8 보류.
+- **기존 이슈 보강:** #76 코멘트(outcome-heal이 `actions`도 미상속) · #89 코멘트(followNewTab 동사 커버리지).
 
-### 팀원 몫 (#66·#68·#69 — critics 소유)
-- **#68 🔴 오판정 — `request-status`가 첫 URL 매칭만 검사** (`assertion.ts`). 엔드포인트가 401→200처럼 여러 번 응답하면 첫(401) 잡아 false-FAIL. `conditionMet`(`some`)과 불일치. 픽스: `some(url && status)`. (+**M2**: outcome-heal이 재발견 후 `observe()`에서 원래 run 요청까지 섞여 request-status false-PASS 가능 — 같이 정리.)
-- **#69 🔴 오판정 — 단언 0개 → vacuous PASS.** `AssertionCritic`·`LlmCritic` 둘 다 `[].every===true`. 아무것도 검증 안 하는데 green. 픽스: fail-closed(또는 freeze 거부).
-- **#66 🟡 노이즈 — critic false-FAIL.** no-failed-requests transient-ok(같은 엔드포인트 후속 2xx면 앞 4xx 무시) + no-console-errors benign 리스트(`core/requests.ts`, `critics/assertion.ts`). 익스텐션서 evidence 정규화로 선구현·검증됨.
-
-**착수 순서:** 우리 discover.ts에선 근원 **#64 먼저**(설계부터) → #65 → #67. 팀원 critics에선 작은 **#68·#69 워밍업** → #66. 잔버그(M1~M5)는 해당 이슈 처리 중 흡수.
-
-### 후속(2.3.0 이후 후보)
-- **discover 배치(look-ahead) 플래닝** — 탐색 왕복 절감(하이브리드: N스텝 계획→어긋나면 재계획). 부품 = `StepMeta.expect` + `LlmStepHealer`. 익스텐션 프롬프트 가속 실측 후.
-- **멀티모달 expect 판정(vision)** — `LlmCritic`이 스크린샷을 vision 모델로(텍스트-only 한계). 큼.
-- **뷰포트/레이아웃 강제 · refine gate** — 익스텐션서 해결됨(드라이버 줌 / 탐색 전 애매성 1콜). 범용화 시 엔진(작음, 6개엔 안 겹쳐 별도).
-- _(승격 ④ resolve-재시도·⑤ fast/careful 다이얼은 #64로 흡수/해소 — 위 참조.)_
-- (기존 이월: 파라미터 슬롯 · setup chain semantics · `mustProve` seam · `Driver.reset` 포트.)
+### 후속(계속 이월)
+- **뷰포트/레이아웃 강제 · refine gate** — 익스텐션서 해결됨(드라이버 줌/탐색 전 1콜). 범용화 시 엔진.
+- 파라미터 슬롯 · setup chain semantics · `mustProve` seam. (`Driver.reset`은 #98로, look-ahead·vision은 #101·#104로 승격.)
 
 ## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
 
@@ -180,4 +193,10 @@
 
 ## 규칙 후보 (반복되면 승격)
 - 코드 작성 직전 Spec Reference Disclosure 1줄(§3)을 실제로 지킴 — 유지.
-- 텍스트 파싱 Driver(MCP 응답)는 brittle → 파서 단위테스트 동반(승격 후보).
+- **(승격 확정 — #97이 증명)** 코어 로직이 의존하는 드라이버 관측값(예: in-flight status 0)은
+  레퍼런스 드라이버 파서 픽스처에 **실물 출력 포맷**으로 존재해야 한다. FakeDriver 주입만으로 green이면 계약 미검증.
+- **형질/사실 검문(불변식 #1 운영판):** 앱 통증→엔진 승격 시 "이 수정의 지식은 보편 사실인가,
+  이 앱의 형질인가"를 판별 — 형질이면 보편 휴리스틱 금지, seam+주입으로(benign/ActionPolicy 선례).
+  근거 = #56 로케일 스트리핑이 #86·#87 회귀를 낳은 교훈.
+- 휴리스틱 존(URL 매칭·동적 세그먼트 컷 등)을 변경할 땐 반례 코퍼스(테이블 주도) 테스트 동반 —
+  픽스 1개+테스트 1개 방식은 이 지대에서 체인을 못 끊는다.

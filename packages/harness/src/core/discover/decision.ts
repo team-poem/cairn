@@ -5,7 +5,7 @@
  * step-heal (invariant #2), instead of a second driver-dispatch switch drifting alongside it.
  */
 import type { Driver } from "../ports.js";
-import type { Assertion, Step, Target, WaitUntil } from "../types.js";
+import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { extractFirstJsonObject } from "../json.js";
 
@@ -33,6 +33,13 @@ export interface Decision {
 
 export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
 
+/** What the loop can show a policy about the page (#77): the elements it just snapshotted, and —
+ * when an observation is already in hand (vet) — the current URL. */
+export interface PolicyContext {
+  elements: readonly PageElement[];
+  url?: string;
+}
+
 /**
  * A deterministic gate the discover loop consults before executing each proposed action (invariant #2:
  * inject behavior, don't branch in the loop). Kept app-agnostic (invariant #1) — the engine offers the
@@ -40,10 +47,13 @@ export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
  */
 export interface ActionPolicy {
   /** Vet an action before it runs. Rejected → recorded as a failure so the LLM re-decides; it never
-   * executes. A stateful policy may count calls across the run (e.g. a consecutive-scroll cap). */
-  vet(decision: Decision): PolicyVerdict;
-  /** Optionally end discovery early (goal reached, hard bound) — checked each loop iteration. */
-  stop?(steps: readonly Step[]): boolean;
+   * executes. A throwing vet is treated as a rejection, not a crash. A stateful policy may count
+   * calls across the run (e.g. a consecutive-scroll cap). */
+  vet(decision: Decision, ctx?: PolicyContext): PolicyVerdict;
+  /** End discovery because the GOAL is reached — the freeze is trusted (non-truncated); step bounds
+   * belong to `maxSteps`. Checked each iteration with the fresh page elements, and once more at the
+   * step cap. `steps` includes the seed `baseUrl` goto. */
+  stop?(steps: readonly Step[], ctx?: PolicyContext): boolean;
 }
 
 /** First JSON object in a model reply, tolerating fences, prose, and trailing extra objects. */

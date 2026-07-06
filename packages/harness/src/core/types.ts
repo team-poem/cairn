@@ -89,6 +89,8 @@ export interface StepProgress {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
+  skipped?: boolean;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -129,6 +131,10 @@ export interface ExecutedAction {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (idempotency pre-check).
+   * Surfaced so a skip is always observable — a wrongly pre-satisfied expect must never hide as a
+   * plain ok (#86). */
+  skipped?: boolean;
 }
 
 export interface ConsoleMessage {

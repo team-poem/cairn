@@ -276,3 +276,17 @@ describe("followNewTab guard + verb coverage (#89)", () => {
     expect(calls.find((c) => c.name === "select_page")?.args.pageId).toBe(2);
   });
 });
+
+describe("session lifecycle guards (#98, #88)", () => {
+  it("rejects any call after close() — a closed driver is not reusable", async () => {
+    const d = new ChromeDevToolsDriver();
+    await d.close();
+    await expect(d.goto("https://example.com")).rejects.toThrow(/driver closed/);
+  });
+
+  it("fails fast when the transport died mid-run instead of reconnecting blank", async () => {
+    const d = new ChromeDevToolsDriver();
+    (d as unknown as { crashed: boolean }).crashed = true;
+    await expect(d.goto("https://example.com")).rejects.toThrow(/mid-run/);
+  });
+});

@@ -23,6 +23,19 @@ describe("scoreTarget", () => {
   it("no locator is weak", () => {
     expect(scoreTarget({}).weak).toBe(true);
   });
+
+  it("text + nth is not weak — the designed address for duplicate labels (#92)", () => {
+    const s = scoreTarget({ text: "Accept", role: "button", nth: 2 });
+    expect(s.weak).toBe(false);
+    expect(s.score).toBeGreaterThan(scoreTarget({ text: "Accept" }).score);
+    expect(s.score).toBeLessThan(scoreTarget({ role: "button", index: 2 }).score);
+    expect(s.reason).toMatch(/nth/);
+  });
+
+  it("nth without text locates nothing extra — the remaining locators still decide the score", () => {
+    expect(scoreTarget({ nth: 2 }).weak).toBe(true);
+    expect(scoreTarget({ role: "button", index: 1, nth: 2 }).score).toBe(0.7); // index fallback still rules
+  });
 });
 
 describe("weakTargets / scoreScenario", () => {

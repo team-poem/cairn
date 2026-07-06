@@ -309,3 +309,70 @@ describe("session lifecycle guards (#98, #88)", () => {
     await expect(d.goto("https://example.com")).rejects.toThrow(/mid-run/);
   });
 });
+
+describe("resolveTargetUid — nth among same-named elements (#92)", () => {
+  // The list-UI repro: every row's action button carries the same accessible name.
+  const LIST = `uid=5_0 button "Accept"
+  uid=5_1 link "Details"
+  uid=5_2 button "Accept"
+  uid=5_3 button "Decline"
+  uid=5_4 button "Accept"`;
+  const rows = parseSnapshotRows(LIST);
+
+  it("addresses the Nth name match (0-based, same convention as index)", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button", nth: 0 })).toBe("5_0");
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button", nth: 1 })).toBe("5_2");
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button", nth: 2 })).toBe("5_4");
+  });
+
+  it("counts only elements matching the role constraint", () => {
+    const mixed = parseSnapshotRows(`uid=6_0 link "Accept"\nuid=6_1 button "Accept"\nuid=6_2 button "Accept"`);
+    expect(resolveTargetUid(mixed, { text: "Accept", role: "button", nth: 1 })).toBe("6_2");
+    expect(resolveTargetUid(mixed, { text: "Accept", nth: 1 })).toBe("6_1"); // role-less: every match counts
+  });
+
+  it("yields nothing when nth is out of range (the list shrank) instead of guessing", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button", nth: 3 })).toBeUndefined();
+  });
+
+  it("does not regress P3: an out-of-range nth never falls through to a positional guess", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button", index: 0, nth: 9 })).toBeUndefined();
+  });
+
+  it("keeps the nth-less behavior: first exact match wins", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBe("5_0");
+  });
+
+  it("applies nth to the substring pool when no exact name matches (M1 stays for nth-less targets)", () => {
+    const subs = parseSnapshotRows(`uid=7_0 button "Add to cart"\nuid=7_1 button "Add to wishlist"`);
+    expect(resolveTargetUid(subs, { text: "Add", nth: 1 })).toBe("7_1");
+    expect(resolveTargetUid(subs, { text: "Add" })).toBeUndefined();
+  });
+});
+
+describe("locate — nth enrichment for duplicate names (#92)", () => {
+  // Only take_snapshot is needed for locate(); everything else is inert.
+  function locatingDriver(snapshot: string): ChromeDevToolsDriver {
+    const driver = new ChromeDevToolsDriver();
+    (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call =
+      async (name) => (name === "take_snapshot" ? snapshot : "");
+    return driver;
+  }
+  const LIST = `uid=5_0 button "Accept"\nuid=5_2 button "Accept"\nuid=5_4 button "Accept"`;
+
+  it("records nth when the resolved name is duplicated, so the freeze is unambiguous", async () => {
+    const t = await locatingDriver(LIST).locate({ text: "Accept" });
+    expect(t).toEqual({ text: "Accept", role: "button", index: 0, nth: 0 });
+  });
+
+  it("keeps an author's nth and derives the structural index from the element it resolves to", async () => {
+    const t = await locatingDriver(LIST).locate({ text: "Accept", nth: 2 });
+    expect(t).toEqual({ text: "Accept", role: "button", index: 2, nth: 2 });
+  });
+
+  it("adds no nth when the name is unique", async () => {
+    const t = await locatingDriver(`uid=1_1 button "Buy"`).locate({ text: "Buy" });
+    expect(t).toEqual({ text: "Buy", role: "button", index: 0 });
+    expect("nth" in t).toBe(false);
+  });
+});

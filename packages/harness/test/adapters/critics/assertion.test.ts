@@ -110,6 +110,28 @@ describe("navigated — path boundary, not raw substring", () => {
   });
 });
 
+describe("navigated — respects the same localePrefixes injection as expect matching (#86 follow-up)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  it("checkAssertion: a consumer-declared locale (\"xx\") only matches when injected", () => {
+    const assertion = { kind: "navigated" as const, to: "app.co/en/cart" };
+    expect(checkAssertion(assertion, at("https://app.co/xx/cart")).passed).toBe(false);
+    expect(checkAssertion(assertion, at("https://app.co/xx/cart"), [], [], ["en", "xx"]).passed).toBe(true);
+  });
+  it("AssertionCritic threads localePrefixes into its navigated verdict, not just step expects", async () => {
+    const withInjection = new AssertionCritic(undefined, undefined, undefined, ["en", "xx"]);
+    const v1 = await withInjection.judge(at("https://app.co/xx/cart"), [{ kind: "navigated", to: "app.co/en/cart" }]);
+    expect(v1.passed).toBe(true);
+
+    const withoutInjection = new AssertionCritic();
+    const v2 = await withoutInjection.judge(at("https://app.co/xx/cart"), [{ kind: "navigated", to: "app.co/en/cart" }]);
+    expect(v2.passed).toBe(false); // "xx" is a real route under the default list — must not silently match
+  });
+});
+
 describe("empty assertion set — fail closed, not vacuously green (#69)", () => {
   it("a scenario with zero assertions does not pass", async () => {
     const v = await new AssertionCritic().judge(ev([]), []);

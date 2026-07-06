@@ -80,6 +80,30 @@ describe("runScenario", () => {
     expect(events[0]?.screenshot).toBe("data:image/png;base64,AAA");
   });
 
+  it("threads localePrefixes from RunScenarioOptions into the final navigated verdict, not just step expects (#86 follow-up)", async () => {
+    // "xx" is not in the engine's default locale list — pipeline.test.ts covers this for the
+    // per-step expect precheck; this covers the same injection reaching the AssertionCritic's
+    // navigated assertion, so a run's replay checks and its final verdict agree on one URL.
+    const at = (finalUrl: string): Evidence => ({
+      execution: { actions: [], navigated: true, finalUrl, blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    });
+    const locale: Scenario = {
+      name: "locale-navigated",
+      steps: [{ kind: "goto", url: "https://app.co/xx/cart" }],
+      assertions: [{ kind: "navigated", to: "app.co/en/cart" }],
+    };
+
+    const withInjection = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    const { result: r1 } = await runScenario(locale, { driver: withInjection, localePrefixes: ["en", "xx"] });
+    expect(r1.verdict.passed).toBe(true);
+
+    const withoutInjection = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    const { result: r2 } = await runScenario(locale, { driver: withoutInjection });
+    expect(r2.verdict.passed).toBe(false); // "xx" is a real route under the default list
+  });
+
   it("aborts between steps when the signal fires (a host's Stop button)", async () => {
     const driver = new FakeDriver({ evidence: evidence() });
     const ac = new AbortController();

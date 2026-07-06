@@ -50,6 +50,10 @@ export interface RunScenarioOptions {
   benign?: string[];
   /** Console-text substrings that are product noise (e.g. i18n warnings), excluded from `no-console-errors`. */
   benignConsole?: string[];
+  /** First-path-segment prefixes URL matching may strip as locales (fallback only, #86); default is
+   * a small conservative built-in list. Applies to both step `expect` matching and the `navigated`
+   * verdict, so a run's replay checks and its final assertion agree on the same URL. `[]` disables. */
+  localePrefixes?: readonly string[];
   /** Product-defined handlers for `{ kind: "custom", name }` steps — the host defines interactions. */
   actions?: Record<string, CustomAction>;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
@@ -115,8 +119,8 @@ export async function runScenario(
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole)
-      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes));
 
   // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
   // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
@@ -145,6 +149,7 @@ export async function runScenario(
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
+        localePrefixes: opts.localePrefixes,
       },
     );
 

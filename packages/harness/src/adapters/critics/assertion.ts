@@ -18,12 +18,13 @@ export function checkAssertion(
   evidence: Evidence,
   benign: readonly string[] = [],
   benignConsole: readonly string[] = [],
+  localePrefixes?: readonly string[],
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
-      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to)) {
+      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes })) {
         return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
       }
       return { assertion, passed: true, detail: finalUrl };
@@ -77,6 +78,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   constructor(
     private readonly benign: readonly string[] = [],
     private readonly benignConsole: readonly string[] = [],
+    private readonly localePrefixes?: readonly string[],
   ) {}
 
   supports(assertion: Assertion): boolean {
@@ -84,7 +86,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign, this.benignConsole);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes);
   }
 }
 
@@ -142,13 +144,21 @@ export class AssertionCritic implements Critic {
    * @param custom product-defined checks for `custom` assertions, keyed by name.
    * @param benign URL substrings whose 4xx/5xx is product noise, not a regression (P7).
    * @param benignConsole console-text substrings that are product noise (framework/i18n), not errors (#66).
+   * @param localePrefixes locale prefixes `navigated`'s URL match may strip as a fallback (#86);
+   *   default is `urlReached`'s conservative built-in list. Keep this consistent with whatever
+   *   the same run passed as `RunHarnessOptions.localePrefixes`, or the verdict and the mid-run
+   *   `expect` checks can disagree on the same URL.
    */
   constructor(
     custom: CustomChecks = {},
     benign: readonly string[] = [],
     benignConsole: readonly string[] = [],
+    localePrefixes?: readonly string[],
   ) {
-    this.handlers = [new MechanicalAssertionHandler(benign, benignConsole), new CustomAssertionHandler(custom)];
+    this.handlers = [
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes),
+      new CustomAssertionHandler(custom),
+    ];
   }
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {

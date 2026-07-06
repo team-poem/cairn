@@ -34,18 +34,22 @@ interface HostPath {
 }
 
 // host + path split, query/hash dropped. `u` may be a full URL or a frozen bare host+path/suffix.
+// `new URL()` only for an EXPLICIT http(s) scheme (#87): it doesn't throw on scheme-less values —
+// it silently mis-parses them ("localhost:3000/mentor" → scheme "localhost:", empty host, path
+// "3000/mentor"), which made every port-bearing frozen destination unreachable at replay.
 function splitHostPath(u: string): HostPath {
-  let host: string, path: string;
-  try {
-    const x = new URL(u);
-    host = x.host;
-    path = x.pathname;
-  } catch {
-    const s = u.replace(/^https?:\/\//, "").replace(/[?#].*$/, "");
-    const i = s.indexOf("/");
-    host = i === -1 ? s : s.slice(0, i);
-    path = i === -1 ? "" : s.slice(i);
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const x = new URL(u);
+      return { host: x.host, segs: x.pathname.split("/").filter(Boolean) };
+    } catch {
+      // malformed despite the scheme — fall through to the manual split
+    }
   }
+  const s = u.replace(/^https?:\/\//i, "").replace(/[?#].*$/, "");
+  const i = s.indexOf("/");
+  const host = i === -1 ? s : s.slice(0, i);
+  const path = i === -1 ? "" : s.slice(i);
   return { host, segs: path.split("/").filter(Boolean) };
 }
 

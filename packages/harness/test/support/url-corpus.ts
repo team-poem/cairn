@@ -56,6 +56,16 @@ export const URL_REACHED_CORPUS: UrlReachedCase[] = [
   { note: "real route /my matches itself", final: "https://x.co/my", want: "x.co/my", reached: true },
   { note: "real route /my does not reach a child", final: "https://x.co/my", want: "x.co/my/settings", reached: false },
   { note: "two different real two-letter routes never match", final: "https://x.co/go", want: "x.co/tv", reached: false },
+  // scheme present/absent (#87): frozen values are scheme-less host+path; `new URL()` silently
+  // mis-parses "localhost:3000/mentor" (scheme "localhost:", empty host) — parsing must not depend
+  // on the frozen side carrying a scheme.
+  { note: "scheme-less want with a port (#87)", final: "http://localhost:3000/mentor", want: "localhost:3000/mentor", reached: true },
+  { note: "scheme-less want with a port, host root (#87)", final: "http://localhost:3000/", want: "localhost:3000", reached: true },
+  { note: "scheme-less final AND want with a port (#87)", final: "localhost:3000/mentor", want: "localhost:3000/mentor", reached: true },
+  { note: "scheme-present want", final: "https://x.co/cart", want: "https://x.co/cart", reached: true },
+  { note: "scheme on want only", final: "x.co/cart", want: "https://x.co/cart", reached: true },
+  { note: "port + parent≠child boundary (#87)", final: "http://localhost:3000/mentor/apply", want: "localhost:3000/mentor", reached: false },
+  { note: "port + different route (#87)", final: "http://localhost:3000/mentor", want: "localhost:3000/admin", reached: false },
 ];
 
 export const DESTINATION_CHANGE_CORPUS: DestinationChangeCase[] = [

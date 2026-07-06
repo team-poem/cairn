@@ -143,7 +143,7 @@ describe("pipeline", () => {
     expect(actions[actions.length - 1]?.ok).toBe(false);
   });
 
-  it("lets ContextProvider influence the result — intent overrides the scenario name", async () => {
+  it("a custom intent grounds the context but never relabels the scenario (#13)", async () => {
     const driver = new FakeDriver({ evidence: evidence() });
 
     class CustomProvider implements ContextProvider {
@@ -162,7 +162,8 @@ describe("pipeline", () => {
       },
       "ignored task",
     );
-    expect(result.scenario).toBe("grounding from a ticket");
+    expect(result.scenario).toBe(scenario.name); // frozen identity is stable
+    expect(result.context.intent).toBe("grounding from a ticket"); // intent's one home
     expect(result.verdict.passed).toBe(true);
   });
 

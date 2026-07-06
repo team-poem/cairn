@@ -74,18 +74,18 @@ describe("evidence quota (#115) — counterexample table for the ranking zone", 
   }> = [
     {
       name: "success text past the cap survives on a heavy page",
-      elements: [...buttons(70), text("주문이 완료되었습니다")],
-      intent: "주문 완료하기",
+      elements: [...buttons(70), text("Your order is complete")],
+      intent: "complete the order",
       limit: 60,
       expect: (r) => {
-        if (!has(r, "주문이 완료되었습니다")) throw new Error("evidence dropped");
+        if (!has(r, "Your order is complete")) throw new Error("evidence dropped");
         if (r.length !== 60) throw new Error("cap changed");
       },
     },
     {
       name: "non-matching text stays out — no free pass for noise",
       elements: [...buttons(70), text("all rights reserved")],
-      intent: "주문 완료하기",
+      intent: "complete the order",
       limit: 60,
       expect: (r) => {
         if (has(r, "all rights reserved")) throw new Error("noise admitted");

@@ -33,13 +33,19 @@ export interface DiscoverOptions {
    * When off, only evidence-grounded mechanical assertions are frozen — replay stays LLM-free.
    */
   semanticChecks?: boolean;
+  /**
+   * URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from assertion
+   * grounding — mirror of `RunScenarioOptions.benign`, so a product-marked noisy endpoint
+   * can't strip `no-failed-requests` from the freeze during discovery.
+   */
+  benign?: string[];
   /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
    * gate (every action runs) — behaviour unchanged. */
   policy?: ActionPolicy;
 }
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, policy } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -53,7 +59,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const evidence = await observeOutcomes(driver, firstCount);
     assignStepExpects(steps, marks, evidence);
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
-    const assertions = deriveAssertions(all, evidence, semanticChecks);
+    const assertions = deriveAssertions(all, evidence, semanticChecks, benign);
     return truncated
       ? { name: intent, steps, assertions, truncated: true }
       : { name: intent, steps, assertions };

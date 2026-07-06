@@ -6,6 +6,7 @@
  */
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
+import { findRequestStatus } from "./requests.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -204,15 +205,11 @@ export async function conditionMet(
     if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url, urlMatch)) return false;
     if (until.requestStatus) {
       const { urlIncludes, status, method } = until.requestStatus;
-      const held = logic.requests
-        .slice(sinceRequestIndex)
-        .some(
-          (r) =>
-            r.url.includes(urlIncludes) &&
-            r.status === status &&
-            (!method || r.method.toUpperCase() === method.toUpperCase()),
-        );
-      if (!held) return false;
+      // Same predicate as the request-status assertion (core/requests.ts) — the step watermark
+      // is applied by slicing the cumulative log before matching.
+      if (!findRequestStatus(logic.requests.slice(sinceRequestIndex), urlIncludes, status, method)) {
+        return false;
+      }
     }
   }
   if (until.text !== undefined) {

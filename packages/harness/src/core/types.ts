@@ -63,7 +63,9 @@ export type Assertion =
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  | { kind: "request-status"; urlIncludes: string; status: number }
+  /** `method` (optional) scopes the match, so a same-prefix GET can't satisfy a POST check —
+   * parity with the step-level `expect.requestStatus`. */
+  | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> };

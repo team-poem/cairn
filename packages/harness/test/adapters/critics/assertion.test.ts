@@ -156,6 +156,56 @@ describe("request-status — any matching request, not the first (#68)", () => {
   });
 });
 
+describe("request-status — optional method scoping, parity with the step-level expect (#94)", () => {
+  // A duplicate-application flow: a GET sharing the URL prefix answers 200, the real POST answers 409.
+  const dup = ev([
+    { method: "GET", url: "https://app/api/applications?postId=p1", status: 200 },
+    { method: "POST", url: "https://app/api/applications", status: 409 },
+  ]);
+
+  it("a same-prefix GET does not decide — the later 409 POST satisfies the assertion", () => {
+    const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/applications", status: 409 }, dup);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toContain("409");
+  });
+
+  it("scopes to the method when given", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 409, method: "POST" },
+      dup,
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("a same-prefix GET cannot satisfy a POST check even on status collision", () => {
+    const collision = ev([{ method: "GET", url: "https://app/api/applications", status: 200 }]);
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 200, method: "POST" },
+      collision,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("no POST request matching");
+  });
+
+  it("matches the method case-insensitively", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 409, method: "post" },
+      dup,
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("failure detail lists only same-method statuses when method is given", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 201, method: "POST" },
+      dup,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("409");
+    expect(r.detail).not.toContain("200");
+  });
+});
+
 describe("custom assertions — the host defines success", () => {
   it("runs a product-registered check", async () => {
     const critic = new AssertionCritic({

@@ -1,6 +1,7 @@
 import type { NetworkRequest } from "./types.js";
 
-/** The one request-status predicate: the first captured request matching BOTH url and status.
+/** The one request-status predicate: the first captured request matching url AND status (AND
+ * method, when given — so a same-prefix GET can't satisfy a POST check on a status collision).
  * Shared by the deterministic critic (`request-status`) and `conditionMet` (waitFor / step
  * `expect`) so a verdict can never depend on which matching request arrived first — an endpoint
  * that answered 401 and then 200 on retry satisfies `status: 200`. */
@@ -8,8 +9,12 @@ export function findRequestStatus(
   requests: readonly NetworkRequest[],
   urlIncludes: string,
   status: number,
+  method?: string,
 ): NetworkRequest | undefined {
-  return requests.find((r) => r.url.includes(urlIncludes) && r.status === status);
+  const m = method?.toUpperCase();
+  return requests.find(
+    (r) => r.url.includes(urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
+  );
 }
 
 /** Requests whose failure is noise, not a regression — excluded from `no-failed-requests`. Built-in

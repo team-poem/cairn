@@ -106,6 +106,60 @@ describe("discover", () => {
     expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
   });
 
+  it("#79: still freezes no-failed-requests when the only failure recovered (401 → retry → 2xx)", async () => {
+    const evRecovered: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [
+          { method: "POST", url: "https://shop/api/login", status: 401 },
+          { method: "POST", url: "https://shop/api/login", status: 200 },
+        ],
+        console: [],
+      },
+    };
+    const scenario = await discover("login", {
+      driver: new FakeDriver({ evidence: evRecovered, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    // the critic already tolerates recovered failures (#66) — the freeze must not be stricter
+    // than the verdict, or a legitimate transient retry costs the flow this assertion.
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+  });
+
+  it("#79: does not freeze no-failed-requests when a failure never recovered", async () => {
+    const evUnrecovered: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [
+          { method: "POST", url: "https://shop/api/login", status: 401 },
+          { method: "GET", url: "https://shop/api/login", status: 200 }, // different method — not a recovery
+        ],
+        console: [],
+      },
+    };
+    const scenario = await discover("login", {
+      driver: new FakeDriver({ evidence: evUnrecovered, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+    });
+    expect(scenario.assertions.some((a) => a.kind === "no-failed-requests")).toBe(false);
+  });
+
+  it("#79: a product benign list keeps a marked noisy endpoint from stripping no-failed-requests", async () => {
+    const evNoisy: Evidence = {
+      ...evidence,
+      logic: {
+        requests: [{ method: "GET", url: "https://shop/api/flaky-analytics", status: 500 }],
+        console: [],
+      },
+    };
+    const scenario = await discover("noop", {
+      driver: new FakeDriver({ evidence: evNoisy, elements: [] }),
+      llm: new ScriptedLlm(['{"action":"done"}']),
+      benign: ["/api/flaky-analytics"],
+    });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+  });
+
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
     const ev: Evidence = {
       execution: { actions: [], navigated: true, finalUrl: "https://shop/payment", blocked: false },

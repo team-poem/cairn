@@ -4,8 +4,8 @@
  * deterministic (invariant #4).
  */
 import type { LlmClient } from "../ports.js";
-import type { Assertion, Evidence } from "../types.js";
-import { isBenignRequest, isMutation } from "../requests.js";
+import type { Assertion, Evidence, NetworkRequest } from "../types.js";
+import { isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { extractFirstJsonArray } from "../json.js";
 import { destinationKey } from "./capture.js";
 
@@ -16,17 +16,21 @@ import { destinationKey } from "./capture.js";
  * keep a proposed `request-status` ONLY if a captured request actually matches it (so a
  * hallucinated check can't fail every replay). `expect` (LLM-judged) is frozen only when
  * `semantic` is set — otherwise the freeze stays deterministic (invariant #4).
+ * `benign` is the product's noise list (mirror of `RunScenarioOptions.benign`) — a marked
+ * endpoint's failure never disqualifies a check.
  */
 export function deriveAssertions(
   proposed: Assertion[] | undefined,
   evidence: Evidence,
   semantic: boolean,
+  benign: readonly string[] = [],
 ): Assertion[] {
   const out: Assertion[] = [];
-  // Ground no-failed-requests: freeze it only if it actually HELD during discovery (no non-benign
-  // failure). A flow that survives a noisy 4xx would otherwise fail every replay on a check that was
-  // already false — the success-proving request below carries the real signal instead.
-  if (!evidence.logic.requests.some((r) => r.status >= 400 && !isBenignRequest(r.url))) {
+  // Ground no-failed-requests: freeze it only if it actually HELD during discovery. "Held" uses
+  // the SAME tolerance the critic judges with (#66) — benign noise (built-in + product list) and
+  // failures the app retried and recovered (401 → 2xx) don't disqualify the check — otherwise the
+  // freeze is stricter than the verdict and a legitimate transient retry loses this assertion.
+  if (!sawRequestFailure(evidence.logic.requests, benign)) {
     out.push({ kind: "no-failed-requests" });
   }
   const { navigated, finalUrl } = evidence.execution;
@@ -48,6 +52,18 @@ export function deriveAssertions(
     }
   }
   return dedupeAssertions(out);
+}
+
+/** Did discovery observe a request failure that actually counts — neither benign noise
+ * (built-in + product list) nor a transient the app retried and recovered? Mirrors the
+ * critic's `no-failed-requests` judgment (#66) so freeze and verdict can't drift. */
+function sawRequestFailure(
+  requests: readonly NetworkRequest[],
+  benign: readonly string[],
+): boolean {
+  return requests.some(
+    (r, i) => r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(requests, i),
+  );
 }
 
 /** Drop duplicate assertions (e.g. a proposed request-status the LLM listed twice). */

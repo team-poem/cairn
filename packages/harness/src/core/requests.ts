@@ -39,9 +39,10 @@ export function isRecoveredFailure(requests: readonly NetworkRequest[], index: n
   if (!failed || failed.status < 400) return false;
   const method = failed.method.toUpperCase();
   const key = endpointKey(failed.url);
+  // status 0 = still in flight, not a recovery — only a resolved success counts.
   return requests
     .slice(index + 1)
-    .some((r) => r.status < 400 && r.method.toUpperCase() === method && endpointKey(r.url) === key);
+    .some((r) => r.status > 0 && r.status < 400 && r.method.toUpperCase() === method && endpointKey(r.url) === key);
 }
 
 /** Whether a request is a state-changing mutation (the kind that proves an action happened, vs a

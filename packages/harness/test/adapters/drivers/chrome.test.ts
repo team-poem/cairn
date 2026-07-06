@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ChromeDevToolsDriver,
   findUidByName,
+  followableTab,
   isOpenDialog,
   parseSnapshotRows,
   resolveTargetUid,
@@ -9,9 +11,27 @@ import {
   parseConsole,
   parseElements,
   parseNetwork,
+  parsePageEntries,
   parsePageIds,
   parseSelectedUrl,
+  selectorProbeScript,
 } from "../../../src/adapters/drivers/chrome.js";
+
+/** Driver whose MCP layer is a scripted stub — records calls, returns canned text per tool. */
+function stubbedDriver(responses: Record<string, string | ((args: Record<string, unknown>) => string)>) {
+  const driver = new ChromeDevToolsDriver();
+  const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
+  (driver as unknown as { call: unknown }).call = async (
+    name: string,
+    args: Record<string, unknown> = {},
+  ) => {
+    calls.push({ name, args });
+    const r = responses[name];
+    if (r === undefined) return "";
+    return typeof r === "function" ? r(args) : r;
+  };
+  return { driver, calls };
+}
 
 // Sample text mirrors real chrome-devtools-mcp output observed during dogfooding.
 
@@ -103,6 +123,15 @@ reqid=6 GET https://www.iana.org/static/iana_website.css [503]`;
       { method: "GET", url: "https://www.iana.org/static/iana_website.css", status: 503 },
     ]);
   });
+
+  it("parses an in-flight [pending] row as status 0 instead of dropping it (#97)", () => {
+    const text = `reqid=7 POST https://app/api/orders [pending]
+reqid=8 GET https://app/api/me [200]`;
+    expect(parseNetwork(text)).toEqual([
+      { method: "POST", url: "https://app/api/orders", status: 0 },
+      { method: "GET", url: "https://app/api/me", status: 200 },
+    ]);
+  });
 });
 
 describe("parseSelectedUrl", () => {
@@ -171,5 +200,79 @@ describe("isOpenDialog", () => {
   it("is false for an ordinary failure", () => {
     expect(isOpenDialog(new Error("no element matching"))).toBe(false);
     expect(isOpenDialog("plain string")).toBe(false);
+  });
+});
+
+describe("snapshot freshness (#85)", () => {
+  it("snapshot() re-fetches every call so a waitFor poll sees new content", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: 'uid=1_1 button "Go"' });
+    await driver.snapshot();
+    await driver.snapshot();
+    expect(calls.filter((c) => c.name === "take_snapshot")).toHaveLength(2);
+  });
+
+  it("locate() still reuses the snapshot taken in the same turn", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: 'uid=1_1 button "Go"' });
+    await driver.snapshot();
+    await driver.locate({ text: "Go" });
+    expect(calls.filter((c) => c.name === "take_snapshot")).toHaveLength(1);
+  });
+});
+
+describe("Target.selector resolution (#91)", () => {
+  it("resolves a selector by probing its accessible name and joining to the snapshot", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=2_1 button "Cancel"\nuid=2_3 button "Submit order"',
+      evaluate_script: 'Script ran on page and returned:\n```json\n{"name":"Submit order"}\n```',
+      list_pages: "",
+    });
+    await driver.click({ selector: "#buy" });
+    const click = calls.find((c) => c.name === "click");
+    expect(click?.args.uid).toBe("2_3");
+  });
+
+  it("falls through to text locators when the selector matches nothing", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=2_1 button "Cancel"',
+      evaluate_script: "Script ran on page and returned:\n```json\nnull\n```",
+      list_pages: "",
+    });
+    await driver.click({ selector: "#gone", text: "Cancel" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("2_1");
+  });
+
+  it("selectorProbeScript embeds the selector as a JSON string literal", () => {
+    expect(selectorProbeScript('a[href="/x"]')).toContain('document.querySelector("a[href=\\"/x\\"]")');
+  });
+});
+
+describe("followNewTab guard + verb coverage (#89)", () => {
+  it("parsePageEntries reads url-ful and url-less pages", () => {
+    const text = `1: about:blank\n2: Example Domain (https://example.com/) [selected]\n3: Untitled`;
+    expect(parsePageEntries(text)).toEqual([
+      { id: 1, url: "about:blank" },
+      { id: 2, url: "https://example.com/" },
+      { id: 3, url: undefined },
+    ]);
+  });
+
+  it("does not follow a fresh about:blank or url-less tab", () => {
+    const entries = parsePageEntries(`1: app (https://app/) [selected]\n2: about:blank\n3: Untitled`);
+    expect(followableTab(entries, new Set([1]))).toBeUndefined();
+  });
+
+  it("follows the newest fresh real page", () => {
+    const entries = parsePageEntries(`1: app (https://app/)\n2: pop (https://pay/) [selected]`);
+    expect(followableTab(entries, new Set([1]))).toBe(2);
+  });
+
+  it("pressKey follows a new real tab (coverage beyond click)", async () => {
+    const { driver, calls } = stubbedDriver({
+      press_key: "",
+      list_pages: "1: app (https://app/)\n2: receipt (https://app/receipt)",
+      take_snapshot: "",
+    });
+    await driver.pressKey("Enter");
+    expect(calls.find((c) => c.name === "select_page")?.args.pageId).toBe(2);
   });
 });

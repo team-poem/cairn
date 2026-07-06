@@ -7,6 +7,7 @@ import type {
   AssertionResult,
   Context,
   Evidence,
+  LlmUsage,
   PageElement,
   Result,
   Scenario,
@@ -130,4 +131,8 @@ export interface LlmClient {
 export interface CompleteOptions {
   system?: string;
   maxTokens?: number;
+  /** Report what this completion cost, when the backend can measure it (HTTP APIs). Call at most
+   * once per completion; a backend that can't measure (subprocess CLIs) just never calls it —
+   * measurement is owned by the seam, never fabricated by the engine. */
+  onUsage?: (usage: LlmUsage) => void;
 }

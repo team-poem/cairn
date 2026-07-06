@@ -88,6 +88,35 @@ describe("runScenario", () => {
     expect(driver.closed).toBe(true); // still cleaned up
   });
 
+  it("a deterministic replay reports llmCalls: 0 — the cost proof rides in the result (#100)", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+    const { result } = await runScenario(scenario, { driver });
+    expect(result.usage).toEqual({ llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 });
+  });
+
+  it("counts LLM calls made by heal paths, host-injected client included (#100)", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"];
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? '{"action":"done"}'; } };
+    const { result } = await runScenario(broken, { driver, llm, heal: true });
+    expect(result.usage?.llmCalls).toBeGreaterThan(0);
+    expect(result.usage?.measuredCalls).toBe(0); // scripted backend reports no tokens — never fabricated
+  });
+
+  it("a custom ContextProvider's intent no longer relabels the frozen scenario (#13)", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+    const context = { async provide() { return { intent: "free-text goal from a ticket" }; } };
+    const { result } = await runScenario(scenario, { driver, context });
+    expect(result.scenario).toBe(scenario.name); // stable identity
+    expect(result.context.intent).toBe("free-text goal from a ticket"); // intent's one home
+  });
+
   it("outcome-heal judges the re-discovery against the ORIGINAL goal — no false green (P2)", async () => {
     const driver = new FakeDriver({ evidence: evidence(), elements: [] });
     // Original goal: reach the-moon; the flow only ever reaches iana.org. Re-discovery would ground

@@ -149,9 +149,30 @@ export interface Verdict {
   detail?: string;
 }
 
+/** What one completion cost, reported by a backend that can measure (HTTP APIs report exact
+ * token counts; subprocess backends can't and simply never report — absent fields = unknown). */
+export interface LlmUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Prompt tokens served from the provider's cache (billed cheaper). */
+  cacheReadTokens?: number;
+}
+
+/** Aggregated LLM usage for one run. `llmCalls` is exact — counted at the seam regardless of
+ * backend; token sums cover only the `measuredCalls` that reported. A clean deterministic
+ * replay shows `llmCalls: 0` — the engine's core economics, proven per run. */
+export interface RunUsage {
+  llmCalls: number;
+  measuredCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface Result {
   scenario: string;
   context: Context;
   evidence: Evidence;
   verdict: Verdict;
+  usage?: RunUsage;
 }

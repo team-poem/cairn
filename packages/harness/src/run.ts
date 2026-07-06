@@ -16,9 +16,10 @@ import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { LlmStepHealer } from "./core/step-heal.js";
+import { UsageMeter, emptyUsage } from "./core/usage.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
-import type { Result, Scenario, StepProgress } from "./core/types.js";
+import type { Result, RunUsage, Scenario, StepProgress } from "./core/types.js";
 
 export interface RunScenarioOptions {
   driver?: Driver;
@@ -104,9 +105,13 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
-  // Build the LLM lazily and once — only if the critic or heal needs it.
-  let llmCache = opts.llm;
-  const getLlm = (): LlmClient => (llmCache ??= createLlmClient(opts.model ? { model: opts.model } : {}));
+  // Build the LLM lazily and once — only if the critic or heal needs it. The meter wraps
+  // whichever client is used (host-injected included), so `result.usage` counts every call;
+  // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.
+  let meter: UsageMeter | undefined;
+  const getLlm = (): LlmClient =>
+    (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
+  const usage = (): RunUsage => meter?.snapshot() ?? emptyUsage();
 
   const critic =
     opts.critic ??
@@ -137,6 +142,7 @@ export async function runScenario(
       actions: opts.actions,
       stepHealer,
       expectTimeoutMs: opts.expectTimeoutMs,
+      usage,
     },
   );
 
@@ -159,7 +165,7 @@ export async function runScenario(
     // else a path that reaches a different end-state passes as green (P2 false green).
     const verdict = await critic.judge(evidence, scenario.assertions, ctx);
     return {
-      result: { scenario: repaired.name, context: ctx, evidence, verdict },
+      result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
       heals,
       stepHeals,
       healedScenario: { ...repaired, assertions: scenario.assertions },

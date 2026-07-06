@@ -13,6 +13,7 @@ export type GeminiOptions = HttpLlmClientOptions;
 
 interface GenerateResponse {
   candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+  usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; cachedContentTokenCount?: number };
 }
 
 const SPEC: HttpLlmClientSpec = {
@@ -44,6 +45,12 @@ const SPEC: HttpLlmClientSpec = {
     ((json as GenerateResponse).candidates?.[0]?.content?.parts ?? [])
       .map((p) => p.text ?? "")
       .join(""),
+  parseUsage: (json) => {
+    const u = (json as GenerateResponse).usageMetadata;
+    return u
+      ? { inputTokens: u.promptTokenCount, outputTokens: u.candidatesTokenCount, cacheReadTokens: u.cachedContentTokenCount }
+      : undefined;
+  },
 };
 
 export class GeminiLlmClient implements LlmClient {

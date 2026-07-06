@@ -59,3 +59,83 @@ describe("interactive roles", () => {
     expect(ranked.some((e) => e.role === "listbox")).toBe(true);
   });
 });
+
+describe("evidence quota (#115) — counterexample table for the ranking zone", () => {
+  const buttons = (n: number) => Array.from({ length: n }, (_, i) => ({ role: "button", name: `btn${i}` }));
+  const text = (name: string) => ({ role: "StaticText", name });
+  const has = (r: { name: string }[], name: string) => r.some((e) => e.name === name);
+
+  const table: Array<{
+    name: string;
+    elements: { role: string; name: string }[];
+    intent: string;
+    limit: number;
+    expect: (r: { role: string; name: string }[]) => void;
+  }> = [
+    {
+      name: "success text past the cap survives on a heavy page",
+      elements: [...buttons(70), text("주문이 완료되었습니다")],
+      intent: "주문 완료하기",
+      limit: 60,
+      expect: (r) => {
+        if (!has(r, "주문이 완료되었습니다")) throw new Error("evidence dropped");
+        if (r.length !== 60) throw new Error("cap changed");
+      },
+    },
+    {
+      name: "non-matching text stays out — no free pass for noise",
+      elements: [...buttons(70), text("all rights reserved")],
+      intent: "주문 완료하기",
+      limit: 60,
+      expect: (r) => {
+        if (has(r, "all rights reserved")) throw new Error("noise admitted");
+      },
+    },
+    {
+      name: "under the cap: behavior identical to before",
+      elements: [...buttons(10), text("done!")],
+      intent: "done",
+      limit: 60,
+      expect: (r) => {
+        if (r.length !== 11) throw new Error("changed a page that fits");
+      },
+    },
+    {
+      name: "evidence already inside the cut: no duplicate, no eviction",
+      elements: [text("order complete"), ...buttons(10)],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        if (r.filter((e) => e.name === "order complete").length !== 1) throw new Error("duplicated");
+        if (r.length !== 11) throw new Error("evicted needlessly");
+      },
+    },
+    {
+      name: "quota is bounded: at most 5 evidence rows admitted",
+      elements: [...buttons(70), ...Array.from({ length: 10 }, (_, i) => text(`order note ${i}`))],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        const admitted = r.filter((e) => e.role === "StaticText").length;
+        if (admitted !== 5) throw new Error(`expected 5 evidence rows, got ${admitted}`);
+        if (r.length !== 60) throw new Error("cap changed");
+      },
+    },
+    {
+      name: "interactive priority preserved: intent-matching button still ranks in",
+      elements: [...buttons(70), { role: "button", name: "order now" }, text("order complete")],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        if (!has(r, "order now")) throw new Error("intent-matching control dropped");
+        if (!has(r, "order complete")) throw new Error("evidence dropped");
+      },
+    },
+  ];
+
+  for (const t of table) {
+    it(t.name, () => {
+      t.expect(rankElements(t.elements, t.intent, t.limit));
+    });
+  }
+});

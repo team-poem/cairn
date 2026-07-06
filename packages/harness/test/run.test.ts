@@ -109,7 +109,46 @@ describe("runScenario", () => {
     const ac = new AbortController();
     ac.abort();
     await expect(runScenario(scenario, { driver, signal: ac.signal })).rejects.toThrow();
-    expect(driver.closed).toBe(true); // still cleaned up
+    expect(driver.closed).toBe(false); // caller-supplied → caller closes, even on abort (#98)
+  });
+
+  it("outcome-heal judges only the re-discovery's own evidence, not the failed run's (#78)", async () => {
+    // The 200 for iana.org was captured by the ORIGINAL failed run (FakeDriver's log is cumulative
+    // and static). Without the watermark it would satisfy the request-status after re-discovery.
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [
+        { kind: "navigated", to: "the-moon" }, // always fails → triggers outcome-heal
+        { kind: "request-status", urlIncludes: "iana.org", status: 200 }, // stale-satisfiable
+      ],
+    };
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"];
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? '{"action":"done"}'; } };
+
+    const { result } = await runScenario(broken, { driver, llm, heal: true });
+
+    const rs = result.verdict.results.find((r) => r.assertion.kind === "request-status");
+    expect(rs?.passed).toBe(false);
+    expect(rs?.detail).toContain("no request matching");
+  });
+
+  it("threads the run policy into the outcome-heal re-discovery (#76)", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    const llm = { id: "scripted", async complete() { return "[]"; } };
+    let stopped = 0;
+    await runScenario(broken, {
+      driver, llm, heal: true,
+      policy: { vet: () => ({ ok: true }), stop: () => (stopped++, true) },
+    });
+    expect(stopped).toBeGreaterThan(0); // the policy reached the unattended re-discovery
   });
 
   it("outcome-heal judges the re-discovery against the ORIGINAL goal — no false green (P2)", async () => {

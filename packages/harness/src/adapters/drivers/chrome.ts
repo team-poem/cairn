@@ -47,6 +47,8 @@ export class ChromeDevToolsDriver implements Driver {
   private initialUrl?: string;
   private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
+  private closed = false; // close() is terminal — a new session needs a new instance (#98)
+  private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -89,17 +91,25 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async ensureConnected(): Promise<Client> {
+    if (this.closed) {
+      throw new Error("driver closed — construct a new ChromeDevToolsDriver for a new session");
+    }
+    if (this.crashed) {
+      throw new Error("browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
+    }
     if (this.client) return this.client;
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
-    // If the subprocess dies mid-run, drop the dead client so the next call reconnects.
+    // An unexpected transport close mid-run is fatal for this session: a silent reconnect would
+    // resume the run on a fresh browser (about:blank, empty storage) and fail confusingly (#88).
     transport.onclose = () => {
       if (this.client === client) {
         this.client = undefined;
         this.transport = undefined;
+        this.crashed = true;
       }
     };
     try {
@@ -282,7 +292,10 @@ export class ChromeDevToolsDriver implements Driver {
     const transport = this.transport;
     this.client = undefined; // clear first so onclose treats this as an intentional close
     this.transport = undefined;
+    this.closed = true;
     this.seenPages.clear();
+    this.snapshotCache = undefined;
+    this.initialUrl = undefined;
     await client?.close().catch(() => {});
     await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }
@@ -331,12 +344,23 @@ export function isOpenDialog(err: unknown): boolean {
   return /open dialog/i.test(m) || /handle_dialog/i.test(m);
 }
 
-/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
+/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows, with form
+ * state (#93) parsed from the attribute tail: booleans render bare (`checked`, `disabled` — not
+ * the `checkable`/`disableable` capability tokens), strings as `attr="…"`. */
 export function parseElements(snapshot: string): PageElement[] {
   const out: PageElement[] = [];
   for (const line of snapshot.split("\n")) {
     const m = line.match(/uid=\S+\s+(\w+)\s+"([^"]*)"/);
-    if (m && m[2]!.trim()) out.push({ role: m[1]!, name: m[2]! });
+    if (!m || !m[2]!.trim()) continue;
+    const el: PageElement = { role: m[1]!, name: m[2]! };
+    // Only the tail after the quoted name — a name like "I have checked the box" must not match.
+    const tail = line.slice(m.index! + m[0].length);
+    if (/(?:^|\s)checked="mixed"/.test(tail)) el.checked = "mixed";
+    else if (/(?:^|\s)checked(?:\s|$)/.test(tail)) el.checked = true;
+    if (/(?:^|\s)disabled(?:\s|$)/.test(tail)) el.disabled = true;
+    const value = tail.match(/(?:^|\s)value="([^"]*)"/);
+    if (value) el.value = value[1]!;
+    out.push(el);
   }
   return out;
 }

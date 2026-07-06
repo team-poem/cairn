@@ -127,35 +127,32 @@ export async function runHarness(
   const scenario = await planner.plan(ctx);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
+  // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).
   const actions: ExecutedAction[] = [];
-  try {
-    for (const step of scenario.steps) {
-      opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-      const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer);
-      actions.push(result);
-      if (opts.onStep) {
-        const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
-        opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
-      }
-      if (!result.ok) break;
+  for (const step of scenario.steps) {
+    opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
+    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer);
+    actions.push(result);
+    if (opts.onStep) {
+      const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
+      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
     }
-
-    // Auto-wait for network idle so evidence captures late subresources, not a race (design §3).
-    await driver.settle();
-
-    const observed = await driver.observe();
-    const evidence: Evidence = {
-      ...observed,
-      execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
-    };
-
-    // Judge assertions, then require step completion too — either alone can miss a failure.
-    const judged = await critic.judge(evidence, scenario.assertions, ctx);
-    const verdict = withStepCompletion(judged, actions, scenario.steps.length);
-    const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
-    await reporter.emit(out);
-    return out;
-  } finally {
-    await driver.close();
+    if (!result.ok) break;
   }
+
+  // Auto-wait for network idle so evidence captures late subresources, not a race (design §3).
+  await driver.settle();
+
+  const observed = await driver.observe();
+  const evidence: Evidence = {
+    ...observed,
+    execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
+  };
+
+  // Judge assertions, then require step completion too — either alone can miss a failure.
+  const judged = await critic.judge(evidence, scenario.assertions, ctx);
+  const verdict = withStepCompletion(judged, actions, scenario.steps.length);
+  const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
+  await reporter.emit(out);
+  return out;
 }

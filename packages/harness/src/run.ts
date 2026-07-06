@@ -16,6 +16,7 @@ import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { LlmStepHealer } from "./core/step-heal.js";
+import type { ActionPolicy } from "./core/discover/index.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, Scenario, StepProgress } from "./core/types.js";
@@ -57,6 +58,9 @@ export interface RunScenarioOptions {
   actions?: Record<string, CustomAction>;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
   expectTimeoutMs?: number;
+  /** Gate for the outcome-heal re-discovery — the same ActionPolicy `discover()` takes, so an
+   * unattended repair can't run actions the authoring policy would have blocked (#76). */
+  policy?: ActionPolicy;
 }
 
 export interface RunScenarioResult {
@@ -118,64 +122,86 @@ export async function runScenario(
       ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes)
       : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes));
 
+  // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
+  // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
+  const ownsDriver = !opts.driver;
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
     ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal: opts.onHeal }))
     : baseDriver;
   const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
 
-  const result = await runHarness(
-    {
-      context: opts.context ?? new InlineContextProvider(),
-      planner: new StaticPlanner(scenario),
-      driver,
-      critic,
-      reporter: opts.reporter ?? new ConsoleReporter(),
-    },
-    scenario.name,
-    {
-      signal: opts.signal,
-      onStep: opts.onStep,
-      captureScreenshots: opts.screenshots,
-      actions: opts.actions,
-      stepHealer,
-      expectTimeoutMs: opts.expectTimeoutMs,
-      localePrefixes: opts.localePrefixes,
-    },
-  );
+  try {
+    const result = await runHarness(
+      {
+        context: opts.context ?? new InlineContextProvider(),
+        planner: new StaticPlanner(scenario),
+        driver,
+        critic,
+        reporter: opts.reporter ?? new ConsoleReporter(),
+      },
+      scenario.name,
+      {
+        signal: opts.signal,
+        onStep: opts.onStep,
+        captureScreenshots: opts.screenshots,
+        actions: opts.actions,
+        stepHealer,
+        expectTimeoutMs: opts.expectTimeoutMs,
+        localePrefixes: opts.localePrefixes,
+      },
+    );
 
-  const heals = healer?.heals ?? [];
-  const stepHeals = stepHealer?.heals ?? [];
+    const heals = healer?.heals ?? [];
+    const stepHeals = stepHealer?.heals ?? [];
 
-  // Outcome-aware heal: the steps ran (locators/steps may even have healed) but the run still failed
-  // its assertions — the frozen path no longer reaches the goal, a break surgical-heal couldn't fix.
-  // Re-discover from the start (invariant #4 sanctioned use (b)); only on failure.
-  if (opts.heal && !result.verdict.passed) {
-    const repaired = await discover(scenario.name, {
-      driver: baseDriver,
-      llm: getLlm(),
-      baseUrl: firstGotoUrl(scenario),
-      signal: opts.signal,
-    });
-    const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
-    const evidence = await baseDriver.observe();
-    // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
-    // else a path that reaches a different end-state passes as green (P2 false green).
-    const verdict = await critic.judge(evidence, scenario.assertions, ctx);
+    // Outcome-aware heal: the steps ran (locators/steps may even have healed) but the run still failed
+    // its assertions — the frozen path no longer reaches the goal, a break surgical-heal couldn't fix.
+    // Re-discover from the start (invariant #4 sanctioned use (b)); only on failure. Runs on the SAME
+    // live session (no close/reopen), so app state (auth, storage) matches replay conditions.
+    if (opts.heal && !result.verdict.passed) {
+      // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
+      // the failed run's requests must not satisfy a request-status.
+      const before = await baseDriver.observe();
+      const sinceRequest = before.logic.requests.length;
+      const sinceConsole = before.logic.console.length;
+
+      const repaired = await discover(scenario.name, {
+        driver: baseDriver,
+        llm: getLlm(),
+        baseUrl: firstGotoUrl(scenario),
+        signal: opts.signal,
+        policy: opts.policy,
+      });
+      const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
+      const observed = await baseDriver.observe();
+      const evidence = {
+        ...observed,
+        logic: {
+          requests: observed.logic.requests.slice(sinceRequest),
+          console: observed.logic.console.slice(sinceConsole),
+        },
+      };
+      // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
+      // else a path that reaches a different end-state passes as green (P2 false green).
+      const verdict = await critic.judge(evidence, scenario.assertions, ctx);
+      return {
+        result: { scenario: repaired.name, context: ctx, evidence, verdict },
+        heals,
+        stepHeals,
+        healedScenario: { ...repaired, assertions: scenario.assertions },
+      };
+    }
+
+    const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     return {
-      result: { scenario: repaired.name, context: ctx, evidence, verdict },
+      result,
       heals,
       stepHeals,
-      healedScenario: { ...repaired, assertions: scenario.assertions },
+      healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
     };
+  } finally {
+    if (ownsDriver) await baseDriver.close().catch(() => {});
   }
-
-  const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
-  return {
-    result,
-    heals,
-    stepHeals,
-    healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
-  };
 }

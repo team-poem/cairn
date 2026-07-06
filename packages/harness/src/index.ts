@@ -3,7 +3,8 @@ export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
-export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
+export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES } from "./core/steps.js";
+export type { UrlMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 export { LlmStepHealer } from "./core/step-heal.js";
@@ -40,6 +41,6 @@ export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/
 
 export { discover, parseDecision } from "./core/discover/index.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
-export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
-export type { TargetScore, ScoredTarget } from "./core/freeze.js";
+export { guessedKeyRuns, scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
+export type { GuessedKeyRun, TargetScore, ScoredTarget } from "./core/freeze.js";
 export { UsageMeter, emptyUsage } from "./core/usage.js";

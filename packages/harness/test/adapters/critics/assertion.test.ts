@@ -68,6 +68,14 @@ describe("no-failed-requests — a retried endpoint that recovered is benign (#6
     ]));
     expect(r.passed).toBe(false);
   });
+
+  it("an in-flight retry (status 0) does not count as recovery (#97)", () => {
+    const r = checkAssertion({ kind: "no-failed-requests" }, ev([
+      { method: "POST", url: "https://app/api/auth", status: 401 },
+      { method: "POST", url: "https://app/api/auth", status: 0 },
+    ]));
+    expect(r.passed).toBe(false);
+  });
 });
 
 describe("no-console-errors — product-marked noise is benign (#66)", () => {
@@ -99,6 +107,28 @@ describe("navigated — path boundary, not raw substring", () => {
   });
   it("does NOT false-pass on a parent path (…/en must not match …/en/signin)", () => {
     expect(checkAssertion({ kind: "navigated", to: "x.co/en" }, at("https://x.co/en/signin")).passed).toBe(false);
+  });
+});
+
+describe("navigated — respects the same localePrefixes injection as expect matching (#86 follow-up)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  it("checkAssertion: a consumer-declared locale (\"xx\") only matches when injected", () => {
+    const assertion = { kind: "navigated" as const, to: "app.co/en/cart" };
+    expect(checkAssertion(assertion, at("https://app.co/xx/cart")).passed).toBe(false);
+    expect(checkAssertion(assertion, at("https://app.co/xx/cart"), [], [], ["en", "xx"]).passed).toBe(true);
+  });
+  it("AssertionCritic threads localePrefixes into its navigated verdict, not just step expects", async () => {
+    const withInjection = new AssertionCritic(undefined, undefined, undefined, ["en", "xx"]);
+    const v1 = await withInjection.judge(at("https://app.co/xx/cart"), [{ kind: "navigated", to: "app.co/en/cart" }]);
+    expect(v1.passed).toBe(true);
+
+    const withoutInjection = new AssertionCritic();
+    const v2 = await withoutInjection.judge(at("https://app.co/xx/cart"), [{ kind: "navigated", to: "app.co/en/cart" }]);
+    expect(v2.passed).toBe(false); // "xx" is a real route under the default list — must not silently match
   });
 });
 
@@ -145,6 +175,56 @@ describe("request-status — any matching request, not the first (#68)", () => {
     const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/orders", status: 200 }, ev([]));
     expect(r.passed).toBe(false);
     expect(r.detail).toContain("no request matching");
+  });
+});
+
+describe("request-status — optional method scoping, parity with the step-level expect (#94)", () => {
+  // A duplicate-application flow: a GET sharing the URL prefix answers 200, the real POST answers 409.
+  const dup = ev([
+    { method: "GET", url: "https://app/api/applications?postId=p1", status: 200 },
+    { method: "POST", url: "https://app/api/applications", status: 409 },
+  ]);
+
+  it("a same-prefix GET does not decide — the later 409 POST satisfies the assertion", () => {
+    const r = checkAssertion({ kind: "request-status", urlIncludes: "/api/applications", status: 409 }, dup);
+    expect(r.passed).toBe(true);
+    expect(r.detail).toContain("409");
+  });
+
+  it("scopes to the method when given", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 409, method: "POST" },
+      dup,
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("a same-prefix GET cannot satisfy a POST check even on status collision", () => {
+    const collision = ev([{ method: "GET", url: "https://app/api/applications", status: 200 }]);
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 200, method: "POST" },
+      collision,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("no POST request matching");
+  });
+
+  it("matches the method case-insensitively", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 409, method: "post" },
+      dup,
+    );
+    expect(r.passed).toBe(true);
+  });
+
+  it("failure detail lists only same-method statuses when method is given", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "/api/applications", status: 201, method: "POST" },
+      dup,
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("409");
+    expect(r.detail).not.toContain("200");
   });
 });
 

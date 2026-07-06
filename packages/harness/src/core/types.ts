@@ -63,7 +63,9 @@ export type Assertion =
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  | { kind: "request-status"; urlIncludes: string; status: number }
+  /** `method` (optional) scopes the match, so a same-prefix GET can't satisfy a POST check —
+   * parity with the step-level `expect.requestStatus`. */
+  | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> };
@@ -77,10 +79,14 @@ export interface Scenario {
   truncated?: boolean;
 }
 
-/** An interactive element the discover loop perceives and acts on. */
+/** An interactive element the discover loop perceives and acts on. Form state rides along so
+ * the LLM can see a checkbox it already ticked or a disabled submit instead of thrashing (#93). */
 export interface PageElement {
   role: string;
   name: string;
+  checked?: boolean | "mixed";
+  disabled?: boolean;
+  value?: string;
 }
 
 /** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */
@@ -89,6 +95,8 @@ export interface StepProgress {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
+  skipped?: boolean;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -129,6 +137,10 @@ export interface ExecutedAction {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (idempotency pre-check).
+   * Surfaced so a skip is always observable — a wrongly pre-satisfied expect must never hide as a
+   * plain ok (#86). */
+  skipped?: boolean;
 }
 
 export interface ConsoleMessage {

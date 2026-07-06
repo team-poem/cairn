@@ -110,12 +110,13 @@ export class LlmCritic implements Critic {
     custom: CustomChecks = {},
     benign: readonly string[] = [],
     benignConsole: readonly string[] = [],
+    localePrefixes?: readonly string[],
   ) {
     // `expect` → LLM (first, so it wins); everything else falls through to the same
     // mechanical/custom handlers AssertionCritic uses. The two critics differ only here.
     this.handlers = [
       new ExpectAssertionHandler(llm),
-      new MechanicalAssertionHandler(benign, benignConsole),
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes),
       new CustomAssertionHandler(custom),
     ];
   }

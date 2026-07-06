@@ -87,6 +87,10 @@ cairn replay cart.skill.json            # deterministic — exit 1 on failure, a
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 
+Long flows and slow apps have knobs: `discover --max-steps=30` raises the exploration step cap,
+and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts
+as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`.
+
 ## Embed it
 
 The CLI is a convenience; the engine is the point. **Author once** — an AI discovers the flow; you
@@ -172,6 +176,13 @@ Each `target` keeps several locators — `text` (accessible name) first, `role` 
 rename-resilient fallback, `selector` as a CSS escape hatch — which is what lets replay survive a
 redesign without falling back to the LLM. A step's `expect` is its post-condition: replay waits
 for it deterministically (so an async submit isn't raced) and only heals if it truly diverges.
+
+> **Text matches one accessibility node at a time.** `text` — in a `target` or a `waitFor` —
+> is matched as a substring of a *single* node's accessible name. Text composed at render time
+> is often several nodes: JSX interpolation like `팀 명단 ({n}/{cap})` renders as separate
+> StaticText nodes, so `waitFor { "text": "팀 명단 (1/3)" }` can never match, even though a
+> human "sees" that combined string on screen. Wait on a stable substring that lives in one
+> node (here `"팀 명단"`), or fall back to `role`/`selector`.
 
 ## When the UI changes — self-heal
 

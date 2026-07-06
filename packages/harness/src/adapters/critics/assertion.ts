@@ -18,12 +18,13 @@ export function checkAssertion(
   evidence: Evidence,
   benign: readonly string[] = [],
   benignConsole: readonly string[] = [],
+  localePrefixes?: readonly string[],
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
-      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to)) {
+      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes })) {
         return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
       }
       return { assertion, passed: true, detail: finalUrl };
@@ -51,11 +52,16 @@ export function checkAssertion(
     case "request-status": {
       // Any matching request satisfies the assertion (same predicate as conditionMet) — the
       // verdict must not depend on arrival order when an endpoint responds more than once.
-      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status);
+      // An optional `method` scopes both the match and the failure detail (#94).
+      const method = assertion.method?.toUpperCase();
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
       if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
-      const near = evidence.logic.requests.filter((r) => r.url.includes(assertion.urlIncludes));
+      const near = evidence.logic.requests.filter(
+        (r) => r.url.includes(assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
+      );
       if (near.length === 0) {
-        return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
+        const scope = method ? `${method} ` : "";
+        return { assertion, passed: false, detail: `no ${scope}request matching ${assertion.urlIncludes}` };
       }
       const seen = [...new Set(near.map((r) => r.status))].join(", ");
       return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };
@@ -72,6 +78,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   constructor(
     private readonly benign: readonly string[] = [],
     private readonly benignConsole: readonly string[] = [],
+    private readonly localePrefixes?: readonly string[],
   ) {}
 
   supports(assertion: Assertion): boolean {
@@ -79,7 +86,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign, this.benignConsole);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes);
   }
 }
 
@@ -137,13 +144,21 @@ export class AssertionCritic implements Critic {
    * @param custom product-defined checks for `custom` assertions, keyed by name.
    * @param benign URL substrings whose 4xx/5xx is product noise, not a regression (P7).
    * @param benignConsole console-text substrings that are product noise (framework/i18n), not errors (#66).
+   * @param localePrefixes locale prefixes `navigated`'s URL match may strip as a fallback (#86);
+   *   default is `urlReached`'s conservative built-in list. Keep this consistent with whatever
+   *   the same run passed as `RunHarnessOptions.localePrefixes`, or the verdict and the mid-run
+   *   `expect` checks can disagree on the same URL.
    */
   constructor(
     custom: CustomChecks = {},
     benign: readonly string[] = [],
     benignConsole: readonly string[] = [],
+    localePrefixes?: readonly string[],
   ) {
-    this.handlers = [new MechanicalAssertionHandler(benign, benignConsole), new CustomAssertionHandler(custom)];
+    this.handlers = [
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes),
+      new CustomAssertionHandler(custom),
+    ];
   }
 
   async judge(evidence: Evidence, assertions: Assertion[]): Promise<Verdict> {

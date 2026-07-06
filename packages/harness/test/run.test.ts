@@ -80,12 +80,75 @@ describe("runScenario", () => {
     expect(events[0]?.screenshot).toBe("data:image/png;base64,AAA");
   });
 
+  it("threads localePrefixes from RunScenarioOptions into the final navigated verdict, not just step expects (#86 follow-up)", async () => {
+    // "xx" is not in the engine's default locale list — pipeline.test.ts covers this for the
+    // per-step expect precheck; this covers the same injection reaching the AssertionCritic's
+    // navigated assertion, so a run's replay checks and its final verdict agree on one URL.
+    const at = (finalUrl: string): Evidence => ({
+      execution: { actions: [], navigated: true, finalUrl, blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    });
+    const locale: Scenario = {
+      name: "locale-navigated",
+      steps: [{ kind: "goto", url: "https://app.co/xx/cart" }],
+      assertions: [{ kind: "navigated", to: "app.co/en/cart" }],
+    };
+
+    const withInjection = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    const { result: r1 } = await runScenario(locale, { driver: withInjection, localePrefixes: ["en", "xx"] });
+    expect(r1.verdict.passed).toBe(true);
+
+    const withoutInjection = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    const { result: r2 } = await runScenario(locale, { driver: withoutInjection });
+    expect(r2.verdict.passed).toBe(false); // "xx" is a real route under the default list
+  });
+
   it("aborts between steps when the signal fires (a host's Stop button)", async () => {
     const driver = new FakeDriver({ evidence: evidence() });
     const ac = new AbortController();
     ac.abort();
     await expect(runScenario(scenario, { driver, signal: ac.signal })).rejects.toThrow();
-    expect(driver.closed).toBe(true); // still cleaned up
+    expect(driver.closed).toBe(false); // caller-supplied → caller closes, even on abort (#98)
+  });
+
+  it("outcome-heal judges only the re-discovery's own evidence, not the failed run's (#78)", async () => {
+    // The 200 for iana.org was captured by the ORIGINAL failed run (FakeDriver's log is cumulative
+    // and static). Without the watermark it would satisfy the request-status after re-discovery.
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [
+        { kind: "navigated", to: "the-moon" }, // always fails → triggers outcome-heal
+        { kind: "request-status", urlIncludes: "iana.org", status: 200 }, // stale-satisfiable
+      ],
+    };
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"];
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? '{"action":"done"}'; } };
+
+    const { result } = await runScenario(broken, { driver, llm, heal: true });
+
+    const rs = result.verdict.results.find((r) => r.assertion.kind === "request-status");
+    expect(rs?.passed).toBe(false);
+    expect(rs?.detail).toContain("no request matching");
+  });
+
+  it("threads the run policy into the outcome-heal re-discovery (#76)", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    const llm = { id: "scripted", async complete() { return "[]"; } };
+    let stopped = 0;
+    await runScenario(broken, {
+      driver, llm, heal: true,
+      policy: { vet: () => ({ ok: true }), stop: () => (stopped++, true) },
+    });
+    expect(stopped).toBeGreaterThan(0); // the policy reached the unattended re-discovery
   });
 
   it("a deterministic replay reports llmCalls: 0 — the cost proof rides in the result (#100)", async () => {

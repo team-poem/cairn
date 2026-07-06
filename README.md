@@ -43,6 +43,7 @@ replaying frozen skill "log in and open the cart" — deterministic, no LLM
 log in and open the cart
   ✓ navigated → https://shop.example/cart
   · 6 actions · 34 requests · 0 console msgs
+  · llm: 0 call(s)
   ✓ no-failed-requests
   ✓ navigated — https://shop.example/cart
   ✓ request-status — 200 https://shop.example/api/auth
@@ -51,7 +52,8 @@ log in and open the cart
 ```
 
 That second command is your regression suite now: same input, same verdict, **zero LLM calls** —
-run it on every push for free.
+and the report prints the proof itself (`· llm: 0 call(s)`; `result.usage` in the library). Run it
+on every push for free.
 
 ## Why cairn
 
@@ -86,6 +88,10 @@ cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.s
 cairn replay cart.skill.json            # deterministic — exit 1 on failure, a ready CI gate
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
+
+Long flows and slow apps have knobs: `discover --max-steps=30` raises the exploration step cap,
+and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts
+as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`.
 
 ## Embed it
 
@@ -168,10 +174,19 @@ intent ─► discover (LLM, once) ─► cart.skill.json ─► replay (no LLM,
 }
 ```
 
-Each `target` keeps several locators — `text` (accessible name) first, `role` + `index` as a
-rename-resilient fallback, `selector` as a CSS escape hatch — which is what lets replay survive a
-redesign without falling back to the LLM. A step's `expect` is its post-condition: replay waits
+Each `target` keeps several locators — `text` (accessible name) first, with `nth` to address
+the Nth of several identically-named elements (`{"text": "Accept", "role": "button", "nth": 2}`
+is the 3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallback, `selector`
+as a CSS escape hatch — which is what lets replay survive a redesign without falling back to the
+LLM. A step's `expect` is its post-condition: replay waits
 for it deterministically (so an async submit isn't raced) and only heals if it truly diverges.
+
+> **Text matches one accessibility node at a time.** `text` — in a `target` or a `waitFor` —
+> is matched as a substring of a *single* node's accessible name. Text composed at render time
+> is often several nodes: JSX interpolation like `팀 명단 ({n}/{cap})` renders as separate
+> StaticText nodes, so `waitFor { "text": "팀 명단 (1/3)" }` can never match, even though a
+> human "sees" that combined string on screen. Wait on a stable substring that lives in one
+> node (here `"팀 명단"`), or fall back to `role`/`selector`.
 
 ## When the UI changes — self-heal
 
@@ -187,6 +202,7 @@ replaying frozen skill "log in and open the cart" — self-heal on
 log in and open the cart
   ✓ navigated → https://shop.example/cart
   · 6 actions · 34 requests · 0 console msgs
+  · llm: 1 call(s) · 1184 in / 42 out tokens
   ✓ no-failed-requests
   ✓ navigated — https://shop.example/cart
   ✓ request-status — 200 https://shop.example/api/auth
@@ -257,13 +273,15 @@ import {
   AssertionCritic, JsonReporter, InlineContextProvider,
 } from "cairn-engine";
 
+const driver = new ChromeDevToolsDriver(); // or your own Driver
 const result = await runHarness({
   context: new InlineContextProvider(),
   planner: new StaticPlanner(scenario), // replay a frozen scenario
-  driver: new ChromeDevToolsDriver(),   // or your own Driver
+  driver,
   critic: new AssertionCritic(),        // or LlmCritic, or your own
   reporter: new JsonReporter("report.json"),
 }, scenario.name);
+await driver.close(); // whoever constructs a Driver owns it — runHarness never closes yours
 ```
 
 Building a UI on top? The engine streams what a screen needs — `signal` (Stop) · `screenshots` ·
@@ -276,12 +294,15 @@ compose `runHarness` with your own `Driver` (e.g. one over `chrome.debugger`).
 Discovery is *authoring*, not running: it happens once, and what it produces is plain JSON you can
 read, diff, and edit before you commit it. Frozen assertions are grounded in what the run actually
 observed (a hallucinated check is dropped), a scenario with nothing to verify **fails closed**,
-and every replay after that is deterministic.
+a run that blocks partway fails even when the executed prefix's assertions held, and steps the
+agent *guessed* (blind key chains instead of a resolved target) are flagged at freeze time.
 
 **What stops the agent from clicking something destructive while exploring?**
 An **`ActionPolicy`** — a deterministic gate the discover loop consults before executing each
-proposed action. Block delete/checkout-style controls, cap wandering, or stop on a goal; a
-rejected action never runs, and the LLM picks another path.
+proposed action, and it sees the page (the current elements and URL), not just the proposal.
+Block delete/checkout-style controls, cap wandering, or stop on a goal; a rejected action never
+runs, and the LLM picks another path. The same policy gates the unattended re-discovery when
+`runScenario({ heal: true, policy })` repairs a broken flow.
 
 **What about logins and sessions?**
 Drive them like a user: put the credentials in the intent and the agent types them, and the frozen
@@ -348,7 +369,8 @@ cairn/
 and is benchmarked: deterministic, LLM-free replay on real multi-step flows; discovery paid once
 (~$0.5) against $0 replays; survival across UI renames without re-reasoning. Multiple LLM backends
 (Anthropic, OpenAI, Gemini, plus key-less Claude Code and Codex CLI) and a browser/extension entry
-ship in the box.
+ship in the box. Every result carries its own cost proof — `result.usage` counts LLM calls exactly
+(a clean replay reports `llmCalls: 0`) and token totals whenever the backend measures them.
 
 What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a
 separate desktop app that embeds it for visual replay. The interfaces are the contract.

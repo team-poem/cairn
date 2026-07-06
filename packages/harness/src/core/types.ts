@@ -45,13 +45,22 @@ export interface WaitUntil {
 /**
  * Locate an element by intent, not a driver handle. A frozen target carries several
  * locators so replay survives UI change without falling back to the LLM:
- * `text` (accessible name) is primary; `role` + `index` (position among same-role elements)
- * is a rename-resilient fallback; `selector` is a CSS escape hatch.
+ * `text` (accessible name) is primary, with `nth` picking among identically-named matches;
+ * `role` + `index` (position among same-role elements) is a rename-resilient fallback;
+ * `selector` is a CSS escape hatch.
  */
 export interface Target {
   text?: string;
   role?: string;
   index?: number;
+  /**
+   * 0-based position among the elements whose accessible name matches `text` (and `role`, when
+   * given) — "the 3rd Accept button" is `{ text: "Accept", role: "button", nth: 2 }`. The readable
+   * way to address one of several identically-named elements (list UIs), and heal-friendly: the
+   * name survives UI change and the position re-derives. Same 0-based convention as `index`;
+   * ignored without `text`.
+   */
+  nth?: number;
   selector?: string;
 }
 
@@ -63,7 +72,9 @@ export type Assertion =
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  | { kind: "request-status"; urlIncludes: string; status: number }
+  /** `method` (optional) scopes the match, so a same-prefix GET can't satisfy a POST check —
+   * parity with the step-level `expect.requestStatus`. */
+  | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> };
@@ -77,10 +88,14 @@ export interface Scenario {
   truncated?: boolean;
 }
 
-/** An interactive element the discover loop perceives and acts on. */
+/** An interactive element the discover loop perceives and acts on. Form state rides along so
+ * the LLM can see a checkbox it already ticked or a disabled submit instead of thrashing (#93). */
 export interface PageElement {
   role: string;
   name: string;
+  checked?: boolean | "mixed";
+  disabled?: boolean;
+  value?: string;
 }
 
 /** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */
@@ -89,6 +104,8 @@ export interface StepProgress {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
+  skipped?: boolean;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -129,6 +146,10 @@ export interface ExecutedAction {
   step: Step;
   ok: boolean;
   error?: string;
+  /** True when the step was not executed because its `expect` already held (idempotency pre-check).
+   * Surfaced so a skip is always observable — a wrongly pre-satisfied expect must never hide as a
+   * plain ok (#86). */
+  skipped?: boolean;
 }
 
 export interface ConsoleMessage {
@@ -149,9 +170,30 @@ export interface Verdict {
   detail?: string;
 }
 
+/** What one completion cost, reported by a backend that can measure (HTTP APIs report exact
+ * token counts; subprocess backends can't and simply never report — absent fields = unknown). */
+export interface LlmUsage {
+  inputTokens?: number;
+  outputTokens?: number;
+  /** Prompt tokens served from the provider's cache (billed cheaper). */
+  cacheReadTokens?: number;
+}
+
+/** Aggregated LLM usage for one run. `llmCalls` is exact — counted at the seam regardless of
+ * backend; token sums cover only the `measuredCalls` that reported. A clean deterministic
+ * replay shows `llmCalls: 0` — the engine's core economics, proven per run. */
+export interface RunUsage {
+  llmCalls: number;
+  measuredCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+}
+
 export interface Result {
   scenario: string;
   context: Context;
   evidence: Evidence;
   verdict: Verdict;
+  usage?: RunUsage;
 }

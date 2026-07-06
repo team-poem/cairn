@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import { guessedKeyRuns, scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
 import type { Scenario } from "../../src/core/types.js";
 
 describe("scoreTarget", () => {
@@ -22,6 +22,19 @@ describe("scoreTarget", () => {
 
   it("no locator is weak", () => {
     expect(scoreTarget({}).weak).toBe(true);
+  });
+
+  it("text + nth is not weak — the designed address for duplicate labels (#92)", () => {
+    const s = scoreTarget({ text: "Accept", role: "button", nth: 2 });
+    expect(s.weak).toBe(false);
+    expect(s.score).toBeGreaterThan(scoreTarget({ text: "Accept" }).score);
+    expect(s.score).toBeLessThan(scoreTarget({ role: "button", index: 2 }).score);
+    expect(s.reason).toMatch(/nth/);
+  });
+
+  it("nth without text locates nothing extra — the remaining locators still decide the score", () => {
+    expect(scoreTarget({ nth: 2 }).weak).toBe(true);
+    expect(scoreTarget({ role: "button", index: 1, nth: 2 }).score).toBe(0.7); // index fallback still rules
   });
 });
 
@@ -46,5 +59,31 @@ describe("weakTargets / scoreScenario", () => {
     const weak = weakTargets(scenario);
     expect(weak).toHaveLength(1);
     expect(weak[0]!.stepIndex).toBe(1);
+  });
+});
+
+describe("guessedKeyRuns (#61)", () => {
+  const base = (steps: Scenario["steps"]): Scenario => ({ name: "t", steps, assertions: [] });
+
+  it("flags a Tab chain and a multi-key run", () => {
+    const s = base([
+      { kind: "type", target: { text: "Title" }, text: "hi" },
+      { kind: "pressKey", key: "Tab" },
+      { kind: "pressKey", key: "1" },
+      { kind: "click", target: { text: "Save" } },
+      { kind: "pressKey", key: "Tab" },
+    ]);
+    expect(guessedKeyRuns(s)).toEqual([
+      { startIndex: 1, keys: ["Tab", "1"] },
+      { startIndex: 4, keys: ["Tab"] },
+    ]);
+  });
+
+  it("does not flag a single Enter submit after typing (normal pattern)", () => {
+    const s = base([
+      { kind: "type", target: { text: "Search" }, text: "q" },
+      { kind: "pressKey", key: "Enter" },
+    ]);
+    expect(guessedKeyRuns(s)).toEqual([]);
   });
 });

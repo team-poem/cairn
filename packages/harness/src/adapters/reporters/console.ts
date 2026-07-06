@@ -10,6 +10,15 @@ export class ConsoleReporter implements Reporter {
     console.log(`\n${scenario}`);
     console.log(`  ${mark(evidence.execution.navigated)} navigated → ${evidence.execution.finalUrl ?? "(none)"}`);
     console.log(`  · ${evidence.execution.actions.length} actions · ${evidence.logic.requests.length} requests · ${evidence.logic.console.length} console msgs`);
+    const u = result.usage;
+    if (u) {
+      const tokens = u.measuredCalls
+        ? ` · ${u.inputTokens} in${u.cacheReadTokens ? ` (${u.cacheReadTokens} cached)` : ""} / ${u.outputTokens} out tokens`
+        : u.llmCalls
+          ? " · tokens unmeasured (subprocess backend)"
+          : "";
+      console.log(`  · llm: ${u.llmCalls} call(s)${tokens}`);
+    }
 
     for (const r of verdict.results) {
       console.log(`  ${mark(r.passed)} ${r.assertion.kind}${r.detail ? ` — ${r.detail}` : ""}`);

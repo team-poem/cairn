@@ -13,6 +13,7 @@ export type OpenAIOptions = HttpLlmClientOptions;
 
 interface ChatResponse {
   choices?: Array<{ message?: { content?: string } }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } };
 }
 
 const SPEC: HttpLlmClientSpec = {
@@ -40,6 +41,12 @@ const SPEC: HttpLlmClientSpec = {
   },
   parseResponse: (json) =>
     (json as ChatResponse).choices?.[0]?.message?.content ?? "",
+  parseUsage: (json) => {
+    const u = (json as ChatResponse).usage;
+    return u
+      ? { inputTokens: u.prompt_tokens, outputTokens: u.completion_tokens, cacheReadTokens: u.prompt_tokens_details?.cached_tokens }
+      : undefined;
+  },
 };
 
 export class OpenAILlmClient implements LlmClient {

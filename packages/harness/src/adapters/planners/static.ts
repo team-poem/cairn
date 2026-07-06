@@ -5,9 +5,9 @@ import type { Context, Scenario } from "../../core/types.js";
 export class StaticPlanner implements Planner {
   constructor(private readonly scenario: Scenario) {}
 
-  async plan(ctx: Context): Promise<Scenario> {
-    // A custom ContextProvider can relabel the run through intent; on the default
-    // replay path the task is scenario.name, so intent === name and this is a no-op.
-    return { ...this.scenario, name: ctx.intent || this.scenario.name };
+  async plan(_ctx: Context): Promise<Scenario> {
+    // scenario.name is the frozen identity; the run's intent lives in result.context.intent —
+    // one home each, so a custom ContextProvider can't relabel the scenario (#13).
+    return this.scenario;
   }
 }

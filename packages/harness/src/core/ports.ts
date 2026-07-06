@@ -7,6 +7,7 @@ import type {
   AssertionResult,
   Context,
   Evidence,
+  LlmUsage,
   PageElement,
   Result,
   Scenario,
@@ -31,7 +32,11 @@ export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }
 
-/** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles. */
+/** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles.
+ *
+ * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
+ * (`runScenario`'s default); a caller-supplied driver is closed by the caller. `close()` ends the
+ * session permanently: a closed driver must not be reused — construct a new instance instead (#98). */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;
@@ -83,8 +88,16 @@ export interface StepHeal {
   step: Step;
 }
 
+/**
+ * Persists frozen scenarios. `ref` is a store-defined reference — a file path for the built-in
+ * `FileSkillStore`; an S3 key, DB id, or registry name for another store. `load` throws when the
+ * reference is missing or the artifact isn't a bare Scenario; `freeze` returns the canonical
+ * reference it wrote. The CLI's load/replay/freeze paths all route through this port
+ * (invariant #2) — the frozen skill itself stays plain data either way (pattern ≠ data).
+ */
 export interface SkillStore {
-  resolve(name: string): Promise<Scenario | undefined>;
+  load(ref: string): Promise<Scenario>;
+  freeze(ref: string, scenario: Scenario): Promise<string>;
 }
 
 /**
@@ -118,7 +131,6 @@ export interface Harness {
   driver: Driver;
   critic: Critic;
   reporter: Reporter;
-  skills?: SkillStore;
 }
 
 /** Model-agnostic LLM seam (invariant #5); `createLlmClient` picks the implementation. */
@@ -130,4 +142,8 @@ export interface LlmClient {
 export interface CompleteOptions {
   system?: string;
   maxTokens?: number;
+  /** Report what this completion cost, when the backend can measure it (HTTP APIs). Call at most
+   * once per completion; a backend that can't measure (subprocess CLIs) just never calls it —
+   * measurement is owned by the seam, never fabricated by the engine. */
+  onUsage?: (usage: LlmUsage) => void;
 }

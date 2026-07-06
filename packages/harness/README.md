@@ -36,17 +36,20 @@ replaying frozen skill "log in and open the cart" — deterministic, no LLM
 
 log in and open the cart
   ✓ navigated → https://shop.example/cart
+  · llm: 0 call(s)
   ✓ no-failed-requests
   ✓ request-status — 200 https://shop.example/api/auth
 
 ✓ pass — 3 assertion(s)
 ```
 
-That second command is your regression suite: same input, same verdict, **zero LLM calls**. And
-when a redesign renames the login button, `--heal` repairs just that step and re-freezes:
+That second command is your regression suite: same input, same verdict, **zero LLM calls** — and
+the report prints the proof itself (`· llm: 0 call(s)`; `result.usage` in the library). When a
+redesign renames the login button, `--heal` repairs just that step and re-freezes:
 
 ```console
 $ cairn replay cart.skill.json --heal --freeze=cart.skill.json
+  · llm: 1 call(s) · 1184 in / 42 out tokens
 ✓ pass — 3 assertion(s)
 
 self-healed 1 step(s):
@@ -96,6 +99,8 @@ if (healedScenario) {
   await saveSkillFile("cart.skill.json", healedScenario);
 }
 if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
+// result.usage carries the cost proof: llmCalls is exact (0 on a clean replay),
+// token totals whenever the backend measures them.
 ```
 
 Prefer a one-off from the terminal? The same steps are CLI commands —
@@ -183,8 +188,10 @@ suite by hand.
 The core knows no app — **you** supply what "success" means and how to drive the browser. Every
 stage is a replaceable port — your own `Driver` (e.g. Playwright), `Critic`, `Reporter`,
 `ContextProvider` (auth/fixtures), `LlmClient` (any model). Discovery itself takes an
-**`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs (block
-destructive controls, cap wandering, stop on a goal). Too much for a full port? `custom`
+**`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs, seeing
+the page (current elements + URL), not just the proposal: block destructive controls, cap
+wandering, stop on a goal. The same policy gates the unattended re-discovery when
+`runScenario({ heal: true, policy })` repairs a broken flow. Too much for a full port? `custom`
 assertions/actions define success inline:
 
 ```ts

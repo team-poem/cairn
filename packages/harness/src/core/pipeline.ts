@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
+import type { Evidence, ExecutedAction, Result, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 
@@ -96,6 +96,23 @@ async function runStep(
   return { step, ok: false, error: `post-condition not met: ${JSON.stringify(step.expect)}` };
 }
 
+/**
+ * Fold step completion into the verdict: assertions only prove evidence that was *collected*, and a
+ * blocked run stopped collecting partway — trailing steps never executed, so assertions satisfied by
+ * the executed prefix must not read as a green (#90; same fail-closed stance as the empty-assertion
+ * rule, #69). `detail` says which step blocked and why, so a CI gate can tell "run didn't finish"
+ * apart from "assertions failed". A healed step is recorded ok, so a healed run is not penalized.
+ */
+function withStepCompletion(verdict: Verdict, actions: ExecutedAction[], totalSteps: number): Verdict {
+  const blockedAt = actions.findIndex((a) => !a.ok);
+  if (blockedAt === -1) return verdict;
+  const remaining = totalSteps - actions.length;
+  const why =
+    `step ${blockedAt + 1}/${totalSteps} blocked: ${actions[blockedAt]?.error ?? "step failed"}` +
+    (remaining > 0 ? ` (${remaining} later step(s) never ran)` : "");
+  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
+}
+
 export async function runHarness(
   harness: Harness,
   task: string,
@@ -132,7 +149,9 @@ export async function runHarness(
       execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
     };
 
-    const verdict = await critic.judge(evidence, scenario.assertions, ctx);
+    // Judge assertions, then require step completion too — either alone can miss a failure.
+    const judged = await critic.judge(evidence, scenario.assertions, ctx);
+    const verdict = withStepCompletion(judged, actions, scenario.steps.length);
     const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
     await reporter.emit(out);
     return out;

@@ -18,6 +18,20 @@ cairn **does not judge by "the screen looked right."** It judges on observable f
 
 Routing = `AssertionHandler.supports() → judge()` dispatch — no branching inside a stage (invariant #2). The two critics (`AssertionCritic`/`LlmCritic`) differ only in *which handlers they register*.
 
+## Fail closed — a verdict must not out-run its evidence
+
+Two composition rules keep `verdict.passed` honest for the CI-gate use case:
+
+- **No assertions → fail** (#69): an empty assertion set verifies nothing; `[].every` green is vacuous.
+- **Blocked run → fail** (#90): assertions only prove evidence that was *collected*. If a step
+  blocked (executed but its post-condition never held, or failed outright), the trailing steps never
+  ran — assertions satisfied by the executed prefix must not read as a completed scenario. So
+  `passed` requires *assertions hold AND every executed step ok*. `Verdict.detail` names the blocked
+  step and its error, so a consumer can tell "run didn't finish" apart from "assertions failed".
+  A *healed* step is recorded ok — self-heal, idempotent skip, and re-discovery are the sanctioned
+  paths for "the step diverged but the goal is still reachable", not a passing verdict over a
+  partial run.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

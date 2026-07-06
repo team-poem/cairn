@@ -98,6 +98,7 @@ describe("pipeline", () => {
     );
 
     expect(result.verdict.passed).toBe(true);
+    expect(result.verdict.detail).toBeUndefined(); // a clean, complete run needs no override note
     expect(driver.visited).toEqual(["https://example.com"]);
     expect(driver.clicked).toEqual([{ text: "Learn more" }]);
     expect(driver.closed).toBe(true); // driver always closed
@@ -141,6 +142,42 @@ describe("pipeline", () => {
     expect(result.evidence.execution.blocked).toBe(true);
     const actions = result.evidence.execution.actions;
     expect(actions[actions.length - 1]?.ok).toBe(false);
+    expect(result.verdict.passed).toBe(false); // a blocked run is never a green (#90)
+  });
+
+  it("fails the verdict when a step blocked even though every assertion holds (#90)", async () => {
+    // Reported shape: a mid-run step diverges, the trailing steps never execute, yet the
+    // mechanical assertions are already satisfied by the executed prefix's evidence. For the
+    // CI-gate use case (`if (!result.verdict.passed) exit 1`) that was a false green.
+    const driver = new FakeDriver({ evidence: evidence(), failOn: ["Place order"] });
+    const checkout: Scenario = {
+      name: "checkout",
+      steps: [
+        { kind: "goto", url: "https://example.com" },
+        { kind: "click", target: { text: "Place order" } }, // blocks here
+        { kind: "click", target: { text: "Confirm" } }, // never runs
+      ],
+      assertions: [
+        { kind: "no-failed-requests" },
+        { kind: "request-status", urlIncludes: "iana.org", status: 200 }, // satisfied by the prefix
+      ],
+    };
+    const result = await runHarness(
+      {
+        context: new InlineContextProvider(),
+        planner: new StaticPlanner(checkout),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      "task",
+    );
+    expect(result.verdict.results.every((r) => r.passed)).toBe(true); // assertions DO hold...
+    expect(result.verdict.passed).toBe(false); // ...but the run didn't finish → fail closed
+    // The detail distinguishes "run didn't finish" from "assertions failed" for a CI gate.
+    expect(result.verdict.detail).toContain("step 2/3 blocked");
+    expect(result.verdict.detail).toContain("element not found: Place order");
+    expect(result.verdict.detail).toContain("1 later step(s) never ran");
   });
 
   it("lets ContextProvider influence the result — intent overrides the scenario name", async () => {

@@ -6,6 +6,7 @@
  * parts that actually differ via an {@link HttpLlmClientSpec}.
  */
 import type { CompleteOptions, LlmClient } from "../../core/ports.js";
+import type { LlmUsage } from "../../core/types.js";
 import { postJsonWithRetry } from "./http.js";
 
 /** Default completion token budget shared by the HTTP LLM adapters. */
@@ -42,6 +43,8 @@ export interface HttpLlmClientSpec {
   }): { url: string; headers: Record<string, string>; body: unknown };
   /** Pull the completion text out of the parsed JSON response ("" when absent). */
   parseResponse(json: unknown): string;
+  /** Pull token usage out of the response for `CompleteOptions.onUsage`; undefined when absent. */
+  parseUsage?(json: unknown): LlmUsage | undefined;
 }
 
 /**
@@ -65,6 +68,10 @@ export function makeHttpLlmClient(
         { headers: req.headers, body: JSON.stringify(req.body) },
         { timeoutMs: opts.timeoutMs, maxRetries: opts.maxRetries, label: spec.label },
       );
+      if (options.onUsage) {
+        const usage = spec.parseUsage?.(json);
+        if (usage) options.onUsage(usage);
+      }
       return spec.parseResponse(json).trim();
     },
   };

@@ -14,6 +14,7 @@ export type AnthropicOptions = HttpLlmClientOptions;
 
 interface MessagesResponse {
   content?: Array<{ type: string; text?: string }>;
+  usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number };
 }
 
 const SPEC: HttpLlmClientSpec = {
@@ -56,6 +57,12 @@ const SPEC: HttpLlmClientSpec = {
       .filter((c) => c.type === "text" && typeof c.text === "string")
       .map((c) => c.text)
       .join(""),
+  parseUsage: (json) => {
+    const u = (json as MessagesResponse).usage;
+    return u
+      ? { inputTokens: u.input_tokens, outputTokens: u.output_tokens, cacheReadTokens: u.cache_read_input_tokens }
+      : undefined;
+  },
 };
 
 export class AnthropicLlmClient implements LlmClient {

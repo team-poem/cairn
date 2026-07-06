@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, Step, StepProgress, Verdict } from "./types.js";
+import type { Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 
@@ -32,6 +32,9 @@ export interface RunHarnessOptions {
   stepHealer?: StepHealer;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
   expectTimeoutMs?: number;
+  /** Snapshot of the run's LLM usage, taken after Judge and attached as `result.usage` — so every
+   * report carries its own cost proof (a clean replay shows `llmCalls: 0`). */
+  usage?: () => RunUsage;
   /** First-path-segment prefixes URL matching may strip as locales (fallback only, #86). Which
    * segments are locales is an app trait the consumer declares — the engine default is a small
    * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
@@ -153,6 +156,7 @@ export async function runHarness(
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   const verdict = withStepCompletion(judged, actions, scenario.steps.length);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
+  if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);
   return out;
 }

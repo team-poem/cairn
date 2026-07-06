@@ -19,3 +19,21 @@ describe("rankElements (#15)", () => {
     expect(rankElements(els, "결제 진행", 60)[0]).toEqual({ role: "button", name: "결제하기" });
   });
 });
+
+describe("renderElements — form state (#93)", () => {
+  it("shows checked/disabled/value so the LLM stops re-clicking done work", async () => {
+    const { renderElements } = await import("../../../src/core/discover/prompt.js");
+    const out = renderElements([
+      { role: "checkbox", name: "Terms", checked: true },
+      { role: "checkbox", name: "Partial", checked: "mixed" },
+      { role: "button", name: "Pay", disabled: true },
+      { role: "textbox", name: "Email", value: "a@b.com" },
+      { role: "link", name: "Home" },
+    ]);
+    expect(out).toContain('- [checkbox] Terms (checked)');
+    expect(out).toContain('- [checkbox] Partial (mixed)');
+    expect(out).toContain('- [button] Pay (disabled)');
+    expect(out).toContain('- [textbox] Email = "a@b.com"');
+    expect(out).toContain('- [link] Home');
+  });
+});

@@ -67,7 +67,17 @@ export function rankElements(
 }
 
 export function renderElements(elements: PageElement[]): string {
-  return elements.map((e) => `- [${e.role}] ${e.name}`).join("\n");
+  return elements
+    .map((e) => {
+      const states = [
+        e.checked === "mixed" ? "mixed" : e.checked ? "checked" : undefined,
+        e.disabled ? "disabled" : undefined,
+      ].filter(Boolean);
+      const state = states.length ? ` (${states.join(", ")})` : "";
+      const value = e.value !== undefined ? ` = "${e.value.slice(0, 40)}"` : "";
+      return `- [${e.role}] ${e.name}${state}${value}`;
+    })
+    .join("\n");
 }
 
 export function buildPrompt(

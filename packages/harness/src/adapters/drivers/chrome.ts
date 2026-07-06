@@ -344,12 +344,23 @@ export function isOpenDialog(err: unknown): boolean {
   return /open dialog/i.test(m) || /handle_dialog/i.test(m);
 }
 
-/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows. */
+/** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows, with form
+ * state (#93) parsed from the attribute tail: booleans render bare (`checked`, `disabled` — not
+ * the `checkable`/`disableable` capability tokens), strings as `attr="…"`. */
 export function parseElements(snapshot: string): PageElement[] {
   const out: PageElement[] = [];
   for (const line of snapshot.split("\n")) {
     const m = line.match(/uid=\S+\s+(\w+)\s+"([^"]*)"/);
-    if (m && m[2]!.trim()) out.push({ role: m[1]!, name: m[2]! });
+    if (!m || !m[2]!.trim()) continue;
+    const el: PageElement = { role: m[1]!, name: m[2]! };
+    // Only the tail after the quoted name — a name like "I have checked the box" must not match.
+    const tail = line.slice(m.index! + m[0].length);
+    if (/(?:^|\s)checked="mixed"/.test(tail)) el.checked = "mixed";
+    else if (/(?:^|\s)checked(?:\s|$)/.test(tail)) el.checked = true;
+    if (/(?:^|\s)disabled(?:\s|$)/.test(tail)) el.disabled = true;
+    const value = tail.match(/(?:^|\s)value="([^"]*)"/);
+    if (value) el.value = value[1]!;
+    out.push(el);
   }
   return out;
 }

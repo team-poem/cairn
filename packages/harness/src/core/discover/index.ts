@@ -8,7 +8,7 @@
  */
 import type { Driver, LlmClient } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
-import { ELEMENT_LIMIT, SYSTEM, buildPrompt, rankElements, renderElements } from "./prompt.js";
+import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
@@ -17,7 +17,7 @@ import { deriveAssertions, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
-export { rankElements, renderElements } from "./prompt.js";
+export { rankElements, renderElements, renderRankedElements } from "./prompt.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -84,7 +84,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const elements = await driver.snapshot();
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements })) return finish(false);
-    const render = renderElements(rankElements(elements, intent, ELEMENT_LIMIT));
+    const render = renderRankedElements(elements, intent);
     const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures), {
       system: SYSTEM,
     });

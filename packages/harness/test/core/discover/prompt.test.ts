@@ -37,3 +37,25 @@ describe("renderElements — form state (#93)", () => {
     expect(out).toContain('- [link] Home');
   });
 });
+
+describe("renderRankedElements — truncation is never silent", () => {
+  it("appends a notice when the cap hides elements", async () => {
+    const { renderRankedElements } = await import("../../../src/core/discover/prompt.js");
+    const many = Array.from({ length: 70 }, (_, i) => ({ role: "button", name: `b${i}` }));
+    const out = renderRankedElements(many, "x", 60);
+    expect(out).toContain("(+10 more elements not shown");
+  });
+  it("adds nothing when everything fits", async () => {
+    const { renderRankedElements } = await import("../../../src/core/discover/prompt.js");
+    expect(renderRankedElements([{ role: "button", name: "Go" }], "x", 60)).toBe("- [button] Go");
+  });
+});
+
+describe("interactive roles", () => {
+  it("a listbox outranks a wall of static noise (custom dropdowns stay visible)", async () => {
+    const { rankElements } = await import("../../../src/core/discover/prompt.js");
+    const noise = Array.from({ length: 70 }, (_, i) => ({ role: "StaticText", name: `t${i}` }));
+    const ranked = rankElements([...noise, { role: "listbox", name: "Options" }], "pick", 60);
+    expect(ranked.some((e) => e.role === "listbox")).toBe(true);
+  });
+});

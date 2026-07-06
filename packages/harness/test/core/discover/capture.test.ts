@@ -1,9 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
-import { assignStepExpects } from "../../../src/core/discover/capture.js";
+import { assignStepExpects, destinationKey } from "../../../src/core/discover/capture.js";
 import type { Step } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
-import type { Evidence, Target } from "../../../src/core/types.js";
+import { DESTINATION_CHANGE_CORPUS } from "../../support/url-corpus.js";
+import type { Evidence, NetworkRequest, Target } from "../../../src/core/types.js";
+
+/** Completed-run evidence with the given final URL and request log (capture is retroactive, #81). */
+function evidenceAt(finalUrl: string, requests: NetworkRequest[]): Evidence {
+  return {
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  };
+}
 
 describe("discover captures intent + expect", () => {
   it("stores the action reason as intent and a navigation as expect", async () => {
@@ -162,6 +172,41 @@ describe("discover captures intent + expect", () => {
       requestStatus: { urlIncludes: "api.app/orders", status: 201, method: "POST" },
     });
     expect(steps[1]?.expect).toEqual({ url: "app/done" });
+  });
+
+  it("query-only navigation falls through to the mutation expect (#96)", () => {
+    // /list?page=1 → /list?page=2 with a successful POST in the step's tail: the frozen expect
+    // must be the request (proof the action fired), never a URL the pre-navigation page already
+    // satisfies — that expect would make replay's idempotency pre-check skip the step silently.
+    const steps: Step[] = [{ kind: "click", target: { text: "Next" } }];
+    const marks = [{ url: "https://app/list?page=1", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://app/list?page=2", [
+      { method: "POST", url: "https://api.app/list/next", status: 200 },
+    ]));
+    expect(steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "api.app/list/next", status: 200, method: "POST" },
+    });
+  });
+
+  it("hash-only navigation with no mutation freezes NO expect (#96)", () => {
+    // /app → /app#/cart, nothing fired: a URL expect would be pre-satisfied (silent skip) and a
+    // weak substitute would trigger false divergence — an unproven step stays unchecked.
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://app/app", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://app/app#/cart", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  describe("URL-corpus: a URL expect is assigned iff the destination (host+path) changed (#96)", () => {
+    for (const c of DESTINATION_CHANGE_CORPUS) {
+      it(`${c.note} → ${c.changed ? "URL expect" : "no expect"}`, () => {
+        const steps: Step[] = [{ kind: "click", target: { text: "Go" } }];
+        const marks = [{ url: c.before, requestCount: 0 }];
+        assignStepExpects(steps, marks, evidenceAt(c.after, []));
+        if (c.changed) expect(steps[0]?.expect).toEqual({ url: destinationKey(c.after) });
+        else expect(steps[0]?.expect).toBeUndefined();
+      });
+    }
   });
 
   it("can produce a waitFor step (P4 — discover synchronizes, not just replay)", async () => {

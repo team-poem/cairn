@@ -4,8 +4,8 @@
  * deterministic (invariant #4).
  */
 import type { LlmClient } from "../ports.js";
-import type { Assertion, Evidence } from "../types.js";
-import { isBenignRequest, isMutation } from "../requests.js";
+import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
+import { isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { extractFirstJsonArray } from "../json.js";
 import { destinationKey } from "./capture.js";
 
@@ -16,18 +16,28 @@ import { destinationKey } from "./capture.js";
  * keep a proposed `request-status` ONLY if a captured request actually matches it (so a
  * hallucinated check can't fail every replay). `expect` (LLM-judged) is frozen only when
  * `semantic` is set — otherwise the freeze stays deterministic (invariant #4).
+ * `benign` is the product's noise list (mirror of `RunScenarioOptions.benign`) — a marked
+ * endpoint's failure never disqualifies a check.
  */
 export function deriveAssertions(
   proposed: Assertion[] | undefined,
   evidence: Evidence,
   semantic: boolean,
+  benign: readonly string[] = [],
 ): Assertion[] {
   const out: Assertion[] = [];
-  // Ground no-failed-requests: freeze it only if it actually HELD during discovery (no non-benign
-  // failure). A flow that survives a noisy 4xx would otherwise fail every replay on a check that was
-  // already false — the success-proving request below carries the real signal instead.
-  if (!evidence.logic.requests.some((r) => r.status >= 400 && !isBenignRequest(r.url))) {
+  // Ground no-failed-requests: freeze it only if it actually HELD during discovery. "Held" uses
+  // the SAME tolerance the critic judges with (#66) — benign noise (built-in + product list) and
+  // failures the app retried and recovered (401 → 2xx) don't disqualify the check — otherwise the
+  // freeze is stricter than the verdict and a legitimate transient retry loses this assertion.
+  if (!sawRequestFailure(evidence.logic.requests, benign)) {
     out.push({ kind: "no-failed-requests" });
+  }
+  // Ground no-console-errors the same way (#99): the prompt offers the kind with `done`, so honor
+  // it — but only when the console was actually observed clean throughout discovery. A flow that
+  // works despite a pre-existing console error must not freeze a check that was already false.
+  if (!sawConsoleErrors(evidence.logic.console)) {
+    out.push({ kind: "no-console-errors" });
   }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
@@ -38,16 +48,46 @@ export function deriveAssertions(
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") continue;
     if (a.kind === "request-status") {
       // grounding: keep only if a real captured request matches this URL + status.
-      const matches = evidence.logic.requests.some(
+      const match = evidence.logic.requests.find(
         (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
       );
-      if (matches)
-        out.push({ kind: "request-status", urlIncludes: a.urlIncludes, status: a.status });
+      // #105: when the proving request is a mutation, freeze its method too — a same-prefix GET
+      // must not satisfy the check at replay (parity with step-level expect capture).
+      if (match)
+        out.push(
+          isMutation(match.method)
+            ? {
+                kind: "request-status",
+                urlIncludes: a.urlIncludes,
+                status: a.status,
+                method: match.method.toUpperCase(),
+              }
+            : { kind: "request-status", urlIncludes: a.urlIncludes, status: a.status },
+        );
     } else if (a.kind === "expect" && semantic && typeof a.criterion === "string" && a.criterion.trim()) {
       out.push({ kind: "expect", criterion: a.criterion.trim() });
     }
   }
   return dedupeAssertions(out);
+}
+
+/** Did discovery observe a request failure that actually counts — neither benign noise
+ * (built-in + product list) nor a transient the app retried and recovered? Mirrors the
+ * critic's `no-failed-requests` judgment (#66) so freeze and verdict can't drift. */
+function sawRequestFailure(
+  requests: readonly NetworkRequest[],
+  benign: readonly string[],
+): boolean {
+  return requests.some(
+    (r, i) => r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(requests, i),
+  );
+}
+
+/** Did discovery observe any console error? Symmetric with `sawRequestFailure` — the freeze
+ * carries `no-console-errors` only when the check held during the observed run. (The replay-time
+ * critic additionally filters a product's `benignConsole` list — #66.) */
+function sawConsoleErrors(console: readonly ConsoleMessage[]): boolean {
+  return console.some((m) => m.type === "error");
 }
 
 /** Drop duplicate assertions (e.g. a proposed request-status the LLM listed twice). */

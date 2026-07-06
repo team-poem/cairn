@@ -51,11 +51,16 @@ export function checkAssertion(
     case "request-status": {
       // Any matching request satisfies the assertion (same predicate as conditionMet) — the
       // verdict must not depend on arrival order when an endpoint responds more than once.
-      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status);
+      // An optional `method` scopes both the match and the failure detail (#94).
+      const method = assertion.method?.toUpperCase();
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
       if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
-      const near = evidence.logic.requests.filter((r) => r.url.includes(assertion.urlIncludes));
+      const near = evidence.logic.requests.filter(
+        (r) => r.url.includes(assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
+      );
       if (near.length === 0) {
-        return { assertion, passed: false, detail: `no request matching ${assertion.urlIncludes}` };
+        const scope = method ? `${method} ` : "";
+        return { assertion, passed: false, detail: `no ${scope}request matching ${assertion.urlIncludes}` };
       }
       const seen = [...new Set(near.map((r) => r.status))].join(", ");
       return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };

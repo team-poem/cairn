@@ -6,6 +6,7 @@ import {
   urlReached,
 } from "../../src/core/steps.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
+import { URL_REACHED_CORPUS } from "../support/url-corpus.js";
 import type { Evidence, Step } from "../../src/core/types.js";
 
 describe("urlReached", () => {
@@ -28,6 +29,34 @@ describe("urlReached", () => {
     expect(urlReached("https://x.co/ko/cart", "x.co/en/cart")).toBe(true);
     expect(urlReached("https://x.co/jp/payment", "x.co/en/payment")).toBe(true);
     expect(urlReached("https://x.co/ko/signin", "x.co/en/cart")).toBe(false);
+  });
+});
+
+describe("urlReached — URL counter-example corpus (default options)", () => {
+  for (const c of URL_REACHED_CORPUS) {
+    it(`${c.note}: ${c.final} vs "${c.want}" → ${c.reached}`, () => {
+      expect(urlReached(c.final, c.want)).toBe(c.reached);
+    });
+  }
+});
+
+describe("urlReached — locale prefixes are consumer-injected, not guessed (#86)", () => {
+  it("a consumer-declared locale participates in the fallback", () => {
+    // "xx" is not in the engine's default list; the consumer says their app serves it as a locale.
+    expect(urlReached("https://x.co/xx/cart", "x.co/en/cart", { localePrefixes: ["en", "xx"] })).toBe(true);
+  });
+
+  it("a narrowed list disables default prefixes", () => {
+    expect(urlReached("https://x.co/jp/payment", "x.co/en/payment", { localePrefixes: ["en"] })).toBe(false);
+  });
+
+  it("an empty list turns the locale fallback off entirely", () => {
+    expect(urlReached("https://x.co/ko/cart", "x.co/en/cart", { localePrefixes: [] })).toBe(false);
+  });
+
+  it("direct boundary match wins before any locale interpretation", () => {
+    // Even with "my" declared a locale, an exact /my destination matches directly (stage 1).
+    expect(urlReached("https://x.co/my", "x.co/my", { localePrefixes: ["my"] })).toBe(true);
   });
 });
 

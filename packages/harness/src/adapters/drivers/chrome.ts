@@ -306,7 +306,14 @@ export class ChromeDevToolsDriver implements Driver {
     if (!uid) return target; // can't enrich right now — freeze what we have
     const row = rows.find((r) => r.uid === uid)!;
     const index = rows.filter((r) => r.role === row.role).findIndex((r) => r.uid === uid);
-    return { ...target, text: target.text ?? row.name, role: row.role, index };
+    // Duplicate accessible names (a list UI: "Accept" ×N) make first-match resolution ambiguous —
+    // record the 0-based position among the same-named so the frozen target says WHICH one (#92).
+    // Computed over exactly the pool replay's name stage will use (same role, same frozen name),
+    // and skipped when the frozen text was only a substring match (the pools would differ).
+    const frozenText = (target.text ?? row.name).trim().toLowerCase();
+    const dupes = rows.filter((r) => r.role === row.role && r.name.toLowerCase() === frozenText);
+    const nth = dupes.length > 1 ? dupes.findIndex((r) => r.uid === uid) : -1;
+    return { ...target, text: target.text ?? row.name, role: row.role, index, ...(nth >= 0 ? { nth } : {}) };
   }
 
   private async resolveUid(target: Target): Promise<string> {
@@ -382,7 +389,8 @@ export function parseSnapshotRows(snapshot: string): SnapshotRow[] {
 }
 
 /**
- * Multi-locator resolution. Prefers the accessible name (exact over substring, role-aware if known).
+ * Multi-locator resolution. Prefers the accessible name (exact over substring, role-aware if
+ * known); `nth` addresses the Nth name match when several elements carry the same name (#92).
  * If the name no longer matches, falls back to role + structural index so a renamed control still
  * resolves WITHOUT the LLM — but only when that fallback is unambiguous (P3): with several same-role
  * candidates a reorder would silently select the wrong element, so it yields nothing and lets
@@ -392,11 +400,17 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
   const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
   if (target.text) {
     const needle = target.text.trim().toLowerCase();
-    const exact = rows.find((r) => roleOk(r) && r.name.toLowerCase() === needle);
-    if (exact) return exact.uid;
+    const exacts = rows.filter((r) => roleOk(r) && r.name.toLowerCase() === needle);
+    const subs = rows.filter((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
+    if (target.nth !== undefined) {
+      // An explicit position among the name matches — the designed address for identically-named
+      // elements. Out of range (the list shrank/renamed) yields nothing: never guess a neighbor.
+      const pool = exacts.length ? exacts : subs;
+      return pool[target.nth]?.uid;
+    }
+    if (exacts.length) return exacts[0]!.uid;
     // Substring fallback only when it's unambiguous — several partial matches is a guess (like the
     // positional guard below), so yield nothing and let self-heal pick by intent instead of mis-clicking.
-    const subs = rows.filter((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
     if (subs.length === 1) return subs[0]!.uid;
   }
   if (target.role && target.index !== undefined) {

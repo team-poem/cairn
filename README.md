@@ -174,9 +174,11 @@ intent ─► discover (LLM, once) ─► cart.skill.json ─► replay (no LLM,
 }
 ```
 
-Each `target` keeps several locators — `text` (accessible name) first, `role` + `index` as a
-rename-resilient fallback, `selector` as a CSS escape hatch — which is what lets replay survive a
-redesign without falling back to the LLM. A step's `expect` is its post-condition: replay waits
+Each `target` keeps several locators — `text` (accessible name) first, with `nth` to address
+the Nth of several identically-named elements (`{"text": "Accept", "role": "button", "nth": 2}`
+is the 3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallback, `selector`
+as a CSS escape hatch — which is what lets replay survive a redesign without falling back to the
+LLM. A step's `expect` is its post-condition: replay waits
 for it deterministically (so an async submit isn't raced) and only heals if it truly diverges.
 
 > **Text matches one accessibility node at a time.** `text` — in a `target` or a `waitFor` —

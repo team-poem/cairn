@@ -17,6 +17,7 @@ export interface TargetScore {
 
 const SELECTOR = 1; // CSS / test-id — most stable across UI change
 const RESILIENT = 0.7; // role + structural index — survives a rename
+const NAMED_NTH = 0.6; // text + nth — the designed address for duplicate labels (#92)
 const TEXT_ONLY = 0.3; // accessible name only — a rename breaks it
 const NONE = 0; // nothing to locate by
 
@@ -29,6 +30,11 @@ export function scoreTarget(target: Target): TargetScore {
   if (hasIndex) {
     const how = target.text ? "text + role/index fallback" : "role + structural index";
     return { score: RESILIENT, weak: false, reason: how };
+  }
+  if (target.text && target.nth !== undefined) {
+    // Not penalized like a weak text-only target: for identically-named elements nth IS the
+    // strengthening — the name survives UI change and the position re-derives after a heal.
+    return { score: NAMED_NTH, weak: false, reason: "text + nth — addresses the Nth of several same-named elements" };
   }
   if (target.text) {
     return {

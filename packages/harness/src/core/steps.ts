@@ -11,33 +11,79 @@ const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
-// host + path, dropping a leading locale segment (…/en, …/ko, …/en-US) — locale prefixes vary by
-// environment/user, so they must not affect matching. Host is kept, not guessed away.
-function localeStrippedKey(u: string): string {
-  let host: string, path: string;
-  try {
-    const x = new URL(u);
-    host = x.host;
-    path = x.pathname;
-  } catch {
-    const s = u.replace(/^https?:\/\//, "").replace(/[?#].*$/, "");
-    const i = s.indexOf("/");
-    host = i === -1 ? s : s.slice(0, i);
-    path = i === -1 ? "" : s.slice(i);
+/**
+ * Locale prefixes eligible for `urlReached`'s locale-stripping FALLBACK. Deliberately small and
+ * conservative: "any two-letter first segment is a locale" is a trait of particular apps, not a web
+ * fact — promoting it to a heuristic swallowed real routes like /my (#86). Which prefixes are
+ * locales is something only the consumer knows, so the set is injectable (`UrlMatchOptions`,
+ * surfaced as `RunHarnessOptions.localePrefixes`) — same seam pattern as the benign lists. A region
+ * variant matches its base language ("en-US" counts as "en").
+ */
+export const DEFAULT_LOCALE_PREFIXES: readonly string[] = ["en", "ko", "ja", "jp"];
+
+/** URL-matching knobs — consumer-injected, never guessed from the URL itself. */
+export interface UrlMatchOptions {
+  /** First-path-segment prefixes treated as locales in the stripping fallback.
+   * Default: `DEFAULT_LOCALE_PREFIXES`. Pass `[]` to disable the fallback. */
+  localePrefixes?: readonly string[];
+}
+
+interface HostPath {
+  host: string;
+  segs: string[];
+}
+
+// host + path split, query/hash dropped. `u` may be a full URL or a frozen bare host+path/suffix.
+// `new URL()` only for an EXPLICIT http(s) scheme (#87): it doesn't throw on scheme-less values —
+// it silently mis-parses them ("localhost:3000/mentor" → scheme "localhost:", empty host, path
+// "3000/mentor"), which made every port-bearing frozen destination unreachable at replay.
+function splitHostPath(u: string): HostPath {
+  if (/^https?:\/\//i.test(u)) {
+    try {
+      const x = new URL(u);
+      return { host: x.host, segs: x.pathname.split("/").filter(Boolean) };
+    } catch {
+      // malformed despite the scheme — fall through to the manual split
+    }
   }
-  const segs = path.split("/").filter(Boolean);
-  if (segs[0] && /^[a-z]{2}(-[A-Za-z0-9]{2,8})?$/.test(segs[0])) segs.shift();
+  const s = u.replace(/^https?:\/\//i, "").replace(/[?#].*$/, "");
+  const i = s.indexOf("/");
+  const host = i === -1 ? s : s.slice(0, i);
+  const path = i === -1 ? "" : s.slice(i);
+  return { host, segs: path.split("/").filter(Boolean) };
+}
+
+function hostPathKey({ host, segs }: HostPath): string {
   const p = segs.join("/");
   return host ? (p ? `${host}/${p}` : host) : p;
 }
 
-/** Whether `finalUrl` reached `want`, matched at a path boundary (not raw substring) and
- * locale-agnostic — so a parent path ("…/en") never counts as reaching "…/en/signin", and a
- * differing locale still matches. `want` may be a full host+path or a bare suffix. */
-export function urlReached(finalUrl: string, want: string): boolean {
-  const dest = localeStrippedKey(finalUrl);
-  const w = localeStrippedKey(want);
-  return dest === w || dest.endsWith("/" + w);
+function stripLocale(hp: HostPath, prefixes: readonly string[]): HostPath {
+  const first = hp.segs[0];
+  const isLocale = first !== undefined && prefixes.some((p) => first === p || first.startsWith(p + "-"));
+  return isLocale ? { host: hp.host, segs: hp.segs.slice(1) } : hp;
+}
+
+// Boundary match (never raw substring): equal, or a suffix starting at a path boundary.
+function boundaryMatch(dest: string, want: string): boolean {
+  return want !== "" && (dest === want || dest.endsWith("/" + want));
+}
+
+/** Whether `finalUrl` reached `want`, matched at a path boundary (not raw substring) — a parent
+ * path ("…/en") never counts as reaching "…/en/signin". `want` may be a full host+path or a bare
+ * suffix. Two stages (#86): first a DIRECT match with no locale interpretation — so a real route
+ * that merely looks like a locale ("/my", "/go") matches as itself; only when that fails, retry
+ * with consumer-approved locale prefixes stripped — so a frozen destination still matches when the
+ * environment serves another locale. */
+export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions = {}): boolean {
+  const dest = splitHostPath(finalUrl);
+  const w = splitHostPath(want);
+  if (boundaryMatch(hostPathKey(dest), hostPathKey(w))) return true;
+  const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
+  const strippedDest = stripLocale(dest, prefixes);
+  const strippedWant = stripLocale(w, prefixes);
+  if (strippedDest === dest && strippedWant === w) return false; // nothing stripped — stage 1 decided
+  return boundaryMatch(hostPathKey(strippedDest), hostPathKey(strippedWant));
 }
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
@@ -126,6 +172,8 @@ export interface PollOptions {
   /** Only count requests at/after this index of the run's request log for `requestStatus` — a
    * per-step watermark, so an earlier step's request can't satisfy this step's post-condition. */
   sinceRequestIndex?: number;
+  /** Consumer-injected URL-matching knobs (locale prefixes) for `until.url` (#86). */
+  urlMatch?: UrlMatchOptions;
 }
 
 export async function pollCondition(
@@ -136,7 +184,7 @@ export async function pollCondition(
 ): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
-    if (await conditionMet(driver, until, opts.sinceRequestIndex)) return true;
+    if (await conditionMet(driver, until, opts.sinceRequestIndex, opts.urlMatch)) return true;
     if (Date.now() >= deadline) return false;
     await sleep(opts.pollMs ?? WAIT_POLL_MS);
   }
@@ -149,10 +197,11 @@ export async function conditionMet(
   driver: Driver,
   until: WaitUntil,
   sinceRequestIndex = 0,
+  urlMatch: UrlMatchOptions = {},
 ): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
-    if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url)) return false;
+    if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url, urlMatch)) return false;
     if (until.requestStatus) {
       const { urlIncludes, status, method } = until.requestStatus;
       const held = logic.requests

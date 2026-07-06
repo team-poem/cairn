@@ -6,6 +6,7 @@
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { Evidence, ExecutedAction, Result, Step, StepProgress } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
+import type { UrlMatchOptions } from "./steps.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -31,6 +32,11 @@ export interface RunHarnessOptions {
   stepHealer?: StepHealer;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
   expectTimeoutMs?: number;
+  /** First-path-segment prefixes URL matching may strip as locales (fallback only, #86). Which
+   * segments are locales is an app trait the consumer declares — the engine default is a small
+   * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
+   * or has real routes that look like locales (`/my`, `/tv`). `[]` disables stripping. */
+  localePrefixes?: readonly string[];
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
@@ -57,14 +63,17 @@ async function runStep(
   driver: Driver,
   index: number,
   expectTimeoutMs: number,
+  urlMatch: UrlMatchOptions,
   healer?: StepHealer,
 ): Promise<ExecutedAction> {
   // A `requestStatus` expect is event evidence over the run's CUMULATIVE request log, not page
   // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
   // matching request and silently skip this step. Pre-check only state-like conditions, and gate
   // request matching to requests observed after this step started (watermark).
-  if (step.expect && step.expect.requestStatus === undefined && (await conditionMet(driver, step.expect))) {
-    return { step, ok: true }; // already satisfied — safe skip
+  if (step.expect && step.expect.requestStatus === undefined && (await conditionMet(driver, step.expect, 0, urlMatch))) {
+    // Already satisfied — safe skip, but never a SILENT one: the marker keeps a wrongly
+    // pre-satisfied expect (the #56→#86/#87/#96 failure class) observable to hosts (#86).
+    return { step, ok: true, skipped: true };
   }
   const sinceRequestIndex = step.expect?.requestStatus
     ? (await driver.observe()).logic.requests.length
@@ -73,13 +82,13 @@ async function runStep(
   if (!result.ok || !step.expect) return result;
 
   // Wait for the post-condition (readiness), don't check once — an async effect may land after the step.
-  if (await pollCondition(driver, step.expect, expectTimeoutMs, { sinceRequestIndex })) return result;
+  if (await pollCondition(driver, step.expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) return result;
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
   if (healer) {
     const healed = await healer.heal(step, index, driver);
     if (healed) {
-      if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs, { sinceRequestIndex })) {
+      if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
         return { step: healed.step, ok: true };
       }
     }
@@ -95,6 +104,7 @@ export async function runHarness(
   const { context, planner, driver, critic, reporter } = harness;
   const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
+  const urlMatch: UrlMatchOptions = { localePrefixes: opts.localePrefixes };
 
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
@@ -104,11 +114,11 @@ export async function runHarness(
   try {
     for (const step of scenario.steps) {
       opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-      const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, opts.stepHealer);
+      const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer);
       actions.push(result);
       if (opts.onStep) {
         const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
-        opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, screenshot });
+        opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
       }
       if (!result.ok) break;
     }

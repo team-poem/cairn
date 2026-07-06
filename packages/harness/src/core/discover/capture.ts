@@ -50,10 +50,14 @@ export async function observeOutcomes(driver: Driver, firstRequestCount: number)
 
 /** Retroactively attach each step's grounded post-condition from the completed evidence.
  * Navigation → expect that destination (the URL at the NEXT executed step, or the final URL —
- * nothing acts in between, so it is the page this step reached). Else, a fresh successful mutation
- * in the step's own request tail → expect that request. A step that changed nothing stays
- * unchecked — a weak expect would trigger false divergence. `marks[i] === null` skips a step the
- * loop doesn't verify (the baseUrl goto). */
+ * nothing acts in between, so it is the page this step reached). Navigation is judged at
+ * `destinationKey` granularity — the same granularity the expect is frozen at (#96): a query/hash-only
+ * move would freeze a URL expect the PRE-navigation page already satisfies, so replay's idempotency
+ * pre-check would silently skip the step; such a move falls through to the mutation expect (the fired
+ * request is stronger evidence anyway). Else, a fresh successful mutation in the step's own request
+ * tail → expect that request. A step that changed nothing stays unchecked — a weak expect would
+ * trigger false divergence. `marks[i] === null` skips a step the loop doesn't verify (the baseUrl
+ * goto). */
 export function assignStepExpects(
   steps: Step[],
   marks: readonly (OutcomeMark | null)[],
@@ -65,7 +69,7 @@ export function assignStepExpects(
     if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
     const urlAfter = next ? next.url : evidence.execution.finalUrl;
-    if (urlAfter && urlAfter !== mark.url) {
+    if (urlAfter && (!mark.url || destinationKey(urlAfter) !== destinationKey(mark.url))) {
       steps[i]!.expect = { url: destinationKey(urlAfter) };
       continue;
     }

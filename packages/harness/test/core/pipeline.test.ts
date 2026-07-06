@@ -5,7 +5,7 @@ import { StaticPlanner } from "../../src/adapters/planners/static.js";
 import { AssertionCritic } from "../../src/adapters/critics/assertion.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import type { ContextProvider } from "../../src/core/ports.js";
-import type { Context, Evidence, Reporter, Result, Scenario } from "../../src/index.js";
+import type { Context, Evidence, Reporter, Result, Scenario, StepProgress } from "../../src/index.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;
@@ -164,6 +164,66 @@ describe("pipeline", () => {
     );
     expect(result.scenario).toBe("grounding from a ticket");
     expect(result.verdict.passed).toBe(true);
+  });
+
+  it("surfaces a pre-check skip on the action and the step progress — never silent (#86)", async () => {
+    // The step's expect already holds before it runs → the idempotency pre-check skips it. That
+    // skip must be observable (ExecutedAction.skipped + StepProgress.skipped), so a wrongly
+    // pre-satisfied expect (the #56→#86/#87/#96 failure class) can't hide as a plain ok.
+    const driver = new FakeDriver({ evidence: evidence() }); // finalUrl already www.iana.org/help
+    const progress: StepProgress[] = [];
+    const sc: Scenario = {
+      name: "skip",
+      steps: [
+        { kind: "click", target: { text: "Help" }, expect: { url: "www.iana.org/help" } },
+        { kind: "pressKey", key: "Enter" },
+      ],
+      assertions: [],
+    };
+    const result = await runHarness(
+      {
+        context: new InlineContextProvider(),
+        planner: new StaticPlanner(sc),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      sc.name,
+      { onStep: (p) => progress.push(p) },
+    );
+    expect(driver.clicked).toEqual([]); // step 0 skipped: goal already met
+    expect(result.evidence.execution.actions[0]).toMatchObject({ ok: true, skipped: true });
+    expect(progress[0]?.skipped).toBe(true);
+    expect(result.evidence.execution.actions[1]?.skipped).toBeUndefined(); // executed step: no marker
+    expect(progress[1]?.skipped).toBeUndefined();
+  });
+
+  it("threads localePrefixes into expect matching (consumer-declared locales, #86)", async () => {
+    // "xx" is not in the engine's default locale list. Without injection the expect does not hold
+    // (step executes); with the consumer's declaration the pre-check sees it as already reached.
+    const at = (url: string) =>
+      evidence({ execution: { actions: [], navigated: true, finalUrl: url, blocked: false } });
+    const sc: Scenario = {
+      name: "locale",
+      steps: [{ kind: "click", target: { text: "Cart" }, expect: { url: "app.co/en/cart" } }],
+      assertions: [],
+    };
+    const harness = (driver: FakeDriver) => ({
+      context: new InlineContextProvider(),
+      planner: new StaticPlanner(sc),
+      driver,
+      critic: new AssertionCritic(),
+      reporter: new CaptureReporter(),
+    });
+
+    const withOption = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    const r1 = await runHarness(harness(withOption), sc.name, { localePrefixes: ["en", "xx"] });
+    expect(withOption.clicked).toEqual([]); // already reached under the injected locale set
+    expect(r1.evidence.execution.actions[0]).toMatchObject({ ok: true, skipped: true });
+
+    const withoutOption = new FakeDriver({ evidence: at("https://app.co/xx/cart") });
+    await runHarness(harness(withoutOption), sc.name, { expectTimeoutMs: 30 });
+    expect(withoutOption.clicked).toEqual([{ text: "Cart" }]); // default list: xx is a real route
   });
 
   it("keeps the scenario's own name when intent is empty (default replay path)", async () => {

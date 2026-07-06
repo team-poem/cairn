@@ -79,10 +79,14 @@ export interface Scenario {
   truncated?: boolean;
 }
 
-/** An interactive element the discover loop perceives and acts on. */
+/** An interactive element the discover loop perceives and acts on. Form state rides along so
+ * the LLM can see a checkbox it already ticked or a disabled submit instead of thrashing (#93). */
 export interface PageElement {
   role: string;
   name: string;
+  checked?: boolean | "mixed";
+  disabled?: boolean;
+  value?: string;
 }
 
 /** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */

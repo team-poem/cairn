@@ -41,5 +41,5 @@ export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/
 
 export { discover, parseDecision } from "./core/discover/index.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
-export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
-export type { TargetScore, ScoredTarget } from "./core/freeze.js";
+export { guessedKeyRuns, scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
+export type { GuessedKeyRun, TargetScore, ScoredTarget } from "./core/freeze.js";

@@ -15,7 +15,7 @@
 import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover/index.js";
-import { weakTargets } from "./core/freeze.js";
+import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
@@ -134,6 +134,14 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   if (weak.length) {
     console.log(`\n⚠ ${weak.length} weak target(s) — a UI rename may force a self-heal; strengthen up front:`);
     for (const w of weak) console.log(`  · step ${w.stepIndex + 1} (${w.step.kind}): ${w.score.reason}`);
+  }
+
+  // #61: flag blind key-press chains — a guessed step can act on the wrong element yet pass.
+  for (const run of guessedKeyRuns(scenario)) {
+    console.log(
+      `\n⚠ steps ${run.startIndex + 1}–${run.startIndex + run.keys.length} press keys blindly (${run.keys.join(", ")}) — ` +
+        `discover guessed instead of resolving a target; review before trusting.`,
+    );
   }
 
   const freeze = flagStr(flags, "freeze");

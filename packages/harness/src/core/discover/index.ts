@@ -8,16 +8,16 @@
  */
 import type { Driver, LlmClient } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
-import { ELEMENT_LIMIT, SYSTEM, buildPrompt, rankElements, renderElements } from "./prompt.js";
+import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, proposeAssertions } from "./grounding.js";
 
-export type { ActionPolicy, Decision, PolicyVerdict } from "./decision.js";
+export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
-export { rankElements, renderElements } from "./prompt.js";
+export { rankElements, renderElements, renderRankedElements } from "./prompt.js";
 
 export interface DiscoverOptions {
   driver: Driver;
@@ -44,6 +44,10 @@ export interface DiscoverOptions {
   policy?: ActionPolicy;
 }
 
+/** Consecutive policy rejections before the loop gives up — past this, the LLM has nothing
+ * the policy will allow, and each retry costs a full LLM call for zero steps (#77). */
+const MAX_CONSECUTIVE_BLOCKS = 3;
+
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy } = opts;
   const steps: Step[] = [];
@@ -65,23 +69,34 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       : { name: intent, steps, assertions };
   };
 
+  // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,
+  // so it can lag by at most one action; no extra observe per turn.
+  let currentUrl: string | undefined = undefined;
+
   if (baseUrl) {
     await driver.goto(baseUrl);
     steps.push({ kind: "goto", url: baseUrl });
     marks.push(null);
+    currentUrl = baseUrl;
   }
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
   // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).
+  // Deduped — a repeated identical failure line is only prompt noise (#77).
   const failures: string[] = [];
+  const pushFailure = (line: string): void => {
+    if (!failures.includes(line)) failures.push(line);
+  };
   let prevRender = "";
+  let consecutiveBlocks = 0;
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
-    if (policy?.stop?.(steps)) return finish(false); // policy ended discovery (goal reached / bound hit)
     await driver.settle();
     const elements = await driver.snapshot();
-    const render = renderElements(rankElements(elements, intent, ELEMENT_LIMIT));
-    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures), {
+    // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
+    if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
+    const render = renderRankedElements(elements, intent);
+    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
       system: SYSTEM,
     });
     prevRender = render;
@@ -91,7 +106,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       decision = parseDecision(reply);
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
-      failures.push("your previous reply was not a single valid JSON action object");
+      pushFailure("your previous reply was not a single valid JSON action object");
       continue;
     }
 
@@ -100,16 +115,23 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       return finish(false, decision.assertions ?? []);
     }
 
-    // Policy gate: a rejected action never executes — recorded as a failure so the LLM re-decides.
-    const verdict = policy?.vet(decision) ?? { ok: true as const };
-    if (!verdict.ok) {
-      failures.push(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
-      onStep?.(decision);
-      continue;
-    }
-
     try {
       const beforeObs = await driver.observe();
+      currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
+      // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
+      // vet is a recorded rejection, not a lost discovery. A rejected action never executes.
+      const verdict = policy?.vet(decision, { elements, url: beforeObs.execution.finalUrl }) ?? {
+        ok: true as const,
+      };
+      if (!verdict.ok) {
+        pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
+        onStep?.(decision);
+        // Blocked out: the policy keeps rejecting everything the LLM can think of — stop burning
+        // LLM calls and freeze what exists as untrusted rather than looping to the cap.
+        if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) return finish(true);
+        continue;
+      }
+      consecutiveBlocks = 0;
       const mark: OutcomeMark = {
         url: beforeObs.execution.finalUrl,
         requestCount: beforeObs.logic.requests.length,
@@ -122,11 +144,16 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       marks.push(mark);
       onStep?.(decision, step);
     } catch (err) {
-      failures.push(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
+      pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
     }
   }
 
-  // Safety cap reached without an explicit "done" — flag it so the path isn't trusted as complete.
+  // Step cap reached without an explicit "done". Ask the policy once more on the final page —
+  // a goal reached by the last action is a trusted finish, not a truncation (#77).
+  if (policy?.stop) {
+    await driver.settle();
+    if (policy.stop(steps, { elements: await driver.snapshot() })) return finish(false);
+  }
   return finish(true);
 }

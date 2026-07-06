@@ -66,3 +66,32 @@ export function scoreScenario(scenario: Scenario): ScoredTarget[] {
 export function weakTargets(scenario: Scenario): ScoredTarget[] {
   return scoreScenario(scenario).filter((s) => s.score.weak);
 }
+
+/** A run of blind key presses discover emitted instead of resolved click/type targets (#61). */
+export interface GuessedKeyRun {
+  startIndex: number;
+  keys: string[];
+}
+
+/** Flag blind pressKey chains at freeze time: a Tab anywhere, or ≥2 consecutive key presses, is
+ * focus-guessing — it can land on the wrong element (or nothing) and still pass coarse assertions
+ * (#61). A single non-Tab press (an Enter submit after typing) is a normal pattern and not flagged. */
+export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
+  const out: GuessedKeyRun[] = [];
+  for (let i = 0; i < scenario.steps.length; ) {
+    if (scenario.steps[i]!.kind !== "pressKey") {
+      i++;
+      continue;
+    }
+    const start = i;
+    const keys: string[] = [];
+    while (i < scenario.steps.length) {
+      const step = scenario.steps[i]!;
+      if (step.kind !== "pressKey") break;
+      keys.push(step.key);
+      i++;
+    }
+    if (keys.length >= 2 || keys.some((k) => /\bTab\b/i.test(k))) out.push({ startIndex: start, keys });
+  }
+  return out;
+}

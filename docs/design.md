@@ -94,7 +94,7 @@ specific environment just implements the ports and plugs them in.
 interface ContextProvider { provide(task): Context }   // NL · git diff · ticket · RAG
 interface Planner         { plan(ctx): Scenario }      // intent → steps
 interface Driver          { goto·click·type·locate·observe·close() } // default ChromeDevTools MCP / swap Playwright
-interface SkillStore      { resolve(name): Scenario }  // freeze / replay storage
+interface SkillStore      { load(ref)·freeze(ref, scenario) } // frozen-skill storage: file · S3 · DB
 interface Critic          { judge(evidence, asserts) } // mechanical | LLM | product-defined
 interface Reporter        { emit(result) }             // console · json · any tracker
 interface LlmClient       { complete(prompt) }         // Claude Code · Anthropic · BYO

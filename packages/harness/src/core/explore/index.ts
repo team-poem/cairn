@@ -184,9 +184,14 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
         pushFailure('your "note" action had no "text" — a note must state the problem');
         continue;
       }
+      // Severity is model output — data, not a contract. A value outside the three known
+      // levels (e.g. "critical") would fall through the renderer's severity groups and the
+      // CLI's error gate, so normalize instead of trusting the cast.
+      const severity =
+        decision.severity === "warn" || decision.severity === "error" ? decision.severity : "info";
       record({
         kind: "agent-note",
-        severity: decision.severity ?? "info",
+        severity,
         detail: text,
         key: `agent-note:${text.slice(0, 120)}`,
         url: currentUrl,

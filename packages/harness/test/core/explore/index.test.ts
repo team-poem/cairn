@@ -174,6 +174,19 @@ describe("explore", () => {
     expect(stopped.usage.llmCalls).toBe(0); // stop fired before any completion
   });
 
+  it("normalizes an unknown note severity to info — model output is data, not a contract", async () => {
+    const driver = new ExploreDriver(START);
+    const llm = new ScriptedLlm([
+      '{"action":"note","severity":"critical","text":"checkout is unreachable"}',
+      '{"action":"done"}',
+    ]);
+    const report = await explore("survey", { driver, llm, baseUrl: START });
+    // an invented level must not slip past the renderer's severity groups or the CLI's error gate
+    expect(report.findings).toEqual([
+      expect.objectContaining({ kind: "agent-note", severity: "info" }),
+    ]);
+  });
+
   it("nudges the model when a note carries no text, instead of recording an empty finding", async () => {
     const driver = new ExploreDriver(START);
     const llm = new ScriptedLlm(['{"action":"note","severity":"warn"}', '{"action":"done"}']);

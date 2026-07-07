@@ -400,3 +400,44 @@ describe("current page url in the prompt (#116)", () => {
     expect(prompts[1]).toContain(`Current page: ${evidence.execution.finalUrl}`);
   });
 });
+
+describe("ambiguity gate (#127) — the loop refuses before the driver", () => {
+  const dupes = [
+    { role: "link", name: "Log in" },
+    { role: "button", name: "Log in" },
+    { role: "button", name: "Log in" },
+  ];
+
+  it("a duplicated name without nth is a recorded failure; the driver never acts", async () => {
+    const driver = new FakeDriver({ evidence, elements: dupes });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = [
+      '{"action":"click","text":"Log in"}', // ambiguous — blocked in core
+      '{"action":"click","text":"Log in","role":"button","nth":1}', // re-decided — runs
+      '{"action":"done"}',
+    ];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return replies[i++] ?? '{"action":"done"}'; },
+    };
+    const found = await discover("log in", { driver, llm });
+    expect(driver.clicked).toHaveLength(1); // only the disambiguated click executed
+    expect(prompts[1]).toContain('elements named "Log in"'); // the failure taught the fix
+    expect(prompts[1]).toContain('"nth"');
+    expect(found.steps.some((s) => s.kind === "click")).toBe(true);
+  });
+
+  it("a wrapper pair (link over its own StaticText) is not ambiguous", async () => {
+    const driver = new FakeDriver({
+      evidence,
+      elements: [
+        { role: "link", name: "Learn more" },
+        { role: "StaticText", name: "Learn more" },
+      ],
+    });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Learn more"}', '{"action":"done"}']);
+    await discover("learn", { driver, llm });
+    expect(driver.clicked).toHaveLength(1); // acted without a forced re-decision
+  });
+});

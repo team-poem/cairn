@@ -323,7 +323,9 @@ export class ChromeDevToolsDriver implements Driver {
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
         resolveTargetUid(rows, target);
       if (uid) return uid;
-      if (attempt >= RESOLVE_RETRIES) throw new Error(`no element matching ${JSON.stringify(target)}`);
+      if (attempt >= RESOLVE_RETRIES) {
+        throw new Error(describeResolutionMiss(rows, target));
+      }
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
     }
@@ -408,7 +410,15 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
       const pool = exacts.length ? exacts : subs;
       return pool[target.nth]?.uid;
     }
-    if (exacts.length) return exacts[0]!.uid;
+    // Several exact matches within ONE role is a guess like any other (#127) — the class the
+    // (nth=K) prompt markers name. Yield nothing: discovery re-decides with role/nth, replay
+    // falls to self-heal. Cross-role multi-matches keep tree-order-first: an a11y tree routinely
+    // shows a wrapper pair (link "X" over StaticText "X") where either uid acts on the same thing,
+    // and the model can already disambiguate real cross-role duplicates by sending "role".
+    if (exacts.length === 1) return exacts[0]!.uid;
+    if (exacts.length > 1) {
+      return hasSameRoleDupes(exacts) ? undefined : exacts[0]!.uid;
+    }
     // Substring fallback only when it's unambiguous — several partial matches is a guess (like the
     // positional guard below), so yield nothing and let self-heal pick by intent instead of mis-clicking.
     if (subs.length === 1) return subs[0]!.uid;
@@ -420,6 +430,32 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     return sameRole[target.index]?.uid;
   }
   return undefined;
+}
+
+/** True when two or more rows share one role — the ambiguity class the resolver refuses (#127). */
+function hasSameRoleDupes(rows: SnapshotRow[]): boolean {
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.role)) return true;
+    seen.add(r.role);
+  }
+  return false;
+}
+
+/** Why a target failed to resolve — ambiguity is named (with the fix) so a discover failure tells
+ * the model HOW to re-decide instead of reading as "element doesn't exist" (#127). */
+export function describeResolutionMiss(rows: SnapshotRow[], target: Target): string {
+  if (target.text && target.nth === undefined) {
+    const needle = target.text.trim().toLowerCase();
+    const exacts = rows.filter(
+      (r) => (!target.role || r.role === target.role) && r.name.toLowerCase() === needle,
+    );
+    if (exacts.length > 1 && hasSameRoleDupes(exacts)) {
+      const roles = [...new Set(exacts.map((r) => r.role))].join("/");
+      return `${exacts.length} elements named "${target.text}" (${roles}) — add "role" (and 0-based "nth" if that role still repeats)`;
+    }
+  }
+  return `no element matching ${JSON.stringify(target)}`;
 }
 
 /** Resolve a uid by accessible name only (exact over substring) — used by the discover snapshot path. */

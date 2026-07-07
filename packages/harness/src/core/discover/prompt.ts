@@ -21,6 +21,11 @@ export const SYSTEM =
   "(block until the app is ready before the next step — e.g. an auth redirect lands or a key request returns — instead of racing it) · " +
   '{"action":"done"}. ' +
   'Always add "reason":"<short>". Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
+  "When a name appears under more than one role (e.g. a [link] and a [button] both named \"Log in\"), " +
+  'always add "role" to say which you mean. When several elements share the SAME role and name, the ' +
+  "listing marks each with (nth=K) — add that 0-based \"nth\" too " +
+  '(e.g. {"action":"click","text":"Log in","role":"button","nth":1}); an action on a same-role ' +
+  "duplicate WITHOUT nth is rejected, never guessed. " +
   "Prefer clicking/typing a NAMED element over moving focus with key presses — a blind Tab/key chain lands on the wrong element. " +
   'Use "done" when the intent is achieved (or impossible); with "done" you may include "assertions": an array of ' +
   '{"kind":"navigated"} | {"kind":"no-failed-requests"} | {"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
@@ -91,21 +96,50 @@ export function rankElements(
 }
 
 /** Ranked, capped listing with an explicit truncation notice — a silently cut list reads as
- * "that control doesn't exist" and sends the model wandering instead of scrolling. */
+ * "that control doesn't exist" and sends the model wandering instead of scrolling. Duplicate
+ * ordinals are computed over the FULL snapshot before ranking (#127): the driver resolves nth
+ * against the whole tree, so if the cap drops one duplicate, the survivor must still show its
+ * true position, not a renumbered one. */
 export function renderRankedElements(
   elements: PageElement[],
   intent: string,
   limit = ELEMENT_LIMIT,
 ): string {
+  const nthOf = dupeOrdinals(elements);
   const ranked = rankElements(elements, intent, limit);
-  const body = renderElements(ranked);
+  const body = renderElements(ranked, nthOf);
   const hidden = elements.length - ranked.length;
   return hidden > 0
     ? `${body}\n(+${hidden} more elements not shown — scroll or interact to reveal them)`
     : body;
 }
 
-export function renderElements(elements: PageElement[]): string {
+/** 0-based position among same role+name duplicates, in snapshot order — exactly the pool a
+ * driver's nth resolution indexes. Elements without a duplicate are absent from the map. */
+export function dupeOrdinals(elements: PageElement[]): Map<PageElement, number> {
+  const counts = new Map<string, number>();
+  for (const e of elements) {
+    const key = `${e.role} ${e.name.trim().toLowerCase()}`;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  const out = new Map<PageElement, number>();
+  for (const e of elements) {
+    const key = `${e.role} ${e.name.trim().toLowerCase()}`;
+    if ((counts.get(key) ?? 0) > 1) {
+      const k = seen.get(key) ?? 0;
+      seen.set(key, k + 1);
+      out.set(e, k);
+    }
+  }
+  return out;
+}
+
+/** Same role+name duplicates carry a `(nth=K)` marker — the 0-based address the model echoes
+ * back and the loop/driver refuse to act without (#127). `nthOf` defaults to ordinals over the
+ * given list; pass the full-snapshot map when rendering a ranked subset. */
+export function renderElements(elements: PageElement[], nthOf?: Map<PageElement, number>): string {
+  const ordinals = nthOf ?? dupeOrdinals(elements);
   return elements
     .map((e) => {
       const states = [
@@ -114,7 +148,9 @@ export function renderElements(elements: PageElement[]): string {
       ].filter(Boolean);
       const state = states.length ? ` (${states.join(", ")})` : "";
       const value = e.value !== undefined ? ` = "${e.value.slice(0, 40)}"` : "";
-      return `- [${e.role}] ${e.name}${state}${value}`;
+      const k = ordinals.get(e);
+      const nth = k !== undefined ? ` (nth=${k})` : "";
+      return `- [${e.role}] ${e.name}${state}${value}${nth}`;
     })
     .join("\n");
 }

@@ -22,6 +22,10 @@ export interface Decision {
     | "waitFor"
     | "done";
   text?: string;
+  /** Disambiguate identically-named elements (#127): the element's role, and the 0-based
+   * position among same role+name matches — the `(nth=K)` marker the listing shows. */
+  role?: string;
+  nth?: number;
   value?: string;
   key?: string;
   direction?: "down" | "up";
@@ -61,6 +65,9 @@ export function parseDecision(text: string): Decision {
   const obj = extractFirstJsonObject(text) as Decision | undefined;
   if (!obj) throw new Error(`no JSON object in model reply: ${text.slice(0, 200)}`);
   if (!obj.action) throw new Error(`decision missing "action": ${text.slice(0, 200)}`);
+  // Models often quote a numeric field — coerce `"nth":"1"` so it addresses instead of
+  // silently missing (the resolver would treat a string nth as absent). Non-numeric stays out.
+  if (typeof obj.nth === "string" && /^\d+$/.test(obj.nth)) obj.nth = Number(obj.nth);
   return obj;
 }
 
@@ -72,7 +79,11 @@ export function parseDecision(text: string): Decision {
 export async function decisionToStep(driver: Driver, decision: Decision): Promise<Step> {
   const located = (): Promise<Target> => {
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
-    return driver.locate({ text: decision.text });
+    return driver.locate({
+      text: decision.text,
+      ...(decision.role !== undefined ? { role: decision.role } : {}),
+      ...(decision.nth !== undefined ? { nth: decision.nth } : {}),
+    });
   };
   switch (decision.action) {
     case "click":
@@ -119,4 +130,29 @@ export async function applyDecision(driver: Driver, decision: Decision): Promise
 export function describeAction(decision: Decision): string {
   const detail = decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : "";
   return `${decision.action}${detail}`;
+}
+
+/**
+ * Why a target-bearing decision is ambiguous on this page, or undefined if it isn't (#127): the
+ * name matches several elements within one role and the decision carries no `nth`. Checked by the
+ * loop BEFORE the driver runs — the principle lives once in core, so every consumer's driver gets
+ * it — and the message tells the model how to re-decide. Cross-role multi-matches are not
+ * ambiguous here: an a11y wrapper pair (link over its own StaticText) is the common benign case,
+ * and a real cross-role duplicate is addressable by sending `role`.
+ */
+export function describeAmbiguity(
+  decision: Decision,
+  elements: readonly PageElement[],
+): string | undefined {
+  if (!decision.text || decision.nth !== undefined) return undefined;
+  const needle = decision.text.trim().toLowerCase();
+  const matches = elements.filter(
+    (e) => (!decision.role || e.role === decision.role) && e.name.trim().toLowerCase() === needle,
+  );
+  if (matches.length < 2) return undefined;
+  const byRole = new Map<string, number>();
+  for (const m of matches) byRole.set(m.role, (byRole.get(m.role) ?? 0) + 1);
+  const dupedRoles = [...byRole.entries()].filter(([, n]) => n > 1).map(([r]) => r);
+  if (!dupedRoles.length) return undefined;
+  return `${matches.length} elements named "${decision.text}" (${dupedRoles.join("/")}) — add "role" (and the 0-based "nth" shown in the listing if that role still repeats)`;
 }

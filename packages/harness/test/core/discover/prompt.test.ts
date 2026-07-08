@@ -139,3 +139,42 @@ describe("evidence quota (#115) — counterexample table for the ranking zone", 
     });
   }
 });
+
+describe("duplicate-name ordinals (#127)", () => {
+  it("marks same role+name duplicates with 0-based nth; distinct roles/names stay unmarked", async () => {
+    const { renderElements } = await import("../../../src/core/discover/prompt.js");
+    const out = renderElements([
+      { role: "link", name: "Log in" },
+      { role: "button", name: "Log in" },
+      { role: "button", name: "Log in" },
+      { role: "button", name: "Pay" },
+    ]);
+    expect(out.split("\n")).toEqual([
+      "- [link] Log in",
+      "- [button] Log in (nth=0)",
+      "- [button] Log in (nth=1)",
+      "- [button] Pay",
+    ]);
+  });
+});
+
+describe("ordinals survive ranking (#127)", () => {
+  it("computes nth over the full snapshot, so a cap-dropped duplicate leaves the survivor's nth true", async () => {
+    const { renderRankedElements } = await import("../../../src/core/discover/prompt.js");
+    // 60 intent-matching buttons outrank the dupes; the cap keeps only the first "Accept".
+    const strong = Array.from({ length: 59 }, (_, i) => ({ role: "button", name: `order item ${i}` }));
+    const dupeA = { role: "checkbox", name: "Accept" };
+    const dupeB = { role: "checkbox", name: "Accept" };
+    const out = renderRankedElements([...strong, dupeA, dupeB], "order", 60);
+    expect(out).toContain("- [checkbox] Accept (nth=0)"); // still its full-snapshot position
+    expect(out).not.toContain("(nth=1)"); // the second was ranked out, not renumbered
+  });
+});
+
+describe("SYSTEM cross-role signal (#127)", () => {
+  it("tells the model to add role when a name spans multiple roles", async () => {
+    const { SYSTEM } = await import("../../../src/core/discover/prompt.js");
+    expect(SYSTEM).toContain("appears under more than one role");
+    expect(SYSTEM).toContain('always add "role"');
+  });
+});

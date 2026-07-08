@@ -9,7 +9,7 @@
 import type { Driver, LlmClient } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
-import { applyDecision, describeAction, parseDecision } from "./decision.js";
+import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
@@ -113,6 +113,16 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     if (decision.action === "done") {
       onStep?.(decision);
       return finish(false, decision.assertions ?? []);
+    }
+
+    // Ambiguity gate (#127): a duplicated name without nth never reaches the driver — the loop
+    // holds the fresh snapshot, so it can name the ambiguity (and the fix) for the re-decision.
+    // In core, once, so every consumer's driver gets the principle.
+    const ambiguity = describeAmbiguity(decision, elements);
+    if (ambiguity) {
+      pushFailure(`${describeAction(decision)} — ${ambiguity}`);
+      onStep?.(decision);
+      continue;
     }
 
     try {

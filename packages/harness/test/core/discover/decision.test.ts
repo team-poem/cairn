@@ -34,3 +34,44 @@ describe("decisionToStep", () => {
     );
   });
 });
+
+describe("decision role/nth threading (#127)", () => {
+  it("passes role and nth through to locate()", async () => {
+    const seen: unknown[] = [];
+    const driver = {
+      async locate(t: unknown) { seen.push(t); return t; },
+      async click() {},
+    } as never;
+    const { decisionToStep } = await import("../../../src/core/discover/decision.js");
+    await decisionToStep(driver, { action: "click", text: "Log in", role: "button", nth: 1 });
+    expect(seen[0]).toEqual({ text: "Log in", role: "button", nth: 1 });
+  });
+});
+
+describe("parseDecision nth coercion (#127)", () => {
+  it("coerces a quoted numeric nth so it addresses instead of silently missing", async () => {
+    const { parseDecision } = await import("../../../src/core/discover/decision.js");
+    const d = parseDecision('{"action":"click","text":"Log in","role":"button","nth":"1"}');
+    expect(d.nth).toBe(1);
+  });
+  it("leaves a non-numeric nth alone (falls to the ambiguity/miss path)", async () => {
+    const { parseDecision } = await import("../../../src/core/discover/decision.js");
+    const d = parseDecision('{"action":"click","text":"x","nth":"last"}');
+    expect(d.nth).toBe("last");
+  });
+});
+
+describe("describeAmbiguity role message (#127)", () => {
+  it("tells the model role may suffice, adding nth only if the role still repeats", async () => {
+    const { describeAmbiguity } = await import("../../../src/core/discover/decision.js");
+    const msg = describeAmbiguity(
+      { action: "click", text: "Log in" },
+      [
+        { role: "button", name: "Log in" },
+        { role: "button", name: "Log in" },
+      ],
+    );
+    expect(msg).toContain('add "role"');
+    expect(msg).toContain("if that role still repeats");
+  });
+});

@@ -4,18 +4,28 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`cairn-engine@2.3.0` npm 배포됨(2026-07-06 기준 최신).** 2.3.0 = 이슈 #64–#69 → PR #70–#75:
-  readiness replay(expect 폴링 + #81 소급 캡처) · any-match request-status · fail-closed 빈 단언 ·
-  회복 실패/콘솔 노이즈 흡수 · ActionPolicy · 탐색 기본값/CLI 검증 정리. + codex 백엔드 · #80 `--key=value` 파싱.
-  breaking 0. 테스트 177/177. 익스텐션이 `^2.3.0` 소비 중(땜빵 필터 제거 완료). 상세 = history 2026-07-02/03 + entries.
-  (계보: 2.0.0 surgical self-heal(breaking) → 2.1.0 action-grounding → 2.2.x 멀티 LLM 백엔드·파싱/URL 견고화 → 2.3.0.)
+- 단계: **`cairn-engine` 이중 채널.** `latest = 2.4.0` (안정) · `beta = 2.5.0-beta.0` (실험, explore #102).
+  - **2.4.0 (latest, 2026-07-06 배포):** verdict 무결성(#96·#86·#87 expect-URL 3형제 + #90·#78·#97) · 비용 리포팅
+    `result.usage`(#100) · 드라이버 수명주기 계약(#98·#88) · discover 지각/게이트(#93·#77·#61·#115·#116) ·
+    `Target.nth`(#92) + 잔손질. breaking 0.
+  - **2.5.0-beta.0 (beta 채널, 2026-07-08 배포):** freeze-less **explore**(#102, `--tag beta`로만 배포 → latest 불변).
+    develop = 2.5.0 개발선. 현재 develop엔 explore + #127 중복이름 픽스(#128) 등 2.5.0行 작업 누적 중.
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → (2.5.0 진행).
+    상세 = history + entries.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
 - 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters).
 - **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.
-- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish "--//registry.npmjs.org/:_authToken=npm_…"`
-  (granular 토큰, 2FA 우회). 버전 올리고 → publish → `git tag vX & push` → GitHub Releases 웹에서 노트 작성.
+- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish`. 인증은 granular 토큰
+  (`"--//registry.npmjs.org/:_authToken=npm_…"`)이 기본이나 **granular 토큰은 만료됨** — 만료 시 E404(권한 없음을
+  404로 반환)가 뜨면 토큰 없이 `npm publish`하면 브라우저 CLI 인증(`npmjs.com/auth/cli/…`)으로 붙는다. 버전 올리고 →
+  publish → `git tag vX & push` → GitHub Releases 웹에서 노트.
+- **⚠ 이중 채널 규칙(중요, 안전장치):** `latest`=안정선, `beta`=실험선(explore). **prerelease는 반드시 `npm publish --tag beta`**
+  — `--tag` 빠뜨리면 npm이 `latest`를 prerelease로 밀어버려 explore가 정식 최신이 됨. `-beta.N` 접미사가 `^2.4.0` 범위를
+  이중으로 막지만 `latest` 이름표는 별개라 태그 필수. **안정 패치(2.4.1)는 main에서 hotfix 브랜치**로(develop 안 거침 →
+  explore 안 섞임). **`develop → main` 머지는 explore를 latest로 정식화하겠다 결심할 때만** — 그때 `2.5.0`(접미사 제거) ·
+  `npm publish`(기본 latest) · 이후 `npm dist-tag rm cairn-engine beta`. 소비자 opt-in = `npm install cairn-engine@beta`.
 - **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),
   프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
 - **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·

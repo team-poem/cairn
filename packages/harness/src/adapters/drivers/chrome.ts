@@ -192,10 +192,35 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async select(target: Target, value: string): Promise<void> {
-    // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
-    await this.callAccepting("fill", { uid: await this.resolveUid(target), value });
+    const uid = await this.resolveUid(target);
+    if (!(await this.isNativeSelect(uid))) {
+      // A custom ARIA dropdown (a11y role `combobox`, but a real element like button[role=combobox]
+      // with a listbox popup) is NOT a native <select>, so `fill` silently no-ops on it — which made
+      // discover thrash 26 steps never seeing the value take. Fail closed so discover gets a signal;
+      // driving the listbox open→pick lands in the next commit.
+      throw new Error(
+        `select "${value}": target is a custom dropdown, not a native <select> — its value can't be set with fill`,
+      );
+    }
+    // native <select>: chrome-devtools-mcp's `fill` sets .value.
+    await this.callAccepting("fill", { uid, value });
     this.snapshotCache = undefined;
     await this.settle();
+  }
+
+  /** Whether the resolved element is a real native `<select>` (vs a custom ARIA combobox that shares
+   * the a11y role but no-ops on `fill`). Decided by the element's tag, not its a11y role — both render
+   * as `combobox` — via an in-page probe. Best-effort: an unreachable probe treats it as non-native. */
+  private async isNativeSelect(uid: string): Promise<boolean> {
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: "(el) => ({ tag: el ? el.tagName : null })",
+        args: [uid],
+      });
+      return (extractFirstJsonObject(reply) as { tag?: unknown } | undefined)?.tag === "SELECT";
+    } catch {
+      return false;
+    }
   }
 
   async pressKey(key: string): Promise<void> {

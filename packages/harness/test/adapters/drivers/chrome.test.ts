@@ -408,3 +408,27 @@ describe("duplicate exact names (#127)", () => {
     expect(describeResolutionMiss(parseSnapshotRows(dup), { text: "Checkout" })).toContain("no element matching");
   });
 });
+
+describe("select — native fast-path vs custom dropdown (#: select-aria-native)", () => {
+  const nativeSelect = 'Script ran on page and returned:\n```json\n{"tag":"SELECT"}\n```';
+  const customButton = 'Script ran on page and returned:\n```json\n{"tag":"BUTTON"}\n```';
+
+  it("drives a real native <select> with fill", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=3_1 combobox "Size"',
+      evaluate_script: nativeSelect,
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await driver.select({ text: "Size" }, "Medium");
+    expect(calls.find((c) => c.name === "fill")?.args).toEqual({ uid: "3_1", value: "Medium" });
+  });
+
+  it("throws on a custom ARIA combobox instead of silently no-opping (fail-closed)", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=3_1 combobox "Size"',
+      evaluate_script: customButton,
+    });
+    await expect(driver.select({ text: "Size" }, "Medium")).rejects.toThrow(/custom dropdown/);
+    expect(calls.some((c) => c.name === "fill")).toBe(false); // never no-ops a fill
+  });
+});

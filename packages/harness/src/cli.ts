@@ -7,13 +7,20 @@
  *   cairn replay <skill.json> [--json out] [--expect-timeout ms]   replay a frozen skill (deterministic, no LLM)
  *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, re-freeze
  *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m] [--max-steps n]
+ *   cairn explore "<charter>" --url <u>        LLM survey the app for UX problems (freeze-less, #102)
+ *                                              [--model m] [--max-steps n] [--report out.md] [--json out.json]
  *
- * All orchestration lives in the library (`runScenario` / `discover`). This file only
+ * All orchestration lives in the library (`runScenario` / `discover` / `explore`). This file only
  * parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
+import { writeFile } from "node:fs/promises";
 import { runScenario, needsLlmCritic } from "./run.js";
 import { discover } from "./core/discover/index.js";
+import { explore } from "./core/explore/index.js";
+import type { ExploreReport } from "./core/explore/index.js";
+import { describeAction } from "./core/discover/decision.js";
+import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
@@ -154,6 +161,55 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   return 0;
 }
 
+async function cmdExplore(positionals: string[], flags: Flags): Promise<number> {
+  const charter = positionals[0];
+  const url = flagStr(flags, "url");
+  if (!charter || !url) {
+    throw new Error(
+      'usage: cairn explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]',
+    );
+  }
+  const model = flagStr(flags, "model");
+
+  const driver = new ChromeDevToolsDriver();
+  const llm = createLlmClient(model ? { model } : {});
+  console.log(`exploring with ${llm.id} …`);
+
+  let report: ExploreReport;
+  try {
+    report = await explore(charter, {
+      driver,
+      llm,
+      baseUrl: url,
+      maxSteps: flagNum(flags, "max-steps"),
+      onStep: (decision) => console.log(`  · ${describeAction(decision)}`),
+      onFinding: (f) => console.log(`  ⚑ [${f.severity}] ${f.detail}`),
+    });
+  } finally {
+    await driver.close();
+  }
+
+  const markdown = renderExploreReport(report);
+  const reportPath = flagStr(flags, "report");
+  if (reportPath) {
+    await writeFile(reportPath, markdown, "utf8");
+    console.log(`\nreport → ${reportPath}`);
+  } else {
+    console.log(`\n${markdown}`);
+  }
+  const jsonPath = flagStr(flags, "json");
+  if (jsonPath) {
+    await writeFile(jsonPath, JSON.stringify(report, null, 2), "utf8");
+    console.log(`json → ${jsonPath}`);
+  }
+
+  if (report.truncated) {
+    console.log(`⚠ stopped at the step cap before the charter was covered — coverage is partial.`);
+  }
+  // CI gate: error-severity findings (real failures a user would hit) fail the run; warns/infos don't.
+  return report.findings.some((f) => f.severity === "error") ? 1 : 0;
+}
+
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   const { positionals, flags } = parseArgs(rest);
@@ -169,8 +225,11 @@ async function main(): Promise<void> {
     case "discover":
       code = await cmdDiscover(positionals, flags);
       break;
+    case "explore":
+      code = await cmdExplore(positionals, flags);
+      break;
     default:
-      console.error("usage: cairn <run|replay|discover> …");
+      console.error("usage: cairn <run|replay|discover|explore> …");
       code = 2;
   }
   process.exit(code);

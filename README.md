@@ -93,6 +93,23 @@ Long flows and slow apps have knobs: `discover --max-steps=30` raises the explor
 and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts
 as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`.
 
+## Explore it — freeze-less UX survey
+
+`discover` builds a test; `explore` files a report. Give it a **charter** instead of an intent and
+the same loop wanders your app looking for what would annoy a real user — nothing is frozen:
+
+```sh
+cairn explore "survey checkout and the account pages for UX problems" \
+  --url=https://your.app --report=findings.md    # exit 1 on error-severity findings
+```
+
+Findings are derived mechanically from each action's observation delta — **failed requests**,
+**console errors**, **dead controls** (a click that changed nothing), **action errors**, **slow
+settles** — plus problems the exploring model itself records (a confusing state, a dead end).
+The markdown report groups them by severity with the reproduction steps appended. From the
+library: `explore(charter, { driver, llm, baseUrl })` returns an `ExploreReport`;
+`renderExploreReport(report)` renders it.
+
 ## Embed it
 
 The CLI is a convenience; the engine is the point. **Author once** — an AI discovers the flow; you

@@ -20,6 +20,10 @@ export interface Decision {
     | "scroll"
     | "goto"
     | "waitFor"
+    /** Explore-only (#102): record an observed UX problem without touching the page. `text` carries
+     * the problem, `severity` how bad it is. Discover's prompt never teaches it; if a model emits it
+     * anyway, `decisionToStep` rejects it like `done`. */
+    | "note"
     | "done";
   text?: string;
   /** Disambiguate identically-named elements (#127): the element's role, and the 0-based
@@ -33,6 +37,8 @@ export interface Decision {
   until?: WaitUntil;
   reason?: string;
   assertions?: Assertion[];
+  /** note: how bad the observed problem is (default "info"). */
+  severity?: "info" | "warn" | "error";
 }
 
 export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
@@ -107,6 +113,8 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
     case "waitFor":
       if (!decision.until) throw new Error('waitFor decision missing "until"');
       return { kind: "waitFor", until: decision.until };
+    case "note":
+      throw new Error('"note" is not an executable action');
     case "done":
       throw new Error('"done" is not an executable action');
     default: {

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ChromeDevToolsDriver,
+  describeResolutionMiss,
   findUidByName,
   followableTab,
   isOpenDialog,
@@ -339,8 +340,8 @@ describe("resolveTargetUid — nth among same-named elements (#92)", () => {
     expect(resolveTargetUid(rows, { text: "Accept", role: "button", index: 0, nth: 9 })).toBeUndefined();
   });
 
-  it("keeps the nth-less behavior: first exact match wins", () => {
-    expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBe("5_0");
+  it("refuses same-role duplicates without nth instead of guessing the first (#127)", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBeUndefined();
   });
 
   it("applies nth to the substring pool when no exact name matches (M1 stays for nth-less targets)", () => {
@@ -360,9 +361,9 @@ describe("locate — nth enrichment for duplicate names (#92)", () => {
   }
   const LIST = `uid=5_0 button "Accept"\nuid=5_2 button "Accept"\nuid=5_4 button "Accept"`;
 
-  it("records nth when the resolved name is duplicated, so the freeze is unambiguous", async () => {
+  it("nth-less duplicates no longer enrich — resolution refuses the guess upstream (#127)", async () => {
     const t = await locatingDriver(LIST).locate({ text: "Accept" });
-    expect(t).toEqual({ text: "Accept", role: "button", index: 0, nth: 0 });
+    expect(t).toEqual({ text: "Accept" }); // unenriched; execution will fail with the ambiguity message
   });
 
   it("keeps an author's nth and derives the structural index from the element it resolves to", async () => {
@@ -374,5 +375,36 @@ describe("locate — nth enrichment for duplicate names (#92)", () => {
     const t = await locatingDriver(`uid=1_1 button "Buy"`).locate({ text: "Buy" });
     expect(t).toEqual({ text: "Buy", role: "button", index: 0 });
     expect("nth" in t).toBe(false);
+  });
+});
+
+describe("duplicate exact names (#127)", () => {
+  const dup = `uid=5_1 link "Log in"\nuid=5_2 button "Log in"\nuid=5_3 button "Log in"`;
+
+  it("refuses to guess among several exact matches without nth", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in" })).toBeUndefined();
+  });
+
+  it("role alone resolves when it narrows to one", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in", role: "link" })).toBe("5_1");
+  });
+
+  it("role + nth addresses the Nth same-named element", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in", role: "button", nth: 1 })).toBe("5_3");
+  });
+
+  it("a single exact match still resolves without nth", () => {
+    const single = `uid=6_1 button "Pay"`;
+    expect(resolveTargetUid(parseSnapshotRows(single), { text: "Pay" })).toBe("6_1");
+  });
+
+  it("describeResolutionMiss names the ambiguity and the fix", () => {
+    const msg = describeResolutionMiss(parseSnapshotRows(dup), { text: "Log in" });
+    expect(msg).toContain('3 elements named "Log in"');
+    expect(msg).toContain('"nth"');
+  });
+
+  it("describeResolutionMiss stays generic for a true miss", () => {
+    expect(describeResolutionMiss(parseSnapshotRows(dup), { text: "Checkout" })).toContain("no element matching");
   });
 });

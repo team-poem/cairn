@@ -130,10 +130,10 @@
 
 - **배포:** unscoped `cairn-engine`로 npm 게시(`cairn` org 만들기 싫다 하여). 토큰(granular)으로 publish, GitHub v0.1.0 태그.
   `npx`·`import` 양쪽 동작 확인(낯선 사용자 시뮬). 사용은 `import { runScenario }`가 메인, CLI는 보조.
-- **실전 도그푸딩(delivered.co.kr Ktown4U 플로우):** discover가 액션 실패 시 **크래시**하던 버그 발견 →
+- **실전 도그푸딩(한 소비자 실사이트 플로우):** discover가 액션 실패 시 **크래시**하던 버그 발견 →
   `fix/discover-adapt`: (1) 실패를 LLM에 피드백해 적응(observe→act→**adapt**, 불변식 #3 완성), (2) 실패 요소 기억해 무한 반복 방지.
   결과: 크래시·무한루프 없이, 막히면 "불가능" 판단 후 종료. 단위테스트 +1(36/36). 버전 0.1.1.
-- **남은 갭(실전이 드러냄):** Driver에 **hover 없음** → 호버/flyout 메뉴(예: 내비의 Ktown4U) 못 펼침. 텍스트 클릭만 가능.
+- **남은 갭(실전이 드러냄):** Driver에 **hover 없음** → 호버/flyout 메뉴(예: 내비의 실사이트) 못 펼침. 텍스트 클릭만 가능.
   (해당 스토어 URL은 점검/404였음도 확인.) → 다음 후보: Driver hover 액션.
 - **다음:** v0.1.1 재배포 여부 · Driver hover · v2(git diff ContextProvider).
 
@@ -145,8 +145,8 @@
   chrome-devtools-mcp 도구로 매핑(hover/press_key/fill/click+dblClick/evaluate-scroll). FakeDriver 기록, SelfHealingDriver는
   target 기반 액션(click/doubleClick/hover/type/select) 모두 heal, pressKey/scroll은 위임. applyHeals를 모든 target 스텝으로 일반화.
 - **결과:** typecheck/37테스트/build OK. 버전 0.2.0.
-- **실전 재시도(Ktown4U):** 액션은 다 있으나 LLM이 hover 미선택(클릭 실패→메뉴 연결 못 함, 프롬프트/모델 튜닝 영역).
-  - `/store/ktown4u`가 일관되게 점검/404 → 스토어 자체가 다운(=플로우 불가, 능력 문제 아님). 해당 플로우는 보류.
+- **실전 재시도(실사이트):** 액션은 다 있으나 LLM이 hover 미선택(클릭 실패→메뉴 연결 못 함, 프롬프트/모델 튜닝 영역).
+  - `해당 스토어 경로`가 일관되게 점검/404 → 스토어 자체가 다운(=플로우 불가, 능력 문제 아님). 해당 플로우는 보류.
 - **다음:** v0.2.0 재배포 · (선택)discover 프롬프트 튜닝으로 hover 유도 · v2(git diff ContextProvider).
 
 ## 2026-06-23 — 데스크탑 임베드용 안정화 (v0.3.0)
@@ -209,8 +209,8 @@
     결정성 유지) + anti-slop AGENTS.md(`#10` close). `release/1.1.0`로 develop→main 결합 머지(68 테스트). 태그 `v1.1.0`.
 - **git-flow 확정 + CONTRIBUTING 정비.** 옛 'main→develop→feature' 혼선 정리 → develop=통합, develop→main=릴리스(메인테이너),
   수동 publish(자동배포는 보류). develop을 main에 sync. README v1.1 + browser entry. (브랜치 정리는 룰셋이 원격 삭제 막아 UI에서.)
-- **도그푸딩(별도 레포 `delivered-qa-chrome-extension`):** `cairn-engine/browser`를 크롬 익스텐션에 install,
-  `ExtensionDriver`(chrome.debugger/CDP)로 delivered staging 결제 퍼널(로그인→장바구니)을 실 사이트에서 replay.
+- **도그푸딩(별도 레포 `qa-extension`):** `cairn-engine/browser`를 크롬 익스텐션에 install,
+  `ConsumerDriver`(chrome.debugger/CDP)로 소비자 앱 staging 결제 퍼널(로그인→장바구니)을 실 사이트에서 replay.
   **PoC 핵심(npm 임베드 + CDP replay + 3층 판정 + 실버그 캡처) 증명.** 동시에 **cairn-side 갭 3건** 표면화 →
   익스텐션 레포 `cairn-feedback.md`(커밋X)에 누적, state.md "다음 작업"에 반영:
   1. **`waitFor` 스텝 부재** — 조건 대기 없음(인증 준비 레이스에 replay 깨짐). 최우선.
@@ -226,9 +226,9 @@
 - **`waitFor` 스텝(신규):** `core/types.ts`에 `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}` + `WaitUntil`. `BuiltinStepHandler`가 `observe`/`snapshot` 폴링으로 조건 충족까지 대기 — **새 Driver 메서드 없이, LLM 0**(불변식 #4). 인증-준비 레이스(로그인 직후 `/me` 404 → 홈 튕김) 같은 비동기 준비를 결정적으로 넘김. 테스트 +3.
 - **#14 freeze 점수/경고(신규 `core/freeze.ts`):** 순수 `scoreTarget`(selector=1.0 / role+index=0.7 / text-only=0.3 weak / none=0) + `weakTargets`/`scoreScenario`. CLI `cmdDiscover`가 freeze 시 약한(text-only) 타겟 경고. index·browser export. 테스트 +6. **Closes #14.**
 - **#17(드라이버 한계 3종):** ① settle = 이미 activity-정적+`SettleOptions`, + `waitFor`가 event-based 대기 보강. ② dialogs = 클릭發 confirm/alert에 MCP가 "open dialog" 에러 → `chrome.ts` `clickAccepting`이 잡아 `handle_dialog(accept)`. ③ hover = 기존 구현이 실제로 동작. **②③를 세션 chrome-devtools MCP로 직접 검증**(dialog: click→에러→handle→confirm=true / hover: `:hover` flyout 드러남). `isOpenDialog` 테스트 +2. **Closes #17.**
-- **CSS 로케이터:** `Target.selector` 타입 이미 존재 + #14 점수가 selector 최고 보상. 실제 resolution은 **CDP-direct 드라이버(익스텐션 `ExtensionDriver`)** 몫 — MCP 텍스트 인터페이스는 CSS→uid 매핑 곤란(레퍼런스 드라이버 미해석).
-- **검증:** typecheck·build·**79/79**·browser 번들 node 0. cairn 자체 게이트 통과. _실 사이트(delivered) 검증은 배포 후 익스텐션 도그푸딩 단계._
-- **다음:** PR → develop → main(`Closes #17, #14`) → 1.2.0 배포 → 익스텐션 install + `ExtensionDriver` selector resolution(이름없는 카트 체크박스).
+- **CSS 로케이터:** `Target.selector` 타입 이미 존재 + #14 점수가 selector 최고 보상. 실제 resolution은 **CDP-direct 드라이버(익스텐션 `ConsumerDriver`)** 몫 — MCP 텍스트 인터페이스는 CSS→uid 매핑 곤란(레퍼런스 드라이버 미해석).
+- **검증:** typecheck·build·**79/79**·browser 번들 node 0. cairn 자체 게이트 통과. _실사이트 검증은 배포 후 익스텐션 도그푸딩 단계._
+- **다음:** PR → develop → main(`Closes #17, #14`) → 1.2.0 배포 → 익스텐션 install + `ConsumerDriver` selector resolution(이름없는 카트 체크박스).
 
 ## 2026-06-25 — cairn-bot PR/issue automation
 
@@ -238,9 +238,9 @@
 
 ## 2026-06-25 — QA 도그푸딩 PoC 완주 → 다음 엔진 과제 매핑
 
-> 별도 레포 `delivered-qa-chrome-extension`(회사 logos3pl 계정)에서 `cairn-engine`을 임베드해 실증. cairn 코어는 변경 없음 — 여기 기록은 *엔진이 실앱에서 뭘 더 해야 하는지*의 입력. 상세는 그 레포 `cairn-feedback.md`(커밋X).
+> 별도 레포 `qa-extension`(회사 계정)에서 `cairn-engine`을 임베드해 실증. cairn 코어는 변경 없음 — 여기 기록은 *엔진이 실앱에서 뭘 더 해야 하는지*의 입력. 상세는 그 레포 `cairn-feedback.md`(커밋X).
 
-- **PoC 구성:** cairn-engine 1.2.0을 크롬 익스텐션(MV3)에 임베드, `chrome.debugger`(CDP) 위에 `ExtensionDriver`(Driver 포트) 구현. delivered staging 실사이트에서 구동.
+- **PoC 구성:** cairn-engine 1.2.0을 크롬 익스텐션(MV3)에 임베드, `chrome.debugger`(CDP) 위에 `ConsumerDriver`(Driver 포트) 구현. 소비자 앱 staging 실사이트에서 구동.
 - **성과:** ① 손-시나리오 결제 퍼널(로그인→장바구니→선택→체크아웃) **replay 3/3 PASS**(navigated /payment·console0·network0, LLM0, 결정적). ② **discover→freeze→replay→self-heal 한 바퀴를 실앱에서** 돌림 — discover(브라우저 AnthropicLlmClient, Haiku) → chrome.storage freeze → 결정적 replay → SelfHealingDriver. ③ 토큰·시간 실측 UI로 discover 비용 vs replay 0토큰을 화면 증명.
 - **핵심 한계 실증(엔진 입력):**
   - **#7 outcome-aware heal** — self-heal이 *target resolve 실패*에만 끼어, "클릭은 됐는데 기대 결과(nav/assertion) 미달"을 못 잡음(체크아웃 클릭이 resolve+실행됐으나 /payment 미도달, self-heal 0회). _결과 실패_ 트리거가 있어야 self-heal이 실앱 stateful 플로우에서 진짜 동작.
@@ -270,7 +270,7 @@
 
 - **1.3.0 npm 배포 + 익스텐션이 1.3.0으로 재도그푸딩.** #16 grounded 단언 확인됨 — 재생 verdict에 `request-status`(로그인/`/me` 200)가 실제로 박혀 "에러 없음"이 아니라 *진짜 그 호출이 됐나*를 판정.
 - **#5 frozen skill wrapper 제거 (PR #27, contributor Kangmin Kim) 머지** — frozen 파일=bare `Scenario`. `loadSkillFile`이 타입가드로 검증·loud 실패. _공개 `Skill` 타입 제거 + frozen 포맷 변경 = breaking_ → 다음 릴리스 버전/체인지로그에 반영 예정.
-- **핵심 진단 — "루프가 안정적으로 안 도는" 게 cairn이냐 앱이냐:** 둘 다지만 **순서가 핵심**. ① _즉시 블로커는 perception(익스텐션)_ — delivered 카트 선택 컨트롤이 이름없어 `snapshot`서 걸러져 LLM이 못 봄 → discover 체크아웃 미완주. 익스텐션 Driver가 합성 라벨로 노출하면 cairn 무수정으로 풀림. ② _그 뒤 cairn 엔진 갭이 깨끗이 보임_ — #14 동적 타겟, #6 done/URL, 그리고 **stateful·동적 플로우를 freeze→replay하는 모델 자체의 취약성**(안정 플로우=벤치 4/4 견고, stateful=깨짐). → **perception-first(익스텐션) 후 cairn 엔진 재점검**. perception이 cairn 진단의 선결조건.
+- **핵심 진단 — "루프가 안정적으로 안 도는" 게 cairn이냐 앱이냐:** 둘 다지만 **순서가 핵심**. ① _즉시 블로커는 perception(익스텐션)_ — 소비자 카트 선택 컨트롤이 이름없어 `snapshot`서 걸러져 LLM이 못 봄 → discover 체크아웃 미완주. 익스텐션 Driver가 합성 라벨로 노출하면 cairn 무수정으로 풀림. ② _그 뒤 cairn 엔진 갭이 깨끗이 보임_ — #14 동적 타겟, #6 done/URL, 그리고 **stateful·동적 플로우를 freeze→replay하는 모델 자체의 취약성**(안정 플로우=벤치 4/4 견고, stateful=깨짐). → **perception-first(익스텐션) 후 cairn 엔진 재점검**. perception이 cairn 진단의 선결조건.
 - **outcome-heal 실증 교훈:** 익스텐션은 `runHarness` 직접 호출이라 `runScenario`의 outcome-heal이 안 닿음 → 익스텐션에 복제. 또 재발견의 *자체 단언*으로 판정하면 /cart에서 멈춰도 false PASS → **원래 목표 단언으로 판정**해야 정직(= "passed but wrong"이 heal 경로에서 재발). 안전: 자동화가 외부 PG로 넘어가는 사고 → origin 경계 하드 가드 필요(프롬프트 "멈춰"는 강제 아님).
 - **다음:** 익스텐션 perception 픽스(이름없는 요소 노출) 먼저 → 그담 cairn 엔진(#14·#6·적응형 replay).
 
@@ -439,7 +439,7 @@
 
 ## 2026-07-02 — 후보 기록: discover 배치(look-ahead) 플래닝 (QA 도그푸딩 발)
 
-- **동기:** delivered QA 익스텐션 도그푸딩에서 탐색 시간이 길다(로그인+장바구니 ~40–57초). 병목은 "LLM 왕복 × 스텝 수"이고, E2E는 순차 의존이라 병렬로 못 줄인다 → **스텝당 왕복을 줄이는 게 유일한 구조적 레버.** (익스텐션 쪽 완화는 별개로 적용: 효율 프롬프트 지침·스냅샷 상한 축소.)
+- **동기:** 소비자 QA 익스텐션 도그푸딩에서 탐색 시간이 길다(로그인+장바구니 ~40–57초). 병목은 "LLM 왕복 × 스텝 수"이고, E2E는 순차 의존이라 병렬로 못 줄인다 → **스텝당 왕복을 줄이는 게 유일한 구조적 레버.** (익스텐션 쪽 완화는 별개로 적용: 효율 프롬프트 지침·스냅샷 상한 축소.)
 - **제안(하이브리드 배치):** discover가 매 스텝 LLM을 부르는 대신, **한 번에 N스텝을 계획**하고 쭉 실행하다 **어긋날 때만** 재관찰+재계획으로 왕복. 정상 경로에선 왕복 절감, 돌발엔 반응성 유지.
 - **왜 엔진(cairn)인가:** 탐색 루프는 엔진 소유(소비자는 `discover()` 호출만). 리트머스("다른 소비자도 원하나?") 통과 — look-ahead는 범용 QA 가속. 익스텐션에서 discover 재구현은 슬롭(self-heal·action-grounding 상실).
 - **이미 있는 부품:** ① `StepMeta.expect` = 스텝별 사후조건을 **결정적으로** 검사(LLM 0) → "싼 어긋남 감지"에 그대로. ② `LlmStepHealer`(surgical-heal) = 어긋난 스텝만 LLM 재결정 → "재계획"의 절반. 배치 = *플래너가 expect 달린 N스텝을 산출 → 실행 → expect 깨지면 재관찰·재계획*.
@@ -448,7 +448,7 @@
 
 ## 2026-07-02 — 엔진 승격 후보 모음 (QA 도그푸딩, 익스텐션서 선구현·검증)
 
-> 익스텐션(`delivered-qa-chrome-extension`)에서 먼저 구현/실앱 검증한 뒤 범용성(리트머스 통과)이라 cairn 후보로 남김. 익스텐션엔 이미 반영, 엔진엔 미착수. state "엔진 승격 후보"와 대응.
+> 익스텐션(`qa-extension`)에서 먼저 구현/실앱 검증한 뒤 범용성(리트머스 통과)이라 cairn 후보로 남김. 익스텐션엔 이미 반영, 엔진엔 미착수. state "엔진 승격 후보"와 대응.
 
 - **② no-failed-requests: transient-ok.** 앱이 로그인 직후 카트 API를 401→refresh→200으로 재시도하는데, `no-failed-requests`가 첫 401로 false FAIL. → **같은 엔드포인트(host+path)가 나중에 2xx로 성공했으면 그 앞의 4xx/5xx는 회복된 일시적 실패로 무시**(성공 없는 실패는 그대로 FAIL). 익스텐션 `observe()` evidence 정규화에 구현(콘솔 노이즈 필터 옆). 엔진 위치 = 크리틱 옵션. 카트 통째 화이트리스트는 진짜 실패도 못 잡아 위험 → "나중에 성공하면 무시"가 정확.
 - **③ no-console-errors: benign 콘솔 패턴.** `benign` 요청 화이트리스트의 콘솔판. 스테이징 i18n `FORMATTING_ERROR` 등 기능 무관 노이즈로 false FAIL. 엔진 위치 = 크리틱 `benignConsole` 파라미터.

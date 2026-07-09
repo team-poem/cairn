@@ -312,7 +312,10 @@ kinds of tools are built _from_.
 Every stage is a replaceable port — bring your own `Driver` (e.g. Playwright), `Critic`,
 `Reporter`, `ContextProvider` (auth/fixtures), or `LlmClient` (any model). Discovery itself takes
 an **`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs (block
-destructive controls, cap wandering, stop on a goal). Compose them directly with `runHarness`, or
+destructive controls, cap wandering, stop on a goal) — and a **`perceive`** hook (a
+`PerceptionAdapter`) to correct the state of widgets that keep it outside the a11y tree (a custom
+checkbox whose selection lives in a styled class, not `aria-checked`), so the model sees the real
+state without the engine hacking app-specific DOM. Compose them directly with `runHarness`, or
 define success inline with `custom`:
 
 ```ts

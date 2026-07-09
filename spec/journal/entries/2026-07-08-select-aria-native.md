@@ -1,7 +1,7 @@
 # 2026-07-08 — select를 a11y-native 우선으로 재구현 + 동사 추가 가드레일(불변식 #7)
 
 - **브랜치:** `fix/select-aria-native-dropdown` (develop = 2.5.0 개발선)
-- **문제(실측):** delivered 확장 도그푸딩 — 필수옵션 상품의 옵션 선택기가 네이티브 `<select>`가 아니라
+- **문제(실측):** 한 소비자 앱 임베드 도그푸딩 — 필수옵션 상품의 옵션 선택기가 네이티브 `<select>`가 아니라
   `button[role=combobox]`+listbox 포탈(MUI 류). 현 `select`가 `type`과 같은 `fill` 프리미티브를 써서
   커스텀 드롭다운엔 **조용히 no-op** → discover가 26스텝 열고·고르고·재열기 반복하다 한도 소진.
 - **설계 판단(리뷰어 2 + 세션 합의):** 관계가 뒤집힌다 — **a11y-native "열기→고르기"가 일반, 네이티브

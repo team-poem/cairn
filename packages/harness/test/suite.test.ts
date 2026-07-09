@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { runSuite } from "../src/suite.js";
-import type { SuiteCase } from "../src/suite.js";
+import { runSuite, hashCase } from "../src/suite.js";
+import type { FrozenSuiteScenario, SuiteCase } from "../src/suite.js";
 import { renderSuiteReport } from "../src/adapters/reporters/suite.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
 import type { LlmClient, Reporter, Scenario, SkillStore } from "../src/index.js";
@@ -48,10 +48,17 @@ const frozen: Scenario = {
 const CASE: SuiteCase = { id: "catalog", intent: "open the catalog", url: "https://shop/" };
 const REF = "skills/catalog.skill.json";
 
+/** Stamps a `caseHash` onto a fixture scenario — a plain `{ ...s, caseHash }` literal assigned
+ * straight into `MemoryStore.skills` (typed `Scenario`) trips TS's excess-property check, since
+ * `caseHash` is a suite-local extension (`FrozenSuiteScenario`), not part of core `Scenario`. */
+function withCaseHash(s: Scenario, c: SuiteCase): FrozenSuiteScenario {
+  return { ...s, caseHash: hashCase(c) };
+}
+
 describe("runSuite", () => {
   it("replays a cached skill with zero LLM calls — the per-case economics invariant", async () => {
     const store = new MemoryStore();
-    store.skills.set(REF, frozen);
+    store.skills.set(REF, withCaseHash(frozen, CASE));
 
     const suite = await runSuite([CASE], {
       store,
@@ -147,7 +154,7 @@ describe("runSuite", () => {
   it("re-freezes a healed scenario so the NEXT run replays clean", async () => {
     const store = new MemoryStore();
     // Frozen step targets "Checkout" whose expect diverges; the live page has "Checkout Now".
-    store.skills.set(REF, {
+    const staleSkill: FrozenSuiteScenario = {
       name: "checkout",
       steps: [
         {
@@ -158,7 +165,9 @@ describe("runSuite", () => {
         },
       ],
       assertions: [{ kind: "navigated" }],
-    });
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, staleSkill);
     const driverFactory = (): StubDriver => {
       const d = new StubDriver();
       d.els = [{ role: "button", name: "Checkout Now" }];
@@ -178,6 +187,89 @@ describe("runSuite", () => {
     expect(suite.verdicts[0]).toMatchObject({ verdict: { passed: true }, heals: 1 });
     const refrozen = store.skills.get(REF)!;
     expect(refrozen.steps[0]).toMatchObject({ target: { text: "Checkout Now" } });
+  });
+
+  it("treats a cache hit with a stale caseHash as a miss — re-discovers instead of trusting drifted criteria", async () => {
+    const store = new MemoryStore();
+    // Frozen under an OLD version of the case (no `expect`) — its caseHash reflects that old shape.
+    const oldCase: SuiteCase = { id: "catalog", intent: "open the catalog", url: "https://shop/" };
+    store.skills.set(REF, withCaseHash(frozen, oldCase));
+
+    // The case now carries the user's success criterion — a real edit to cases.json.
+    const newCase: SuiteCase = { ...oldCase, expect: ["the catalog page lists products"] };
+
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done"}',
+      "[]", // discover's assertion proposal
+      '{"passed":true,"detail":"catalog reached"}', // LlmCritic judging the user's new expect
+    ]);
+
+    const suite = await runSuite([newCase], { store, driverFactory: shopDriver, llm, reporter: silent });
+
+    // A stale cache must NOT be trusted — the LLM had to run (discover + judge), proving the
+    // engine did not silently replay the old skill against the new criteria.
+    expect(suite.verdicts[0]).toMatchObject({ discovered: true, verdict: { passed: true } });
+    expect(suite.usage.llmCalls).toBeGreaterThan(0);
+
+    // The re-frozen skill's hash now matches the NEW case, so the next unchanged run is a clean hit.
+    const refrozen = store.skills.get(REF) as Scenario & { caseHash?: string };
+    expect(refrozen.caseHash).toBe(hashCase(newCase));
+    expect(refrozen.assertions).toEqual(
+      expect.arrayContaining([{ kind: "expect", criterion: "the catalog page lists products" }]),
+    );
+  });
+
+  it("preserves the user-merged assertion through a step-heal re-freeze", async () => {
+    const store = new MemoryStore();
+    const checkoutCase: SuiteCase = {
+      id: "checkout",
+      intent: "buy the item",
+      url: "https://app/start",
+      expect: ["the user reaches the payment page"],
+    };
+    const checkoutRef = "skills/checkout.skill.json";
+    const checkoutSkill: FrozenSuiteScenario = {
+      name: "checkout",
+      steps: [
+        {
+          kind: "click",
+          target: { text: "Checkout" },
+          intent: "go to payment",
+          expect: { url: "app/payment" },
+        },
+      ],
+      assertions: [
+        { kind: "navigated" },
+        { kind: "expect", criterion: "the user reaches the payment page" },
+      ],
+      caseHash: hashCase(checkoutCase), // must match after Fix 1, else this misfires into rediscovery
+    };
+    store.skills.set(checkoutRef, checkoutSkill);
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver();
+      d.els = [{ role: "button", name: "Checkout Now" }];
+      d.navOn["Checkout Now"] = "https://app/payment";
+      return d;
+    };
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Checkout Now"}', // surgical heal for the diverged step
+      '{"passed":true,"detail":"reached the payment page"}', // LlmCritic judging the expect
+    ]);
+
+    const suite = await runSuite([checkoutCase], {
+      store,
+      driverFactory,
+      llm,
+      reporter: silent,
+      expectTimeoutMs: 50,
+    });
+
+    expect(suite.verdicts[0]).toMatchObject({ discovered: false, verdict: { passed: true }, heals: 1 });
+    const refrozen = store.skills.get(checkoutRef)!;
+    expect(refrozen.assertions).toEqual(
+      expect.arrayContaining([{ kind: "expect", criterion: "the user reaches the payment page" }]),
+    );
   });
 
   it("a crashing case fails closed without killing the rest of the suite", async () => {

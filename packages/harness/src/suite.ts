@@ -9,6 +9,7 @@
  * Assembly layer like `run.ts`: composes core + adapters behind the ports; a host can inject
  * every seam (store, driver factory, llm, policy, reporter).
  */
+import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
 import type { ActionPolicy } from "./core/discover/index.js";
 import { runScenario } from "./run.js";
@@ -34,6 +35,21 @@ export interface SuiteCase {
   assertions?: Assertion[];
   /** Discover step cap for this case. */
   maxSteps?: number;
+}
+
+/** A frozen skill's staleness fingerprint: the case's user-authored inputs (intent + the criteria
+ * merged into the freeze) at the time it was discovered. Suite-local extension of `Scenario` — NOT
+ * a core type change; `Scenario`/`SkillStore` stay shared with plain discover/replay/CLI (spec §2,
+ * pattern ≠ data). An undeclared field rides through `Scenario` objects unchanged (plain JS object
+ * spread), so a healed re-freeze that starts from the original scenario keeps its hash for free. */
+export type FrozenSuiteScenario = Scenario & { caseHash: string };
+
+/** Fingerprints exactly the case fields that flow into the freeze (`intent`, `expect`,
+ * `assertions`) — anything else about a `SuiteCase` (id, url, maxSteps) doesn't change what gets
+ * discovered or judged, so it doesn't invalidate the cache. */
+export function hashCase(c: SuiteCase): string {
+  const material = JSON.stringify({ intent: c.intent, expect: c.expect ?? [], assertions: c.assertions ?? [] });
+  return createHash("sha256").update(material).digest("hex");
 }
 
 export interface SuiteOptions
@@ -164,6 +180,14 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     } catch {
       scenario = undefined;
     }
+    // Staleness check (solp721, PR #124): a cache hit only counts on an EXACT caseHash match —
+    // editing a case's intent/expect/assertions in cases.json must never silently replay the OLD
+    // skill against the NEW criteria. A skill frozen before this check shipped has no caseHash at
+    // all; treat that as stale too (forces one re-discover) rather than trusting unverified state —
+    // fail-closed like the rest of the engine (#69/#90).
+    if (scenario && (scenario as Partial<FrozenSuiteScenario>).caseHash !== hashCase(c)) {
+      scenario = undefined;
+    }
     let discovered = false;
     let discoveryUsage = emptyUsage();
 
@@ -205,14 +229,16 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         };
       }
 
-      scenario = {
+      const frozenScenario: FrozenSuiteScenario = {
         ...found,
         assertions: [
           ...found.assertions,
           ...(c.assertions ?? []),
           ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion })),
         ],
+        caseHash: hashCase(c),
       };
+      scenario = frozenScenario;
       await ctx.store.freeze(ref, scenario);
     }
 

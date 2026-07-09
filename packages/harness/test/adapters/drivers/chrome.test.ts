@@ -408,3 +408,48 @@ describe("duplicate exact names (#127)", () => {
     expect(describeResolutionMiss(parseSnapshotRows(dup), { text: "Checkout" })).toContain("no element matching");
   });
 });
+
+describe("select — native fast-path vs custom dropdown (#: select-aria-native)", () => {
+  const nativeSelect = 'Script ran on page and returned:\n```json\n{"tag":"SELECT"}\n```';
+  const customButton = 'Script ran on page and returned:\n```json\n{"tag":"BUTTON"}\n```';
+
+  it("drives a real native <select> with fill", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=3_1 combobox "Size"',
+      evaluate_script: nativeSelect,
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await driver.select({ text: "Size" }, "Medium");
+    expect(calls.find((c) => c.name === "fill")?.args).toEqual({ uid: "3_1", value: "Medium" });
+  });
+
+  it("opens a custom ARIA dropdown and clicks the matching option (watermark-scoped, never fill)", async () => {
+    // The combobox is always present; its options render only after the open-click. A NATIVE
+    // <select>'s options ("Small"/"Medium") are always in the tree — the watermark must not let
+    // the custom pick mismatch them.
+    let opened = false;
+    const closed = 'uid=1 combobox "Size"\nuid=9 option "Medium"'; // uid=9 = a native select's option, pre-existing
+    const open = closed + '\nuid=2 listbox "opts"\nuid=3 option "Small"\nuid=4 option "Medium"';
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: () => (opened ? open : closed),
+      evaluate_script: customButton,
+      click: (args) => (args.uid === "1" ? ((opened = true), "") : ""),
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await driver.select({ text: "Size" }, "Medium");
+    const clicks = calls.filter((c) => c.name === "click");
+    expect(clicks[0]?.args.uid).toBe("1"); // opened the combobox
+    expect(clicks[1]?.args.uid).toBe("4"); // the fresh option, not the pre-existing uid=9
+    expect(calls.some((c) => c.name === "fill")).toBe(false); // never no-ops a fill on a custom dropdown
+  });
+
+  it("throws when no matching option appears after opening (fail-closed)", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=1 combobox "Size"', // opening reveals nothing
+      evaluate_script: customButton,
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await expect(driver.select({ text: "Size" }, "Medium")).rejects.toThrow(/no matching option/);
+    expect(calls.some((c) => c.name === "fill")).toBe(false);
+  });
+});

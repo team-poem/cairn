@@ -32,6 +32,10 @@ const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
 const RESOLVE_RETRIES = 3;
 const RESOLVE_RETRY_MS = 300;
 
+// A custom dropdown's options render into a portal AFTER it opens — bounded wait for them.
+const OPTION_WAIT_MS = 2_000;
+const OPTION_POLL_MS = 150;
+
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
@@ -192,10 +196,67 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async select(target: Target, value: string): Promise<void> {
-    // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
-    await this.callAccepting("fill", { uid: await this.resolveUid(target), value });
+    const uid = await this.resolveUid(target);
+    // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
+    // whose option list can't be clicked), kept as a fast path.
+    if (await this.isNativeSelect(uid)) {
+      await this.callAccepting("fill", { uid, value });
+      this.snapshotCache = undefined;
+      await this.settle();
+      return;
+    }
+    // Custom ARIA dropdown (a11y role `combobox`, but a real button + listbox popup): the general
+    // case. Open it → wait for ITS options → click the one named `value`. `fill` would no-op here,
+    // which used to make discover thrash. One `select` step still freezes as a single stable unit
+    // (the control), so replay drives open→pick deterministically (no LLM).
+    const before = new Set(parseSnapshotRows(await this.getSnapshot()).map((r) => r.uid));
+    await this.callAccepting("click", { uid }); // activate/open
+    this.snapshotCache = undefined;
+    const optionUid = await this.awaitNewOption(value, before);
+    if (!optionUid) {
+      throw new Error(`select "${value}": no matching option appeared after opening the dropdown`);
+    }
+    await this.callAccepting("click", { uid: optionUid });
     this.snapshotCache = undefined;
     await this.settle();
+  }
+
+  /** The `value`'s `option` row among rows that appeared AFTER the dropdown opened — the watermark
+   * (`before`) keeps a native <select>'s always-present options elsewhere from being mismatched.
+   * Exact name wins; else a single substring; several exact matches is ambiguous → nothing (#127).
+   * Deterministic string matching, no LLM (invariant #4). */
+  private async awaitNewOption(value: string, before: ReadonlySet<string>): Promise<string | undefined> {
+    const needle = value.trim().toLowerCase();
+    const deadline = Date.now() + OPTION_WAIT_MS;
+    for (;;) {
+      this.snapshotCache = undefined;
+      const fresh = parseSnapshotRows(await this.getSnapshot()).filter(
+        (r) => !before.has(r.uid) && r.role === "option",
+      );
+      const exact = fresh.filter((r) => r.name.trim().toLowerCase() === needle);
+      if (exact.length === 1) return exact[0]!.uid;
+      if (exact.length === 0) {
+        const subs = fresh.filter((r) => r.name.trim().toLowerCase().includes(needle));
+        if (subs.length === 1) return subs[0]!.uid;
+      }
+      if (Date.now() >= deadline) return undefined;
+      await delay(OPTION_POLL_MS);
+    }
+  }
+
+  /** Whether the resolved element is a real native `<select>` (vs a custom ARIA combobox that shares
+   * the a11y role but no-ops on `fill`). Decided by the element's tag, not its a11y role — both render
+   * as `combobox` — via an in-page probe. Best-effort: an unreachable probe treats it as non-native. */
+  private async isNativeSelect(uid: string): Promise<boolean> {
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: "(el) => ({ tag: el ? el.tagName : null })",
+        args: [uid],
+      });
+      return (extractFirstJsonObject(reply) as { tag?: unknown } | undefined)?.tag === "SELECT";
+    } catch {
+      return false;
+    }
   }
 
   async pressKey(key: string): Promise<void> {

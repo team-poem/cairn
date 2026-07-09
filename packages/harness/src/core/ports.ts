@@ -45,7 +45,8 @@ export interface Driver {
   type(target: Target, text: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
-  /** Choose an option in a `<select>` dropdown. */
+  /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
+   * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;

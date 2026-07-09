@@ -36,7 +36,20 @@ export interface Planner {
  *
  * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
  * (`runScenario`'s default); a caller-supplied driver is closed by the caller. `close()` ends the
- * session permanently: a closed driver must not be reused — construct a new instance instead (#98). */
+ * session permanently: a closed driver must not be reused — construct a new instance instead (#98).
+ *
+ * Trusted input: interaction methods (`click`/`type`/`select`/…) must dispatch *trusted*,
+ * user-level events (CDP input, real key/mouse), never a synthetic JS `.click()` — a controlled
+ * component ignores untrusted events, so a shortcut would silently no-op. The reference driver
+ * (Chrome DevTools MCP) satisfies this; a custom driver must too.
+ *
+ * Perception is a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
+ * perceives like assistive tech, so a control whose state lives outside a11y (a custom widget with
+ * no `aria-checked`/role/name — an accessibility violation) is *invisible or mis-reported to cairn
+ * exactly as it is to a screen reader*. The engine does not special-case app-specific DOM to work
+ * around this (invariant #1). A consumer whose app has such widgets injects corrected perception by
+ * wrapping `snapshot()` in its own Driver — the sanctioned seam — while the real fix is the app
+ * exposing proper ARIA state. */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;

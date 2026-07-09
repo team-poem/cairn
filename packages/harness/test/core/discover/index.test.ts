@@ -441,3 +441,38 @@ describe("ambiguity gate (#127) — the loop refuses before the driver", () => {
     expect(driver.clicked).toHaveLength(1); // acted without a forced re-decision
   });
 });
+
+describe("perception seam (#: perception-gap) — consumer corrects state before the model sees it", () => {
+  it("applies perceive() to the snapshot; the LLM listing shows the corrected state", async () => {
+    // The a11y tree reports the checkbox unchecked (custom widget), but the consumer knows it's
+    // checked and corrects it — the model must see (checked), so it won't re-click it.
+    const driver = new FakeDriver({
+      evidence,
+      elements: [{ role: "checkbox", name: "Select all" }], // no `checked` from a11y
+    });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = ['{"action":"done"}'];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return replies[i++] ?? '{"action":"done"}'; },
+    };
+    const perceive = (els: import("../../../src/core/types.js").PageElement[]) =>
+      els.map((e) => (e.role === "checkbox" && e.name === "Select all" ? { ...e, checked: true } : e));
+
+    await discover("select all", { driver, llm, perceive });
+    expect(prompts[0]).toContain("Select all (checked)"); // corrected state reached the model
+  });
+
+  it("without perceive(), the raw snapshot state is used unchanged", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "checkbox", name: "Select all" }] });
+    const prompts: string[] = [];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return '{"action":"done"}'; },
+    };
+    await discover("select all", { driver, llm });
+    expect(prompts[0]).toContain("[checkbox] Select all");
+    expect(prompts[0]).not.toContain("(checked)");
+  });
+});

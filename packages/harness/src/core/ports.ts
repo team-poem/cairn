@@ -80,6 +80,12 @@ export interface Driver {
 /** A product-defined interaction for a `{ kind: "custom", name }` step — composes the Driver. */
 export type CustomAction = (driver: Driver, params: Record<string, unknown>) => Promise<void>;
 
+/** Correct the perceived state of controls a page exposes OUTSIDE the a11y tree (a custom checkbox
+ * whose visual state lives in a styled class, not `aria-checked`). Runs on each snapshot before the
+ * elements reach the model, returning them with corrected state. The engine stays a11y-native and
+ * app-agnostic (invariant #1) — it offers the seam; the consumer supplies the app-specific reading. */
+export type PerceptionAdapter = (elements: PageElement[]) => PageElement[] | Promise<PageElement[]>;
+
 /**
  * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step
  * to the first handler that `supports` it, instead of branching inside the stage. Built-in kinds

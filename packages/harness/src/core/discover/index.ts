@@ -6,7 +6,7 @@
  * Module layout: prompt (LLM surface) · decision (Decision→Step + shared execution) ·
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
-import type { Driver, LlmClient } from "../ports.js";
+import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
@@ -42,6 +42,9 @@ export interface DiscoverOptions {
   /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
    * gate (every action runs) — behaviour unchanged. */
   policy?: ActionPolicy;
+  /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
+   * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
+  perceive?: PerceptionAdapter;
 }
 
 /** Consecutive policy rejections before the loop gives up — past this, the LLM has nothing
@@ -49,7 +52,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -92,7 +95,8 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const elements = await driver.snapshot();
+    const raw = await driver.snapshot();
+    const elements = perceive ? await perceive(raw) : raw;
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);

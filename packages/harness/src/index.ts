@@ -7,6 +7,9 @@ export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOC
 export type { UrlMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
+export { runSuite } from "./suite.js";
+export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite.js";
+export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";

@@ -150,6 +150,37 @@ if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the
 `CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.
 
+## Run a whole case list — `cairn suite`
+
+Hand cairn your QA cases — natural-language intents plus **your** success criteria — and it
+verifies the lot: cached skills replay deterministically; misses are discovered once, frozen
+**with your criteria merged in**, and replayed. The first run pays discovery; from the second
+run a mechanical-only case costs **zero LLM calls**.
+
+```jsonc
+// cases.json
+{
+  "baseUrl": "https://your.app",
+  "cases": [
+    { "id": "login", "intent": "log in with the test account" },
+    {
+      "id": "checkout",
+      "intent": "buy 1kg of beans",
+      "expect": ["the order total shown is ₩24,000"],
+      "assertions": [{ "kind": "request-status", "urlIncludes": "api/pay", "status": 200 }]
+    }
+  ]
+}
+```
+
+```sh
+cairn suite cases.json --skills ./skills --report suite.md   # exit 1 if any case fails
+```
+
+A healed case is re-frozen so the next run is clean again; a truncated discovery fails closed
+(nothing frozen, nothing trusted). From the library: `runSuite(cases, opts)` returns per-case
+verdicts + whole-suite LLM usage; `renderSuiteReport(result)` renders the markdown summary.
+
 ## The loop
 
 ```

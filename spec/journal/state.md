@@ -9,7 +9,10 @@
     `result.usage`(#100) · 드라이버 수명주기 계약(#98·#88) · discover 지각/게이트(#93·#77·#61·#115·#116) ·
     `Target.nth`(#92) + 잔손질. breaking 0.
   - **2.5.0-beta.0 (beta 채널, 2026-07-08 배포):** freeze-less **explore**(#102, `--tag beta`로만 배포 → latest 불변).
-  - **develop = 2.5.0 개발선 (정식 릴리스 보류 — 로컬 검증 중, 미배포).** 현재 develop 누적(전부 2.5.0行, breaking 0):
+  - **develop = 2.5.0 개발선 (package.json 이미 `2.5.0`, 접미사 제거 — 정식 릴리스 보류·로컬 검증 중·미배포).**
+    ⚠ 또 beta 낼 땐 bare `2.5.0`을 beta로 publish하지 말고 **`2.5.0-beta.1`로 bump 후 `--tag beta`** — 안 그러면 나중에
+    정식 `2.5.0`을 latest로 publish하는 흐름이 막힘(같은 버전 재publish 불가). 정식화는 develop→main → latest + `dist-tag rm beta`.
+    현재 develop 누적(전부 2.5.0行, breaking 0):
     explore(#102/#123) · **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다") ·
     **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) · **suite runner**(#122/#124 + 캐시 해시) ·
     **perception**(#132/#133 — Driver 계약·`perceive` seam·role 없는 클릭 리전 승격). ⚠ beta 채널은 아직 explore만(2.5.0-beta.0);

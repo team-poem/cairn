@@ -6,7 +6,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { extractFirstJsonObject } from "../../core/json.js";
+import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
@@ -36,6 +36,29 @@ const RESOLVE_RETRY_MS = 300;
 const OPTION_WAIT_MS = 2_000;
 const OPTION_POLL_MS = 150;
 
+// A roleless clickable region (a card that's a div + cursor:pointer, not a native/ARIA control) is
+// invisible to a11y-based perception: the model can't target it and gets drawn to a name-matching
+// nav link instead. Promote the label of such a region to a clickable — universally, no framework
+// assumptions: cursor:pointer AND an inline/property click handler on a roleless, non-native ancestor.
+// Requiring the handler both removes false positives (a pointer-styled decoration) and de-nests for
+// free (the handler sits on the region root, not the inner text). Handlers attached another way —
+// React delegates onClick at the root, invisible to the DOM — are app/framework knowledge, so a
+// consumer driver's job (invariant #1), not this reference driver's. Capped so a busy page can't flood.
+const MAX_PROMOTED_CLICKABLES = 40;
+const CLICKABLE_HOPS = 6;
+/** For each passed element, the id of its nearest roleless `cursor:pointer` ancestor (a clickable
+ * region), or -1 — so the driver keeps one label per region (de-nesting). Framework-agnostic. */
+const CLICKABLE_PROBE =
+  "(...els) => { const seen = new Map(); let next = 0; return els.map((el) => {" +
+  " let n = el && el.nodeType === 3 ? el.parentElement : el; let hops = 0;" +
+  " while (n && hops++ < " + CLICKABLE_HOPS + ") {" +
+  " const cs = getComputedStyle(n);" +
+  " const handler = typeof n.onclick === 'function' || n.hasAttribute('onclick');" +
+  " if (cs.cursor === 'pointer' && handler && !n.getAttribute('role') &&" +
+  " !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY|LABEL|DETAILS|OPTION)$/.test(n.tagName)) {" +
+  " if (!seen.has(n)) seen.set(n, next++); return seen.get(n); }" +
+  " n = n.parentElement; } return -1; }); }";
+
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
@@ -43,6 +66,9 @@ export interface ChromeDriverOptions {
   timeoutMs?: number;
   /** Timeout for the initial browser launch/connect (ms). Default 60s (first run may download). */
   connectTimeoutMs?: number;
+  /** Surface roleless `cursor:pointer` regions as clickable controls in the listing (#132). Default on;
+   * set false to see only the raw a11y tree. */
+  promoteClickables?: boolean;
 }
 
 export class ChromeDevToolsDriver implements Driver {
@@ -53,6 +79,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly seenPages = new Set<number>();
   private closed = false; // close() is terminal — a new session needs a new instance (#98)
   private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
+  private lastRaw?: string; // raw snapshot the clickable probe last ran on — re-probe only on change (#132)
+  private lastClickable?: Set<string>; // labels of roleless clickable regions, keyed by that raw
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -298,7 +326,49 @@ export class ChromeDevToolsDriver implements Driver {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.snapshotCache = undefined;
-    return parseElements(await this.getSnapshot());
+    const raw = await this.getSnapshot();
+    const els = parseElements(raw);
+    if (this.opts.promoteClickables === false) return els;
+    // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
+    // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
+    // resolution (a click on it bubbles to the region); only the listing shows it as clickable.
+    if (raw !== this.lastRaw) {
+      this.lastRaw = raw;
+      this.lastClickable = await this.probeClickableLabels(raw);
+    }
+    const clickable = this.lastClickable;
+    if (clickable && clickable.size) {
+      for (const el of els) {
+        if (el.role === "StaticText" && clickable.has(el.name.trim())) el.role = "button";
+      }
+    }
+    return els;
+  }
+
+  /** Labels of roleless `cursor:pointer` regions (#132), one per region (de-nested), capped.
+   * Candidates = named StaticText rows (a region's visible label); the DOM probe reports each one's
+   * clickable-region id. Best-effort — a failed probe promotes nothing. Uses only web-universal
+   * signals (invariant #1). */
+  private async probeClickableLabels(raw: string): Promise<Set<string>> {
+    const candidates = parseSnapshotRows(raw).filter((r) => r.role === "StaticText" && r.name.trim());
+    if (!candidates.length) return new Set();
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: CLICKABLE_PROBE,
+        args: candidates.map((r) => r.uid),
+      });
+      const regions = extractFirstJsonArray(reply);
+      if (!Array.isArray(regions)) return new Set();
+      const firstPerRegion = new Map<number, string>();
+      regions.forEach((rid, i) => {
+        if (typeof rid === "number" && rid >= 0 && !firstPerRegion.has(rid)) {
+          firstPerRegion.set(rid, candidates[i]!.name.trim());
+        }
+      });
+      return new Set([...firstPerRegion.values()].slice(0, MAX_PROMOTED_CLICKABLES));
+    } catch {
+      return new Set();
+    }
   }
 
   async settle(options: SettleOptions = {}): Promise<void> {
@@ -357,6 +427,8 @@ export class ChromeDevToolsDriver implements Driver {
     this.seenPages.clear();
     this.snapshotCache = undefined;
     this.initialUrl = undefined;
+    this.lastRaw = undefined;
+    this.lastClickable = undefined;
     await client?.close().catch(() => {});
     await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }

@@ -19,8 +19,11 @@ import {
 } from "../../../src/adapters/drivers/chrome.js";
 
 /** Driver whose MCP layer is a scripted stub — records calls, returns canned text per tool. */
-function stubbedDriver(responses: Record<string, string | ((args: Record<string, unknown>) => string)>) {
-  const driver = new ChromeDevToolsDriver();
+function stubbedDriver(
+  responses: Record<string, string | ((args: Record<string, unknown>) => string)>,
+  opts?: ConstructorParameters<typeof ChromeDevToolsDriver>[0],
+) {
+  const driver = new ChromeDevToolsDriver(opts);
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   (driver as unknown as { call: unknown }).call = async (
     name: string,
@@ -451,5 +454,49 @@ describe("select — native fast-path vs custom dropdown (#: select-aria-native)
     (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
     await expect(driver.select({ text: "Size" }, "Medium")).rejects.toThrow(/no matching option/);
     expect(calls.some((c) => c.name === "fill")).toBe(false);
+  });
+});
+
+describe("clickable-region promotion (#132)", () => {
+  const snap = [
+    'uid=1 StaticText "Product A"',
+    'uid=2 StaticText "$10"',
+    'uid=3 StaticText "Product B"',
+    'uid=4 StaticText "Just text"',
+  ].join("\n");
+  const regions = (arr: number[]) =>
+    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify(arr)}\n\`\`\``;
+
+  it("promotes one label per roleless clickable region (de-nested); leaves the rest StaticText", async () => {
+    // probe: A & $10 = region 0, B = region 1, "Just text" = none (-1)
+    const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([0, 0, 1, -1]) });
+    const roleOf = Object.fromEntries((await driver.snapshot()).map((e) => [e.name, e.role]));
+    expect(roleOf["Product A"]).toBe("button");
+    expect(roleOf["Product B"]).toBe("button");
+    expect(roleOf["$10"]).toBe("StaticText"); // same region as A → not a second clickable
+    expect(roleOf["Just text"]).toBe("StaticText");
+  });
+
+  it("promoteClickables:false returns raw a11y roles and never probes", async () => {
+    const { driver, calls } = stubbedDriver(
+      { take_snapshot: snap, evaluate_script: regions([0, 0, 1, -1]) },
+      { promoteClickables: false },
+    );
+    const roleOf = Object.fromEntries((await driver.snapshot()).map((e) => [e.name, e.role]));
+    expect(roleOf["Product A"]).toBe("StaticText");
+    expect(calls.some((c) => c.name === "evaluate_script")).toBe(false);
+  });
+
+  it("re-probes only when the raw snapshot changed (no cost on a static poll)", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([0, -1, 1, -1]) });
+    await driver.snapshot();
+    await driver.snapshot(); // same raw → reuse
+    expect(calls.filter((c) => c.name === "evaluate_script")).toHaveLength(1);
+    expect(calls.filter((c) => c.name === "take_snapshot")).toHaveLength(2); // still fresh each call (#85)
+  });
+
+  it("a probe that finds nothing promotes nothing", async () => {
+    const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([-1, -1, -1, -1]) });
+    expect((await driver.snapshot()).every((e) => e.role !== "button")).toBe(true);
   });
 });

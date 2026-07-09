@@ -28,5 +28,16 @@
     추측 스텝 #61의 지각 버전). 단 sound하게 감지되는 부분류만; "확신에 찬 오보"는 감지 불가라 seam 필요.
   - **커스텀 지각/조작 어댑터 seam** — 소비자가 위젯별 읽기·조작을 1급 포트로 주입. **큰 추가 → 불변식 #7 규율대로
     실측+이슈 먼저.** 오늘 실측이 그 첫 근거.
-- **다음 스텝:** 구현 브랜치에서 sound한 작은 것(trusted-input 계약 + 감지 가능한 약한-지각 경고)만 먼저, 큰 seam은 이슈로.
-- **state 변화:** 지각 갭 = 지각 축(동사 축 #7과 직교)을 엔진 관심사로 인식.
+- **구현 완료 (#132 / PR #133, develop 머지):**
+  - **Driver 포트 계약** — trusted input(상호작용은 trusted 이벤트, synthetic JS click 금지) + a11y-native 지각 명문화.
+  - **`perceive` seam**(`DiscoverOptions`/`RunScenarioOptions.perceive`, `PerceptionAdapter`) — 소비자가 스냅샷 상태를
+    교정(outcome-heal 재탐색에도 관통). 자기 Driver 있으면 `snapshot()` 래핑이 일반 seam, perceive는 레퍼런스 드라이버 편의.
+  - **role 없는 클릭 리전 승격**(레퍼런스 드라이버) — 두 번째 실측(스토어 상품카드 = `<div>`+onClick, role/name 없음 →
+    LLM이 못 보고 이름 함정에 끌려 하단 스크롤·헤맴)이 드러낸 발현. `cursor:pointer` **+ inline/property onclick**인
+    roleless·non-native 요소의 라벨을 clickable로 노출. 핸들러 요구가 오탐 제거+중첩제거 동시 해결. region당 **가장 긴 텍스트**
+    (배지/브랜드 선행 collapse 방지), 라벨 role은 raw StaticText 유지(클릭 버블), 승격 role 에코도 resolve. cap·gate·raw변경시만 재probe.
+  - **층 분리(확정):** cairn = inline/property 핸들러(범용, 바닐라/inline 안전망) · 소비자 드라이버 = React 위임 등
+    프레임워크 핸들러(앱-특정, 불변식 #1). 상보적, 안 겹침.
+- **미구현(이슈로 남김):** "약한 지각 경고"의 confidently-wrong 부류(a11y가 상태를 자신있게 틀리게 보고)는 자동 감지 불가 →
+  seam(perceive)이 답. 감지 가능한 sound 신호가 실측되면 그때.
+- **state 변화:** 지각 축(동사 축 #7과 직교)을 엔진 관심사로 인식 + perceive seam·클릭 승격이 2.5.0行에 편입.

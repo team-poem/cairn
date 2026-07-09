@@ -9,7 +9,11 @@
     `result.usage`(#100) · 드라이버 수명주기 계약(#98·#88) · discover 지각/게이트(#93·#77·#61·#115·#116) ·
     `Target.nth`(#92) + 잔손질. breaking 0.
   - **2.5.0-beta.0 (beta 채널, 2026-07-08 배포):** freeze-less **explore**(#102, `--tag beta`로만 배포 → latest 불변).
-    develop = 2.5.0 개발선. 현재 develop엔 explore + #127 중복이름 픽스(#128) 등 2.5.0行 작업 누적 중.
+  - **develop = 2.5.0 개발선 (정식 릴리스 보류 — 로컬 검증 중, 미배포).** 현재 develop 누적(전부 2.5.0行, breaking 0):
+    explore(#102/#123) · **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다") ·
+    **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) · **suite runner**(#122/#124 + 캐시 해시) ·
+    **perception**(#132/#133 — Driver 계약·`perceive` seam·role 없는 클릭 리전 승격). ⚠ beta 채널은 아직 explore만(2.5.0-beta.0);
+    나머지는 develop에만. 재배포하려면 `2.5.0-beta.1 --tag beta`, 정식화는 develop→main(그때 latest + `dist-tag rm beta`).
   - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → (2.5.0 진행).
     상세 = history + entries.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·

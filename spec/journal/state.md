@@ -19,6 +19,8 @@
     나머지는 develop에만. 재배포하려면 `2.5.0-beta.1 --tag beta`, 정식화는 develop→main(그때 latest + `dist-tag rm beta`).
   - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → (2.5.0 진행).
     상세 = history + entries.
+  - **도그푸딩 검증(2026-07-10, 진행 중·순조):** 소비자 임베드 재도그푸딩에서 2.5.0行(select·중복이름·perception·suite)이
+    잘 도는 중 — 새 엔진 갭 미발현. 층 분리도 실증(cairn 보편 + 소비자 프레임워크 층 상보). 문제 재현 시 그 로그가 다음 근거.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

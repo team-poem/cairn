@@ -47,12 +47,15 @@ When a PR is merged into `develop`, `cairn-bot` closes issues referenced with
 `Closes #N`, `Fixes #N`, or `Resolves #N`. The later `develop` → `main` release merge
 is manual and does not close additional issues.
 
-Maintainers must configure these repository Actions secrets:
+These are repository Actions secrets a maintainer configures once — contributors never
+need them:
 
-- `CAIRN_BOT_CLIENT_ID` — the GitHub App client ID, not the numeric app ID.
-- `CAIRN_BOT_PRIVATE_KEY` — a private key generated from the GitHub App settings.
-- `NPM_TOKEN` — an npm granular access token with publish rights on `cairn-engine`
-  (bypass-2FA "Automation"-style token, since publishing runs unattended in CI).
+- `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` — the `cairn-bot` GitHub App's client
+  ID (not the numeric app ID) and a private key generated from the App settings. Used by
+  PR triage, not the release workflow.
+- `NPM_TOKEN` — unrelated to `cairn-bot`. An npm granular access token with publish rights
+  on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
+  unattended). Only whoever owns the npm package registers this.
 
 ## Development setup
 

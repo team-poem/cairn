@@ -400,3 +400,79 @@ describe("current page url in the prompt (#116)", () => {
     expect(prompts[1]).toContain(`Current page: ${evidence.execution.finalUrl}`);
   });
 });
+
+describe("ambiguity gate (#127) — the loop refuses before the driver", () => {
+  const dupes = [
+    { role: "link", name: "Log in" },
+    { role: "button", name: "Log in" },
+    { role: "button", name: "Log in" },
+  ];
+
+  it("a duplicated name without nth is a recorded failure; the driver never acts", async () => {
+    const driver = new FakeDriver({ evidence, elements: dupes });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = [
+      '{"action":"click","text":"Log in"}', // ambiguous — blocked in core
+      '{"action":"click","text":"Log in","role":"button","nth":1}', // re-decided — runs
+      '{"action":"done"}',
+    ];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return replies[i++] ?? '{"action":"done"}'; },
+    };
+    const found = await discover("log in", { driver, llm });
+    expect(driver.clicked).toHaveLength(1); // only the disambiguated click executed
+    expect(prompts[1]).toContain('elements named "Log in"'); // the failure taught the fix
+    expect(prompts[1]).toContain('"nth"');
+    expect(found.steps.some((s) => s.kind === "click")).toBe(true);
+  });
+
+  it("a wrapper pair (link over its own StaticText) is not ambiguous", async () => {
+    const driver = new FakeDriver({
+      evidence,
+      elements: [
+        { role: "link", name: "Learn more" },
+        { role: "StaticText", name: "Learn more" },
+      ],
+    });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Learn more"}', '{"action":"done"}']);
+    await discover("learn", { driver, llm });
+    expect(driver.clicked).toHaveLength(1); // acted without a forced re-decision
+  });
+});
+
+describe("perception seam (#: perception-gap) — consumer corrects state before the model sees it", () => {
+  it("applies perceive() to the snapshot; the LLM listing shows the corrected state", async () => {
+    // The a11y tree reports the checkbox unchecked (custom widget), but the consumer knows it's
+    // checked and corrects it — the model must see (checked), so it won't re-click it.
+    const driver = new FakeDriver({
+      evidence,
+      elements: [{ role: "checkbox", name: "Select all" }], // no `checked` from a11y
+    });
+    const prompts: string[] = [];
+    let i = 0;
+    const replies = ['{"action":"done"}'];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return replies[i++] ?? '{"action":"done"}'; },
+    };
+    const perceive = (els: import("../../../src/core/types.js").PageElement[]) =>
+      els.map((e) => (e.role === "checkbox" && e.name === "Select all" ? { ...e, checked: true } : e));
+
+    await discover("select all", { driver, llm, perceive });
+    expect(prompts[0]).toContain("Select all (checked)"); // corrected state reached the model
+  });
+
+  it("without perceive(), the raw snapshot state is used unchanged", async () => {
+    const driver = new FakeDriver({ evidence, elements: [{ role: "checkbox", name: "Select all" }] });
+    const prompts: string[] = [];
+    const llm = {
+      id: "recording",
+      async complete(prompt: string) { prompts.push(prompt); return '{"action":"done"}'; },
+    };
+    await discover("select all", { driver, llm });
+    expect(prompts[0]).toContain("[checkbox] Select all");
+    expect(prompts[0]).not.toContain("(checked)");
+  });
+});

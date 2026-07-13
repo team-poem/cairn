@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ChromeDevToolsDriver,
+  describeResolutionMiss,
   findUidByName,
   followableTab,
   isOpenDialog,
@@ -18,8 +19,11 @@ import {
 } from "../../../src/adapters/drivers/chrome.js";
 
 /** Driver whose MCP layer is a scripted stub — records calls, returns canned text per tool. */
-function stubbedDriver(responses: Record<string, string | ((args: Record<string, unknown>) => string)>) {
-  const driver = new ChromeDevToolsDriver();
+function stubbedDriver(
+  responses: Record<string, string | ((args: Record<string, unknown>) => string)>,
+  opts?: ConstructorParameters<typeof ChromeDevToolsDriver>[0],
+) {
+  const driver = new ChromeDevToolsDriver(opts);
   const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
   (driver as unknown as { call: unknown }).call = async (
     name: string,
@@ -339,8 +343,8 @@ describe("resolveTargetUid — nth among same-named elements (#92)", () => {
     expect(resolveTargetUid(rows, { text: "Accept", role: "button", index: 0, nth: 9 })).toBeUndefined();
   });
 
-  it("keeps the nth-less behavior: first exact match wins", () => {
-    expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBe("5_0");
+  it("refuses same-role duplicates without nth instead of guessing the first (#127)", () => {
+    expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBeUndefined();
   });
 
   it("applies nth to the substring pool when no exact name matches (M1 stays for nth-less targets)", () => {
@@ -360,9 +364,9 @@ describe("locate — nth enrichment for duplicate names (#92)", () => {
   }
   const LIST = `uid=5_0 button "Accept"\nuid=5_2 button "Accept"\nuid=5_4 button "Accept"`;
 
-  it("records nth when the resolved name is duplicated, so the freeze is unambiguous", async () => {
+  it("nth-less duplicates no longer enrich — resolution refuses the guess upstream (#127)", async () => {
     const t = await locatingDriver(LIST).locate({ text: "Accept" });
-    expect(t).toEqual({ text: "Accept", role: "button", index: 0, nth: 0 });
+    expect(t).toEqual({ text: "Accept" }); // unenriched; execution will fail with the ambiguity message
   });
 
   it("keeps an author's nth and derives the structural index from the element it resolves to", async () => {
@@ -374,5 +378,125 @@ describe("locate — nth enrichment for duplicate names (#92)", () => {
     const t = await locatingDriver(`uid=1_1 button "Buy"`).locate({ text: "Buy" });
     expect(t).toEqual({ text: "Buy", role: "button", index: 0 });
     expect("nth" in t).toBe(false);
+  });
+});
+
+describe("duplicate exact names (#127)", () => {
+  const dup = `uid=5_1 link "Log in"\nuid=5_2 button "Log in"\nuid=5_3 button "Log in"`;
+
+  it("refuses to guess among several exact matches without nth", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in" })).toBeUndefined();
+  });
+
+  it("role alone resolves when it narrows to one", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in", role: "link" })).toBe("5_1");
+  });
+
+  it("role + nth addresses the Nth same-named element", () => {
+    expect(resolveTargetUid(parseSnapshotRows(dup), { text: "Log in", role: "button", nth: 1 })).toBe("5_3");
+  });
+
+  it("a single exact match still resolves without nth", () => {
+    const single = `uid=6_1 button "Pay"`;
+    expect(resolveTargetUid(parseSnapshotRows(single), { text: "Pay" })).toBe("6_1");
+  });
+
+  it("describeResolutionMiss names the ambiguity and the fix", () => {
+    const msg = describeResolutionMiss(parseSnapshotRows(dup), { text: "Log in" });
+    expect(msg).toContain('3 elements named "Log in"');
+    expect(msg).toContain('"nth"');
+  });
+
+  it("describeResolutionMiss stays generic for a true miss", () => {
+    expect(describeResolutionMiss(parseSnapshotRows(dup), { text: "Checkout" })).toContain("no element matching");
+  });
+});
+
+describe("select — native fast-path vs custom dropdown (#: select-aria-native)", () => {
+  const nativeSelect = 'Script ran on page and returned:\n```json\n{"tag":"SELECT"}\n```';
+  const customButton = 'Script ran on page and returned:\n```json\n{"tag":"BUTTON"}\n```';
+
+  it("drives a real native <select> with fill", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=3_1 combobox "Size"',
+      evaluate_script: nativeSelect,
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await driver.select({ text: "Size" }, "Medium");
+    expect(calls.find((c) => c.name === "fill")?.args).toEqual({ uid: "3_1", value: "Medium" });
+  });
+
+  it("opens a custom ARIA dropdown and clicks the matching option (watermark-scoped, never fill)", async () => {
+    // The combobox is always present; its options render only after the open-click. A NATIVE
+    // <select>'s options ("Small"/"Medium") are always in the tree — the watermark must not let
+    // the custom pick mismatch them.
+    let opened = false;
+    const closed = 'uid=1 combobox "Size"\nuid=9 option "Medium"'; // uid=9 = a native select's option, pre-existing
+    const open = closed + '\nuid=2 listbox "opts"\nuid=3 option "Small"\nuid=4 option "Medium"';
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: () => (opened ? open : closed),
+      evaluate_script: customButton,
+      click: (args) => (args.uid === "1" ? ((opened = true), "") : ""),
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await driver.select({ text: "Size" }, "Medium");
+    const clicks = calls.filter((c) => c.name === "click");
+    expect(clicks[0]?.args.uid).toBe("1"); // opened the combobox
+    expect(clicks[1]?.args.uid).toBe("4"); // the fresh option, not the pre-existing uid=9
+    expect(calls.some((c) => c.name === "fill")).toBe(false); // never no-ops a fill on a custom dropdown
+  });
+
+  it("throws when no matching option appears after opening (fail-closed)", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=1 combobox "Size"', // opening reveals nothing
+      evaluate_script: customButton,
+    });
+    (driver as unknown as { settle: () => Promise<void> }).settle = async () => {};
+    await expect(driver.select({ text: "Size" }, "Medium")).rejects.toThrow(/no matching option/);
+    expect(calls.some((c) => c.name === "fill")).toBe(false);
+  });
+});
+
+describe("clickable-region promotion (#132)", () => {
+  const snap = [
+    'uid=1 StaticText "Product A"',
+    'uid=2 StaticText "$10"',
+    'uid=3 StaticText "Product B"',
+    'uid=4 StaticText "Just text"',
+  ].join("\n");
+  const regions = (arr: number[]) =>
+    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify(arr)}\n\`\`\``;
+
+  it("promotes one label per roleless clickable region (de-nested); leaves the rest StaticText", async () => {
+    // probe: A & $10 = region 0, B = region 1, "Just text" = none (-1)
+    const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([0, 0, 1, -1]) });
+    const roleOf = Object.fromEntries((await driver.snapshot()).map((e) => [e.name, e.role]));
+    expect(roleOf["Product A"]).toBe("button");
+    expect(roleOf["Product B"]).toBe("button");
+    expect(roleOf["$10"]).toBe("StaticText"); // same region as A → not a second clickable
+    expect(roleOf["Just text"]).toBe("StaticText");
+  });
+
+  it("promoteClickables:false returns raw a11y roles and never probes", async () => {
+    const { driver, calls } = stubbedDriver(
+      { take_snapshot: snap, evaluate_script: regions([0, 0, 1, -1]) },
+      { promoteClickables: false },
+    );
+    const roleOf = Object.fromEntries((await driver.snapshot()).map((e) => [e.name, e.role]));
+    expect(roleOf["Product A"]).toBe("StaticText");
+    expect(calls.some((c) => c.name === "evaluate_script")).toBe(false);
+  });
+
+  it("re-probes only when the raw snapshot changed (no cost on a static poll)", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([0, -1, 1, -1]) });
+    await driver.snapshot();
+    await driver.snapshot(); // same raw → reuse
+    expect(calls.filter((c) => c.name === "evaluate_script")).toHaveLength(1);
+    expect(calls.filter((c) => c.name === "take_snapshot")).toHaveLength(2); // still fresh each call (#85)
+  });
+
+  it("a probe that finds nothing promotes nothing", async () => {
+    const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([-1, -1, -1, -1]) });
+    expect((await driver.snapshot()).every((e) => e.role !== "button")).toBe(true);
   });
 });

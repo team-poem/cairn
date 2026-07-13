@@ -112,6 +112,35 @@ Prefer a one-off from the terminal? The same steps are CLI commands —
 login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the
 `CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.
 
+## Survey, don't freeze — `cairn explore`
+
+`discover` builds a test; `explore` files a report. Give it a **charter** and the same loop
+wanders your app looking for what would annoy a real user — **failed requests**, **console
+errors**, **dead controls** (a click that changed nothing), **action errors**, **slow settles**,
+plus problems the exploring model itself records — nothing is frozen:
+
+```sh
+cairn explore "survey checkout and the account pages for UX problems" \
+  --url=https://your.app --report=findings.md    # exit 1 on error-severity findings
+```
+
+From the library: `explore(charter, { driver, llm, baseUrl })` returns an `ExploreReport`;
+`renderExploreReport(report)` renders the markdown.
+
+## Run a whole case list — `cairn suite`
+
+Hand cairn your QA cases — natural-language intents plus **your** success criteria — and it
+verifies the lot: cached skills replay deterministically (**zero LLM calls**); misses are
+discovered once, frozen with your criteria merged in, and replayed. A healed case is re-frozen so
+the next run is clean again; a truncated discovery fails closed.
+
+```sh
+cairn suite cases.json --skills ./skills --report suite.md   # exit 1 if any case fails
+```
+
+From the library: `runSuite(cases, opts)` returns per-case verdicts + whole-suite LLM usage;
+`renderSuiteReport(result)` renders the markdown summary.
+
 ## How the loop works
 
 ```
@@ -156,9 +185,10 @@ by hand:
 }
 ```
 
-Each `target` keeps several locators — `text` (accessible name) first, `role` + `index` as a
-rename-resilient fallback, `selector` as a CSS escape hatch — which is what lets replay survive a
-redesign without falling back to the LLM. The `expect` on a step is its post-condition: replay
+Each `target` keeps several locators — `text` (accessible name) first, with `nth` to address the
+Nth of several identically-named elements (`{"text": "Accept", "role": "button", "nth": 2}` is the
+3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallback, `selector` as a CSS
+escape hatch — which is what lets replay survive a redesign without falling back to the LLM. The `expect` on a step is its post-condition: replay
 checks it deterministically and only heals if it diverges.
 
 **Measured, not claimed** — a real multi-step checkout, via cairn's `bench/` harness:
@@ -191,7 +221,11 @@ stage is a replaceable port — your own `Driver` (e.g. Playwright), `Critic`, `
 **`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs, seeing
 the page (current elements + URL), not just the proposal: block destructive controls, cap
 wandering, stop on a goal. The same policy gates the unattended re-discovery when
-`runScenario({ heal: true, policy })` repairs a broken flow. Too much for a full port? `custom`
+`runScenario({ heal: true, policy })` repairs a broken flow. Discovery also takes a **`perceive`**
+hook (a `PerceptionAdapter`) to correct the state of widgets that keep it outside the a11y tree —
+a custom checkbox whose selection lives in a styled class, not `aria-checked` — so the model sees
+the real state without the engine hacking app-specific DOM; `runScenario({ perceive })` threads it
+into an outcome-heal re-discovery the same way. Too much for a full port? `custom`
 assertions/actions define success inline:
 
 ```ts

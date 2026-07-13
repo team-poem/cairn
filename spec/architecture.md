@@ -24,9 +24,21 @@ must keep**.
 5. **Model/driver agnostic.** The core is not hard-wired to a specific LLM or browser. The
    default driver is Chrome DevTools MCP, replaceable (Playwright, etc.).
 6. **Dependency direction.** `qa → harness`, one way. `harness` never imports `qa`.
+7. **Interaction verbs are earned, not added.** The Step vocabulary
+   (`click · type · select · hover · scroll · pressKey · waitFor`) is kept finite. A new verb is
+   added only when (1) it is *empirically observed on a real page* that composing existing verbs
+   does not freeze the interaction stably/deterministically, and (2) it is agreed in an issue
+   first — never built speculatively for a widget that might appear. If existing verbs freeze it
+   stably, compose them; if the interaction is specific to one app, the consumer handles it through
+   the `custom` step seam. The test is **not** "can an existing verb express it" but "does a single
+   intent freeze more stably than the composition" — an interaction can be click-expressible yet
+   freeze as fragile portal-timing steps (a custom dropdown: fixed by enriching `select` to honor
+   the ARIA `combobox`/`listbox`/`option` pattern, not by composing clicks). Fixing an existing
+   verb's implementation is not adding a verb and needs no new agreement.
 
 ## Checklist when touching the core
 - [ ] harness imports no specific domain/environment code
 - [ ] new behavior added via an interface (no direct branch in a stage)
 - [ ] no LLM call on the replay path
 - [ ] dependency direction (qa → harness) preserved
+- [ ] no new interaction verb without a real-page repro that composition freezes unstably + an issue

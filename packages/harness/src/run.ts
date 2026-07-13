@@ -18,6 +18,7 @@ import { createLlmClient } from "./adapters/llm/factory.js";
 import { LlmStepHealer } from "./core/step-heal.js";
 import { UsageMeter, emptyUsage } from "./core/usage.js";
 import type { ActionPolicy } from "./core/discover/index.js";
+import type { PerceptionAdapter } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress } from "./core/types.js";
@@ -62,6 +63,9 @@ export interface RunScenarioOptions {
   /** Gate for the outcome-heal re-discovery — the same ActionPolicy `discover()` takes, so an
    * unattended repair can't run actions the authoring policy would have blocked (#76). */
   policy?: ActionPolicy;
+  /** Correct perceived element state for widgets that expose it outside a11y (a11y-native perception
+   * seam) — threaded into an outcome-heal re-discovery so it perceives the app the same way. */
+  perceive?: PerceptionAdapter;
 }
 
 export interface RunScenarioResult {
@@ -179,6 +183,7 @@ export async function runScenario(
         baseUrl: firstGotoUrl(scenario),
         signal: opts.signal,
         policy: opts.policy,
+        perceive: opts.perceive,
       });
       const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
       const observed = await baseDriver.observe();

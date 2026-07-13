@@ -36,6 +36,18 @@ export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
 export { discover, parseDecision } from "./core/discover/index.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
+export { explore } from "./core/explore/index.js";
+export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";
+export { deriveActionFindings, dedupeFindings } from "./core/explore/findings.js";
+export type {
+  ActionMark,
+  ActionOutcome,
+  Finding,
+  FindingKind,
+  FindingOptions,
+  FindingSeverity,
+} from "./core/explore/findings.js";
+export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { TargetScore, ScoredTarget } from "./core/freeze.js";

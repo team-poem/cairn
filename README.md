@@ -93,6 +93,23 @@ Long flows and slow apps have knobs: `discover --max-steps=30` raises the explor
 and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts
 as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`.
 
+## Explore it — freeze-less UX survey
+
+`discover` builds a test; `explore` files a report. Give it a **charter** instead of an intent and
+the same loop wanders your app looking for what would annoy a real user — nothing is frozen:
+
+```sh
+cairn explore "survey checkout and the account pages for UX problems" \
+  --url=https://your.app --report=findings.md    # exit 1 on error-severity findings
+```
+
+Findings are derived mechanically from each action's observation delta — **failed requests**,
+**console errors**, **dead controls** (a click that changed nothing), **action errors**, **slow
+settles** — plus problems the exploring model itself records (a confusing state, a dead end).
+The markdown report groups them by severity with the reproduction steps appended. From the
+library: `explore(charter, { driver, llm, baseUrl })` returns an `ExploreReport`;
+`renderExploreReport(report)` renders it.
+
 ## Embed it
 
 The CLI is a convenience; the engine is the point. **Author once** — an AI discovers the flow; you
@@ -132,6 +149,37 @@ if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 **Claude Code** install (the default fallback) or the **OpenAI Codex CLI** (reuses your ChatGPT
 login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the
 `CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.
+
+## Run a whole case list — `cairn suite`
+
+Hand cairn your QA cases — natural-language intents plus **your** success criteria — and it
+verifies the lot: cached skills replay deterministically; misses are discovered once, frozen
+**with your criteria merged in**, and replayed. The first run pays discovery; from the second
+run a mechanical-only case costs **zero LLM calls**.
+
+```jsonc
+// cases.json
+{
+  "baseUrl": "https://your.app",
+  "cases": [
+    { "id": "login", "intent": "log in with the test account" },
+    {
+      "id": "checkout",
+      "intent": "buy 1kg of beans",
+      "expect": ["the order total shown is ₩24,000"],
+      "assertions": [{ "kind": "request-status", "urlIncludes": "api/pay", "status": 200 }]
+    }
+  ]
+}
+```
+
+```sh
+cairn suite cases.json --skills ./skills --report suite.md   # exit 1 if any case fails
+```
+
+A healed case is re-frozen so the next run is clean again; a truncated discovery fails closed
+(nothing frozen, nothing trusted). From the library: `runSuite(cases, opts)` returns per-case
+verdicts + whole-suite LLM usage; `renderSuiteReport(result)` renders the markdown summary.
 
 ## The loop
 
@@ -264,7 +312,10 @@ kinds of tools are built _from_.
 Every stage is a replaceable port — bring your own `Driver` (e.g. Playwright), `Critic`,
 `Reporter`, `ContextProvider` (auth/fixtures), or `LlmClient` (any model). Discovery itself takes
 an **`ActionPolicy`** — a deterministic gate that vets each proposed action before it runs (block
-destructive controls, cap wandering, stop on a goal). Compose them directly with `runHarness`, or
+destructive controls, cap wandering, stop on a goal) — and a **`perceive`** hook (a
+`PerceptionAdapter`) to correct the state of widgets that keep it outside the a11y tree (a custom
+checkbox whose selection lives in a styled class, not `aria-checked`), so the model sees the real
+state without the engine hacking app-specific DOM. Compose them directly with `runHarness`, or
 define success inline with `custom`:
 
 ```ts
@@ -373,7 +424,8 @@ ship in the box. Every result carries its own cost proof — `result.usage` coun
 (a clean replay reports `llmCalls: 0`) and token totals whenever the backend measures them.
 
 What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a
-separate desktop app that embeds it for visual replay. The interfaces are the contract.
+first-party surface for visual replay is planned — the engine stays the product; whatever runs it
+is just its first consumer. The interfaces are the contract.
 
 ## Contributing
 

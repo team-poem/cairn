@@ -6,7 +6,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { extractFirstJsonObject } from "../../core/json.js";
+import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
@@ -32,6 +32,33 @@ const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
 const RESOLVE_RETRIES = 3;
 const RESOLVE_RETRY_MS = 300;
 
+// A custom dropdown's options render into a portal AFTER it opens — bounded wait for them.
+const OPTION_WAIT_MS = 2_000;
+const OPTION_POLL_MS = 150;
+
+// A roleless clickable region (a card that's a div + cursor:pointer, not a native/ARIA control) is
+// invisible to a11y-based perception: the model can't target it and gets drawn to a name-matching
+// nav link instead. Promote the label of such a region to a clickable — universally, no framework
+// assumptions: cursor:pointer AND an inline/property click handler on a roleless, non-native ancestor.
+// Requiring the handler both removes false positives (a pointer-styled decoration) and de-nests for
+// free (the handler sits on the region root, not the inner text). Handlers attached another way —
+// React delegates onClick at the root, invisible to the DOM — are app/framework knowledge, so a
+// consumer driver's job (invariant #1), not this reference driver's. Capped so a busy page can't flood.
+const MAX_PROMOTED_CLICKABLES = 40;
+const CLICKABLE_HOPS = 6;
+/** For each passed element, the id of its nearest roleless `cursor:pointer` ancestor (a clickable
+ * region), or -1 — so the driver keeps one label per region (de-nesting). Framework-agnostic. */
+const CLICKABLE_PROBE =
+  "(...els) => { const seen = new Map(); let next = 0; return els.map((el) => {" +
+  " let n = el && el.nodeType === 3 ? el.parentElement : el; let hops = 0;" +
+  " while (n && hops++ < " + CLICKABLE_HOPS + ") {" +
+  " const cs = getComputedStyle(n);" +
+  " const handler = typeof n.onclick === 'function' || n.hasAttribute('onclick');" +
+  " if (cs.cursor === 'pointer' && handler && !n.getAttribute('role') &&" +
+  " !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY|LABEL|DETAILS|OPTION)$/.test(n.tagName)) {" +
+  " if (!seen.has(n)) seen.set(n, next++); return seen.get(n); }" +
+  " n = n.parentElement; } return -1; }); }";
+
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
@@ -39,6 +66,9 @@ export interface ChromeDriverOptions {
   timeoutMs?: number;
   /** Timeout for the initial browser launch/connect (ms). Default 60s (first run may download). */
   connectTimeoutMs?: number;
+  /** Surface roleless `cursor:pointer` regions as clickable controls in the listing (#132). Default on;
+   * set false to see only the raw a11y tree. */
+  promoteClickables?: boolean;
 }
 
 export class ChromeDevToolsDriver implements Driver {
@@ -49,6 +79,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly seenPages = new Set<number>();
   private closed = false; // close() is terminal — a new session needs a new instance (#98)
   private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
+  private lastRaw?: string; // raw snapshot the clickable probe last ran on — re-probe only on change (#132)
+  private lastClickable?: Set<string>; // labels of roleless clickable regions, keyed by that raw
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -192,10 +224,67 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async select(target: Target, value: string): Promise<void> {
-    // chrome-devtools-mcp's `fill` selects an option when the element is a <select>.
-    await this.callAccepting("fill", { uid: await this.resolveUid(target), value });
+    const uid = await this.resolveUid(target);
+    // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
+    // whose option list can't be clicked), kept as a fast path.
+    if (await this.isNativeSelect(uid)) {
+      await this.callAccepting("fill", { uid, value });
+      this.snapshotCache = undefined;
+      await this.settle();
+      return;
+    }
+    // Custom ARIA dropdown (a11y role `combobox`, but a real button + listbox popup): the general
+    // case. Open it → wait for ITS options → click the one named `value`. `fill` would no-op here,
+    // which used to make discover thrash. One `select` step still freezes as a single stable unit
+    // (the control), so replay drives open→pick deterministically (no LLM).
+    const before = new Set(parseSnapshotRows(await this.getSnapshot()).map((r) => r.uid));
+    await this.callAccepting("click", { uid }); // activate/open
+    this.snapshotCache = undefined;
+    const optionUid = await this.awaitNewOption(value, before);
+    if (!optionUid) {
+      throw new Error(`select "${value}": no matching option appeared after opening the dropdown`);
+    }
+    await this.callAccepting("click", { uid: optionUid });
     this.snapshotCache = undefined;
     await this.settle();
+  }
+
+  /** The `value`'s `option` row among rows that appeared AFTER the dropdown opened — the watermark
+   * (`before`) keeps a native <select>'s always-present options elsewhere from being mismatched.
+   * Exact name wins; else a single substring; several exact matches is ambiguous → nothing (#127).
+   * Deterministic string matching, no LLM (invariant #4). */
+  private async awaitNewOption(value: string, before: ReadonlySet<string>): Promise<string | undefined> {
+    const needle = value.trim().toLowerCase();
+    const deadline = Date.now() + OPTION_WAIT_MS;
+    for (;;) {
+      this.snapshotCache = undefined;
+      const fresh = parseSnapshotRows(await this.getSnapshot()).filter(
+        (r) => !before.has(r.uid) && r.role === "option",
+      );
+      const exact = fresh.filter((r) => r.name.trim().toLowerCase() === needle);
+      if (exact.length === 1) return exact[0]!.uid;
+      if (exact.length === 0) {
+        const subs = fresh.filter((r) => r.name.trim().toLowerCase().includes(needle));
+        if (subs.length === 1) return subs[0]!.uid;
+      }
+      if (Date.now() >= deadline) return undefined;
+      await delay(OPTION_POLL_MS);
+    }
+  }
+
+  /** Whether the resolved element is a real native `<select>` (vs a custom ARIA combobox that shares
+   * the a11y role but no-ops on `fill`). Decided by the element's tag, not its a11y role — both render
+   * as `combobox` — via an in-page probe. Best-effort: an unreachable probe treats it as non-native. */
+  private async isNativeSelect(uid: string): Promise<boolean> {
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: "(el) => ({ tag: el ? el.tagName : null })",
+        args: [uid],
+      });
+      return (extractFirstJsonObject(reply) as { tag?: unknown } | undefined)?.tag === "SELECT";
+    } catch {
+      return false;
+    }
   }
 
   async pressKey(key: string): Promise<void> {
@@ -237,7 +326,49 @@ export class ChromeDevToolsDriver implements Driver {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.snapshotCache = undefined;
-    return parseElements(await this.getSnapshot());
+    const raw = await this.getSnapshot();
+    const els = parseElements(raw);
+    if (this.opts.promoteClickables === false) return els;
+    // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
+    // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
+    // resolution (a click on it bubbles to the region); only the listing shows it as clickable.
+    if (raw !== this.lastRaw) {
+      this.lastRaw = raw;
+      this.lastClickable = await this.probeClickableLabels(raw);
+    }
+    const clickable = this.lastClickable;
+    if (clickable && clickable.size) {
+      for (const el of els) {
+        if (el.role === "StaticText" && clickable.has(el.name.trim())) el.role = "button";
+      }
+    }
+    return els;
+  }
+
+  /** Labels of roleless `cursor:pointer` regions (#132), one per region (de-nested), capped.
+   * Candidates = named StaticText rows (a region's visible label); the DOM probe reports each one's
+   * clickable-region id. Best-effort — a failed probe promotes nothing. Uses only web-universal
+   * signals (invariant #1). */
+  private async probeClickableLabels(raw: string): Promise<Set<string>> {
+    const candidates = parseSnapshotRows(raw).filter((r) => r.role === "StaticText" && r.name.trim());
+    if (!candidates.length) return new Set();
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: CLICKABLE_PROBE,
+        args: candidates.map((r) => r.uid),
+      });
+      const regions = extractFirstJsonArray(reply);
+      if (!Array.isArray(regions)) return new Set();
+      const firstPerRegion = new Map<number, string>();
+      regions.forEach((rid, i) => {
+        if (typeof rid === "number" && rid >= 0 && !firstPerRegion.has(rid)) {
+          firstPerRegion.set(rid, candidates[i]!.name.trim());
+        }
+      });
+      return new Set([...firstPerRegion.values()].slice(0, MAX_PROMOTED_CLICKABLES));
+    } catch {
+      return new Set();
+    }
   }
 
   async settle(options: SettleOptions = {}): Promise<void> {
@@ -296,6 +427,8 @@ export class ChromeDevToolsDriver implements Driver {
     this.seenPages.clear();
     this.snapshotCache = undefined;
     this.initialUrl = undefined;
+    this.lastRaw = undefined;
+    this.lastClickable = undefined;
     await client?.close().catch(() => {});
     await transport?.close().catch(() => {}); // also kill the subprocess on partial/abnormal state
   }
@@ -323,7 +456,9 @@ export class ChromeDevToolsDriver implements Driver {
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
         resolveTargetUid(rows, target);
       if (uid) return uid;
-      if (attempt >= RESOLVE_RETRIES) throw new Error(`no element matching ${JSON.stringify(target)}`);
+      if (attempt >= RESOLVE_RETRIES) {
+        throw new Error(describeResolutionMiss(rows, target));
+      }
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
     }
@@ -408,7 +543,15 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
       const pool = exacts.length ? exacts : subs;
       return pool[target.nth]?.uid;
     }
-    if (exacts.length) return exacts[0]!.uid;
+    // Several exact matches within ONE role is a guess like any other (#127) — the class the
+    // (nth=K) prompt markers name. Yield nothing: discovery re-decides with role/nth, replay
+    // falls to self-heal. Cross-role multi-matches keep tree-order-first: an a11y tree routinely
+    // shows a wrapper pair (link "X" over StaticText "X") where either uid acts on the same thing,
+    // and the model can already disambiguate real cross-role duplicates by sending "role".
+    if (exacts.length === 1) return exacts[0]!.uid;
+    if (exacts.length > 1) {
+      return hasSameRoleDupes(exacts) ? undefined : exacts[0]!.uid;
+    }
     // Substring fallback only when it's unambiguous — several partial matches is a guess (like the
     // positional guard below), so yield nothing and let self-heal pick by intent instead of mis-clicking.
     if (subs.length === 1) return subs[0]!.uid;
@@ -420,6 +563,32 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     return sameRole[target.index]?.uid;
   }
   return undefined;
+}
+
+/** True when two or more rows share one role — the ambiguity class the resolver refuses (#127). */
+function hasSameRoleDupes(rows: SnapshotRow[]): boolean {
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (seen.has(r.role)) return true;
+    seen.add(r.role);
+  }
+  return false;
+}
+
+/** Why a target failed to resolve — ambiguity is named (with the fix) so a discover failure tells
+ * the model HOW to re-decide instead of reading as "element doesn't exist" (#127). */
+export function describeResolutionMiss(rows: SnapshotRow[], target: Target): string {
+  if (target.text && target.nth === undefined) {
+    const needle = target.text.trim().toLowerCase();
+    const exacts = rows.filter(
+      (r) => (!target.role || r.role === target.role) && r.name.toLowerCase() === needle,
+    );
+    if (exacts.length > 1 && hasSameRoleDupes(exacts)) {
+      const roles = [...new Set(exacts.map((r) => r.role))].join("/");
+      return `${exacts.length} elements named "${target.text}" (${roles}) — add "role" (and 0-based "nth" if that role still repeats)`;
+    }
+  }
+  return `no element matching ${JSON.stringify(target)}`;
 }
 
 /** Resolve a uid by accessible name only (exact over substring) — used by the discover snapshot path. */

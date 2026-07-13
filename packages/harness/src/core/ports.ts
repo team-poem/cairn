@@ -36,7 +36,20 @@ export interface Planner {
  *
  * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
  * (`runScenario`'s default); a caller-supplied driver is closed by the caller. `close()` ends the
- * session permanently: a closed driver must not be reused — construct a new instance instead (#98). */
+ * session permanently: a closed driver must not be reused — construct a new instance instead (#98).
+ *
+ * Trusted input: interaction methods (`click`/`type`/`select`/…) must dispatch *trusted*,
+ * user-level events (CDP input, real key/mouse), never a synthetic JS `.click()` — a controlled
+ * component ignores untrusted events, so a shortcut would silently no-op. The reference driver
+ * (Chrome DevTools MCP) satisfies this; a custom driver must too.
+ *
+ * Perception is a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
+ * perceives like assistive tech, so a control whose state lives outside a11y (a custom widget with
+ * no `aria-checked`/role/name — an accessibility violation) is *invisible or mis-reported to cairn
+ * exactly as it is to a screen reader*. The engine does not special-case app-specific DOM to work
+ * around this (invariant #1). A consumer whose app has such widgets injects corrected perception by
+ * wrapping `snapshot()` in its own Driver — the sanctioned seam — while the real fix is the app
+ * exposing proper ARIA state. */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;
@@ -45,7 +58,8 @@ export interface Driver {
   type(target: Target, text: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
-  /** Choose an option in a `<select>` dropdown. */
+  /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
+   * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;
@@ -65,6 +79,12 @@ export interface Driver {
 
 /** A product-defined interaction for a `{ kind: "custom", name }` step — composes the Driver. */
 export type CustomAction = (driver: Driver, params: Record<string, unknown>) => Promise<void>;
+
+/** Correct the perceived state of controls a page exposes OUTSIDE the a11y tree (a custom checkbox
+ * whose visual state lives in a styled class, not `aria-checked`). Runs on each snapshot before the
+ * elements reach the model, returning them with corrected state. The engine stays a11y-native and
+ * app-agnostic (invariant #1) — it offers the seam; the consumer supplies the app-specific reading. */
+export type PerceptionAdapter = (elements: PageElement[]) => PageElement[] | Promise<PageElement[]>;
 
 /**
  * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step

@@ -4,18 +4,37 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`cairn-engine@2.3.0` npm 배포됨(2026-07-06 기준 최신).** 2.3.0 = 이슈 #64–#69 → PR #70–#75:
-  readiness replay(expect 폴링 + #81 소급 캡처) · any-match request-status · fail-closed 빈 단언 ·
-  회복 실패/콘솔 노이즈 흡수 · ActionPolicy · 탐색 기본값/CLI 검증 정리. + codex 백엔드 · #80 `--key=value` 파싱.
-  breaking 0. 테스트 177/177. 익스텐션이 `^2.3.0` 소비 중(땜빵 필터 제거 완료). 상세 = history 2026-07-02/03 + entries.
-  (계보: 2.0.0 surgical self-heal(breaking) → 2.1.0 action-grounding → 2.2.x 멀티 LLM 백엔드·파싱/URL 견고화 → 2.3.0.)
+- 단계: **`cairn-engine` 이중 채널.** `latest = 2.4.0` (안정) · `beta = 2.5.0-beta.0` (실험, explore #102).
+  - **2.4.0 (latest, 2026-07-06 배포):** verdict 무결성(#96·#86·#87 expect-URL 3형제 + #90·#78·#97) · 비용 리포팅
+    `result.usage`(#100) · 드라이버 수명주기 계약(#98·#88) · discover 지각/게이트(#93·#77·#61·#115·#116) ·
+    `Target.nth`(#92) + 잔손질. breaking 0.
+  - **2.5.0-beta.0 (beta 채널, 2026-07-08 배포):** freeze-less **explore**(#102, `--tag beta`로만 배포 → latest 불변).
+  - **develop = 2.5.0 개발선 (package.json 이미 `2.5.0`, 접미사 제거 — 정식 릴리스 보류·로컬 검증 중·미배포).**
+    ⚠ 또 beta 낼 땐 bare `2.5.0`을 beta로 publish하지 말고 **`2.5.0-beta.1`로 bump 후 `--tag beta`** — 안 그러면 나중에
+    정식 `2.5.0`을 latest로 publish하는 흐름이 막힘(같은 버전 재publish 불가). 정식화는 develop→main → latest + `dist-tag rm beta`.
+    현재 develop 누적(전부 2.5.0行, breaking 0):
+    explore(#102/#123) · **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다") ·
+    **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) · **suite runner**(#122/#124 + 캐시 해시) ·
+    **perception**(#132/#133 — Driver 계약·`perceive` seam·role 없는 클릭 리전 승격). ⚠ beta 채널은 아직 explore만(2.5.0-beta.0);
+    나머지는 develop에만. 재배포하려면 `2.5.0-beta.1 --tag beta`, 정식화는 develop→main(그때 latest + `dist-tag rm beta`).
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → (2.5.0 진행).
+    상세 = history + entries.
+  - **도그푸딩 검증(2026-07-10, 진행 중·순조):** 소비자 임베드 재도그푸딩에서 2.5.0行(select·중복이름·perception·suite)이
+    잘 도는 중 — 새 엔진 갭 미발현. 층 분리도 실증(cairn 보편 + 소비자 프레임워크 층 상보). 문제 재현 시 그 로그가 다음 근거.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
 - 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters).
 - **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.
-- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish "--//registry.npmjs.org/:_authToken=npm_…"`
-  (granular 토큰, 2FA 우회). 버전 올리고 → publish → `git tag vX & push` → GitHub Releases 웹에서 노트 작성.
+- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish`. 인증은 granular 토큰
+  (`"--//registry.npmjs.org/:_authToken=npm_…"`)이 기본이나 **granular 토큰은 만료됨** — 만료 시 E404(권한 없음을
+  404로 반환)가 뜨면 토큰 없이 `npm publish`하면 브라우저 CLI 인증(`npmjs.com/auth/cli/…`)으로 붙는다. 버전 올리고 →
+  publish → `git tag vX & push` → GitHub Releases 웹에서 노트.
+- **⚠ 이중 채널 규칙(중요, 안전장치):** `latest`=안정선, `beta`=실험선(explore). **prerelease는 반드시 `npm publish --tag beta`**
+  — `--tag` 빠뜨리면 npm이 `latest`를 prerelease로 밀어버려 explore가 정식 최신이 됨. `-beta.N` 접미사가 `^2.4.0` 범위를
+  이중으로 막지만 `latest` 이름표는 별개라 태그 필수. **안정 패치(2.4.1)는 main에서 hotfix 브랜치**로(develop 안 거침 →
+  explore 안 섞임). **`develop → main` 머지는 explore를 latest로 정식화하겠다 결심할 때만** — 그때 `2.5.0`(접미사 제거) ·
+  `npm publish`(기본 latest) · 이후 `npm dist-tag rm cairn-engine beta`. 소비자 opt-in = `npm install cairn-engine@beta`.
 - **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),
   프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
 - **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·
@@ -78,19 +97,19 @@
 
 ## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
 
-> delivered QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **1.2.0으로 배포·소비 완료.**
+> 소비자 QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **1.2.0으로 배포·소비 완료.**
 
 - ✅ **`waitFor` 스텝** — `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}`. `observe`/`snapshot` 폴링, LLM 0(불변식 #4). `core/steps.ts` + 테스트.
 - ✅ **#14 freeze 점수+경고** — `scoreTarget`/`weakTargets`/`scoreScenario`(`core/freeze.ts`, 순수). CLI(`cmdDiscover`)가 freeze 시 약한(text-only) 타겟 경고. index·browser export. → **Closes #14**
 - ✅ **#17 settle** — 이미 activity-정적 + `SettleOptions` 노출 + 새 `waitFor`가 "event-based 대기" 항목 충족.
 - ✅ **#17 dialogs** — 클릭發 confirm/alert: MCP가 "open dialog" 에러 → `chrome.ts` `clickAccepting`이 `handle_dialog(accept)`로 처리. **세션 chrome-devtools MCP로 흐름 직접 검증**(click→에러→handle→confirm=true).
 - ✅ **#17 hover** — 기존 구현이 실제로 `:hover` flyout 메뉴를 드러냄. **MCP로 검증**(코드 변경 없음). → **Closes #17**
-- **CSS 로케이터(자연스러운 동반):** `Target.selector` 타입 이미 존재 + #14 점수가 selector를 최고로 보상. *실제 resolution은 CDP-direct 드라이버(익스텐션 `ExtensionDriver`) 몫* — MCP 텍스트 인터페이스는 CSS→uid 매핑이 어려움(레퍼런스 드라이버는 selector 미해석).
+- **CSS 로케이터(자연스러운 동반):** `Target.selector` 타입 이미 존재 + #14 점수가 selector를 최고로 보상. *실제 resolution은 CDP-direct 드라이버(익스텐션 `ConsumerDriver`) 몫* — MCP 텍스트 인터페이스는 CSS→uid 매핑이 어려움(레퍼런스 드라이버는 selector 미해석).
 - 검증: typecheck·build·**79 테스트**(+11)·browser 번들(node 0).
 
 ## 이번 작업 — 1.3.0 (브랜치 `feat/discover-judge-heal-15-16`, 구현·검증 완료)
 
-> QA 도그푸딩 PoC(별도 레포 `delivered-qa-chrome-extension`)가 매핑한 실앱 갭을 엔진에서 해소. `Closes #15, #16` + outcome-aware heal(피드백). 상세·근거 = 익스텐션 `cairn-feedback.md`(커밋X).
+> QA 도그푸딩 PoC(별도 레포 `qa-extension`)가 매핑한 실앱 갭을 엔진에서 해소. `Closes #15, #16` + outcome-aware heal(피드백). 상세·근거 = 익스텐션 `cairn-feedback.md`(커밋X).
 
 - ✅ **#16 grounded 단언 제안** — discover 끝에 LLM이 intent 기반 단언을 제안해 freeze에 박음. 기본은 *mechanical*: 제안된 `request-status`를 **실제 캡처 요청과 대조 검증**해야 보존(환각 드롭) + `navigated{to}`. 약한 기본판정("passed but wrong")을 결정적으로 메움. `expect`(LLM판정)는 `semanticChecks` opt-in — 아니면 AssertionCritic이 FAIL시키므로(invariant #4 재생 결정성 유지). `core/discover.ts`. → **Closes #16**
 - ✅ **#15 discover 프롬프트 비용** — `slice(0,60)` → **relevance ranking**(인터랙티브+intent 관련 우선)으로 무거운 페이지서 타겟 누락 방지(비용 아닌 *정확성* 효과). 스텝 간 스냅샷 *unchanged* 시 재전송 생략. system 프롬프트 **caching**(`anthropic.ts` cache_control). `core/discover.ts` + adapter. → **Closes #15**

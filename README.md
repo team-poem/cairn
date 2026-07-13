@@ -424,7 +424,9 @@ ship in the box. Every result carries its own cost proof — `result.usage` coun
 (a clean replay reports `llmCalls: 0`) and token totals whenever the backend measures them.
 
 What's next sits **above** the engine: input sources (git diff / ticket `ContextProvider`s), and a
-separate desktop app that embeds it for visual replay. The interfaces are the contract.
+first-party runner with a local web UI for visual replay — the Playwright model: the engine stays
+the product, the runner is its first consumer ([#125](https://github.com/team-poem/cairn/discussions/125)).
+The interfaces are the contract.
 
 ## Contributing
 

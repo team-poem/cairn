@@ -17,10 +17,12 @@
     상세 = history + entries.
   - ⚠ 릴리스 태그 함정(2회 재발): GitHub Release UI에서 태그 생성 시 target이 이전 릴리스 커밋으로 잡힐 수 있음 —
     발행 후 `git log -1 vX.Y.Z`로 태그가 릴리스 머지 커밋인지 확인(어긋나면 `tag -f` + force push + Release에 태그 재선택).
-- **다음 사이클(방향 확정, 디스커션 #125):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI(Playwright 모델 —
-  엔진이 제품, 러너는 첫 소비자). **첫 엔진 작업 = 통합 lifecycle 이벤트/trace 계약**(runScenario step-level vs
-  runSuite case-level 분열 해소; run→case→phase 모델, 이벤트는 step에 optional 상관 — UI 트리를 계약에 박지 않기;
-  라이브 스트림·저장 trace = 같은 versioned 모델의 두 직렬화). 상세 스키마는 착수 시 #125에서 합의.
+- **다음 사이클(방향 확정 — #125 닫힘, 설계는 #138로 이관):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
+  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **첫 엔진 작업 = 통합 lifecycle 이벤트/trace 계약 — 디스커션 #138**
+  (runScenario step-level vs runSuite case-level 분열 해소; run→case→phase 모델, 이벤트는 flat + step에 optional 상관 —
+  UI 트리를 계약에 박지 않기; 라이브 스트림·저장 trace = 같은 versioned 모델의 두 직렬화; **설계 기준 = 신뢰** —
+  초록의 의미 라벨링(사용자 기준 vs 파생 프록시)·눈으로 확인·heal 감사로그·트랙 레코드). 스키마는 #138에서 합의 후 착수.
+  엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
   후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.

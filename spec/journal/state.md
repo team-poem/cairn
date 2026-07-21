@@ -24,7 +24,12 @@
   구 skill은 unknown으로 fail-closed) · `checkedBy: code|model` · **heal 3층 1phase**(locator/step은 `layer` 달린 heal 이벤트,
   outcome-heal은 `phase: heal` 아래 discover kinds, `judgedBy: original`) · gate 이벤트 1급(policy·ambiguity·grounding·parse-retry) ·
   per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
-  다음: 이벤트 sink seam 구현(현 onStep/onHeal로는 gate 구분 불가 — 계약이 요구하는 신규 옵셔널 seam) · flake 이슈 등록(빨강의 신뢰 축, amazon).
+  **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
+  additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
+  남은 것 **#143 TraceSink seam**(PR 예정 — 리뷰 포인트: 옵셔널·미지정 시 불변 / gate 4종 실구분 / outcome-heal이 phase: heal로).
+  발견 버그(리뷰 부산물, amazon에게 제안됨): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결 후 다음 run이
+  불필요 재발견. flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
+  --semantic 문서 · CONTRIBUTING prefix 동기화 · requests/renderer 테스트 · CI Node24 · 이슈 템플릿). PR 자동 클로즈 가드(#141/#145) 도입.
   엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
   후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
   신뢰 설계의 전체 근거(레퍼런스 글 4층 스택·보장 공식·4분면·토론 정정)는 entry `2026-07-21-trace-contract-trust.md`.

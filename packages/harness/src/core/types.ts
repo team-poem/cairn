@@ -64,11 +64,20 @@ export interface Target {
   selector?: string;
 }
 
+/** Provenance of a frozen assertion, recorded at freeze (spec/core/trace.md): `user` = merged
+ * from the case's own criteria (`SuiteCase.expect`/`assertions`); `derived` = grounded from the
+ * observed evidence by `deriveAssertions`. Absent on skills frozen before provenance shipped —
+ * a reader surfaces those as "unknown", never guesses (fail-closed, like a missing `caseHash`). */
+export interface AssertionMeta {
+  origin?: "user" | "derived";
+}
+
 /**
  * `expect` is the only kind an LLM judges; a scenario with only mechanical kinds replays
  * deterministically (invariant #4).
  */
-export type Assertion =
+export type Assertion = AssertionMeta &
+  (
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
@@ -77,7 +86,8 @@ export type Assertion =
   | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
-  | { kind: "custom"; name: string; params?: Record<string, unknown> };
+  | { kind: "custom"; name: string; params?: Record<string, unknown> }
+  );
 
 export interface Scenario {
   name: string;

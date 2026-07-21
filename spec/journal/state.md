@@ -17,13 +17,17 @@
     상세 = history + entries.
   - ⚠ 릴리스 태그 함정(2회 재발): GitHub Release UI에서 태그 생성 시 target이 이전 릴리스 커밋으로 잡힐 수 있음 —
     발행 후 `git log -1 vX.Y.Z`로 태그가 릴리스 머지 커밋인지 확인(어긋나면 `tag -f` + force push + Release에 태그 재선택).
-- **다음 사이클(방향 확정 — #125 닫힘, 설계는 #138로 이관):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
-  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **첫 엔진 작업 = 통합 lifecycle 이벤트/trace 계약 — 디스커션 #138**
-  (runScenario step-level vs runSuite case-level 분열 해소; run→case→phase 모델, 이벤트는 flat + step에 optional 상관 —
-  UI 트리를 계약에 박지 않기; 라이브 스트림·저장 trace = 같은 versioned 모델의 두 직렬화; **설계 기준 = 신뢰** —
-  초록의 의미 라벨링(사용자 기준 vs 파생 프록시)·눈으로 확인·heal 감사로그·트랙 레코드). 스키마는 #138에서 합의 후 착수.
+- **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
+  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
+  확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
+  **단언 provenance `origin: user|derived|unknown`**(freeze 포맷 additive 변경 필요 — 병합 시 출처 소실이 리뷰에서 발견됨,
+  구 skill은 unknown으로 fail-closed) · `checkedBy: code|model` · **heal 3층 1phase**(locator/step은 `layer` 달린 heal 이벤트,
+  outcome-heal은 `phase: heal` 아래 discover kinds, `judgedBy: original`) · gate 이벤트 1급(policy·ambiguity·grounding·parse-retry) ·
+  per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
+  다음: 이벤트 sink seam 구현(현 onStep/onHeal로는 gate 구분 불가 — 계약이 요구하는 신규 옵셔널 seam) · flake 이슈 등록(빨강의 신뢰 축, amazon).
   엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
   후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
+  신뢰 설계의 전체 근거(레퍼런스 글 4층 스택·보장 공식·4분면·토론 정정)는 entry `2026-07-21-trace-contract-trust.md`.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

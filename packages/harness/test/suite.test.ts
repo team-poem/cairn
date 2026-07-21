@@ -191,6 +191,41 @@ describe("runSuite", () => {
     expect(refrozen.steps[0]).toMatchObject({ target: { text: "Checkout Now" } });
   });
 
+  it("outcome-heal re-freeze keeps the caseHash — the NEXT run cache-hits instead of re-discovering (#153)", async () => {
+    const store = new MemoryStore();
+    // Frozen with an assertion the stub driver can never satisfy (it captures no requests) —
+    // replay fails its verdict, which is exactly what triggers the outcome-heal re-discovery.
+    const failing: FrozenSuiteScenario = {
+      ...frozen,
+      assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, failing);
+    // Outcome-heal's re-discovery: done immediately, no proposals.
+    const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+
+    const first = await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent });
+    expect(first.verdicts[0]!.discovered).toBe(false); // cache hit, then heal — not a fresh discover
+
+    // The repaired scenario came from discover() without the suite-local caseHash; the re-freeze
+    // must re-stamp it, or the next run mismatches the hash and pays discovery for nothing.
+    const refrozen = store.skills.get(REF) as FrozenSuiteScenario;
+    expect(refrozen.caseHash).toBe(hashCase(CASE));
+
+    // And the next run really does replay the (still-failing) skill instead of re-discovering:
+    // a judged replay has assertion results; the crashed/re-discover paths don't.
+    const second = await runSuite([CASE], {
+      store,
+      driverFactory: shopDriver,
+      llm: forbiddenLlm,
+      heal: false,
+      reporter: silent,
+    });
+    expect(second.verdicts[0]!.discovered).toBe(false);
+    expect(second.verdicts[0]!.verdict.results.length).toBeGreaterThan(0);
+    expect(second.usage.llmCalls).toBe(0);
+  });
+
   it("treats a cache hit with a stale caseHash as a miss — re-discovers instead of trusting drifted criteria", async () => {
     const store = new MemoryStore();
     // Frozen under an OLD version of the case (no `expect`) — its caseHash reflects that old shape.

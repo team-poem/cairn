@@ -1,0 +1,75 @@
+name: branch convention guard
+
+on:
+  pull_request_target:
+    types: [opened, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: close PRs from off-convention branches
+    # Fork PRs are exempt — external contributors name branches in their own fork;
+    # the convention binds branches of THIS repo (same set the working-branch-safety
+    # ruleset targets).
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check cairn-bot secrets
+        env:
+          CAIRN_BOT_CLIENT_ID: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          CAIRN_BOT_PRIVATE_KEY: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+        run: |
+          test -n "$CAIRN_BOT_CLIENT_ID" || { echo "::error::Missing CAIRN_BOT_CLIENT_ID repository Actions secret."; exit 1; }
+          test -n "$CAIRN_BOT_PRIVATE_KEY" || { echo "::error::Missing CAIRN_BOT_PRIVATE_KEY repository Actions secret."; exit 1; }
+
+      - name: Create cairn-bot token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Close on convention mismatch
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { owner, repo } = context.repo;
+            const pr = context.payload.pull_request;
+            const head = pr.head.ref;
+
+            // Working-branch prefixes (mirror the working-branch-safety ruleset),
+            // plus the long-lived heads a release PR is opened from.
+            const allowed = [
+              /^feat\//,
+              /^fix\//,
+              /^codex\//,
+              /^docs\//,
+              /^chore\//,
+              /^release\//,
+              /^develop$/,
+            ];
+            if (allowed.some((re) => re.test(head))) return;
+
+            const prefixes = "`feat/` · `fix/` · `codex/` · `docs/` · `chore/`";
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number: pr.number,
+              body: [
+                `Closing: head branch \`${head}\` doesn't follow the branch naming convention.`,
+                "",
+                `Please re-open this PR from a branch named with one of the working prefixes — ${prefixes} — e.g.:`,
+                "",
+                "```bash",
+                `git branch -m ${head} feat/${head}`,
+                `git push -u origin feat/${head}`,
+                "```",
+                "",
+                "(Nothing is lost — your commits stay on the renamed branch; just open a new PR from it.)",
+              ].join("\n"),
+            });
+            await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: "closed" });

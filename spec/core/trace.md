@@ -64,11 +64,19 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-start` | `id`, `intent`, `skillRef`, `cached` (hit vs. discover) | `SuiteCase` + cache check |
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
-| discover | `gate` | `gate: policy \| ambiguity \| grounding`, what was blocked/dropped, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#16) |
+| discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry`, what was blocked/dropped/nudged, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?` | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
-| heal | `heal` | `broke` (failed `expect` + error) → `became` (corrective step), `judgedBy: original` | `StepHeal` |
+| heal | `heal` | `layer: locator \| step`, `broke` → `became`, `judgedBy: original` | locator `Heal` (`onHeal`) · `StepHeal` |
+
+**Heal is three layers, one phase.** Locator heal (a target substitution) and surgical step heal
+(a corrective step) each emit a `heal` event — `broke → became` is a target pair or a step pair,
+told apart by `layer`. **Outcome-heal** (the full re-discovery in `run.ts`) is not one event: it
+re-runs discovery, so it emits *the discover kinds* (`action` · `gate` · `freeze`) **under
+`phase: heal`** — the phase says *why* it ran, the kinds say *what* ran. Implementable today:
+outcome-heal calls `discover()` directly. Its verdict is still judged by the **original**
+assertions (surgical-heal P2), which is what keeps the phase auditable.
 
 **Gate firings are first-class events, not silence** — a policy block, an ambiguity refusal, or
 a grounding drop each changed what the engine did; a trace that omits them shows a cleaner run
@@ -78,10 +86,20 @@ than the one that happened.
 
 | criterion | contract answer |
 |---|---|
-| *what green means* | every `assertion` event carries `origin: user \| derived` (user = merged from `SuiteCase.expect`/`assertions` at freeze; derived = `deriveAssertions` grounding) and `checkedBy: code \| model` (mechanical kinds = code; `expect` criterion = `LlmCritic`). A report can then say "12/20 cases verified against *user* criteria" instead of pretending all greens are equal. |
+| *what green means* | every `assertion` event carries `origin: user \| derived \| unknown` (user = merged from `SuiteCase.expect`/`assertions` at freeze; derived = `deriveAssertions` grounding; unknown = a skill frozen before provenance existed — see below) and `checkedBy: code \| model` (mechanical kinds = code; `expect` criterion = `LlmCritic`). A report can then say "12/20 cases verified against *user* criteria" instead of pretending all greens are equal. |
 | *visibility into what ran* | `step` events with per-step screenshots (attachment refs) + `action` events carrying discover's `intent` — the trace shows both what was done and *why the model chose it*. |
-| *auditable heals* | a `heal` event records `broke → became` and asserts `judgedBy: original` — the original step stays in the trace as the earlier `step` event (flat model: nothing is overwritten), and the verdict is still judged by the **original** assertions (surgical-heal P2 stance). Audit = diff two events. |
+| *auditable heals* | every heal layer leaves marks: locator/step heals as `heal` events recording `broke → became` with `judgedBy: original`; outcome-heal as a full `phase: heal` discover sequence. The original step stays in the trace as the earlier `step` event (flat model: nothing is overwritten), and the verdict is still judged by the **original** assertions (surgical-heal P2 stance). Audit = diff two events. |
 | *operational record* | "200 runs, 2 heals, 1 real regression" is a *fold over stored traces* — countable from `case-end` + `heal` events with no extra bookkeeping. The contract adds nothing; it just refuses to lose the inputs. |
+
+## Freeze-format implication — assertion provenance
+
+`origin` cannot be reconstructed at replay: the suite merges user criteria into the frozen
+assertion array (`suite.ts`) and `Assertion` carries no provenance marker, so "user vs. derived"
+is lost the moment the freeze is written. The contract therefore requires an **additive skill-format
+change**: freeze records `origin: "user" | "derived"` on each assertion. A skill frozen before
+this shipped has no marker — readers surface those as `origin: "unknown"`, never guess (same
+fail-closed stance as the missing-`caseHash` rule). Undeclared fields already ride through
+`Scenario` unchanged, so old files stay loadable.
 
 ## Attachments — refs in the payload, bytes in the serialization
 
@@ -103,9 +121,12 @@ you can `less`, attachments you can `open`). Same model, two serializations — 
 - **Flake detection** — the red-side trust axis ("is this red real?"); needs accumulated real
   cases before a mechanism is worth designing.
 
+## Decided in review (#140)
+
+- **Per-assertion live events stay** — the `case-end` rollup needs them anyway.
+- **`explore` gets no phase value yet** — it earns one when someone actually asks for explore
+  traces (invariant #7 spirit: vocabulary is earned, not added speculatively).
+
 ## Open
 
-- `assertion` events: live per-assertion feed (as drafted) vs. only the aggregate in
-  `case-end` — is the live feed worth the event count?
 - Attachment id scheme (content hash vs. `seq`-derived).
-- Does `explore` mode emit under `discover` or earn its own phase value?

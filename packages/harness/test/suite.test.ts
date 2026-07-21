@@ -100,10 +100,12 @@ describe("runSuite", () => {
     const skill = store.skills.get(REF)!;
     expect(skill.assertions).toEqual(
       expect.arrayContaining([
-        { kind: "navigated", to: "shop/products" },
-        { kind: "expect", criterion: "the catalog page lists products" },
+        { kind: "navigated", to: "shop/products", origin: "user" },
+        { kind: "expect", criterion: "the catalog page lists products", origin: "user" },
       ]),
     );
+    // discover's own grounded assertions carry `derived` — the freeze can tell the two apart.
+    expect(skill.assertions.some((a) => a.origin === "derived")).toBe(true);
     expect(suite.usage.llmCalls).toBe(4); // 3 discovery + 1 expect judgment
   });
 
@@ -216,7 +218,7 @@ describe("runSuite", () => {
     const refrozen = store.skills.get(REF) as Scenario & { caseHash?: string };
     expect(refrozen.caseHash).toBe(hashCase(newCase));
     expect(refrozen.assertions).toEqual(
-      expect.arrayContaining([{ kind: "expect", criterion: "the catalog page lists products" }]),
+      expect.arrayContaining([{ kind: "expect", criterion: "the catalog page lists products", origin: "user" }]),
     );
   });
 

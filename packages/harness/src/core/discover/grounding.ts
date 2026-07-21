@@ -68,7 +68,10 @@ export function deriveAssertions(
       out.push({ kind: "expect", criterion: a.criterion.trim() });
     }
   }
-  return dedupeAssertions(out);
+  // Everything grounded here — defaults, kept proposals, semantic expects — is engine-derived,
+  // never the user's own criterion; stamp provenance so a trace/report can tell them apart
+  // (spec/core/trace.md). The suite stamps its merged criteria `user` at the same freeze.
+  return dedupeAssertions(out.map((a): Assertion => ({ ...a, origin: "derived" })));
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

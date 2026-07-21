@@ -231,10 +231,13 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
 
       const frozenScenario: FrozenSuiteScenario = {
         ...found,
+        // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
+        // deriveAssertions) — so a trace/report can say which greens the USER vouched for
+        // (spec/core/trace.md). Note `hashCase` fingerprints the raw case fields, pre-stamp.
         assertions: [
           ...found.assertions,
-          ...(c.assertions ?? []),
-          ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion })),
+          ...(c.assertions ?? []).map((a): Assertion => ({ ...a, origin: "user" })),
+          ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
         ],
         caseHash: hashCase(c),
       };

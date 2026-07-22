@@ -264,7 +264,14 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         expectTimeoutMs: ctx.expectTimeoutMs,
       });
       // A heal means the frozen path aged — persist the repair so the NEXT run replays clean.
-      if (healedScenario) await ctx.store.freeze(ref, healedScenario);
+      // Re-stamp the caseHash: locator/step heals spread the original scenario (hash rides
+      // through), but an outcome-heal comes back from discover() without the suite-local field —
+      // frozen bare, the next run would mismatch and re-discover a skill that was just repaired
+      // (#153). caseHash stays a suite concept; the engine never learns it (pattern ≠ data).
+      if (healedScenario) {
+        const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c) };
+        await ctx.store.freeze(ref, restamped);
+      }
       return {
         ...base,
         discovered,

@@ -4,18 +4,11 @@
  * this module owns the envelope — seq/ts stamping, the seq-0 header, per-case scoping. Emission
  * is fire-and-forget: a sink that throws is swallowed, a trace must never change a verdict.
  */
-import { randomUUID } from "node:crypto";
-import { createRequire } from "node:module";
 import type { TraceSink } from "./ports.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change. */
 export const TRACE_VERSION = "1.0";
-
-/** Read once from package.json (dist/core/trace.js → ../../package.json, same shape from src). */
-export const ENGINE_VERSION: string = (
-  createRequire(import.meta.url)("../../package.json") as { version: string }
-).version;
 
 export type TracePhase = "discover" | "replay" | "heal";
 
@@ -141,7 +134,9 @@ export function startTrace(sink: TraceSink, engineVersion: string): Tracer {
   const tracer = new Tracer(sink);
   tracer.emit({
     kind: "trace",
-    payload: { version: TRACE_VERSION, runId: randomUUID(), engine: { name: "cairn", version: engineVersion } },
+    // globalThis.crypto, not node:crypto — core/ stays free of node builtins (the browser entry
+    // exports runHarness, which imports this module); Web Crypto exists in Node 19+ and browsers.
+    payload: { version: TRACE_VERSION, runId: globalThis.crypto.randomUUID(), engine: { name: "cairn", version: engineVersion } },
   });
   return tracer;
 }

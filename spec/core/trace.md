@@ -141,6 +141,12 @@ still reach hosts through `onStep`). The field arrives with the id scheme, addit
   no `step`. Without it, a discovery that stopped on the model's own judgment is
   indistinguishable in the trace from one a `policy.stop` ended — "why discovery ended" is
   audit information, not silence.
+- **A bare run's `case-start` says `cached: true`, read as "the scenario pre-existed"** — a bare
+  `runScenario` was handed a scenario, so nothing was discovered this run; `cached` means
+  "no discovery happened", not "a store served a hit" (a bare run has no store at all).
+- **`case-end.heals` counts locator + step heals only** (mirror of `SuiteVerdict.heals`) — an
+  outcome-heal is not in the count; it is visible as the `phase: heal` discover sequence itself,
+  so counting it too would double-report the same repair.
 
 ## Open
 

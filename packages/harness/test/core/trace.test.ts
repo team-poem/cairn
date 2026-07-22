@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { ENGINE_VERSION, TRACE_VERSION, assertionPayload, startTrace } from "../../src/core/trace.js";
+import { TRACE_VERSION, assertionPayload, startTrace } from "../../src/core/trace.js";
+import { ENGINE_VERSION } from "../../src/version.js";
 import type { TraceEvent } from "../../src/core/trace.js";
 
 class RecordingSink {

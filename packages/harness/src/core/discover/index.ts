@@ -8,6 +8,7 @@
  */
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
+import type { TracePhase, TraceScope } from "../trace.js";
 import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
@@ -45,6 +46,11 @@ export interface DiscoverOptions {
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
+  /** Per-event trace scope (spec/core/trace.md); absent → no emission. */
+  trace?: TraceScope;
+  /** Phase stamped on this discovery's events: "discover" normally, "heal" when it IS the
+   * outcome-heal re-discovery (the phase says why it ran, the kinds say what ran). */
+  tracePhase?: TracePhase;
 }
 
 /** Consecutive policy rejections before the loop gives up — past this, the LLM has nothing
@@ -52,7 +58,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover" } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -66,7 +72,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const evidence = await observeOutcomes(driver, firstCount);
     assignStepExpects(steps, marks, evidence);
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
-    const assertions = deriveAssertions(all, evidence, semanticChecks, benign);
+    const assertions = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "grounding", action: JSON.stringify(a), reason },
+      }),
+    );
     return truncated
       ? { name: intent, steps, assertions, truncated: true }
       : { name: intent, steps, assertions };
@@ -110,11 +122,23 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       decision = parseDecision(reply);
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "parse-retry", reason: "reply was not a single valid JSON action object" },
+      });
       pushFailure("your previous reply was not a single valid JSON action object");
       continue;
     }
 
     if (decision.action === "done") {
+      // The model's own end-of-flow decision is trace-visible too — without it, a stream can't
+      // tell "model finished" apart from a policy stop (spec/core/trace.md addendum).
+      trace?.emit({
+        kind: "action",
+        phase: tracePhase,
+        payload: { done: true, ok: true, intent: decision.reason?.trim() || undefined },
+      });
       onStep?.(decision);
       return finish(false, decision.assertions ?? []);
     }
@@ -124,6 +148,11 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     // In core, once, so every consumer's driver gets the principle.
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) {
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "ambiguity", action: describeAction(decision), reason: ambiguity },
+      });
       pushFailure(`${describeAction(decision)} — ${ambiguity}`);
       onStep?.(decision);
       continue;
@@ -138,6 +167,11 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         ok: true as const,
       };
       if (!verdict.ok) {
+        trace?.emit({
+          kind: "gate",
+          phase: tracePhase,
+          payload: { gate: "policy", action: describeAction(decision), reason: verdict.reason },
+        });
         pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
         onStep?.(decision);
         // Blocked out: the policy keeps rejecting everything the LLM can think of — stop burning
@@ -156,8 +190,23 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
       marks.push(mark);
+      trace?.emit({
+        kind: "action",
+        phase: tracePhase,
+        stepRef: steps.length - 1,
+        payload: { step, intent: step.intent, ok: true },
+      });
       onStep?.(decision, step);
     } catch (err) {
+      trace?.emit({
+        kind: "action",
+        phase: tracePhase,
+        payload: {
+          intent: decision.reason?.trim() || undefined,
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      });
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
     }

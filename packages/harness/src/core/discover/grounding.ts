@@ -24,6 +24,9 @@ export function deriveAssertions(
   evidence: Evidence,
   semantic: boolean,
   benign: readonly string[] = [],
+  /** Reports each dropped proposal with why — a drop changed what the freeze checks, so the
+   * trace surfaces it as a `gate` event instead of silence (spec/core/trace.md). */
+  onDrop?: (proposed: Assertion, reason: string) => void,
 ): Assertion[] {
   const out: Assertion[] = [];
   // Ground no-failed-requests: freeze it only if it actually HELD during discovery. "Held" uses
@@ -45,7 +48,10 @@ export function deriveAssertions(
   if (navigated && finalUrl) out.push({ kind: "navigated", to: destinationKey(finalUrl) });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
-    if (!a || typeof (a as { kind?: unknown }).kind !== "string") continue;
+    if (!a || typeof (a as { kind?: unknown }).kind !== "string") {
+      if (a) onDrop?.(a as Assertion, "malformed proposal (no kind)");
+      continue;
+    }
     if (a.kind === "request-status") {
       // grounding: keep only if a real captured request matches this URL + status.
       const match = evidence.logic.requests.find(
@@ -64,8 +70,25 @@ export function deriveAssertions(
               }
             : { kind: "request-status", urlIncludes: a.urlIncludes, status: a.status },
         );
-    } else if (a.kind === "expect" && semantic && typeof a.criterion === "string" && a.criterion.trim()) {
-      out.push({ kind: "expect", criterion: a.criterion.trim() });
+      else onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}`);
+    } else if (a.kind === "expect") {
+      if (semantic && typeof a.criterion === "string" && a.criterion.trim()) {
+        out.push({ kind: "expect", criterion: a.criterion.trim() });
+      } else if (!semantic) {
+        onDrop?.(a, "semantic checks are off — expect needs an LlmCritic at replay");
+      } else {
+        onDrop?.(a, "malformed proposal (empty criterion)");
+      }
+    } else if (a.kind === "navigated" || a.kind === "no-failed-requests" || a.kind === "no-console-errors") {
+      // These are grounded by the defaults above; a proposal only matters when the default did
+      // NOT hold — that's a real drop the trace should carry, not silence.
+      if (!out.some((o) => o.kind === a.kind))
+        onDrop?.(
+          a,
+          a.kind === "navigated" ? "the run did not navigate" : `${a.kind} did not hold during discovery`,
+        );
+    } else {
+      onDrop?.(a, `unknown proposed kind "${(a as { kind: string }).kind}"`);
     }
   }
   // Everything grounded here — defaults, kept proposals, semantic expects — is engine-derived,

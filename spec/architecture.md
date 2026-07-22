@@ -15,7 +15,7 @@ must keep**.
    data, or connectors. Environment-specific behavior is injected only via interface
    implementations (plugins).
 2. **Extend through interfaces only.** New behavior is added through one of these interfaces —
-   `ContextProvider · Planner · Driver · SkillStore · Critic · Reporter`.
+   `ContextProvider · Planner · Driver · SkillStore · Critic · Reporter · TraceSink`.
    Do not branch directly inside a pipeline stage.
 3. **The loop is only in discovery.** The agent loop (observe · act · adapt) runs only when
    *exploring an unfamiliar app*. Executing a defined scenario is the pipeline.

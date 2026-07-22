@@ -1,0 +1,91 @@
+<svg width="1200" height="440" viewBox="0 0 1200 440" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="The cairn loop: intent goes to discover (LLM, once), freezes into cart.skill.json (plain data), replays forever with no LLM for free; when a step breaks, heal (LLM, just that step) repairs and re-freezes.">
+  <defs>
+    <linearGradient id="lbg" x1="0" y1="0" x2="0" y2="440" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#0d1322"/>
+      <stop offset="1" stop-color="#080b12"/>
+    </linearGradient>
+    <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 Z" fill="#8fa0b8"/>
+    </marker>
+    <marker id="arrGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 Z" fill="#7ddab0"/>
+    </marker>
+    <marker id="arrAmber" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 1 L 8 5 L 0 9 Z" fill="#d8a26b"/>
+    </marker>
+  </defs>
+
+  <style>
+    .march  { stroke-dasharray: 3 9; animation: march 1.6s linear infinite; }
+    .marchS { stroke-dasharray: 3 9; animation: marchS 2.2s linear infinite; }
+    @keyframes march  { from { stroke-dashoffset: 12; } to { stroke-dashoffset: 0; } }
+    @keyframes marchS { from { stroke-dashoffset: 12; } to { stroke-dashoffset: 0; } }
+    .alive { animation: alive 4.2s ease-in-out infinite alternate; }
+    @keyframes alive { from { opacity: .85; } to { opacity: 1; } }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; } }
+  </style>
+
+  <rect x="0" y="0" width="1200" height="440" rx="20" fill="url(#lbg)"/>
+
+  <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" text-anchor="middle">
+
+    <!-- intent pill -->
+    <rect x="46" y="108" width="216" height="64" rx="32" stroke="#8a7ab8" stroke-opacity="0.8" fill="#8a7ab8" fill-opacity="0.10"/>
+    <text x="154" y="136" font-size="26" font-weight="600" fill="#cfc6ea">intent</text>
+    <text x="154" y="159" font-size="16.5" font-style="italic" fill="#aca0d2">natural language</text>
+
+    <path class="march" d="M 268 140 H 322" stroke="#8fa0b8" stroke-width="2.5" marker-end="url(#arr)"/>
+
+    <!-- discover -->
+    <rect x="332" y="108" width="198" height="64" rx="12" stroke="#e0aa6e" stroke-opacity="0.85" fill="#e0aa6e" fill-opacity="0.09"/>
+    <text x="431" y="136" font-size="26" font-weight="600" fill="#e8b077">discover</text>
+    <text x="431" y="159" font-size="17" fill="#d2a877">LLM · once</text>
+
+    <path class="march" d="M 536 140 H 596" stroke="#8fa0b8" stroke-width="2.5" marker-end="url(#arr)"/>
+    <text x="566" y="124" font-size="18" fill="#aab7cb">freeze</text>
+
+    <!-- skill.json cylinder -->
+    <g>
+      <path d="M 606 122 V 166 A 90 13 0 0 0 786 166 V 122" stroke="#7ea6d9" stroke-opacity="0.8" fill="#7ea6d9" fill-opacity="0.08"/>
+      <ellipse cx="696" cy="122" rx="90" ry="13" stroke="#7ea6d9" stroke-opacity="0.8" fill="#0d1424"/>
+      <text x="696" y="150" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="19" fill="#d6e0ee">cart.skill.json</text>
+      <text x="696" y="171" font-size="16.5" font-style="italic" fill="#96a8c0">plain data</text>
+    </g>
+
+    <path class="march" d="M 792 140 H 848" stroke="#8fa0b8" stroke-width="2.5" marker-end="url(#arr)"/>
+
+    <!-- replay -->
+    <g class="alive">
+      <rect x="858" y="108" width="210" height="64" rx="12" stroke="#7ddab0" stroke-opacity="0.95" stroke-width="2" fill="#7ddab0" fill-opacity="0.10"/>
+      <text x="963" y="136" font-size="26" font-weight="600" fill="#8fe3bd">replay ∞</text>
+      <text x="963" y="159" font-size="17" fill="#7fc9a0">no LLM · $0</text>
+    </g>
+
+    <!-- green self-loop above replay -->
+    <path class="marchS" d="M 1010 104 C 1030 62, 900 62, 918 102" stroke="#7ddab0" stroke-opacity="0.75" stroke-width="2.5" fill="none" marker-end="url(#arrGreen)"/>
+    <text x="963" y="52" font-size="18" fill="#8fe3bd">✓ green — run it forever</text>
+
+    <!-- broke: replay ↓ heal -->
+    <path class="marchS" d="M 963 176 C 963 226, 900 262, 846 284" stroke="#d8a26b" stroke-opacity="0.7" stroke-width="2.5" fill="none" marker-end="url(#arrAmber)"/>
+    <text x="1012" y="240" font-size="18" fill="#e2af7c">✗ a step broke</text>
+
+    <!-- heal -->
+    <rect x="600" y="280" width="240" height="64" rx="12" stroke="#e0aa6e" stroke-opacity="0.6" stroke-dasharray="6 5" fill="#e0aa6e" fill-opacity="0.05"/>
+    <text x="720" y="308" font-size="26" font-weight="600" fill="#d8a26b">heal</text>
+    <text x="720" y="331" font-size="17" fill="#d2a877">LLM · just that step</text>
+
+    <!-- re-freeze: heal ↖ skill.json -->
+    <path class="marchS" d="M 594 312 C 520 306, 540 220, 620 184" stroke="#8fa0b8" stroke-opacity="0.75" stroke-width="2.5" fill="none" marker-end="url(#arr)"/>
+    <text x="502" y="252" font-size="18" fill="#aab7cb">re-freeze</text>
+
+    <!-- legend -->
+    <g text-anchor="start" font-size="17">
+      <circle cx="66" cy="399" r="5.5" fill="#e0aa6e"/>
+      <text x="80" y="404" fill="#9aa5b5"><tspan fill="#e8b077" font-weight="600">LLM</tspan> — paid, rare: author once · repair one step</text>
+      <circle cx="510" cy="399" r="5.5" fill="#7ddab0"/>
+      <text x="524" y="404" fill="#9aa5b5"><tspan fill="#8fe3bd" font-weight="600">deterministic</tspan> — free, forever</text>
+      <circle cx="806" cy="399" r="5.5" fill="#7ea6d9"/>
+      <text x="820" y="404" fill="#9aa5b5"><tspan fill="#a9c4e6" font-weight="600">data</tspan> — readable, diffable, yours</text>
+    </g>
+  </g>
+</svg>

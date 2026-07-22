@@ -189,7 +189,9 @@ Each `target` keeps several locators — `text` (accessible name) first, with `n
 Nth of several identically-named elements (`{"text": "Accept", "role": "button", "nth": 2}` is the
 3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallback, `selector` as a CSS
 escape hatch — which is what lets replay survive a redesign without falling back to the LLM. The `expect` on a step is its post-condition: replay
-checks it deterministically and only heals if it diverges.
+checks it deterministically and only heals if it diverges. Each frozen assertion also records its
+`origin` — `user` (your own criterion) or `derived` (grounded by the engine from observed
+evidence) — so a report can tell which greens were verified against *your* spec.
 
 **Measured, not claimed** — a real multi-step checkout, via cairn's `bench/` harness:
 
@@ -245,8 +247,15 @@ await runScenario(scenario, {
   signal: controller.signal, // a Stop button
   screenshots: true, // a PNG per step
   onStep: (s) => render(s.index, s.step, s.ok, s.screenshot), // a live timeline
+  trace: { emit: (e) => timeline.push(e) }, // the full lifecycle as data (below)
 });
 ```
+
+The `trace` option (a **`TraceSink`**) turns the whole run into a versioned event stream —
+discover decisions, gate firings (a policy block, an ambiguity refusal), steps, assertions
+(each labeled `origin: user | derived` and by who judged it), heals with what-broke →
+what-it-became — to watch live or store and replay in a viewer. Without a sink nothing is even
+built, and a throwing sink can never change a verdict. Contract: `spec/core/trace.md` in the repo.
 
 **Browser / extension (no Node)?** Import the browser-safe core from `cairn-engine/browser` and
 compose `runHarness` with your own `Driver` (e.g. one over `chrome.debugger`) plus a fetch-based

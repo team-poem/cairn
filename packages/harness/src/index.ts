@@ -9,6 +9,9 @@ export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.j
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 export { runSuite } from "./suite.js";
 export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite.js";
+export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
+export { ENGINE_VERSION } from "./version.js";
+export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
 export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 

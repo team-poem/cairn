@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { applyHeals, needsLlmCritic, runScenario } from "../src/run.js";
 import { FakeDriver } from "../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
-import type { Evidence, Reporter, Result, Scenario, Step, StepProgress, Target } from "../src/index.js";
+import { startTrace } from "../src/core/trace.js";
+import type { TraceEvent } from "../src/core/trace.js";
+import type { Evidence, Reporter, Result, Scenario, Step, StepProgress, Target, TraceSink } from "../src/index.js";
 
 function evidence(): Evidence {
   return {
@@ -355,5 +357,153 @@ describe("per-step expect verification", () => {
     ]);
     const { result } = await runScenario(s, { driver, reporter: silent, expectTimeoutMs: 50 });
     expect(result.evidence.execution.actions[0]?.ok).toBe(false);
+  });
+});
+
+// --- lifecycle event stream (spec/core/trace.md) -------------------------------------------------
+
+class RecordingSink implements TraceSink {
+  events: TraceEvent[] = [];
+  emit(e: TraceEvent): void {
+    this.events.push(e);
+  }
+}
+
+describe("runScenario trace", () => {
+  it("a bare green replay emits the full lifecycle in order with monotonic seq", async () => {
+    const sink = new RecordingSink();
+    const driver = new FakeDriver({ evidence: evidence() });
+    const traced: Scenario = {
+      ...scenario,
+      assertions: [{ kind: "navigated", origin: "derived" }, { kind: "no-failed-requests" }],
+    };
+    await runScenario(traced, { driver, reporter: silent, trace: sink });
+
+    expect(sink.events.map((e) => e.kind)).toEqual([
+      "trace", "case-start", "step", "step", "assertion", "assertion", "case-end", "run-end",
+    ]);
+    expect(sink.events.map((e) => e.seq)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
+
+    const header = sink.events[0]!;
+    expect(header.phase).toBeUndefined();
+    if (header.kind === "trace") expect(header.payload.engine.name).toBe("cairn");
+
+    // implicit case: caseRef = scenario name on every case-scoped event
+    expect(sink.events[1]).toMatchObject({
+      kind: "case-start",
+      caseRef: traced.name,
+      payload: { id: traced.name, intent: traced.name, cached: true },
+    });
+    expect(sink.events[2]).toMatchObject({ phase: "replay", caseRef: traced.name, stepRef: 0 });
+    expect(sink.events[3]).toMatchObject({ phase: "replay", stepRef: 1 });
+
+    // origin rides through; absent origin surfaces as unknown, never guessed
+    expect(sink.events[4]!.payload).toMatchObject({ origin: "derived", checkedBy: "code", passed: true });
+    expect(sink.events[5]!.payload).toMatchObject({ origin: "unknown", checkedBy: "code" });
+
+    expect(sink.events[6]!.payload).toMatchObject({ discovered: false, heals: 0 });
+    expect(sink.events[6]!.phase).toBeUndefined();
+    expect(sink.events[7]!.payload).toMatchObject({ passed: true });
+  });
+
+  it("a suite-scoped run emits NO header/case events — only step/assertion into the given scope", async () => {
+    const sink = new RecordingSink();
+    const scope = startTrace(sink, "0.0.0").scope("case-7");
+    const driver = new FakeDriver({ evidence: evidence() });
+    await runScenario(scenario, { driver, reporter: silent, traceScope: scope });
+
+    expect(sink.events.map((e) => e.kind)).toEqual(["trace", "step", "step", "assertion", "assertion"]);
+    for (const e of sink.events.slice(1)) expect(e.caseRef).toBe("case-7");
+  });
+
+  it("a locator heal emits heal{layer:locator} under phase heal", async () => {
+    const sink = new RecordingSink();
+    const driver = new FakeDriver({
+      evidence: evidence(),
+      elements: [{ role: "link", name: "Learn more" }],
+      failOn: ["Read more"],
+    });
+    const broken: Scenario = {
+      ...scenario,
+      steps: [
+        { kind: "goto", url: "https://example.com" },
+        { kind: "click", target: { text: "Read more" } },
+      ],
+    };
+    const llm = new ScriptedLlm(['{"name":"Learn more"}']);
+    await runScenario(broken, { driver, llm, heal: true, reporter: silent, trace: sink });
+
+    const heal = sink.events.find((e) => e.kind === "heal");
+    expect(heal).toMatchObject({ phase: "heal" });
+    expect(heal!.payload).toMatchObject({
+      layer: "locator",
+      broke: { text: "Read more" },
+      became: { text: "Learn more", role: "link", index: 0 },
+      judgedBy: "original",
+    });
+  });
+
+  it("a surgical step heal emits heal{layer:step} with the step's index", async () => {
+    const sink = new RecordingSink();
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Checkout Now" }];
+    driver.navOn["Checkout Now"] = "https://app/payment";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Checkout Now"}']);
+    const s = scn([
+      { kind: "click", target: { text: "Checkout" }, intent: "go to payment", expect: { url: "app/payment" } },
+    ]);
+    await runScenario(s, { driver, llm, heal: true, reporter: silent, expectTimeoutMs: 50, trace: sink });
+
+    const heal = sink.events.find((e) => e.kind === "heal");
+    expect(heal).toMatchObject({ phase: "heal", stepRef: 0 });
+    expect(heal!.payload).toMatchObject({
+      layer: "step",
+      broke: { kind: "click", target: { text: "Checkout" } },
+      became: { kind: "click", target: { text: "Checkout Now" } },
+      judgedBy: "original",
+    });
+    // the step event records what actually ran — the healed step, ok
+    const step = sink.events.find((e) => e.kind === "step");
+    expect(step!.payload).toMatchObject({ step: { target: { text: "Checkout Now" } }, ok: true });
+  });
+
+  it("outcome-heal re-discovery emits discover kinds and the re-judged assertions under phase heal", async () => {
+    const sink = new RecordingSink();
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+    await runScenario(broken, { driver, llm, heal: true, reporter: silent, trace: sink });
+
+    const actions = sink.events.filter((e) => e.kind === "action");
+    expect(actions.length).toBeGreaterThan(0);
+    for (const a of actions) expect(a.phase).toBe("heal");
+
+    const assertionPhases = sink.events.filter((e) => e.kind === "assertion").map((e) => e.phase);
+    expect(new Set(assertionPhases)).toEqual(new Set(["replay", "heal"]));
+
+    // bare mode still closes the trace on the outcome-heal return path
+    expect(sink.events.at(-2)!.kind).toBe("case-end");
+    expect(sink.events.at(-1)!).toMatchObject({ kind: "run-end", payload: { passed: false } });
+  });
+
+  it("a throwing sink changes nothing: the verdict is identical to a run without trace", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+    const bomb: TraceSink = {
+      emit: () => {
+        throw new Error("boom");
+      },
+    };
+    const { result } = await runScenario(scenario, { driver, reporter: silent, trace: bomb });
+    expect(result.verdict.passed).toBe(true);
+  });
+
+  it("emits nothing and behaves identically without a trace option", async () => {
+    const driver = new FakeDriver({ evidence: evidence() });
+    const { result } = await runScenario(scenario, { driver, reporter: silent });
+    expect(result.verdict.passed).toBe(true);
   });
 });

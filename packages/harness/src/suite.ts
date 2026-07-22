@@ -18,7 +18,10 @@ import { UsageMeter, emptyUsage } from "./core/usage.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { FileSkillStore } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
-import type { Driver, LlmClient, Reporter, SkillStore } from "./core/ports.js";
+import { startTrace } from "./core/trace.js";
+import { ENGINE_VERSION } from "./version.js";
+import type { TraceEvent, Tracer } from "./core/trace.js";
+import type { Driver, LlmClient, Reporter, SkillStore, TraceSink } from "./core/ports.js";
 import type { Assertion, RunUsage, Scenario, Verdict } from "./core/types.js";
 
 export interface SuiteCase {
@@ -84,6 +87,9 @@ export interface SuiteOptions
   policy?: ActionPolicy;
   /** Fired after each case with its verdict — a host's live progress feed. */
   onCase?: (verdict: SuiteVerdict) => void;
+  /** Lifecycle event stream for the whole suite (spec/core/trace.md): one header, then every
+   * case's events under its `caseRef` (= case id), then run-end. */
+  trace?: TraceSink;
 }
 
 export interface SuiteVerdict {
@@ -147,17 +153,19 @@ export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Pro
   let llm: LlmClient | undefined = opts.llm;
   const getLlm = (): LlmClient => (llm ??= createLlmClient(opts.model ? { model: opts.model } : {}));
 
+  // One trace for the whole suite: the header goes out before any case, run-end after the last.
+  const tracer = opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
+
   const verdicts: SuiteVerdict[] = [];
   for (const c of cases) {
-    const verdict = await runCase(c, { ...opts, store, skillDir, heal, driverFactory, getLlm });
+    const verdict = await runCase(c, { ...opts, store, skillDir, heal, driverFactory, getLlm, tracer });
     verdicts.push(verdict);
     onCase?.(verdict);
   }
-  return {
-    verdicts,
-    passed: verdicts.every((v) => v.verdict.passed),
-    usage: verdicts.reduce((sum, v) => addUsage(sum, v.usage), emptyUsage()),
-  };
+  const passed = verdicts.every((v) => v.verdict.passed);
+  const usage = verdicts.reduce((sum, v) => addUsage(sum, v.usage), emptyUsage());
+  tracer?.emit({ kind: "run-end", payload: { passed, usage } });
+  return { verdicts, passed, usage };
 }
 
 interface CaseContext extends SuiteOptions {
@@ -166,11 +174,25 @@ interface CaseContext extends SuiteOptions {
   heal: boolean;
   driverFactory: () => Driver;
   getLlm: () => LlmClient;
+  tracer?: Tracer;
+}
+
+/** The suite owns the `freeze` event: `caseHash` and assertion-provenance counts are suite/freeze
+ * concepts the core never reads (pattern ≠ data) — so the caller of `store.freeze` reports them. */
+function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent, { kind: "freeze" }>["payload"] {
+  const count = (o: "user" | "derived" | undefined): number => s.assertions.filter((a) => a.origin === o).length;
+  return {
+    ref,
+    caseHash: s.caseHash,
+    assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
+    ...(s.truncated ? { truncated: true } : {}),
+  };
 }
 
 async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
+  const scope = ctx.tracer?.scope(c.id);
   try {
     // 1. Cache: any load failure (missing, malformed artifact) is a miss — re-discovering IS the
     // repair for a broken skill file.
@@ -188,6 +210,10 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     if (scenario && (scenario as Partial<FrozenSuiteScenario>).caseHash !== hashCase(c)) {
       scenario = undefined;
     }
+    scope?.emit({
+      kind: "case-start",
+      payload: { id: c.id, intent: c.intent, skillRef: ref, cached: !!scenario },
+    });
     let discovered = false;
     let discoveryUsage = emptyUsage();
 
@@ -205,6 +231,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           policy: ctx.policy,
           signal: ctx.signal,
           benign: ctx.benign,
+          trace: scope,
         });
       } finally {
         await driver.close().catch(() => {});
@@ -215,18 +242,16 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       if (found.truncated) {
         // Fail closed (same stance as #69/#90): a capped discovery is an unverified path —
         // don't freeze it, don't replay it, don't let it pass.
-        return {
-          ...base,
-          discovered,
-          truncated: true,
-          heals: 0,
-          usage: discoveryUsage,
-          verdict: {
-            passed: false,
-            results: [],
-            detail: "discovery truncated at the step cap — unverified path, nothing frozen",
-          },
+        const verdict: Verdict = {
+          passed: false,
+          results: [],
+          detail: "discovery truncated at the step cap — unverified path, nothing frozen",
         };
+        scope?.emit({
+          kind: "case-end",
+          payload: { verdict, usage: discoveryUsage, discovered, heals: 0, truncated: true },
+        });
+        return { ...base, discovered, truncated: true, heals: 0, usage: discoveryUsage, verdict };
       }
 
       const frozenScenario: FrozenSuiteScenario = {
@@ -243,6 +268,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       };
       scenario = frozenScenario;
       await ctx.store.freeze(ref, scenario);
+      scope?.emit({ kind: "freeze", phase: "discover", payload: freezePayload(ref, frozenScenario) });
     }
 
     // 3. Replay on a fresh driver (case isolation). The suite constructed it → the suite closes it.
@@ -262,6 +288,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,
+        traceScope: scope,
       });
       // A heal means the frozen path aged — persist the repair so the NEXT run replays clean.
       // Re-stamp the caseHash: locator/step heals spread the original scenario (hash rides
@@ -271,12 +298,18 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       if (healedScenario) {
         const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c) };
         await ctx.store.freeze(ref, restamped);
+        scope?.emit({ kind: "freeze", phase: "heal", payload: freezePayload(ref, restamped) });
       }
+      const usage = addUsage(discoveryUsage, result.usage ?? emptyUsage());
+      scope?.emit({
+        kind: "case-end",
+        payload: { verdict: result.verdict, usage, discovered, heals: heals.length + stepHeals.length },
+      });
       return {
         ...base,
         discovered,
         heals: heals.length + stepHeals.length,
-        usage: addUsage(discoveryUsage, result.usage ?? emptyUsage()),
+        usage,
         verdict: result.verdict,
       };
     } finally {
@@ -286,16 +319,16 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     // One crashing case (driver died, discovery threw) must not kill the rest of the suite —
     // fail closed and move on. Aborts DO stop the suite: re-throw them.
     if (ctx.signal?.aborted) throw err;
-    return {
-      ...base,
-      discovered: false,
-      heals: 0,
-      usage: emptyUsage(),
-      verdict: {
-        passed: false,
-        results: [],
-        detail: `case crashed: ${err instanceof Error ? err.message : String(err)}`,
-      },
+    const verdict: Verdict = {
+      passed: false,
+      results: [],
+      detail: `case crashed: ${err instanceof Error ? err.message : String(err)}`,
     };
+    // A crashed case still ENDED — the trace records it rather than falling silent.
+    scope?.emit({
+      kind: "case-end",
+      payload: { verdict, usage: emptyUsage(), discovered: false, heals: 0 },
+    });
+    return { ...base, discovered: false, heals: 0, usage: emptyUsage(), verdict };
   }
 }

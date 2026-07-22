@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
-> Status: **draft** for #138 (basis: the #125 agreements + the four trust criteria).
-> Not implemented; field names here bind only when this doc lands.
+> Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port.
+> Field names bind.
 
 ## One line
 
@@ -108,6 +108,10 @@ Leaning (open in #138): the payload never carries binary — a `step` event says
 inline a data URL for immediacy; the stored artifact keeps sidecar files keyed by id (a trace
 you can `less`, attachments you can `open`). Same model, two serializations — applied to bytes.
 
+v1 (#143) emits **no `attachment` field** on `step` events — the id scheme is still open, and a
+field whose values would have to change meaning later is worse than its absence (screenshots
+still reach hosts through `onStep`). The field arrives with the id scheme, additively.
+
 ## Versioning — header `major.minor`
 
 - **minor** = additive: a new `kind`, a new optional payload field. Viewer rule: skip unknown
@@ -126,6 +130,23 @@ you can `less`, attachments you can `open`). Same model, two serializations — 
 - **Per-assertion live events stay** — the `case-end` rollup needs them anyway.
 - **`explore` gets no phase value yet** — it earns one when someone actually asks for explore
   traces (invariant #7 spirit: vocabulary is earned, not added speculatively).
+
+## Decided in implementation (#143)
+
+- **The outcome-heal re-judgment emits `assertion` events under `phase: heal`** — the kinds
+  table binds `assertion` to replay, but the outcome-heal rule ("the phase says *why* it ran,
+  the kinds say *what* ran") extends to the verdict: the re-judged results are assertion events
+  that ran *because* of a heal, and stamping them `replay` would hide that.
+- **The model's `done` decision is an `action` event** — `{ done: true, ok: true, intent? }`,
+  no `step`. Without it, a discovery that stopped on the model's own judgment is
+  indistinguishable in the trace from one a `policy.stop` ended — "why discovery ended" is
+  audit information, not silence.
+- **A bare run's `case-start` says `cached: true`, read as "the scenario pre-existed"** — a bare
+  `runScenario` was handed a scenario, so nothing was discovered this run; `cached` means
+  "no discovery happened", not "a store served a hit" (a bare run has no store at all).
+- **`case-end.heals` counts locator + step heals only** (mirror of `SuiteVerdict.heals`) — an
+  outcome-heal is not in the count; it is visible as the `phase: heal` discover sequence itself,
+  so counting it too would double-report the same repair.
 
 ## Open
 

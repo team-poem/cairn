@@ -11,6 +11,8 @@ export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness } from "./core/pipeline.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
+export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
+export type { TraceEvent, TraceEmission, TracePhase } from "./core/trace.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";

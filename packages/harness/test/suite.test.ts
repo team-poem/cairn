@@ -8,7 +8,7 @@ import { renderSuiteReport } from "../src/adapters/reporters/suite.js";
 import { FileSkillStore } from "../src/adapters/skills/file-store.js";
 import { JsonReporter } from "../src/adapters/reporters/json.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
-import type { LlmClient, Reporter, Scenario, SkillStore } from "../src/index.js";
+import type { LlmClient, Reporter, Scenario, SkillStore, TraceEvent } from "../src/index.js";
 
 /** In-memory SkillStore — lets a test inspect exactly what the suite froze. */
 class MemoryStore implements SkillStore {
@@ -374,6 +374,88 @@ describe("runSuite", () => {
     ).rejects.toThrow("duplicate");
     await expect(runSuite([{ id: "a", intent: "x" }], opts)).rejects.toThrow("no url");
     await expect(runSuite([{ id: "a", intent: "" , url: "u" }], opts)).rejects.toThrow("intent");
+  });
+});
+
+describe("runSuite trace", () => {
+  class RecordingSink {
+    events: TraceEvent[] = [];
+    emit(e: TraceEvent): void {
+      this.events.push(e);
+    }
+  }
+  const kinds = (sink: RecordingSink): string[] => sink.events.map((e) => `${e.phase ?? "-"}:${e.kind}`);
+
+  it("emits the contract stream on a cache miss: header → case events (discover then replay) → run-end", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done","assertions":[{"kind":"navigated"}]}',
+      "[]",
+    ]);
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
+
+    const seqs = sink.events.map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(sink.events[0]!.kind).toBe("trace");
+    const ks = kinds(sink);
+    expect(ks[1]).toBe("-:case-start");
+    expect(ks).toContain("discover:action");
+    expect(ks).toContain("discover:freeze");
+    expect(ks).toContain("replay:step");
+    expect(ks).toContain("replay:assertion");
+    expect(ks.at(-2)).toBe("-:case-end");
+    expect(ks.at(-1)).toBe("-:run-end");
+    // Flat correlation: every case-scoped event carries the case id; header/run-end carry none.
+    for (const e of sink.events.slice(1, -1)) expect(e.caseRef).toBe(CASE.id);
+    expect(sink.events[0]!.caseRef).toBeUndefined();
+    expect(sink.events.at(-1)!.caseRef).toBeUndefined();
+
+    const caseStart = sink.events[1]!;
+    expect(caseStart.payload).toMatchObject({ id: CASE.id, intent: CASE.intent, skillRef: REF, cached: false });
+    const freeze = sink.events.find((e) => e.kind === "freeze")!;
+    expect(freeze.payload).toMatchObject({ ref: REF, assertions: { user: 0, unknown: 0 } });
+    expect((freeze.payload as { caseHash: string }).caseHash).toHaveLength(64);
+    expect((freeze.payload as { assertions: { derived: number } }).assertions.derived).toBeGreaterThan(0);
+    const caseEnd = sink.events.at(-2)!;
+    expect(caseEnd.payload).toMatchObject({ discovered: true, heals: 0, verdict: { passed: true } });
+    const runEnd = sink.events.at(-1)!;
+    expect(runEnd.payload).toMatchObject({ passed: true });
+  });
+
+  it("a cached replay marks case-start cached:true and emits no discover-phase events", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    store.skills.set(REF, withCaseHash(frozen, CASE));
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm: forbiddenLlm, reporter: silent, trace: sink });
+
+    expect(sink.events[1]!.payload).toMatchObject({ cached: true });
+    expect(sink.events.some((e) => e.phase === "discover")).toBe(false);
+  });
+
+  it("the outcome-heal re-freeze emits a freeze event under phase heal, caseHash re-stamped", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    // Frozen with an assertion the stub driver can never satisfy — replay fails, outcome-heal runs.
+    const failing: FrozenSuiteScenario = {
+      ...frozen,
+      assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, failing);
+    const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
+
+    const freezes = sink.events.filter((e) => e.kind === "freeze");
+    expect(freezes).toHaveLength(1); // cache hit → no discover freeze; only the heal re-freeze
+    expect(freezes[0]).toMatchObject({ phase: "heal" });
+    expect((freezes[0]!.payload as { caseHash: string }).caseHash).toBe(hashCase(CASE));
+    // The re-discovery's own events rode out under phase heal (kinds say what, phase says why).
+    expect(kinds(sink)).toContain("heal:action");
   });
 });
 

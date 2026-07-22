@@ -26,7 +26,11 @@
   per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
   **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
   additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
-  남은 것 **#143 TraceSink seam**(PR 예정 — 리뷰 포인트: 옵셔널·미지정 시 불변 / gate 4종 실구분 / outcome-heal이 phase: heal로).
+  **#143 TraceSink seam 완료**(PR #155 머지 — `TraceSink` 7번째 포트, sink 미지정 시 이벤트 생성 자체가 단락되어 불변,
+  gate 4종 실구분, outcome-heal은 재판정 assertion까지 `phase: heal`, suite 전체가 트레이서 1개 공유로 seq 단조,
+  throw 삼킴 중앙화. 리뷰에서 core/의 node: 내장 유입(브라우저 엔트리 파손)을 잡아 `version.ts` 분리 +
+  `globalThis.crypto`로 복원 — 재발 방지 CI 가드는 #156). **엔진이 계약을 실제로 방출 — #138 마감 조건 충족, 디스커션 닫음.**
+  trace 트랙 완료: 계약(#140) → provenance(#142/#144, 부산물 #153/#154) → 방출(#143/#155). 다음 = 러너가 이 스트림 소비.
   리뷰 부산물 버그 **해결**(#153/PR #154 머지): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결에서
   무조건 재스탬프(suite 로컬 유지, 엔진은 모름 — 패턴≠데이터). 실 FileSkillStore 왕복 + forbidden-LLM 2차 실행으로 증명.
   flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·

@@ -4,23 +4,40 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`cairn-engine` 이중 채널.** `latest = 2.4.0` (안정) · `beta = 2.5.0-beta.0` (실험, explore #102).
-  - **2.4.0 (latest, 2026-07-06 배포):** verdict 무결성(#96·#86·#87 expect-URL 3형제 + #90·#78·#97) · 비용 리포팅
-    `result.usage`(#100) · 드라이버 수명주기 계약(#98·#88) · discover 지각/게이트(#93·#77·#61·#115·#116) ·
-    `Target.nth`(#92) + 잔손질. breaking 0.
-  - **2.5.0-beta.0 (beta 채널, 2026-07-08 배포):** freeze-less **explore**(#102, `--tag beta`로만 배포 → latest 불변).
-  - **develop = 2.5.0 개발선 (package.json 이미 `2.5.0`, 접미사 제거 — 정식 릴리스 보류·로컬 검증 중·미배포).**
-    ⚠ 또 beta 낼 땐 bare `2.5.0`을 beta로 publish하지 말고 **`2.5.0-beta.1`로 bump 후 `--tag beta`** — 안 그러면 나중에
-    정식 `2.5.0`을 latest로 publish하는 흐름이 막힘(같은 버전 재publish 불가). 정식화는 develop→main → latest + `dist-tag rm beta`.
-    현재 develop 누적(전부 2.5.0行, breaking 0):
-    explore(#102/#123) · **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다") ·
-    **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) · **suite runner**(#122/#124 + 캐시 해시) ·
-    **perception**(#132/#133 — Driver 계약·`perceive` seam·role 없는 클릭 리전 승격). ⚠ beta 채널은 아직 explore만(2.5.0-beta.0);
-    나머지는 develop에만. 재배포하려면 `2.5.0-beta.1 --tag beta`, 정식화는 develop→main(그때 latest + `dist-tag rm beta`).
-  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → (2.5.0 진행).
+- 단계: **`latest = 2.5.0` (2026-07-13 배포, PR #134 → main `8d673c4` → v2.5.0 태그 → npm).**
+  beta 채널은 정식화와 함께 **닫음**(`dist-tag rm beta` 완료 — 2.5.0-beta.0은 정식 2.5.0에 포섭). breaking 0.
+  - **2.5.0 내용:** freeze-less **explore**(#102/#123) · **suite runner**(#122/#124 + 케이스 해시 캐시) ·
+    **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다" 신설) ·
+    **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) ·
+    **perception**(#132/#133 — Driver 계약(trusted input·a11y-native)·`perceive` seam·role 없는 클릭 리전 승격).
+    배포 전 소비자 임베드 도그푸딩으로 검증(새 엔진 갭 미발현, cairn 보편층 + 소비자 프레임워크층 분리 실증).
+  - **2.4.0 (2026-07-06):** verdict 무결성(#96·#86·#87 + #90·#78·#97) · `result.usage`(#100) · 드라이버 수명주기(#98·#88) ·
+    discover 지각/게이트(#93·#77·#61·#115·#116) · `Target.nth`(#92).
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → 2.5.0.
     상세 = history + entries.
-  - **도그푸딩 검증(2026-07-10, 진행 중·순조):** 소비자 임베드 재도그푸딩에서 2.5.0行(select·중복이름·perception·suite)이
-    잘 도는 중 — 새 엔진 갭 미발현. 층 분리도 실증(cairn 보편 + 소비자 프레임워크 층 상보). 문제 재현 시 그 로그가 다음 근거.
+  - ⚠ 릴리스 태그 함정(2회 재발): GitHub Release UI에서 태그 생성 시 target이 이전 릴리스 커밋으로 잡힐 수 있음 —
+    발행 후 `git log -1 vX.Y.Z`로 태그가 릴리스 머지 커밋인지 확인(어긋나면 `tag -f` + force push + Release에 태그 재선택).
+- **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
+  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
+  확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
+  **단언 provenance `origin: user|derived|unknown`**(freeze 포맷 additive 변경 필요 — 병합 시 출처 소실이 리뷰에서 발견됨,
+  구 skill은 unknown으로 fail-closed) · `checkedBy: code|model` · **heal 3층 1phase**(locator/step은 `layer` 달린 heal 이벤트,
+  outcome-heal은 `phase: heal` 아래 discover kinds, `judgedBy: original`) · gate 이벤트 1급(policy·ambiguity·grounding·parse-retry) ·
+  per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
+  **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
+  additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
+  **#143 TraceSink seam 완료**(PR #155 머지 — `TraceSink` 7번째 포트, sink 미지정 시 이벤트 생성 자체가 단락되어 불변,
+  gate 4종 실구분, outcome-heal은 재판정 assertion까지 `phase: heal`, suite 전체가 트레이서 1개 공유로 seq 단조,
+  throw 삼킴 중앙화. 리뷰에서 core/의 node: 내장 유입(브라우저 엔트리 파손)을 잡아 `version.ts` 분리 +
+  `globalThis.crypto`로 복원 — 재발 방지 CI 가드는 #156). **엔진이 계약을 실제로 방출 — #138 마감 조건 충족, 디스커션 닫음.**
+  trace 트랙 완료: 계약(#140) → provenance(#142/#144, 부산물 #153/#154) → 방출(#143/#155). 다음 = 러너가 이 스트림 소비.
+  리뷰 부산물 버그 **해결**(#153/PR #154 머지): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결에서
+  무조건 재스탬프(suite 로컬 유지, 엔진은 모름 — 패턴≠데이터). 실 FileSkillStore 왕복 + forbidden-LLM 2차 실행으로 증명.
+  flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
+  --semantic 문서 · CONTRIBUTING prefix 동기화 · requests/renderer 테스트 · CI Node24 · 이슈 템플릿). PR 자동 클로즈 가드(#141/#145) 도입.
+  엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
+  후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
+  신뢰 설계의 전체 근거(레퍼런스 글 4층 스택·보장 공식·4분면·토론 정정)는 entry `2026-07-21-trace-contract-trust.md`.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
@@ -30,11 +47,12 @@
   (`"--//registry.npmjs.org/:_authToken=npm_…"`)이 기본이나 **granular 토큰은 만료됨** — 만료 시 E404(권한 없음을
   404로 반환)가 뜨면 토큰 없이 `npm publish`하면 브라우저 CLI 인증(`npmjs.com/auth/cli/…`)으로 붙는다. 버전 올리고 →
   publish → `git tag vX & push` → GitHub Releases 웹에서 노트.
-- **⚠ 이중 채널 규칙(중요, 안전장치):** `latest`=안정선, `beta`=실험선(explore). **prerelease는 반드시 `npm publish --tag beta`**
-  — `--tag` 빠뜨리면 npm이 `latest`를 prerelease로 밀어버려 explore가 정식 최신이 됨. `-beta.N` 접미사가 `^2.4.0` 범위를
-  이중으로 막지만 `latest` 이름표는 별개라 태그 필수. **안정 패치(2.4.1)는 main에서 hotfix 브랜치**로(develop 안 거침 →
-  explore 안 섞임). **`develop → main` 머지는 explore를 latest로 정식화하겠다 결심할 때만** — 그때 `2.5.0`(접미사 제거) ·
-  `npm publish`(기본 latest) · 이후 `npm dist-tag rm cairn-engine beta`. 소비자 opt-in = `npm install cairn-engine@beta`.
+- **⚠ 이중 채널 규칙(안전장치 — beta 채널을 다시 열 때):** `latest`=안정선, `beta`=실험선.
+  **prerelease(`X.Y.0-beta.N`)는 반드시 `npm publish --tag beta`** — `--tag` 빠뜨리면 npm이 `latest`를 prerelease로
+  밀어버림(`-beta.N` 접미사는 `^` 범위만 막고 `latest` 이름표는 별개). **안정 패치는 main에서 hotfix 브랜치**로
+  (develop 안 거침 → 실험선 안 섞임). **`develop → main` 머지 = 정식화 결심 때만** — bare 버전으로 publish(기본 latest)
+  후 `npm dist-tag rm cairn-engine beta`. bare 버전이 develop에 있는 동안 beta를 내려면 반드시 `-beta.N+1`로 bump
+  (같은 버전 재publish 불가). 소비자 opt-in = `npm install cairn-engine@beta`. (2.5.0-beta 채널로 실증, 2.5.0 정식화로 종료.)
 - **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),
   프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
 - **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·

@@ -75,6 +75,15 @@ regression is free.**
 - discovery **~$0.50 once** → every replay after is **$0** (a full LLM agent runs **~$15–30 _per run_**)
 - a renamed button broke hand-written selectors; cairn **healed it and stayed green**
 
+## The loop
+
+![The cairn loop — discover once with an LLM, freeze to plain data, replay forever for free, heal one step when the UI drifts](docs/loop.svg)
+
+- **discover** _(LLM · once)_ — observes the live page, picks one action, acts, and repeats until your intent is met. Out comes a `Scenario`.
+- **freeze** — that scenario is plain JSON (`*.skill.json`): a flat list of steps + assertions, each target carrying several locators. No model, no LLM — just data.
+- **replay** _(no LLM)_ — runs the steps through a `Driver`, auto-waiting for the page to settle; a `Critic` rules on three layers of evidence — _did it act_ · _what it looked like_ · _the requests & console_. Same input, same verdict.
+- **heal** _(LLM · only on a break)_ — when a target stops resolving or the outcome diverges, the LLM maps your original step `intent` onto the new page, repairs that one step, retries, and returns a scenario to re-freeze. A green replay never calls it. The loop **closes**: a healed path is frozen again, so the next replay is back to zero LLM calls.
+
 ## Try it in 60 seconds
 
 You need **Node ≥ 20**, **Chrome**, and a model — an `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` /
@@ -181,20 +190,6 @@ A healed case is re-frozen so the next run is clean again; a truncated discovery
 (nothing frozen, nothing trusted). From the library: `runSuite(cases, opts)` returns per-case
 verdicts + whole-suite LLM usage; `renderSuiteReport(result)` renders the markdown summary.
 
-## The loop
-
-```
-intent ─► discover (LLM, once) ─► cart.skill.json ─► replay (no LLM, forever)
-                                                          │ a step breaks
-                                                          ▼
-                                                  self-heal (LLM, just that step)
-```
-
-- **discover** _(LLM · once)_ — observes the live page, picks one action, acts, and repeats until your intent is met. Out comes a `Scenario`.
-- **freeze** — that scenario is plain JSON (`*.skill.json`): a flat list of steps + assertions, each target carrying several locators. No model, no LLM — just data.
-- **replay** _(no LLM)_ — runs the steps through a `Driver`, auto-waiting for the page to settle; a `Critic` rules on three layers of evidence — _did it act_ · _what it looked like_ · _the requests & console_. Same input, same verdict.
-- **heal** _(LLM · only on a break)_ — when a target stops resolving or the outcome diverges, the LLM maps your original step `intent` onto the new page, repairs that one step, retries, and returns a scenario to re-freeze. A green replay never calls it.
-
 ## A frozen scenario is just data
 
 `*.skill.json` is a flat, readable, diffable list of steps + assertions — no code, no model:
@@ -228,6 +223,9 @@ is the 3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallb
 as a CSS escape hatch — which is what lets replay survive a redesign without falling back to the
 LLM. A step's `expect` is its post-condition: replay waits
 for it deterministically (so an async submit isn't raced) and only heals if it truly diverges.
+Each frozen assertion also records its **`origin`** — `user` (your own criterion, merged at
+freeze) or `derived` (grounded by the engine from observed evidence) — so a report can say which
+greens were verified against *your* spec, not the engine's guess.
 
 > **Text matches one accessibility node at a time.** `text` — in a `target` or a `waitFor` —
 > is matched as a substring of a *single* node's accessible name. Text composed at render time
@@ -235,6 +233,28 @@ for it deterministically (so an async submit isn't raced) and only heals if it t
 > StaticText nodes, so `waitFor { "text": "팀 명단 (1/3)" }` can never match, even though a
 > human "sees" that combined string on screen. Wait on a stable substring that lives in one
 > node (here `"팀 명단"`), or fall back to `role`/`selector`.
+
+## The run is just data, too
+
+A frozen scenario is the *test* as data — and a run emits the *execution* as data. Pass a
+**`TraceSink`** (the `trace` option on `runScenario` / `runSuite`) and the engine streams its
+whole lifecycle as one flat, ordered, versioned sequence of events — watch it live, or store it
+and open it in a viewer later:
+
+```jsonc
+{ "seq": 7,  "phase": "discover", "kind": "gate",      "payload": { "gate": "ambiguity", "...": "..." } }
+{ "seq": 12, "phase": "replay",   "kind": "step",      "stepRef": 3, "payload": { "ok": true } }
+{ "seq": 13, "phase": "replay",   "kind": "assertion", "payload": { "passed": true, "origin": "user", "checkedBy": "code" } }
+{ "seq": 15, "phase": "heal",     "kind": "heal",      "payload": { "layer": "step", "judgedBy": "original" } }
+```
+
+Nothing is silent and nothing is overwritten: what the model decided (and why), what a gate
+refused (a policy block, an ambiguity it wouldn't guess through), every assertion labeled by
+**who wrote it** (`origin: user | derived`) and **who judged it** (`checkedBy: code | model`),
+and every repair as `broke → became` — judged against the *original* assertions, so a heal can
+never move the goalposts. Without a sink, no events are even built; a sink that throws can never
+change a verdict. The contract is versioned and lives at
+[`spec/core/trace.md`](spec/core/trace.md).
 
 ## When the UI changes — self-heal
 
@@ -266,7 +286,7 @@ The repaired path is written back — the next replay is deterministic again, wi
 Healing is *surgical*: one step, judged against your original assertions, so a heal can never turn
 a genuinely broken flow green.
 
-## How it works — one pipeline, six ports
+## How it works — one pipeline, seven ports
 
 The execution body is a five-stage pipeline. No environment- or domain-specific logic lives inside
 it — every variable behavior arrives through an interface.
@@ -282,9 +302,9 @@ Context ─► Plan ─► Execute ─► Judge ─► Report
   `execution` (did it act/navigate) · `perception` (what it looked like) · `logic` (requests, console)
 - **Report** — emits the result anywhere (console, JSON, your tracker)
 
-The six extension points — **`ContextProvider · Planner · Driver · SkillStore · Critic ·
-Reporter`** — are how you adapt cairn without forking it. The LLM lives behind its own seam
-(`LlmClient`), so neither a model nor a browser is hard-wired into the core. Where a whole port is
+The seven extension points — **`ContextProvider · Planner · Driver · SkillStore · Critic ·
+Reporter · TraceSink`** — are how you adapt cairn without forking it. The LLM lives behind its
+own seam (`LlmClient`), so neither a model nor a browser is hard-wired into the core. Where a whole port is
 too much, **`custom` assertions and `actions`** let a product define its own success criteria and
 interactions inline — the engine ships defaults, your product defines the specifics.
 
@@ -336,8 +356,10 @@ await driver.close(); // whoever constructs a Driver owns it — runHarness neve
 ```
 
 Building a UI on top? The engine streams what a screen needs — `signal` (Stop) · `screenshots` ·
-`onStep` (live timeline). **No Node** (browser / extension)? Import from `cairn-engine/browser` and
-compose `runHarness` with your own `Driver` (e.g. one over `chrome.debugger`).
+`onStep` (live timeline) — and the full lifecycle as a trace stream
+([the run is just data, too](#the-run-is-just-data-too)). **No Node** (browser / extension)?
+Import from `cairn-engine/browser` and compose `runHarness` with your own `Driver` (e.g. one over
+`chrome.debugger`).
 
 ## FAQ
 

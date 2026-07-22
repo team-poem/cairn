@@ -37,9 +37,9 @@ describe("discover", () => {
     ]);
     // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests" },
-      { kind: "no-console-errors" },
-      { kind: "navigated", to: "shop/cart" },
+      { kind: "no-failed-requests", origin: "derived" },
+      { kind: "no-console-errors", origin: "derived" },
+      { kind: "navigated", to: "shop/cart", origin: "derived" },
     ]);
     expect(driver.clicked).toHaveLength(2);
   });
@@ -81,7 +81,10 @@ describe("discover", () => {
     // LLM wrongly proposes `navigated`; grounding must drop it.
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
-    expect(scenario.assertions).toEqual([{ kind: "no-failed-requests" }, { kind: "no-console-errors" }]);
+    expect(scenario.assertions).toEqual([
+      { kind: "no-failed-requests", origin: "derived" },
+      { kind: "no-console-errors", origin: "derived" },
+    ]);
   });
 
   it("does not freeze no-failed-requests when discovery itself saw a real failure (grounding)", async () => {
@@ -104,7 +107,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evFavicon, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
   });
 
   it("#79: still freezes no-failed-requests when the only failure recovered (401 → retry → 2xx)", async () => {
@@ -124,7 +127,7 @@ describe("discover", () => {
     });
     // the critic already tolerates recovered failures (#66) — the freeze must not be stricter
     // than the verdict, or a legitimate transient retry costs the flow this assertion.
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
   });
 
   it("#79: does not freeze no-failed-requests when a failure never recovered", async () => {
@@ -158,7 +161,7 @@ describe("discover", () => {
       llm: new ScriptedLlm(['{"action":"done"}']),
       benign: ["/api/flaky-analytics"],
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
   });
 
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
@@ -181,10 +184,10 @@ describe("discover", () => {
     // #105: the matched proving request is a mutation, so its method is frozen too — a
     // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests" },
-      { kind: "no-console-errors" },
-      { kind: "navigated", to: "shop/payment" },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST" },
+      { kind: "no-failed-requests", origin: "derived" },
+      { kind: "no-console-errors", origin: "derived" },
+      { kind: "navigated", to: "shop/payment", origin: "derived" },
+      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST", origin: "derived" },
     ]);
   });
 
@@ -207,6 +210,7 @@ describe("discover", () => {
       kind: "request-status",
       urlIncludes: "/api/cart",
       status: 200,
+      origin: "derived",
     });
   });
 
@@ -215,7 +219,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(clean.assertions).toContainEqual({ kind: "no-console-errors" });
+    expect(clean.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
 
     const evNoisy: Evidence = {
       ...evidence,
@@ -250,7 +254,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evWarn, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
   });
 
   it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {
@@ -266,7 +270,7 @@ describe("discover", () => {
       llm: new ScriptedLlm([...replies]),
       semanticChecks: true,
     });
-    expect(on.assertions).toContainEqual({ kind: "expect", criterion: "order confirmed" });
+    expect(on.assertions).toContainEqual({ kind: "expect", criterion: "order confirmed", origin: "derived" });
   });
 });
 

@@ -1,9 +1,14 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runSuite, hashCase } from "../src/suite.js";
 import type { FrozenSuiteScenario, SuiteCase } from "../src/suite.js";
 import { renderSuiteReport } from "../src/adapters/reporters/suite.js";
+import { FileSkillStore } from "../src/adapters/skills/file-store.js";
+import { JsonReporter } from "../src/adapters/reporters/json.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
-import type { LlmClient, Reporter, Scenario, SkillStore } from "../src/index.js";
+import type { LlmClient, Reporter, Scenario, SkillStore, TraceEvent } from "../src/index.js";
 
 /** In-memory SkillStore — lets a test inspect exactly what the suite froze. */
 class MemoryStore implements SkillStore {
@@ -100,10 +105,12 @@ describe("runSuite", () => {
     const skill = store.skills.get(REF)!;
     expect(skill.assertions).toEqual(
       expect.arrayContaining([
-        { kind: "navigated", to: "shop/products" },
-        { kind: "expect", criterion: "the catalog page lists products" },
+        { kind: "navigated", to: "shop/products", origin: "user" },
+        { kind: "expect", criterion: "the catalog page lists products", origin: "user" },
       ]),
     );
+    // discover's own grounded assertions carry `derived` — the freeze can tell the two apart.
+    expect(skill.assertions.some((a) => a.origin === "derived")).toBe(true);
     expect(suite.usage.llmCalls).toBe(4); // 3 discovery + 1 expect judgment
   });
 
@@ -189,6 +196,126 @@ describe("runSuite", () => {
     expect(refrozen.steps[0]).toMatchObject({ target: { text: "Checkout Now" } });
   });
 
+  it("outcome-heal re-freeze keeps the caseHash — the NEXT run cache-hits instead of re-discovering (#153)", async () => {
+    // Real FileSkillStore + JsonReporter — doubles only where a unit test can't avoid them
+    // (browser, LLM). The bug's production path is a skill FILE: the re-stamped hash must
+    // survive an actual JSON round-trip, which an in-memory store cannot prove.
+    const dir = await mkdtemp(join(tmpdir(), "cairn-153-"));
+    try {
+      const store = new FileSkillStore(dir);
+      const reporter = new JsonReporter(join(dir, "result.json"));
+      // Frozen with an assertion the stub driver can never satisfy (it captures no requests) —
+      // replay fails its verdict, which is exactly what triggers the outcome-heal re-discovery.
+      const failing: FrozenSuiteScenario = {
+        ...frozen,
+        assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+        caseHash: hashCase(CASE),
+      };
+      await store.freeze(REF, failing);
+      // Outcome-heal's re-discovery: done immediately, no proposals.
+      const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+
+      const first = await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter });
+      expect(first.verdicts[0]!.discovered).toBe(false); // cache hit, then heal — not a fresh discover
+
+      // The repaired scenario came from discover() without the suite-local caseHash; the re-freeze
+      // must re-stamp it, or the next run mismatches the hash and pays discovery for nothing.
+      // Read back through the real store: the stamp survived serialization.
+      const refrozen = (await store.load(REF)) as FrozenSuiteScenario;
+      expect(refrozen.caseHash).toBe(hashCase(CASE));
+
+      // And the next run really does replay the (still-failing) skill instead of re-discovering:
+      // a judged replay has assertion results; the crashed/re-discover paths don't.
+      const second = await runSuite([CASE], {
+        store,
+        driverFactory: shopDriver,
+        llm: forbiddenLlm,
+        heal: false,
+        reporter,
+      });
+      expect(second.verdicts[0]!.discovered).toBe(false);
+      expect(second.verdicts[0]!.verdict.results.length).toBeGreaterThan(0);
+      expect(second.usage.llmCalls).toBe(0);
+
+      // The real reporter wrote a parseable Result for the failing replay.
+      const reported = JSON.parse(await readFile(join(dir, "result.json"), "utf8")) as {
+        verdict: { passed: boolean };
+      };
+      expect(reported.verdict.passed).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats a repointed case url as stale — re-discovers instead of replaying against the old target (#131)", async () => {
+    const store = new MemoryStore();
+    // Frozen when the case pointed at the OLD shop — the skill's first goto still goes there.
+    store.skills.set(REF, withCaseHash(frozen, CASE));
+
+    // The user repoints ONLY the url; intent and criteria are untouched.
+    const moved: SuiteCase = { ...CASE, url: "https://other-shop/" };
+
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver("https://other-shop/");
+      d.els = [{ role: "link", name: "Products" }];
+      d.navOn["Products"] = "https://other-shop/products";
+      return d;
+    };
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done"}',
+      "[]",
+    ]);
+
+    const suite = await runSuite([moved], { store, driverFactory, llm, reporter: silent });
+
+    // The old skill must not replay against the new target — discovery ran on the new url.
+    expect(suite.verdicts[0]!.discovered).toBe(true);
+    const refrozen = store.skills.get(REF) as Scenario & { caseHash?: string };
+    expect(refrozen.steps[0]).toMatchObject({ kind: "goto", url: "https://other-shop/" });
+    expect(refrozen.caseHash).toBe(hashCase(moved));
+  });
+
+  it("treats a changed suite baseUrl as stale for a url-less case — the frozen goto came from it (#131)", async () => {
+    const store = new MemoryStore();
+    const bare: SuiteCase = { id: "catalog", intent: "open the catalog" }; // start url = suite baseUrl
+    store.skills.set(REF, { ...frozen, caseHash: hashCase(bare, "https://shop/") } as Scenario);
+
+    // Control: with the ORIGINAL baseUrl the same store is a clean hit — proving the url is the
+    // only variable in the stale run below (and a hit replays mechanically: the LLM stays cold).
+    const control = await runSuite([bare], {
+      store,
+      driverFactory: shopDriver,
+      llm: forbiddenLlm,
+      reporter: silent,
+      baseUrl: "https://shop/",
+    });
+    expect(control.verdicts[0]!.discovered).toBe(false);
+
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver("https://other-shop/");
+      d.els = [{ role: "link", name: "Products" }];
+      d.navOn["Products"] = "https://other-shop/products";
+      return d;
+    };
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done"}',
+      "[]",
+    ]);
+
+    const suite = await runSuite([bare], {
+      store,
+      driverFactory,
+      llm,
+      reporter: silent,
+      baseUrl: "https://other-shop/",
+    });
+
+    expect(suite.verdicts[0]!.discovered).toBe(true);
+    expect((store.skills.get(REF) as Scenario).steps[0]).toMatchObject({ url: "https://other-shop/" });
+  });
+
   it("treats a cache hit with a stale caseHash as a miss — re-discovers instead of trusting drifted criteria", async () => {
     const store = new MemoryStore();
     // Frozen under an OLD version of the case (no `expect`) — its caseHash reflects that old shape.
@@ -216,7 +343,7 @@ describe("runSuite", () => {
     const refrozen = store.skills.get(REF) as Scenario & { caseHash?: string };
     expect(refrozen.caseHash).toBe(hashCase(newCase));
     expect(refrozen.assertions).toEqual(
-      expect.arrayContaining([{ kind: "expect", criterion: "the catalog page lists products" }]),
+      expect.arrayContaining([{ kind: "expect", criterion: "the catalog page lists products", origin: "user" }]),
     );
   });
 
@@ -316,6 +443,88 @@ describe("runSuite", () => {
     ).rejects.toThrow("duplicate");
     await expect(runSuite([{ id: "a", intent: "x" }], opts)).rejects.toThrow("no url");
     await expect(runSuite([{ id: "a", intent: "" , url: "u" }], opts)).rejects.toThrow("intent");
+  });
+});
+
+describe("runSuite trace", () => {
+  class RecordingSink {
+    events: TraceEvent[] = [];
+    emit(e: TraceEvent): void {
+      this.events.push(e);
+    }
+  }
+  const kinds = (sink: RecordingSink): string[] => sink.events.map((e) => `${e.phase ?? "-"}:${e.kind}`);
+
+  it("emits the contract stream on a cache miss: header → case events (discover then replay) → run-end", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done","assertions":[{"kind":"navigated"}]}',
+      "[]",
+    ]);
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
+
+    const seqs = sink.events.map((e) => e.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(sink.events[0]!.kind).toBe("trace");
+    const ks = kinds(sink);
+    expect(ks[1]).toBe("-:case-start");
+    expect(ks).toContain("discover:action");
+    expect(ks).toContain("discover:freeze");
+    expect(ks).toContain("replay:step");
+    expect(ks).toContain("replay:assertion");
+    expect(ks.at(-2)).toBe("-:case-end");
+    expect(ks.at(-1)).toBe("-:run-end");
+    // Flat correlation: every case-scoped event carries the case id; header/run-end carry none.
+    for (const e of sink.events.slice(1, -1)) expect(e.caseRef).toBe(CASE.id);
+    expect(sink.events[0]!.caseRef).toBeUndefined();
+    expect(sink.events.at(-1)!.caseRef).toBeUndefined();
+
+    const caseStart = sink.events[1]!;
+    expect(caseStart.payload).toMatchObject({ id: CASE.id, intent: CASE.intent, skillRef: REF, cached: false });
+    const freeze = sink.events.find((e) => e.kind === "freeze")!;
+    expect(freeze.payload).toMatchObject({ ref: REF, assertions: { user: 0, unknown: 0 } });
+    expect((freeze.payload as { caseHash: string }).caseHash).toHaveLength(64);
+    expect((freeze.payload as { assertions: { derived: number } }).assertions.derived).toBeGreaterThan(0);
+    const caseEnd = sink.events.at(-2)!;
+    expect(caseEnd.payload).toMatchObject({ discovered: true, heals: 0, verdict: { passed: true } });
+    const runEnd = sink.events.at(-1)!;
+    expect(runEnd.payload).toMatchObject({ passed: true });
+  });
+
+  it("a cached replay marks case-start cached:true and emits no discover-phase events", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    store.skills.set(REF, withCaseHash(frozen, CASE));
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm: forbiddenLlm, reporter: silent, trace: sink });
+
+    expect(sink.events[1]!.payload).toMatchObject({ cached: true });
+    expect(sink.events.some((e) => e.phase === "discover")).toBe(false);
+  });
+
+  it("the outcome-heal re-freeze emits a freeze event under phase heal, caseHash re-stamped", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    // Frozen with an assertion the stub driver can never satisfy — replay fails, outcome-heal runs.
+    const failing: FrozenSuiteScenario = {
+      ...frozen,
+      assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, failing);
+    const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+
+    await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
+
+    const freezes = sink.events.filter((e) => e.kind === "freeze");
+    expect(freezes).toHaveLength(1); // cache hit → no discover freeze; only the heal re-freeze
+    expect(freezes[0]).toMatchObject({ phase: "heal" });
+    expect((freezes[0]!.payload as { caseHash: string }).caseHash).toBe(hashCase(CASE));
+    // The re-discovery's own events rode out under phase heal (kinds say what, phase says why).
+    expect(kinds(sink)).toContain("heal:action");
   });
 });
 

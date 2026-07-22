@@ -11,6 +11,7 @@
   - [judgment](core/judgment.md) — three-layer evidence judgment.
   - [targeting](core/targeting.md) — multi-locator + freeze stability.
   - [surgical-heal](core/surgical-heal.md) — per-step outcome verification + surgical self-heal.
+  - [trace](core/trace.md) — unified lifecycle event contract (draft, #138): envelope · header versioning · per-phase payloads.
 - **[journal/](journal/)** — **current state · dev log** (Korean, internal): [state](journal/state.md) · [history](journal/history.md).
 
 ## Roles (don't duplicate across them)

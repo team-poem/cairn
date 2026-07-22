@@ -16,6 +16,7 @@ import type {
   Target,
   Verdict,
 } from "./types.js";
+import type { TraceEvent } from "./trace.js";
 
 /** Grounding from any source (NL, git diff, ticket, RAG). */
 export interface ContextProvider {
@@ -143,6 +144,13 @@ export interface Critic {
 /** Emits a result anywhere — console, json, an arbitrary tracker. */
 export interface Reporter {
   emit(result: Result): Promise<void>;
+}
+
+/** Receives the lifecycle event stream (spec/core/trace.md). Sync fire-and-forget: the engine
+ * calls it inline and swallows throws — an implementation that does IO buffers internally.
+ * Absent → no events are built at all (zero cost), and behavior is unchanged. */
+export interface TraceSink {
+  emit(event: TraceEvent): void;
 }
 
 export interface Harness {

@@ -7,6 +7,8 @@ import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./p
 import type { Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
+import { assertionPayload } from "./trace.js";
+import type { TraceScope } from "./trace.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -40,6 +42,8 @@ export interface RunHarnessOptions {
    * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
    * or has real routes that look like locales (`/my`, `/tv`). `[]` disables stripping. */
   localePrefixes?: readonly string[];
+  /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
+  trace?: TraceScope;
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
@@ -68,6 +72,7 @@ async function runStep(
   expectTimeoutMs: number,
   urlMatch: UrlMatchOptions,
   healer?: StepHealer,
+  trace?: TraceScope,
 ): Promise<ExecutedAction> {
   // A `requestStatus` expect is event evidence over the run's CUMULATIVE request log, not page
   // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
@@ -92,6 +97,12 @@ async function runStep(
     const healed = await healer.heal(step, index, driver);
     if (healed) {
       if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
+        trace?.emit({
+          kind: "heal",
+          phase: "heal",
+          stepRef: index,
+          payload: { layer: "step", broke: step, became: healed.step, judgedBy: "original" },
+        });
         return { step: healed.step, ok: true };
       }
     }
@@ -134,8 +145,15 @@ export async function runHarness(
   const actions: ExecutedAction[] = [];
   for (const step of scenario.steps) {
     opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer);
+    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace);
     actions.push(result);
+    // `result.step`, not `step` — a healed step is recorded as what actually ran (v1: no attachment).
+    opts.trace?.emit({
+      kind: "step",
+      phase: "replay",
+      stepRef: actions.length - 1,
+      payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error },
+    });
     if (opts.onStep) {
       const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
       opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
@@ -154,6 +172,7 @@ export async function runHarness(
 
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
+  for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
   const verdict = withStepCompletion(judged, actions, scenario.steps.length);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();

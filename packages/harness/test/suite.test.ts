@@ -1,7 +1,12 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { runSuite, hashCase } from "../src/suite.js";
 import type { FrozenSuiteScenario, SuiteCase } from "../src/suite.js";
 import { renderSuiteReport } from "../src/adapters/reporters/suite.js";
+import { FileSkillStore } from "../src/adapters/skills/file-store.js";
+import { JsonReporter } from "../src/adapters/reporters/json.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
 import type { LlmClient, Reporter, Scenario, SkillStore } from "../src/index.js";
 
@@ -189,6 +194,57 @@ describe("runSuite", () => {
     expect(suite.verdicts[0]).toMatchObject({ verdict: { passed: true }, heals: 1 });
     const refrozen = store.skills.get(REF)!;
     expect(refrozen.steps[0]).toMatchObject({ target: { text: "Checkout Now" } });
+  });
+
+  it("outcome-heal re-freeze keeps the caseHash — the NEXT run cache-hits instead of re-discovering (#153)", async () => {
+    // Real FileSkillStore + JsonReporter — doubles only where a unit test can't avoid them
+    // (browser, LLM). The bug's production path is a skill FILE: the re-stamped hash must
+    // survive an actual JSON round-trip, which an in-memory store cannot prove.
+    const dir = await mkdtemp(join(tmpdir(), "cairn-153-"));
+    try {
+      const store = new FileSkillStore(dir);
+      const reporter = new JsonReporter(join(dir, "result.json"));
+      // Frozen with an assertion the stub driver can never satisfy (it captures no requests) —
+      // replay fails its verdict, which is exactly what triggers the outcome-heal re-discovery.
+      const failing: FrozenSuiteScenario = {
+        ...frozen,
+        assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+        caseHash: hashCase(CASE),
+      };
+      await store.freeze(REF, failing);
+      // Outcome-heal's re-discovery: done immediately, no proposals.
+      const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+
+      const first = await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter });
+      expect(first.verdicts[0]!.discovered).toBe(false); // cache hit, then heal — not a fresh discover
+
+      // The repaired scenario came from discover() without the suite-local caseHash; the re-freeze
+      // must re-stamp it, or the next run mismatches the hash and pays discovery for nothing.
+      // Read back through the real store: the stamp survived serialization.
+      const refrozen = (await store.load(REF)) as FrozenSuiteScenario;
+      expect(refrozen.caseHash).toBe(hashCase(CASE));
+
+      // And the next run really does replay the (still-failing) skill instead of re-discovering:
+      // a judged replay has assertion results; the crashed/re-discover paths don't.
+      const second = await runSuite([CASE], {
+        store,
+        driverFactory: shopDriver,
+        llm: forbiddenLlm,
+        heal: false,
+        reporter,
+      });
+      expect(second.verdicts[0]!.discovered).toBe(false);
+      expect(second.verdicts[0]!.verdict.results.length).toBeGreaterThan(0);
+      expect(second.usage.llmCalls).toBe(0);
+
+      // The real reporter wrote a parseable Result for the failing replay.
+      const reported = JSON.parse(await readFile(join(dir, "result.json"), "utf8")) as {
+        verdict: { passed: boolean };
+      };
+      expect(reported.verdict.passed).toBe(false);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   it("treats a cache hit with a stale caseHash as a miss — re-discovers instead of trusting drifted criteria", async () => {

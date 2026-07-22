@@ -247,6 +247,75 @@ describe("runSuite", () => {
     }
   });
 
+  it("treats a repointed case url as stale — re-discovers instead of replaying against the old target (#131)", async () => {
+    const store = new MemoryStore();
+    // Frozen when the case pointed at the OLD shop — the skill's first goto still goes there.
+    store.skills.set(REF, withCaseHash(frozen, CASE));
+
+    // The user repoints ONLY the url; intent and criteria are untouched.
+    const moved: SuiteCase = { ...CASE, url: "https://other-shop/" };
+
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver("https://other-shop/");
+      d.els = [{ role: "link", name: "Products" }];
+      d.navOn["Products"] = "https://other-shop/products";
+      return d;
+    };
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done"}',
+      "[]",
+    ]);
+
+    const suite = await runSuite([moved], { store, driverFactory, llm, reporter: silent });
+
+    // The old skill must not replay against the new target — discovery ran on the new url.
+    expect(suite.verdicts[0]!.discovered).toBe(true);
+    const refrozen = store.skills.get(REF) as Scenario & { caseHash?: string };
+    expect(refrozen.steps[0]).toMatchObject({ kind: "goto", url: "https://other-shop/" });
+    expect(refrozen.caseHash).toBe(hashCase(moved));
+  });
+
+  it("treats a changed suite baseUrl as stale for a url-less case — the frozen goto came from it (#131)", async () => {
+    const store = new MemoryStore();
+    const bare: SuiteCase = { id: "catalog", intent: "open the catalog" }; // start url = suite baseUrl
+    store.skills.set(REF, { ...frozen, caseHash: hashCase(bare, "https://shop/") } as Scenario);
+
+    // Control: with the ORIGINAL baseUrl the same store is a clean hit — proving the url is the
+    // only variable in the stale run below (and a hit replays mechanically: the LLM stays cold).
+    const control = await runSuite([bare], {
+      store,
+      driverFactory: shopDriver,
+      llm: forbiddenLlm,
+      reporter: silent,
+      baseUrl: "https://shop/",
+    });
+    expect(control.verdicts[0]!.discovered).toBe(false);
+
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver("https://other-shop/");
+      d.els = [{ role: "link", name: "Products" }];
+      d.navOn["Products"] = "https://other-shop/products";
+      return d;
+    };
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Products","reason":"open catalog"}',
+      '{"action":"done"}',
+      "[]",
+    ]);
+
+    const suite = await runSuite([bare], {
+      store,
+      driverFactory,
+      llm,
+      reporter: silent,
+      baseUrl: "https://other-shop/",
+    });
+
+    expect(suite.verdicts[0]!.discovered).toBe(true);
+    expect((store.skills.get(REF) as Scenario).steps[0]).toMatchObject({ url: "https://other-shop/" });
+  });
+
   it("treats a cache hit with a stale caseHash as a miss — re-discovers instead of trusting drifted criteria", async () => {
     const store = new MemoryStore();
     // Frozen under an OLD version of the case (no `expect`) — its caseHash reflects that old shape.

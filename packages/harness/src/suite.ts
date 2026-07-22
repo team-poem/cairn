@@ -47,11 +47,17 @@ export interface SuiteCase {
  * spread), so a healed re-freeze that starts from the original scenario keeps its hash for free. */
 export type FrozenSuiteScenario = Scenario & { caseHash: string };
 
-/** Fingerprints exactly the case fields that flow into the freeze (`intent`, `expect`,
- * `assertions`) — anything else about a `SuiteCase` (id, url, maxSteps) doesn't change what gets
- * discovered or judged, so it doesn't invalidate the cache. */
-export function hashCase(c: SuiteCase): string {
-  const material = JSON.stringify({ intent: c.intent, expect: c.expect ?? [], assertions: c.assertions ?? [] });
+/** Fingerprints exactly the case fields that flow into the freeze: `intent`, the criteria
+ * (`expect`/`assertions`), and the START URL — discover freezes `url ?? baseUrl` as the first
+ * `goto`, so repointing either one changes what replays and must read as stale (#131). `id` and
+ * `maxSteps` stay out: file key and step cap, neither changes what was discovered or judged. */
+export function hashCase(c: SuiteCase, baseUrl?: string): string {
+  const material = JSON.stringify({
+    intent: c.intent,
+    url: c.url ?? baseUrl,
+    expect: c.expect ?? [],
+    assertions: c.assertions ?? [],
+  });
   return createHash("sha256").update(material).digest("hex");
 }
 
@@ -207,7 +213,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     // skill against the NEW criteria. A skill frozen before this check shipped has no caseHash at
     // all; treat that as stale too (forces one re-discover) rather than trusting unverified state —
     // fail-closed like the rest of the engine (#69/#90).
-    if (scenario && (scenario as Partial<FrozenSuiteScenario>).caseHash !== hashCase(c)) {
+    if (scenario && (scenario as Partial<FrozenSuiteScenario>).caseHash !== hashCase(c, ctx.baseUrl)) {
       scenario = undefined;
     }
     scope?.emit({
@@ -264,7 +270,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           ...(c.assertions ?? []).map((a): Assertion => ({ ...a, origin: "user" })),
           ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
         ],
-        caseHash: hashCase(c),
+        caseHash: hashCase(c, ctx.baseUrl),
       };
       scenario = frozenScenario;
       await ctx.store.freeze(ref, scenario);
@@ -296,7 +302,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       // frozen bare, the next run would mismatch and re-discover a skill that was just repaired
       // (#153). caseHash stays a suite concept; the engine never learns it (pattern ≠ data).
       if (healedScenario) {
-        const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c) };
+        const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c, ctx.baseUrl) };
         await ctx.store.freeze(ref, restamped);
         scope?.emit({ kind: "freeze", phase: "heal", payload: freezePayload(ref, restamped) });
       }

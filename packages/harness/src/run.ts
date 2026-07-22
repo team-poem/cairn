@@ -17,8 +17,10 @@ import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { LlmStepHealer } from "./core/step-heal.js";
 import { UsageMeter, emptyUsage } from "./core/usage.js";
+import { ENGINE_VERSION, assertionPayload, startTrace } from "./core/trace.js";
+import type { TraceScope } from "./core/trace.js";
 import type { ActionPolicy } from "./core/discover/index.js";
-import type { PerceptionAdapter } from "./core/ports.js";
+import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress } from "./core/types.js";
@@ -66,6 +68,12 @@ export interface RunScenarioOptions {
   /** Correct perceived element state for widgets that expose it outside a11y (a11y-native perception
    * seam) — threaded into an outcome-heal re-discovery so it perceives the app the same way. */
   perceive?: PerceptionAdapter;
+  /** Lifecycle event stream (spec/core/trace.md). A bare run opens its own trace: header,
+   * one implicit case (`caseRef` = scenario name), case-end, run-end. */
+  trace?: TraceSink;
+  /** @internal The suite's per-case scope — when set, the suite owns header/case events and this
+   * run emits only its step/assertion/heal kinds into it. Wins over `trace`. */
+  traceScope?: TraceScope;
 }
 
 export interface RunScenarioResult {
@@ -131,13 +139,28 @@ export async function runScenario(
       ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes)
       : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes));
 
+  // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
+  // sink opens its own trace — header, then one implicit case so every consumer reads one shape.
+  const ownTracer = !opts.traceScope && opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
+  const scope = opts.traceScope ?? ownTracer?.scope(scenario.name);
+  if (ownTracer)
+    scope?.emit({ kind: "case-start", payload: { id: scenario.name, intent: scenario.name, cached: true } });
+
   // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
   // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   const ownsDriver = !opts.driver;
+  const onHeal = (heal: Heal): void => {
+    scope?.emit({
+      kind: "heal",
+      phase: "heal",
+      payload: { layer: "locator", broke: heal.original, became: heal.healed, judgedBy: "original" },
+    });
+    opts.onHeal?.(heal);
+  };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal: opts.onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal }))
     : baseDriver;
   const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
 
@@ -160,6 +183,7 @@ export async function runScenario(
         expectTimeoutMs: opts.expectTimeoutMs,
         localePrefixes: opts.localePrefixes,
         usage,
+        trace: scope,
       },
     );
 
@@ -184,6 +208,10 @@ export async function runScenario(
         signal: opts.signal,
         policy: opts.policy,
         perceive: opts.perceive,
+        // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
+        // the kinds say what ran (spec/core/trace.md).
+        trace: scope,
+        tracePhase: "heal",
       });
       const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
       const observed = await baseDriver.observe();
@@ -197,6 +225,14 @@ export async function runScenario(
       // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
       // else a path that reaches a different end-state passes as green (P2 false green).
       const verdict = await critic.judge(evidence, scenario.assertions, ctx);
+      for (const r of verdict.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
+      if (ownTracer) {
+        scope?.emit({
+          kind: "case-end",
+          payload: { verdict, usage: usage(), discovered: false, heals: heals.length + stepHeals.length },
+        });
+        ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: usage() } });
+      }
       return {
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
         heals,
@@ -205,6 +241,18 @@ export async function runScenario(
       };
     }
 
+    if (ownTracer) {
+      scope?.emit({
+        kind: "case-end",
+        payload: {
+          verdict: result.verdict,
+          usage: result.usage,
+          discovered: false,
+          heals: heals.length + stepHeals.length,
+        },
+      });
+      ownTracer.emit({ kind: "run-end", payload: { passed: result.verdict.passed, usage: result.usage } });
+    }
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     return {
       result,

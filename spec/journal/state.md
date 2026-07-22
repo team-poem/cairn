@@ -27,8 +27,9 @@
   **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
   additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
   남은 것 **#143 TraceSink seam**(PR 예정 — 리뷰 포인트: 옵셔널·미지정 시 불변 / gate 4종 실구분 / outcome-heal이 phase: heal로).
-  발견 버그(리뷰 부산물, amazon에게 제안됨): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결 후 다음 run이
-  불필요 재발견. flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
+  리뷰 부산물 버그 **해결**(#153/PR #154 머지): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결에서
+  무조건 재스탬프(suite 로컬 유지, 엔진은 모름 — 패턴≠데이터). 실 FileSkillStore 왕복 + forbidden-LLM 2차 실행으로 증명.
+  flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
   --semantic 문서 · CONTRIBUTING prefix 동기화 · requests/renderer 테스트 · CI Node24 · 이슈 템플릿). PR 자동 클로즈 가드(#141/#145) 도입.
   엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
   후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).

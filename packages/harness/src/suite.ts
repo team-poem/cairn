@@ -73,6 +73,7 @@ export interface SuiteOptions
     | "actions"
     | "signal"
     | "expectTimeoutMs"
+    | "screenshots"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -294,6 +295,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,
+        // Without this a suite could never produce attachments — and a suite is where the traces
+        // that get audited come from (#160).
+        screenshots: ctx.screenshots,
         traceScope: scope,
       });
       // A heal means the frozen path aged — persist the repair so the NEXT run replays clean.

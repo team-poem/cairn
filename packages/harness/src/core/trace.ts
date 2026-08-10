@@ -7,8 +7,9 @@
 import type { TraceSink } from "./ports.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict } from "./types.js";
 
-/** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change. */
-export const TRACE_VERSION = "1.0";
+/** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
+ * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it. */
+export const TRACE_VERSION = "1.1";
 
 export type TracePhase = "discover" | "replay" | "heal";
 
@@ -51,7 +52,9 @@ export type TraceEvent = Envelope &
           truncated?: boolean;
         };
       }
-    | { kind: "step"; payload: { step: Step; ok: boolean; skipped?: boolean; error?: string } }
+    /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's
+     * own `seq`, so call sites hand `emit` the bytes and never the id. */
+    | { kind: "step"; payload: { step: Step; ok: boolean; skipped?: boolean; error?: string; attachment?: string } }
     | {
         kind: "assertion";
         payload: {
@@ -99,10 +102,31 @@ export class Tracer {
     this.#sink = sink;
   }
 
-  emit(event: TraceEmission): void {
+  /** True when the sink stores attachment bytes. Call sites check it before *capturing* bytes at
+   * all — a screenshot nobody stores should never be taken (same zero-cost stance as no sink). */
+  get acceptsAttachments(): boolean {
+    return typeof this.#sink.attach === "function";
+  }
+
+  /**
+   * `attachmentData` is a data URL the event refers to; the id is derived from this event's own
+   * `seq` (§Attachments), which is why the Tracer stamps it and not the call site — `seq` is
+   * unique and totally ordered, so a healed step's two frames stay two attachments instead of
+   * one overwriting the other.
+   */
+  emit(event: TraceEmission, attachmentData?: string): void {
     // A sink must never fail the run: swallow, don't rethrow — tracing is evidence, not control flow.
     try {
-      this.#sink.emit({ ...event, seq: this.#seq++, ts: Date.now() } as TraceEvent);
+      const stamped = { ...event, seq: this.#seq++, ts: Date.now() } as TraceEvent;
+      if (attachmentData !== undefined && stamped.kind === "step" && this.#sink.attach) {
+        const id = String(stamped.seq);
+        // Bytes first, then the line that references them: a run cut short between the two leaves
+        // an unreferenced sidecar (harmless) rather than a reference that resolves to nothing.
+        this.#sink.attach({ id, data: attachmentData });
+        this.#sink.emit({ ...stamped, payload: { ...stamped.payload, attachment: id } });
+        return;
+      }
+      this.#sink.emit(stamped);
     } catch {
       /* deliberately ignored */
     }
@@ -123,8 +147,13 @@ export class TraceScope {
     this.caseRef = caseRef;
   }
 
-  emit(event: TraceEmission): void {
-    this.#tracer.emit({ ...event, caseRef: this.caseRef } as TraceEmission);
+  /** True when the sink stores attachment bytes (see `Tracer.acceptsAttachments`). */
+  get acceptsAttachments(): boolean {
+    return this.#tracer.acceptsAttachments;
+  }
+
+  emit(event: TraceEmission, attachmentData?: string): void {
+    this.#tracer.emit({ ...event, caseRef: this.caseRef } as TraceEmission, attachmentData);
   }
 }
 

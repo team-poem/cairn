@@ -1,6 +1,7 @@
 # Trace — unified lifecycle event contract
 
-> Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port.
+> Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160).
 > Field names bind.
 
 ## One line

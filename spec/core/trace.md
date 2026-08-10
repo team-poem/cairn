@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160).
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.1**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.0", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.1", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -104,14 +104,29 @@ fail-closed stance as the missing-`caseHash` rule). Undeclared fields already ri
 
 ## Attachments — refs in the payload, bytes in the serialization
 
-Leaning (open in #138): the payload never carries binary — a `step` event says
+The payload never carries binary — a `step` event says
 `attachment: "<id>"`. Each **serialization** decides where bytes live: the live stream MAY
 inline a data URL for immediacy; the stored artifact keeps sidecar files keyed by id (a trace
 you can `less`, attachments you can `open`). Same model, two serializations — applied to bytes.
 
-v1 (#143) emits **no `attachment` field** on `step` events — the id scheme is still open, and a
-field whose values would have to change meaning later is worse than its absence (screenshots
-still reach hosts through `onStep`). The field arrives with the id scheme, additively.
+**The id is the event's `seq`** (decided in #160). `seq` is unique and totally ordered by
+construction, which is exactly what `(caseRef, stepRef)` is not: a heal re-runs a step, so the
+same `stepRef` legitimately produces two frames — correlation by reference keeps one and loses
+the other, which is fine for a viewer and wrong for an audit. Grammar: `<seq>`, or `<seq>-<k>`
+if an event ever carries more than one attachment (suffix *within* the event — never a second
+counter). The **Tracer stamps it**, since `seq` is the envelope's to assign; call sites hand the
+emitter bytes and never an id.
+
+**Sidecars resolve by naming convention alone** — no manifest, ever. A run that ends mid-write is
+normal, so anything written at close is the wrong place for an index: the stored serialization
+writes `<trace-file-without-extension>/<id>.<ext>` as each attachment arrives (with the
+conventional path, that reads `<runId>/<seq>.png` next to `<runId>.jsonl`). A reader resolves an
+id by looking for `<id>.*` there; the directory listing *is* the index, so every attachment a
+truncated run already wrote stays readable.
+
+**A sink that stores no bytes gets no refs.** `TraceSink.attach` is optional; when it is absent
+the engine never captures a screenshot for the trace at all (same zero-cost stance as an absent
+sink) and the field stays off the payload — a ref nothing can resolve is worse than no ref.
 
 ## Versioning — header `major.minor`
 
@@ -149,6 +164,15 @@ still reach hosts through `onStep`). The field arrives with the id scheme, addit
   outcome-heal is not in the count; it is visible as the `phase: heal` discover sequence itself,
   so counting it too would double-report the same repair.
 
+## Decided in implementation (#160)
+
+- **The stored serialization ships with the engine** (`JsonlTraceSink`) — the spec's "two
+  serializations of one model" only holds if the engine carries both; otherwise every embedder
+  re-implements persistence slightly differently and "a stored trace" stops being one format.
+- **Attachment id = `seq`, sidecars by naming convention** (§Attachments) — closing the last
+  open item. Header goes to **1.1**: `step.payload.attachment` is an additive optional field,
+  so a 1.0 reader skips it under the minor rule.
+
 ## Open
 
-- Attachment id scheme (content hash vs. `seq`-derived).
+- *(none — the attachment id scheme was the last one, closed in #160.)*

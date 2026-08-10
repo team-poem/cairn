@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -106,6 +106,66 @@ describe("JsonlTraceSink (TraceSink port)", () => {
     expect(() => sink.emit(header)).not.toThrow();
     await (sink as JsonlTraceSink).close();
     expect((sink as JsonlTraceSink).failures).toBeGreaterThan(0);
+  });
+
+  it("files attachment bytes as sidecars a reader resolves by name alone (#160)", async () => {
+    const sink = new JsonlTraceSink(inDir("shots"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    const png = Buffer.from("fake-png-bytes");
+    tracer.emit(
+      { kind: "step", phase: "replay", stepRef: 0, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+      `data:image/png;base64,${png.toString("base64")}`,
+    );
+    await sink.close();
+
+    // Layout is the trace file's own name, minus the extension — `<runId>.jsonl` → `<runId>/`.
+    expect(sink.attachmentsDir).toBe(join(dir, "shots", sink.runId!));
+    const [, step] = await readLines(sink.path!);
+    if (step?.kind !== "step") throw new Error("unreachable");
+    expect(step.payload.attachment).toBe("1");
+
+    // Resolved by convention: the id plus a media-type extension. No manifest is consulted, and
+    // none exists — the directory listing is the index.
+    const files = await readdir(sink.attachmentsDir!);
+    expect(files).toEqual(["1.png"]);
+    expect(await readFile(join(sink.attachmentsDir!, "1.png"))).toEqual(png);
+  });
+
+  it("leaves every already-written attachment readable when a run is cut short", async () => {
+    // A trace that ends mid-run is normal (crash, Stop). Nothing may depend on a close that never
+    // came — so bytes land as they arrive, and the surviving prefix stands on its own.
+    const sink = new JsonlTraceSink(inDir("truncated"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    const shot = (n: number) =>
+      tracer.emit(
+        { kind: "step", phase: "replay", stepRef: n, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+        `data:image/png;base64,${Buffer.from(`frame-${n}`).toString("base64")}`,
+      );
+
+    shot(0);
+    await sink.close(); // stands in for "the process got this far"
+    shot(1); // …and this one never flushed: the run died here
+
+    expect(await readdir(sink.attachmentsDir!)).toEqual(["1.png"]);
+    expect(await readFile(join(sink.attachmentsDir!, "1.png"), "utf8")).toBe("frame-0");
+  });
+
+  it("counts an attachment it cannot decode without touching the events around it", async () => {
+    const sink = new JsonlTraceSink(inDir("bad-bytes"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    tracer.emit(
+      { kind: "step", phase: "replay", stepRef: 0, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+      "not-a-data-url",
+    );
+    tracer.emit({ kind: "run-end", payload: { passed: true } });
+    await sink.close();
+
+    expect(sink.failures).toBe(1);
+    // The trace itself is intact — including the (now dangling) ref, which is the honest record:
+    // the engine did capture a frame, and `failures` is what says it never landed.
+    const events = await readLines(sink.path!);
+    expect(events.map((e) => e.kind)).toEqual(["trace", "step", "run-end"]);
+    await expect(readdir(sink.attachmentsDir!)).rejects.toThrow();
   });
 
   it("counts a write it could not make rather than failing the run", async () => {

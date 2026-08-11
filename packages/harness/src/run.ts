@@ -47,7 +47,8 @@ export interface RunScenarioOptions {
   signal?: AbortSignal;
   /** Per-step progress, for a live timeline. */
   onStep?: (progress: StepProgress) => void;
-  /** Capture a screenshot after each step (attached to onStep / a host's visual replay). */
+  /** Capture a screenshot after each step — delivered to `onStep`, and stored as a trace
+   * attachment when the sink keeps bytes (#160). Nothing to store it → nothing is captured. */
   screenshots?: boolean;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;

@@ -6,6 +6,10 @@ import { AssertionCritic } from "../../src/adapters/critics/assertion.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import type { ContextProvider } from "../../src/core/ports.js";
 import type { Context, Evidence, Reporter, Result, Scenario, StepProgress } from "../../src/index.js";
+import type { TraceAttachment } from "../../src/core/ports.js";
+import type { TraceEvent } from "../../src/core/trace.js";
+import { startTrace } from "../../src/core/trace.js";
+import { ENGINE_VERSION } from "../../src/version.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;
@@ -284,5 +288,76 @@ describe("pipeline", () => {
       "ignored task",
     );
     expect(result.scenario).toBe("example → learn more"); // falls back to scenario.name
+  });
+});
+
+describe("pipeline — trace attachments (#160)", () => {
+  class CountingDriver extends FakeDriver {
+    shots = 0;
+    override async screenshot(): Promise<string | undefined> {
+      this.shots += 1;
+      return "data:image/png;base64,QUJD";
+    }
+  }
+
+  const sc: Scenario = { name: "shots", steps: [{ kind: "pressKey", key: "Enter" }], assertions: [] };
+
+  const run = (driver: FakeDriver, opts: Parameters<typeof runHarness>[2]) =>
+    runHarness(
+      {
+        context: new InlineContextProvider(),
+        planner: new StaticPlanner(sc),
+        driver,
+        critic: new AssertionCritic(),
+        reporter: new CaptureReporter(),
+      },
+      sc.name,
+      opts,
+    );
+
+  it("attaches the step's screenshot to its trace event when the sink stores bytes", async () => {
+    const driver = new CountingDriver({ evidence: evidence() });
+    const events: TraceEvent[] = [];
+    const attachments: TraceAttachment[] = [];
+    const tracer = startTrace(
+      { emit: (e) => events.push(e), attach: (a) => attachments.push(a) },
+      ENGINE_VERSION,
+    );
+    await run(driver, { trace: tracer.scope("shots"), captureScreenshots: true });
+
+    const step = events.find((e) => e.kind === "step");
+    if (step?.kind !== "step") throw new Error("unreachable");
+    expect(step.payload.attachment).toBe(String(step.seq));
+    expect(attachments).toEqual([{ id: String(step.seq), data: "data:image/png;base64,QUJD" }]);
+    expect(driver.shots).toBe(1);
+  });
+
+  it("takes no screenshot at all when nothing would store it", async () => {
+    // Zero cost when nobody is watching — the same stance as an absent sink building no events.
+    const driver = new CountingDriver({ evidence: evidence() });
+    const events: TraceEvent[] = [];
+    const tracer = startTrace({ emit: (e) => events.push(e) }, ENGINE_VERSION); // no attach
+    await run(driver, { trace: tracer.scope("shots"), captureScreenshots: true });
+
+    expect(driver.shots).toBe(0);
+    const step = events.find((e) => e.kind === "step");
+    if (step?.kind !== "step") throw new Error("unreachable");
+    expect(step.payload.attachment).toBeUndefined();
+  });
+
+  it("still serves onStep with the same single capture", async () => {
+    const driver = new CountingDriver({ evidence: evidence() });
+    const attachments: TraceAttachment[] = [];
+    const progress: StepProgress[] = [];
+    const tracer = startTrace({ emit: () => {}, attach: (a) => attachments.push(a) }, ENGINE_VERSION);
+    await run(driver, {
+      trace: tracer.scope("shots"),
+      captureScreenshots: true,
+      onStep: (p) => progress.push(p),
+    });
+
+    expect(driver.shots).toBe(1); // one capture, two consumers
+    expect(progress[0]?.screenshot).toBe("data:image/png;base64,QUJD");
+    expect(attachments).toHaveLength(1);
   });
 });

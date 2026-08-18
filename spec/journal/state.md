@@ -16,6 +16,13 @@
   - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
     릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
     유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
+- **(미배포, 2.7.0 후보) trace 계약 완결 — #160 (#161·#163):** JSONL TraceSink가 엔진 어댑터로 이동
+  (`adapters/sinks/jsonl.ts`, 러너 모듈 verbatim: 무예외·실패 카운트 공개·runId 유래 경로·직렬화 큐,
+  browser 엔트리 제외 = #156 준수) + **attachment id 스킴 확정**(계약의 마지막 열린 항목): id = 이벤트
+  자신의 `seq`(`<seq>-<k>` 유보), Tracer가 스탬프(호출부는 bytes만 전달), bytes→라인 순서라
+  truncation-honest, 캡처는 `captureScreenshots && (onStep || acceptsAttachments)` 게이트로 무관찰 런
+  비용 0. 계약 1.0→1.1 additive. ⚠ #162가 스택 부모 브랜치로 오머지(#107/#109에 이어 2회째)되어
+  #163으로 re-land — 규칙 후보 승격. 러너(cairn-desktop)는 2.7.0 배포 후 자기 sink 사본을 엔진 import로 교체.
 - **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
   (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
   확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
@@ -236,3 +243,6 @@
   근거 = #56 로케일 스트리핑이 #86·#87 회귀를 낳은 교훈.
 - 휴리스틱 존(URL 매칭·동적 세그먼트 컷 등)을 변경할 땐 반례 코퍼스(테이블 주도) 테스트 동반 —
   픽스 1개+테스트 1개 방식은 이 지대에서 체인을 못 끊는다.
+- **스택 PR 머지 절차(2회 발생 — #107/#109, #162):** 부모 머지·브랜치 삭제 후 자식 PR의 base가
+  develop으로 자동 전환되고 diff가 자기 커밋만 남은 것을 **확인한 뒤에만** 머지한다. 연달아 누르면
+  커밋이 이미 머지된 부모 브랜치로 들어가 develop에 도달하지 못한다.

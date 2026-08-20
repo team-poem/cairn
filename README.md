@@ -17,8 +17,8 @@ the AI returns to **heal just that step**, then re-freezes.
 > again. That's the whole idea: find the path once, follow the marker forever, rebuild it when the
 > trail shifts.
 
-cairn is an **engine, not a product** — a model- and browser-agnostic core (`cairn-engine`) you
-**embed** to build QA tools, CI gates, or monitors. It's _general in mechanism, specific in
+cairn is an **agentic-testing engine** — an engine, not a product: a model- and browser-agnostic
+core (`cairn-engine`) you **embed** to build QA tools, CI gates, or monitors. It's _general in mechanism, specific in
 meaning_: the core knows no app; you supply what "success" means and how to drive the browser.
 
 ## See it
@@ -66,8 +66,9 @@ It sits in the gap between two things people already reach for — and don't lov
 | **UI changes** | you fix the selectors | re-reasons, may drift | **self-heals, then re-freezes** |
 | **LLM calls** | none | every run | **once to discover · again only to heal** |
 
-You don't maintain selectors, and you don't pay an LLM on every CI run. **Discovery is paid once;
-regression is free.**
+That middle column has a name now — **agentic testing**: agent-authored, agent-healed, and
+deterministic where it counts. You don't maintain selectors, and you don't pay an LLM on every
+CI run. **Discovery is paid once; regression is free.**
 
 **Measured, not claimed** — a real multi-step checkout, via cairn's [`bench/`](bench):
 
@@ -255,6 +256,11 @@ and every repair as `broke → became` — judged against the *original* asserti
 never move the goalposts. Without a sink, no events are even built; a sink that throws can never
 change a verdict. The contract is versioned and lives at
 [`spec/core/trace.md`](spec/core/trace.md).
+
+Storing it is one import: **`JsonlTraceSink`** appends each event as a line of JSONL (a failed
+write is counted, never thrown — recording must not change the verdict), and a step's screenshot
+rides along as a sidecar keyed by the event's own `seq`, so even a run that dies mid-way leaves
+everything already written readable.
 
 ## When the UI changes — self-heal
 

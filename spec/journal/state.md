@@ -4,7 +4,11 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`latest = 2.6.0` (2026-07-23 배포, PR #159 → main `0f8e89c` → release.yml 자동 publish·태그·draft).** breaking 0.
+- 단계: **`latest = 2.7.0` (2026-08-20 배포, PR #164 → main `9feb379` → release.yml 자동 publish·태그, 노트 발행됨).** breaking 0.
+  - **2.7.0 내용 ("trace 계약 완결"):** **JsonlTraceSink 엔진 편입**(#160/#161 — 러너 모듈 verbatim, browser 엔트리 제외) ·
+    **attachment id 확정**(#160/#163 — id=seq·Tracer 스탬프·bytes→라인 순서·`onStep||acceptsAttachments` 캡처 게이트,
+    계약 1.0→1.1 additive) · **agentic-testing 네이밍**(README 2벌·npm description/keywords — E2E는 검색 키워드로만).
+    러너(cairn-desktop)는 이제 자기 sink 사본을 엔진 import로 교체하면 됨.
   - **2.6.0 내용 ("run is data"):** **TraceSink 7번째 포트**(#143/#155 — lifecycle 이벤트 스트림, gate 4종 1급,
     outcome-heal은 phase: heal, sink 미지정 시 비용 0·throw는 verdict 불변) · **단언 provenance**(#142/#144 —
     `origin: user|derived|unknown`, freeze 시 기록) · **suite 캐시 staleness 픽스 2**(#131/#157 유효 시작 URL 지문 ·
@@ -12,17 +16,10 @@
     docs/loop.svg·"run is just data" 섹션·애니메이션 배너).
   - **2.5.0 (2026-07-13):** explore(#102) · suite(#122) · select a11y-native(#129, 불변식 #7 신설) ·
     중복이름 addressing(#127) · perception(#132). 상세 = entries.
-  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0. 상세 = history + entries.
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0 → 2.7.0. 상세 = history + entries.
   - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
     릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
     유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
-- **(미배포, 2.7.0 후보) trace 계약 완결 — #160 (#161·#163):** JSONL TraceSink가 엔진 어댑터로 이동
-  (`adapters/sinks/jsonl.ts`, 러너 모듈 verbatim: 무예외·실패 카운트 공개·runId 유래 경로·직렬화 큐,
-  browser 엔트리 제외 = #156 준수) + **attachment id 스킴 확정**(계약의 마지막 열린 항목): id = 이벤트
-  자신의 `seq`(`<seq>-<k>` 유보), Tracer가 스탬프(호출부는 bytes만 전달), bytes→라인 순서라
-  truncation-honest, 캡처는 `captureScreenshots && (onStep || acceptsAttachments)` 게이트로 무관찰 런
-  비용 0. 계약 1.0→1.1 additive. ⚠ #162가 스택 부모 브랜치로 오머지(#107/#109에 이어 2회째)되어
-  #163으로 re-land — 규칙 후보 승격. 러너(cairn-desktop)는 2.7.0 배포 후 자기 sink 사본을 엔진 import로 교체.
 - **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
   (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
   확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·

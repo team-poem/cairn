@@ -146,11 +146,25 @@ export interface Reporter {
   emit(result: Result): Promise<void>;
 }
 
+/** Bytes for an attachment a `step` event refers to by `id` (spec/core/trace.md §Attachments).
+ * `data` is a data URL, as `Driver.screenshot()` returns it — each serialization decides what to
+ * do with it (a stored trace writes a sidecar; a live stream may forward the URL as-is). */
+export interface TraceAttachment {
+  /** Seq-derived, assigned by the Tracer — the same string the step event carries. */
+  id: string;
+  /** `data:<mediaType>;base64,<payload>`. */
+  data: string;
+}
+
 /** Receives the lifecycle event stream (spec/core/trace.md). Sync fire-and-forget: the engine
  * calls it inline and swallows throws — an implementation that does IO buffers internally.
  * Absent → no events are built at all (zero cost), and behavior is unchanged. */
 export interface TraceSink {
   emit(event: TraceEvent): void;
+  /** Optional. A sink that implements it gets attachment bytes and its step events carry
+   * `attachment` ids; a sink that doesn't never causes them to be captured at all (zero cost —
+   * same stance as an absent sink). Called before the event that references the id. */
+  attach?(attachment: TraceAttachment): void;
 }
 
 export interface Harness {

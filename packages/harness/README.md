@@ -18,6 +18,8 @@ already reach for:
 - **LLM agents** — plain language, but a slow, costly, flaky model in _every_ run.
 - **cairn** — plain-language authoring **and** deterministic, free, self-healing replay.
 
+That middle seat has a name now — **agentic testing**. cairn is its engine.
+
 ## See it
 
 ```console
@@ -255,7 +257,9 @@ The `trace` option (a **`TraceSink`**) turns the whole run into a versioned even
 discover decisions, gate firings (a policy block, an ambiguity refusal), steps, assertions
 (each labeled `origin: user | derived` and by who judged it), heals with what-broke →
 what-it-became — to watch live or store and replay in a viewer. Without a sink nothing is even
-built, and a throwing sink can never change a verdict. Contract: `spec/core/trace.md` in the repo.
+built, and a throwing sink can never change a verdict. Storing it is one import —
+**`JsonlTraceSink`** writes each event as a JSONL line, screenshots as `seq`-keyed sidecars,
+and survives a run that dies mid-way. Contract: `spec/core/trace.md` in the repo.
 
 **Browser / extension (no Node)?** Import the browser-safe core from `cairn-engine/browser` and
 compose `runHarness` with your own `Driver` (e.g. one over `chrome.debugger`) plus a fetch-based

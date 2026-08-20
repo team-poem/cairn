@@ -45,6 +45,8 @@ export type { LlmBackend, LlmFactoryOptions } from "./adapters/llm/factory.js";
 
 export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/file-store.js";
 
+export { JsonlTraceSink } from "./adapters/sinks/jsonl.js";
+
 export { discover, parseDecision } from "./core/discover/index.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
 export { explore } from "./core/explore/index.js";

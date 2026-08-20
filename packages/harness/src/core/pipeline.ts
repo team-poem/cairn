@@ -147,15 +147,22 @@ export async function runHarness(
     opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
     const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace);
     actions.push(result);
-    // `result.step`, not `step` — a healed step is recorded as what actually ran (v1: no attachment).
-    opts.trace?.emit({
-      kind: "step",
-      phase: "replay",
-      stepRef: actions.length - 1,
-      payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error },
-    });
+    // One capture serves both consumers — and only when someone stores it: a host timeline
+    // (`onStep`) or a sink that keeps attachment bytes. Nobody watching = no screenshot taken.
+    const wantsShot = opts.captureScreenshots && (opts.onStep !== undefined || opts.trace?.acceptsAttachments === true);
+    const screenshot = wantsShot ? await driver.screenshot().catch(() => undefined) : undefined;
+    // `result.step`, not `step` — a healed step is recorded as what actually ran. The `attachment`
+    // ref is stamped by the Tracer from this event's `seq`; the bytes go to the sink, not the payload.
+    opts.trace?.emit(
+      {
+        kind: "step",
+        phase: "replay",
+        stepRef: actions.length - 1,
+        payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error },
+      },
+      screenshot,
+    );
     if (opts.onStep) {
-      const screenshot = opts.captureScreenshots ? await driver.screenshot().catch(() => undefined) : undefined;
       opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
     }
     if (!result.ok) break;

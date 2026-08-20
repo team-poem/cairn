@@ -4,19 +4,25 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`latest = 2.5.0` (2026-07-13 배포, PR #134 → main `8d673c4` → v2.5.0 태그 → npm).**
-  beta 채널은 정식화와 함께 **닫음**(`dist-tag rm beta` 완료 — 2.5.0-beta.0은 정식 2.5.0에 포섭). breaking 0.
-  - **2.5.0 내용:** freeze-less **explore**(#102/#123) · **suite runner**(#122/#124 + 케이스 해시 캐시) ·
-    **select a11y-native**(#129/#130 — 커스텀 ARIA 드롭다운 open→pick, 불변식 #7 "동사는 벌어서 얻는다" 신설) ·
-    **중복이름 addressing**(#127/#128 — 프롬프트 서수·Decision role/nth·정확매치 추측금지) ·
-    **perception**(#132/#133 — Driver 계약(trusted input·a11y-native)·`perceive` seam·role 없는 클릭 리전 승격).
-    배포 전 소비자 임베드 도그푸딩으로 검증(새 엔진 갭 미발현, cairn 보편층 + 소비자 프레임워크층 분리 실증).
-  - **2.4.0 (2026-07-06):** verdict 무결성(#96·#86·#87 + #90·#78·#97) · `result.usage`(#100) · 드라이버 수명주기(#98·#88) ·
-    discover 지각/게이트(#93·#77·#61·#115·#116) · `Target.nth`(#92).
-  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 action-grounding → 2.2.x 멀티 LLM/견고화 → 2.3.0 → 2.4.0 → 2.5.0.
-    상세 = history + entries.
-  - ⚠ 릴리스 태그 함정(2회 재발): GitHub Release UI에서 태그 생성 시 target이 이전 릴리스 커밋으로 잡힐 수 있음 —
-    발행 후 `git log -1 vX.Y.Z`로 태그가 릴리스 머지 커밋인지 확인(어긋나면 `tag -f` + force push + Release에 태그 재선택).
+- 단계: **`latest = 2.6.0` (2026-07-23 배포, PR #159 → main `0f8e89c` → release.yml 자동 publish·태그·draft).** breaking 0.
+  - **2.6.0 내용 ("run is data"):** **TraceSink 7번째 포트**(#143/#155 — lifecycle 이벤트 스트림, gate 4종 1급,
+    outcome-heal은 phase: heal, sink 미지정 시 비용 0·throw는 verdict 불변) · **단언 provenance**(#142/#144 —
+    `origin: user|derived|unknown`, freeze 시 기록) · **suite 캐시 staleness 픽스 2**(#131/#157 유효 시작 URL 지문 ·
+    #153/#154 heal 재동결 caseHash 유지) · PR 자동 클로즈 가드(#141/#145) · README 재구성(루프 다이어그램
+    docs/loop.svg·"run is just data" 섹션·애니메이션 배너).
+  - **2.5.0 (2026-07-13):** explore(#102) · suite(#122) · select a11y-native(#129, 불변식 #7 신설) ·
+    중복이름 addressing(#127) · perception(#132). 상세 = entries.
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0. 상세 = history + entries.
+  - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
+    릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
+    유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
+- **(미배포, 2.7.0 후보) trace 계약 완결 — #160 (#161·#163):** JSONL TraceSink가 엔진 어댑터로 이동
+  (`adapters/sinks/jsonl.ts`, 러너 모듈 verbatim: 무예외·실패 카운트 공개·runId 유래 경로·직렬화 큐,
+  browser 엔트리 제외 = #156 준수) + **attachment id 스킴 확정**(계약의 마지막 열린 항목): id = 이벤트
+  자신의 `seq`(`<seq>-<k>` 유보), Tracer가 스탬프(호출부는 bytes만 전달), bytes→라인 순서라
+  truncation-honest, 캡처는 `captureScreenshots && (onStep || acceptsAttachments)` 게이트로 무관찰 런
+  비용 0. 계약 1.0→1.1 additive. ⚠ #162가 스택 부모 브랜치로 오머지(#107/#109에 이어 2회째)되어
+  #163으로 re-land — 규칙 후보 승격. 러너(cairn-desktop)는 2.7.0 배포 후 자기 sink 사본을 엔진 import로 교체.
 - **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
   (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
   확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
@@ -237,3 +243,6 @@
   근거 = #56 로케일 스트리핑이 #86·#87 회귀를 낳은 교훈.
 - 휴리스틱 존(URL 매칭·동적 세그먼트 컷 등)을 변경할 땐 반례 코퍼스(테이블 주도) 테스트 동반 —
   픽스 1개+테스트 1개 방식은 이 지대에서 체인을 못 끊는다.
+- **스택 PR 머지 절차(2회 발생 — #107/#109, #162):** 부모 머지·브랜치 삭제 후 자식 PR의 base가
+  develop으로 자동 전환되고 diff가 자기 커밋만 남은 것을 **확인한 뒤에만** 머지한다. 연달아 누르면
+  커밋이 이미 머지된 부모 브랜치로 들어가 develop에 도달하지 못한다.

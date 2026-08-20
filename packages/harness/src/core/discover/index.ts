@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -72,13 +72,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const evidence = await observeOutcomes(driver, firstCount);
     assignStepExpects(steps, marks, evidence);
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
-    const assertions = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
+    const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({
         kind: "gate",
         phase: tracePhase,
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
+    const assertions = markVacuous(grounded, baseline, benign);
     return truncated
       ? { name: intent, steps, assertions, truncated: true }
       : { name: intent, steps, assertions };
@@ -94,6 +95,11 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     marks.push(null);
     currentUrl = baseUrl;
   }
+
+  // #137: the starting state, before any flow action — freeze-time vacuity is judged against
+  // this, so a check the landing page already satisfies gets flagged as proving nothing.
+  await driver.settle();
+  const baseline = await driver.observe();
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
   // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).

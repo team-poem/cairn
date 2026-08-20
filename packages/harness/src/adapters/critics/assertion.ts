@@ -113,6 +113,16 @@ export function toVerdict(results: AssertionResult[]): Verdict {
   if (results.length === 0) {
     return { passed: false, results, detail: "scenario has no assertions to verify" };
   }
+  // #137: every check was already true before the flow ran (stamped at freeze) — the scenario
+  // cannot go red, so a green would mean nothing. Same fail-closed stance as the empty set.
+  if (results.every((r) => r.assertion.vacuous === true)) {
+    return {
+      passed: false,
+      results,
+      detail:
+        "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
+    };
+  }
   return { passed: results.every((r) => r.passed), results };
 }
 

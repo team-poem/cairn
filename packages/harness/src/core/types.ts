@@ -70,6 +70,10 @@ export interface Target {
  * a reader surfaces those as "unknown", never guesses (fail-closed, like a missing `caseHash`). */
 export interface AssertionMeta {
   origin?: "user" | "derived";
+  /** Already satisfied by the starting state (right after the entry goto), so this check can pass
+   * without the flow doing anything (#137). Stamped at freeze; when EVERY assertion carries it,
+   * replay fails closed — the empty-assertion rule's sibling. */
+  vacuous?: true;
 }
 
 /**

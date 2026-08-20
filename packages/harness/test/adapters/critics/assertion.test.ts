@@ -5,6 +5,7 @@ import {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
   judgeAssertion,
+  toVerdict,
 } from "../../../src/adapters/critics/assertion.js";
 import type { Evidence } from "../../../src/core/types.js";
 
@@ -269,5 +270,33 @@ describe("assertion handler chain — critics differ only by handler set", () =>
     const r = await judgeAssertion(chain, { kind: "expect", criterion: "x" }, evidence);
     expect(r.passed).toBe(false);
     expect(r.detail).toContain("LlmCritic"); // adding ExpectAssertionHandler (as LlmCritic does) overrides this
+  });
+});
+
+describe("toVerdict — all-vacuous gate (#137)", () => {
+  it("fails closed when every assertion was already true before the flow ran", () => {
+    const v = toVerdict([
+      { assertion: { kind: "no-failed-requests", vacuous: true }, passed: true },
+      { assertion: { kind: "navigated", to: "app/start", vacuous: true }, passed: true },
+    ]);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toContain("cannot detect a broken flow");
+  });
+
+  it("one discriminating assertion keeps the verdict normal", () => {
+    const v = toVerdict([
+      { assertion: { kind: "no-failed-requests", vacuous: true }, passed: true },
+      { assertion: { kind: "request-status", urlIncludes: "/api/order", status: 201 }, passed: true },
+    ]);
+    expect(v.passed).toBe(true);
+    expect(v.detail).toBeUndefined();
+  });
+
+  it("suite-merged user assertions carry no flag, so the gate can't fire on them", () => {
+    const v = toVerdict([
+      { assertion: { kind: "navigated", to: "app/start", vacuous: true }, passed: true },
+      { assertion: { kind: "expect", criterion: "cart shows the item", origin: "user" }, passed: true },
+    ]);
+    expect(v.passed).toBe(true);
   });
 });

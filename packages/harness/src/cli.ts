@@ -159,6 +159,20 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     );
   }
 
+  // #137: flag checks the starting state already satisfied — they cannot catch a broken flow.
+  if (scenario.assertions.length > 0 && scenario.assertions.every((a) => a.vacuous)) {
+    console.log(
+      `\n⚠ every assertion was already true before the flow ran — replay will FAIL closed. ` +
+        `Re-discover, or add a check that only the flow can satisfy.`,
+    );
+  } else {
+    for (const a of scenario.assertions) {
+      if (a.vacuous && (a.kind === "navigated" || a.kind === "request-status")) {
+        console.log(`\n⚠ ${JSON.stringify(a)} — already true at the start; this check cannot detect a broken flow.`);
+      }
+    }
+  }
+
   const freeze = flagStr(flags, "freeze");
   if (freeze) {
     await skills.freeze(freeze, scenario);

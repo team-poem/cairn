@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
 import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js";
 import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
-import { ScriptedLlm } from "../../support/doubles.js";
+import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { Evidence } from "../../../src/core/types.js";
 
 const evidence: Evidence = {
@@ -35,11 +35,13 @@ describe("discover", () => {
       { kind: "click", target: { text: "Add to cart", role: "link", index: 0 }, intent: "add item" },
       { kind: "click", target: { text: "Checkout", role: "button", index: 0 }, intent: "proceed" },
     ]);
-    // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
+    // assertions are grounded in observed evidence — navigated to the real destination, not the
+    // LLM's guess. FakeDriver's evidence is static (baseline == final), so every derived check is
+    // also stamped vacuous (#137) — an artifact of the double, not of real flows.
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
-      { kind: "navigated", to: "shop/cart", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
+      { kind: "navigated", to: "shop/cart", origin: "derived", vacuous: true },
     ]);
     expect(driver.clicked).toHaveLength(2);
   });
@@ -82,8 +84,8 @@ describe("discover", () => {
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
     ]);
   });
 
@@ -107,7 +109,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evFavicon, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#79: still freezes no-failed-requests when the only failure recovered (401 → retry → 2xx)", async () => {
@@ -127,7 +129,7 @@ describe("discover", () => {
     });
     // the critic already tolerates recovered failures (#66) — the freeze must not be stricter
     // than the verdict, or a legitimate transient retry costs the flow this assertion.
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#79: does not freeze no-failed-requests when a failure never recovered", async () => {
@@ -161,7 +163,7 @@ describe("discover", () => {
       llm: new ScriptedLlm(['{"action":"done"}']),
       benign: ["/api/flaky-analytics"],
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
@@ -184,10 +186,10 @@ describe("discover", () => {
     // #105: the matched proving request is a mutation, so its method is frozen too — a
     // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
-      { kind: "navigated", to: "shop/payment", origin: "derived" },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
+      { kind: "navigated", to: "shop/payment", origin: "derived", vacuous: true },
+      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST", origin: "derived", vacuous: true },
     ]);
   });
 
@@ -211,6 +213,7 @@ describe("discover", () => {
       urlIncludes: "/api/cart",
       status: 200,
       origin: "derived",
+      vacuous: true,
     });
   });
 
@@ -219,7 +222,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(clean.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
+    expect(clean.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived", vacuous: true });
 
     const evNoisy: Evidence = {
       ...evidence,
@@ -254,7 +257,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evWarn, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived", vacuous: true });
   });
 
   it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {
@@ -478,5 +481,28 @@ describe("perception seam (#: perception-gap) — consumer corrects state before
     await discover("select all", { driver, llm });
     expect(prompts[0]).toContain("[checkbox] Select all");
     expect(prompts[0]).not.toContain("(checked)");
+  });
+});
+
+describe("freeze-time vacuity stamping (#137)", () => {
+  it("a do-nothing flow (static evidence) freezes with every assertion flagged", async () => {
+    // FakeDriver's observe() never changes → baseline equals final evidence → everything the
+    // freeze derives was already true at the start.
+    const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Go" }] });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Go"}', '{"action":"done"}', "[]"]);
+    const found = await discover("go somewhere", { driver, llm, baseUrl: "https://example.com" });
+    expect(found.assertions.length).toBeGreaterThan(0);
+    expect(found.assertions.every((a) => a.vacuous === true)).toBe(true);
+  });
+
+  it("a flow that actually navigates freezes a discriminating navigated (no flag)", async () => {
+    const driver = new StubDriver("https://app/start");
+    driver.els = [{ role: "link", name: "Checkout" }];
+    driver.navOn["Checkout"] = "https://app/checkout/done";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Checkout"}', '{"action":"done"}', "[]"]);
+    const found = await discover("check out", { driver, llm, baseUrl: "https://app/start" });
+    const nav = found.assertions.find((a) => a.kind === "navigated");
+    expect(nav?.to).toContain("checkout/done");
+    expect(nav?.vacuous).toBeUndefined();
   });
 });

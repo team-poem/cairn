@@ -420,7 +420,14 @@ describe("runSuite", () => {
         { id: "boom", intent: "explode", url: "https://shop/" },
         { id: "ok", intent: "open the catalog", url: "https://shop/" },
       ],
-      { store, driverFactory, llm: new ScriptedLlm([]), reporter: silent },
+      // The ok case is a cache miss (no caseHash) → it re-discovers; the replies make that
+      // discovery a real navigation, so its freeze isn't all-vacuous (#137 would fail it closed).
+      {
+        store,
+        driverFactory,
+        llm: new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]),
+        reporter: silent,
+      },
     );
 
     expect(suite.passed).toBe(false);

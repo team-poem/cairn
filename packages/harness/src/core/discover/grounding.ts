@@ -5,9 +5,48 @@
  */
 import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
-import { isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
+import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
+import { urlReached } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
 import { destinationKey } from "./capture.js";
+
+/**
+ * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
+ * evidence captured right after the entry goto — before any flow action. `request-status` is the
+ * strongest case: the request log only grows, so a check a landing-page request satisfied can
+ * never fail at replay. `navigated` is vacuous when its destination already matches the entry
+ * URL. The guards (`no-failed-requests` / `no-console-errors`) hold on any clean start — they
+ * carry the flag so a guards-only scenario fails closed at replay, but a flow action can still
+ * break them, so they are not individually warned on. `expect`/`custom` need a judge the freeze
+ * doesn't have and are never flagged.
+ */
+export function markVacuous(
+  assertions: Assertion[],
+  baseline: Evidence,
+  benign: readonly string[] = [],
+): Assertion[] {
+  return assertions.map((a) =>
+    isVacuousOn(a, baseline, benign) ? { ...a, vacuous: true as const } : a,
+  );
+}
+
+function isVacuousOn(a: Assertion, baseline: Evidence, benign: readonly string[]): boolean {
+  switch (a.kind) {
+    case "request-status":
+      return (
+        findRequestStatus(baseline.logic.requests, a.urlIncludes, a.status, a.method) !== undefined
+      );
+    case "navigated":
+      return a.to !== undefined && urlReached(baseline.execution.finalUrl ?? "", a.to);
+    case "no-failed-requests":
+      return !sawRequestFailure(baseline.logic.requests, benign);
+    case "no-console-errors":
+      return !sawConsoleErrors(baseline.logic.console);
+    case "expect":
+    case "custom":
+      return false;
+  }
+}
 
 /**
  * Ground the frozen scenario's assertions in what actually happened, not what the LLM

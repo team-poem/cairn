@@ -20,7 +20,7 @@ Routing = `AssertionHandler.supports() → judge()` dispatch — no branching in
 
 ## Fail closed — a verdict must not out-run its evidence
 
-Two composition rules keep `verdict.passed` honest for the CI-gate use case:
+Three composition rules keep `verdict.passed` honest for the CI-gate use case:
 
 - **No assertions → fail** (#69): an empty assertion set verifies nothing; `[].every` green is vacuous.
 - **Blocked run → fail** (#90): assertions only prove evidence that was *collected*. If a step
@@ -31,6 +31,15 @@ Two composition rules keep `verdict.passed` honest for the CI-gate use case:
   A *healed* step is recorded ok — self-heal, idempotent skip, and re-discovery are the sanctioned
   paths for "the step diverged but the goal is still reachable", not a passing verdict over a
   partial run.
+- **All assertions vacuous → fail** (#137): at freeze, each derived assertion is evaluated against
+  the *baseline* evidence (right after the entry goto, before any flow action); one the start
+  already satisfies is stamped `vacuous` in the frozen data. A `request-status` hit is the
+  strongest case — the request log only grows, so a check a landing-page request satisfied can
+  never fail at replay. When *every* assertion carries the stamp, replay fails closed: a scenario
+  that cannot go red proves nothing green. One discriminating assertion (including any
+  suite-merged `origin: user` criterion, which is never stamped) keeps the verdict normal; the
+  guards (`no-failed-requests`/`no-console-errors`) carry the stamp on a clean start but are not
+  individually warned on — a flow action can still break them.
 
 ## Grounded — "a green run means it actually worked"
 

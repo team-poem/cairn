@@ -20,7 +20,10 @@ Contributions that respect that contract are the most valuable kind.
    larger than a bug fix, describe your approach and wait for a maintainer to confirm
    the direction *before* you write code (see
    [AI / agent contributions](#ai--agent-contributions)).
-2. **Branch from `develop`.** Name it for the change: `feat/...`, `fix/...`, `docs/...`.
+2. **Branch from `develop`.** Name it with one of the working prefixes — `feat/`, `fix/`,
+   `docs/`, `chore/`, or `codex/` — the exact allowlist the branch-convention guard enforces.
+   A PR opened from any other prefix is **auto-closed** by `cairn-bot` with rename
+   instructions (`git branch -m <old> feat/<old>`), so pick the prefix first.
    `develop` is the integration branch; `main` holds the latest published release.
 3. **Make one focused change.** Hold the [design invariants](#design-invariants); keep
    unrelated edits out.

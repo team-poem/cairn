@@ -107,6 +107,8 @@ if (!result.verdict.passed) process.exit(1); // a deterministic gate for CI
 
 Prefer a one-off from the terminal? The same steps are CLI commands —
 `cairn discover … --freeze cart.skill.json` · `cairn replay cart.skill.json` · `… --heal`.
+Knobs: `discover --max-steps=N`, `replay --expect-timeout=ms`, and `discover --semantic` to
+freeze LLM-judged `expect` checks too (replay then needs an LLM critic for those — off by default).
 
 **Models** — set a key and cairn picks the backend: **Anthropic** (`ANTHROPIC_API_KEY`),
 **OpenAI** (`OPENAI_API_KEY`), or **Gemini** (`GEMINI_API_KEY`). No key at all? A local

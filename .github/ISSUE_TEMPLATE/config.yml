@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Design & direction discussions
+    url: https://github.com/team-poem/cairn/discussions
+    about: Not a bug or a concrete request? Open a discussion.

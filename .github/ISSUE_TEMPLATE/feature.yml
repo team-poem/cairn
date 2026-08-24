@@ -1,0 +1,28 @@
+name: Feature request
+description: A capability cairn-engine should have — start from the problem, then the proposal.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        cairn is an engine: the core stays app-agnostic and extends through ports/seams (see `spec/architecture.md`).
+        A pull request must link an issue (`Closes #N` / `Refs #N`), so the trail starts here.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What can't you do (or trust) today, and in which flow did you hit it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What the engine should do — and where it lands (a port, an option, a CLI flag, a new adapter).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Workarounds you tried, or why this belongs in the engine rather than your embedder.

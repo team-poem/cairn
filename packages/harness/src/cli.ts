@@ -34,6 +34,7 @@ import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { FileSkillStore } from "./adapters/skills/file-store.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
+import { ENGINE_VERSION } from "./version.js";
 import type { Reporter, Scenario } from "./index.js";
 import type { Flags } from "./cli-args.js";
 
@@ -280,12 +281,40 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   return suite.passed ? 0 : 1;
 }
 
+const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
+
+usage: cairn <command> [options]
+
+  run --dogfood | --scenario <file.json> [--json out]
+  replay <skill.json> [--heal] [--freeze f] [--json out] [--expect-timeout ms]
+  discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]
+  explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
+  suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]
+
+  --help, -h       print this message
+  --version, -v    print the engine version
+
+discover once with an LLM → freeze to plain JSON → replay forever with zero LLM calls → heal only when it breaks.
+Docs: https://github.com/team-poem/cairn`;
+
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   const { positionals, flags } = parseArgs(rest);
 
   let code: number;
   switch (cmd) {
+    case "help":
+    case "--help":
+    case "-h":
+      console.log(HELP);
+      code = 0;
+      break;
+    case "version":
+    case "--version":
+    case "-v":
+      console.log(ENGINE_VERSION);
+      code = 0;
+      break;
     case "run":
       code = await cmdRun(flags);
       break;
@@ -302,7 +331,7 @@ async function main(): Promise<void> {
       code = await cmdSuite(positionals, flags);
       break;
     default:
-      console.error("usage: cairn <run|replay|discover|explore|suite> …");
+      console.error("usage: cairn <run|replay|discover|explore|suite> … (cairn --help for details)");
       code = 2;
   }
   process.exit(code);

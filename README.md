@@ -101,7 +101,10 @@ cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and
 
 Long flows and slow apps have knobs: `discover --max-steps=30` raises the exploration step cap,
 and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts
-as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`.
+as diverged — the CLI names for the library's `maxSteps` / `expectTimeoutMs`. And
+`discover --semantic` lets the freeze carry LLM-judged `expect` checks for outcomes no
+mechanical assertion captures; the trade-off is that replay then needs an LLM critic for those
+checks (everything else stays deterministic), so leave it off unless you need it.
 
 ## Explore it — freeze-less UX survey
 

@@ -20,27 +20,13 @@
   - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
     릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
     유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
-- **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
-  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
-  확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
-  **단언 provenance `origin: user|derived|unknown`**(freeze 포맷 additive 변경 필요 — 병합 시 출처 소실이 리뷰에서 발견됨,
-  구 skill은 unknown으로 fail-closed) · `checkedBy: code|model` · **heal 3층 1phase**(locator/step은 `layer` 달린 heal 이벤트,
-  outcome-heal은 `phase: heal` 아래 discover kinds, `judgedBy: original`) · gate 이벤트 1급(policy·ambiguity·grounding·parse-retry) ·
-  per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
-  **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
-  additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
-  **#143 TraceSink seam 완료**(PR #155 머지 — `TraceSink` 7번째 포트, sink 미지정 시 이벤트 생성 자체가 단락되어 불변,
-  gate 4종 실구분, outcome-heal은 재판정 assertion까지 `phase: heal`, suite 전체가 트레이서 1개 공유로 seq 단조,
-  throw 삼킴 중앙화. 리뷰에서 core/의 node: 내장 유입(브라우저 엔트리 파손)을 잡아 `version.ts` 분리 +
-  `globalThis.crypto`로 복원 — 재발 방지 CI 가드는 #156). **엔진이 계약을 실제로 방출 — #138 마감 조건 충족, 디스커션 닫음.**
-  trace 트랙 완료: 계약(#140) → provenance(#142/#144, 부산물 #153/#154) → 방출(#143/#155). 다음 = 러너가 이 스트림 소비.
-  리뷰 부산물 버그 **해결**(#153/PR #154 머지): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결에서
-  무조건 재스탬프(suite 로컬 유지, 엔진은 모름 — 패턴≠데이터). 실 FileSkillStore 왕복 + forbidden-LLM 2차 실행으로 증명.
-  flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
-  --semantic 문서 · CONTRIBUTING prefix 동기화 · requests/renderer 테스트 · CI Node24 · 이슈 템플릿). PR 자동 클로즈 가드(#141/#145) 도입.
-  엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
-  후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
-  신뢰 설계의 전체 근거(레퍼런스 글 4층 스택·보장 공식·4분면·토론 정정)는 entry `2026-07-21-trace-contract-trust.md`.
+- **다음 사이클(피벗 — #158 닫음, 디스커션 #168):** first-party 러너 중단(데스크탑 러너 범용화로 뷰어는
+  이길 자리 아님 — 엔진이 제품). 새 방향 3트랙(amazon과의 대화 산물, 고정 스코프 아님 — #168에서 형성 중):
+  ① **레포 재구조화**(CLI/패키지 격리; 분리 패키지 vs 내부 경계+린트가 갈림길, #8이 종료 조건 후보)
+  ② **스토리지 1급화**(#114 위에 caseHash 인덱싱·re-freeze 계보·suite staleness의 거처)
+  ③ **discover/freeze 신뢰성**(#103 측정 선행 → settle·파싱·truncation·flake). #101은 ③ 뒤.
+  러너 트랙 유산 = trace 계약 전체(#140→#155→#160, 상세는 entries)와 JsonlTraceSink. 오픈 이슈 #8·#101·#103뿐.
+  good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).

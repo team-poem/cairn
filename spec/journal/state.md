@@ -25,7 +25,11 @@
   ① **레포 재구조화**(CLI/패키지 격리; 분리 패키지 vs 내부 경계+린트가 갈림길, #8이 종료 조건 후보)
   ② **스토리지 1급화**(#114 위에 caseHash 인덱싱·re-freeze 계보·suite staleness의 거처)
   ③ **discover/freeze 신뢰성**(#103 측정 선행 → settle·파싱·truncation·flake). #101은 ③ 뒤.
-  러너 트랙 유산 = trace 계약 전체(#140→#155→#160, 상세는 entries)와 JsonlTraceSink. 오픈 이슈 #8·#101·#103뿐.
+  러너 트랙 유산 = trace 계약 전체(#140→#155→#160, 상세는 entries)와 JsonlTraceSink.
+  **소비자 승격 슬레이트 등록됨(#171–#177, 미착수 — 팀 분배 예정):** 코드 대조로 8건 중 7건 확정
+  (select 워터마크는 기구현이라 기각). #171 재앵커·#173 실패분류·#174 비밀값 = 트랙① CLI 전제조건,
+  #172 쿼리 박제(버그·코퍼스 규칙 적용)·#175 settle 정온·#176 동명 hit-test(버그)·#177 스크롤 가지치기 = 트랙③.
+  상세 = entries/2026-08-26-consumer-promotion-candidates.md. 벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의).
   good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.

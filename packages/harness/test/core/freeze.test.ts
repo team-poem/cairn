@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { guessedKeyRuns, scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import { droppedProofReason, guessedKeyRuns, scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import type { TraceEvent } from "../../src/core/trace.js";
 import type { Scenario } from "../../src/core/types.js";
 
 describe("scoreTarget", () => {
@@ -85,5 +86,31 @@ describe("guessedKeyRuns (#61)", () => {
       { kind: "pressKey", key: "Enter" },
     ]);
     expect(guessedKeyRuns(s)).toEqual([]);
+  });
+});
+
+describe("droppedProofReason", () => {
+  const gate = (action: string | undefined, gateName = "grounding"): TraceEvent =>
+    ({ seq: 1, ts: 0, kind: "gate", payload: { gate: gateName, action, reason: "why" } }) as TraceEvent;
+
+  it("reports a dropped request-status proposal — the freeze may prove nothing without it", () => {
+    expect(droppedProofReason(gate('{"kind":"request-status","urlIncludes":"/api/x","status":200}'))).toBe("why");
+  });
+
+  it("stays quiet on routine drops (an expect without --semantic)", () => {
+    expect(droppedProofReason(gate('{"kind":"expect","criterion":"looks right"}'))).toBeUndefined();
+  });
+
+  it("stays quiet on another gate and on a gate carrying no action", () => {
+    expect(droppedProofReason(gate('{"kind":"request-status"}', "policy"))).toBeUndefined();
+    expect(droppedProofReason(gate(undefined))).toBeUndefined();
+  });
+
+  it("stays quiet on an unparseable action instead of throwing", () => {
+    expect(droppedProofReason(gate("{not json"))).toBeUndefined();
+  });
+
+  it("ignores events that are not gates", () => {
+    expect(droppedProofReason({ seq: 0, ts: 0, kind: "run-end", payload: { passed: true } } as TraceEvent)).toBeUndefined();
   });
 });

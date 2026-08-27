@@ -6,6 +6,7 @@
  * trigger rate. Pure — no I/O, no LLM (invariant #4).
  */
 import type { Scenario, Step, Target } from "./types.js";
+import type { TraceEvent } from "./trace.js";
 
 export interface TargetScore {
   /** 0..1 estimate of how well the target survives UI change. */
@@ -100,4 +101,22 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
     if (keys.length >= 2 || keys.some((k) => /\bTab\b/i.test(k))) out.push({ startIndex: start, keys });
   }
   return out;
+}
+
+/**
+ * The reason a grounding gate dropped a proposed *proof* — a `request-status` check the model
+ * offered that the freeze then refused — or `undefined` for any other event. Those drops matter to whoever reads the freeze:
+ * a dropped proof is not fail-closed on its own (any surviving non-vacuous check, a `navigated`,
+ * still passes the scenario), so the skill can go green with nothing verifying that the action
+ * fired. Other grounding drops are routine (a hallucinated check, an `expect` without `--semantic`)
+ * and stay trace-only.
+ */
+export function droppedProofReason(event: TraceEvent): string | undefined {
+  if (event.kind !== "gate" || event.payload.gate !== "grounding" || !event.payload.action) return undefined;
+  try {
+    const proposed = JSON.parse(event.payload.action) as { kind?: unknown };
+    return proposed.kind === "request-status" ? event.payload.reason : undefined;
+  } catch {
+    return undefined;
+  }
 }

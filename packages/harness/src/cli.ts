@@ -27,7 +27,8 @@ import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
 import { renderSuiteReport } from "./adapters/reporters/suite.js";
-import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
+import { droppedProofReason, guessedKeyRuns, weakTargets } from "./core/freeze.js";
+import { Tracer } from "./core/trace.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
@@ -123,6 +124,17 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   const llm = createLlmClient(model ? { model } : {});
   console.log(`discovering with ${llm.id} …`);
 
+  // A grounding drop only rides the trace, so a CLI user never learns the freeze refused the
+  // model's proof that the action fired — and a dropped proof is not fail-closed: any surviving
+  // non-vacuous check still passes the scenario. Collect them through the shipped sink seam.
+  const droppedProofs: string[] = [];
+  const trace = new Tracer({
+    emit: (event) => {
+      const reason = droppedProofReason(event);
+      if (reason) droppedProofs.push(reason);
+    },
+  }).scope("discover");
+
   let scenario: Scenario;
   try {
     // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
@@ -133,6 +145,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
       baseUrl: url,
       maxSteps: flagNum(flags, "max-steps"),
       semanticChecks: Boolean(flags.get("semantic")),
+      trace,
     });
   } finally {
     await driver.close();
@@ -172,6 +185,14 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
         console.log(`\n⚠ ${JSON.stringify(a)} — already true at the start; this check cannot detect a broken flow.`);
       }
     }
+  }
+
+  if (droppedProofs.length) {
+    console.log(
+      `\n⚠ ${droppedProofs.length} proposed request check(s) dropped while grounding — ` +
+        `this freeze may carry no proof the action itself fired:`,
+    );
+    for (const reason of droppedProofs) console.log(`  · ${reason}`);
   }
 
   const freeze = flagStr(flags, "freeze");

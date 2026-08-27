@@ -15,6 +15,9 @@ import {
   parsePageEntries,
   parsePageIds,
   parseSelectedUrl,
+  crossRoleCandidates,
+  probedRole,
+  reachableRolesProbeScript,
   selectorProbeScript,
 } from "../../../src/adapters/drivers/chrome.js";
 
@@ -498,5 +501,105 @@ describe("clickable-region promotion (#132)", () => {
   it("a probe that finds nothing promotes nothing", async () => {
     const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([-1, -1, -1, -1]) });
     expect((await driver.snapshot()).every((e) => e.role !== "button")).toBe(true);
+  });
+});
+
+describe("cross-role duplicate names resolve to what the page shows (#176)", () => {
+  // The failure shape: a modal's submit button and a background nav link share a name. Tree order
+  // picks the link, so replay navigates away instead of submitting.
+  const modal = 'uid=3_1 link "Continue"\nuid=3_2 button "Continue"';
+  const roles = (list: string[]) =>
+    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ roles: list })}\n\`\`\``;
+
+  it("clicks the reachable candidate, not the tree-order-first one", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: roles(["button"]), // the backdrop covers the nav link
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
+  });
+
+  it("keeps tree order when nothing is reachable — the probe never makes things worse", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: modal, evaluate_script: roles([]), list_pages: "" });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1");
+  });
+
+  it("keeps tree order when the page refuses the probe", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: "not json at all",
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1");
+  });
+
+  it("leaves the a11y wrapper pair alone (link over StaticText is one element)", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=1_3 link "Learn more"\nuid=1_4 StaticText "Learn more"',
+      evaluate_script: roles(["link"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Learn more" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("1_3");
+  });
+
+  it("never probes when the name is not ambiguous across roles", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: 'uid=9 button "Pay"', list_pages: "" });
+    await driver.click({ text: "Pay" });
+    expect(calls.some((c) => c.name === "evaluate_script")).toBe(false);
+  });
+
+  it("locate freezes the reachable candidate's role, so replay never re-guesses", async () => {
+    const { driver } = stubbedDriver({ take_snapshot: modal, evaluate_script: roles(["button"]) });
+    expect(await driver.locate({ text: "Continue" })).toMatchObject({ text: "Continue", role: "button" });
+  });
+
+  describe("crossRoleCandidates — which ambiguities the probe is for", () => {
+    const rowsOf = (snap: string) => parseSnapshotRows(snap);
+    it("reports the roles of a cross-role duplicate", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue" })).toEqual(["link", "button"]);
+    });
+    it("stays out of the same-role class (#127 refuses it instead of guessing)", () => {
+      const same = 'uid=1 button "Log in"\nuid=2 button "Log in"';
+      expect(crossRoleCandidates(rowsOf(same), { text: "Log in" })).toEqual([]);
+    });
+    it("stays out when the target already says which element it means", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue", role: "button" })).toEqual([]);
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue", nth: 1 })).toEqual([]);
+    });
+    it("stays out when the name resolves without a guess", () => {
+      expect(crossRoleCandidates(rowsOf('uid=1 button "Pay"'), { text: "Pay" })).toEqual([]);
+    });
+    it("exact matches only — a substring match is a different (already unambiguous) path", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Contin" })).toEqual([]);
+    });
+  });
+
+  describe("probedRole — narrow only when the answer is single and real", () => {
+    it("narrows to the one reachable role that exists in the snapshot pool", () => {
+      expect(probedRole(["link", "button"], ["button"])).toBe("button");
+    });
+    it("refuses two genuinely visible same-named controls", () => {
+      expect(probedRole(["link", "button"], ["button", "link"])).toBeUndefined();
+    });
+    it("ignores a reachable role the snapshot pool does not contain", () => {
+      expect(probedRole(["link", "button"], ["textbox"])).toBeUndefined();
+    });
+    it("nothing reachable narrows nothing", () => {
+      expect(probedRole(["link", "button"], [])).toBeUndefined();
+    });
+  });
+
+  it("reachableRolesProbeScript is a parseable function carrying the wanted name", () => {
+    const script = reachableRolesProbeScript("  Continue  ");
+    expect(script).toContain('const want = "continue"');
+    expect(() => new Function(`return ${script}`)).not.toThrow();
+    // The script is built inside template literals, where an unescaped \s silently becomes "s" —
+    // the whitespace-collapsing regex then matches literal letters instead (caught in a browser).
+    expect(script).toContain("replace(/\\s+/g");
   });
 });

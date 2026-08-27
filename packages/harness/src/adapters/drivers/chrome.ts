@@ -435,7 +435,7 @@ export class ChromeDevToolsDriver implements Driver {
 
   async locate(target: Target): Promise<Target> {
     const rows = parseSnapshotRows(await this.getSnapshot());
-    const uid = resolveTargetUid(rows, target);
+    const uid = await this.resolveVisible(rows, target);
     if (!uid) return target; // can't enrich right now — freeze what we have
     const row = rows.find((r) => r.uid === uid)!;
     const index = rows.filter((r) => r.role === row.role).findIndex((r) => r.uid === uid);
@@ -454,13 +454,45 @@ export class ChromeDevToolsDriver implements Driver {
       const rows = parseSnapshotRows(await this.getSnapshot());
       const uid =
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
-        resolveTargetUid(rows, target);
+        (await this.resolveVisible(rows, target));
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) {
         throw new Error(describeResolutionMiss(rows, target));
       }
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
+    }
+  }
+
+  /**
+   * `resolveTargetUid`, plus a hit test when the name is ambiguous ACROSS roles (#176). That case
+   * resolves by tree order today — deliberately, because an a11y wrapper pair (link "X" over
+   * StaticText "X") is two rows for one element — but the same shape covers a real failure: a
+   * modal's button and a background nav link share a name, and tree order picks the background
+   * link, navigating away instead of submitting. `role=dialog` is absent on plenty of real modals,
+   * so the reachable candidate is the signal: a backdrop-covered or hidden element fails a
+   * center-point hit test, the wrapper pair still answers with its own element's role.
+   *
+   * The probe reports a ROLE, not an element: the MCP text interface has no uid → DOM mapping, so
+   * the answer is fed back through the existing role narrowing instead of joined positionally.
+   * Nothing reachable, an unmapped role, or a page that refuses the script leaves the current
+   * tree-order behavior untouched (fail-safe), and replay stays model-free either way (invariant #4).
+   */
+  private async resolveVisible(rows: SnapshotRow[], target: Target): Promise<string | undefined> {
+    const candidates = crossRoleCandidates(rows, target);
+    if (!candidates.length) return resolveTargetUid(rows, target); // no probe when nothing is ambiguous
+    const role = probedRole(candidates, await this.probeReachableRoles(target.text!));
+    return resolveTargetUid(rows, role ? { ...target, role } : target);
+  }
+
+  /** Roles of the same-named elements a center-point hit test actually reaches; [] on any failure. */
+  private async probeReachableRoles(text: string): Promise<string[]> {
+    try {
+      const reply = await this.call("evaluate_script", { function: reachableRolesProbeScript(text) });
+      const probe = extractFirstJsonObject(reply) as { roles?: unknown } | undefined;
+      return Array.isArray(probe?.roles) ? probe.roles.filter((r): r is string => typeof r === "string") : [];
+    } catch {
+      return [];
     }
   }
 
@@ -563,6 +595,61 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     return sameRole[target.index]?.uid;
   }
   return undefined;
+}
+
+/**
+ * The distinct roles of the exact name matches that `resolveTargetUid` would settle by TREE ORDER —
+ * the cross-role ambiguity it deliberately does not refuse (#127). Empty when the target already
+ * says which element it means (`role`/`nth`), when the name resolves without a guess, or when the
+ * matches repeat a role (that class is refused, not guessed).
+ */
+export function crossRoleCandidates(rows: SnapshotRow[], target: Target): string[] {
+  if (!target.text || target.role || target.nth !== undefined) return [];
+  const needle = target.text.trim().toLowerCase();
+  const exacts = rows.filter((r) => r.name.toLowerCase() === needle);
+  if (exacts.length < 2 || hasSameRoleDupes(exacts)) return [];
+  return [...new Set(exacts.map((r) => r.role))];
+}
+
+/**
+ * The one role to narrow a cross-role ambiguity by: reachable on the page AND present in the
+ * snapshot pool. Several reachable roles (two genuinely visible same-named controls) or none
+ * (nothing reachable, an unmapped role, a failed probe) yields nothing — the caller then keeps the
+ * existing tree-order behavior rather than trading one guess for another.
+ */
+export function probedRole(candidates: readonly string[], reachable: readonly string[]): string | undefined {
+  const hits = [...new Set(reachable)].filter((r) => candidates.includes(r));
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+/**
+ * In-page probe: the roles of the elements named `text` that a center-point hit test actually
+ * reaches. A backdrop-covered nav link, a `display:none` menu item and an off-screen control all
+ * fall out; the visible modal button survives. Roles are named as the a11y snapshot names them, so
+ * the answer joins straight back onto its rows.
+ */
+export function reachableRolesProbeScript(text: string): string {
+  return (
+    `() => { const want = ${JSON.stringify(text.trim().toLowerCase())}; ` +
+    `const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase(); ` +
+    `const named = (el) => norm(el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent); ` +
+    `const roleOf = (el) => { const explicit = el.getAttribute("role"); if (explicit) return explicit.trim(); ` +
+    `const tag = el.tagName.toLowerCase(); const type = (el.getAttribute("type") || "").toLowerCase(); ` +
+    `if (tag === "a") return el.hasAttribute("href") ? "link" : "generic"; ` +
+    `if (tag === "button" || tag === "summary") return "button"; ` +
+    `if (tag === "input") { if (type === "checkbox" || type === "radio") return type; ` +
+    `return ["submit", "button", "reset", "image"].includes(type) ? "button" : "textbox"; } ` +
+    `if (tag === "textarea") return "textbox"; if (tag === "select") return "combobox"; return "generic"; }; ` +
+    `const reaches = (el) => { const r = el.getBoundingClientRect(); if (!r.width || !r.height) return false; ` +
+    `const x = r.left + r.width / 2, y = r.top + r.height / 2; ` +
+    `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false; ` +
+    `const top = document.elementFromPoint(x, y); return !!top && (top === el || el.contains(top)); }; ` +
+    `const roles = []; ` +
+    `for (const el of document.querySelectorAll("a,button,summary,input,textarea,select,[role]")) { ` +
+    `if (named(el) !== want || !reaches(el)) continue; const role = roleOf(el); ` +
+    `if (!roles.includes(role)) roles.push(role); } ` +
+    `return { roles }; }`
+  );
 }
 
 /** True when two or more rows share one role — the ambiguity class the resolver refuses (#127). */

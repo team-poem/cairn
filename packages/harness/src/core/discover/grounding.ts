@@ -94,6 +94,14 @@ export function deriveAssertions(
       continue;
     }
     if (a.kind === "request-status") {
+      // A status under 200 is not an outcome: 0 means the request was still in flight when the
+      // freeze ran (`observeOutcomes` waits, but only up to its timeout). Freezing it turns the
+      // check into "a request went out", which stays green even when that request ends 500 — the
+      // step-level expect has always required a resolved 2xx/3xx, so this is that same floor.
+      if (typeof a.status !== "number" || a.status < 200) {
+        onDrop?.(a, `status ${a.status} is not a settled outcome`);
+        continue;
+      }
       // grounding: keep only if a real captured request matches this URL + status.
       const match = evidence.logic.requests.find(
         (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
@@ -106,8 +114,12 @@ export function deriveAssertions(
       // action POST fires twice in a run the model tells the two apart by full URL, so the proposal
       // carries a run-specific query/id that no replay can ever produce again — a permanent false
       // FAIL, and outcome-heal cannot escape it (it re-judges against these same pinned assertions).
-      // Matching still uses the proposal; only what is frozen is normalized. Two proposals that
-      // differ only in that run-specific part collapse to one assertion in `dedupeAssertions`.
+      // Matching still uses the proposal; only what is frozen is normalized.
+      //
+      // The collapsing this causes in `dedupeAssertions` is wider than "two firings of one action":
+      // when the id sits before the verb, `/api/orders/111/confirm` and `/api/orders/222/cancel`
+      // both cut to `host/api/orders` and merge, so a scenario meant to prove a confirm is
+      // satisfied by a cancel. Pinned as a counter-example in the corpus tests.
       const urlIncludes = stableEndpointPrefix(match.url);
       // Nothing but the host survived (the first path segment is itself an id): a host-only check
       // would be satisfied by ANY request to that host — a false GREEN, worse than the missing
@@ -209,7 +221,9 @@ function renderEvidence(evidence: Evidence): string {
   // Surface successful mutations separately — these are what prove an action happened (a checkout
   // POST, etc.), so the model grounds the success check on the work, not a page load.
   const mutations = logic.requests
-    .filter((r) => isMutation(r.method) && r.status < 400)
+    // `>= 200` keeps an in-flight request (status 0) out of the list the prompt tells the model to
+    // prefer — otherwise the freeze is invited to prove an action with a request that never landed.
+    .filter((r) => isMutation(r.method) && r.status >= 200 && r.status < 400)
     .map((r) => `${r.status} ${r.method} ${r.url}`);
   const errors = logic.console.filter((m) => m.type === "error").map((m) => m.text);
   return [

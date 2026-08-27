@@ -83,6 +83,25 @@
   크기를 맞췄다(주문·송장번호가 이 형태).
   ④ `isIdPart`의 `isUuid` 분기는 도달 불가능한 죽은 코드였다(조각은 하이픈 4개짜리 uuid가 될 수 없다) —
   제거하고, 접두사 붙은 uuid가 컷되는 진짜 이유(첫 블록이 digest)를 주석에 적었다.
+- **5차 교차검증 → 이 작업의 실제 사정거리 정정(중요):** URL을 얼리는 경로는 **넷**인데 이 브랜치가
+  정규화한 건 **둘**뿐이다. `request-status`와 `freshMutationExpect`는 고쳤고,
+  **`navigated` 단언과 스텝 URL expect(`assignStepExpects`)는 손도 안 댔다** — 둘 다 `destinationKey`만
+  거치므로 쿼리·해시만 떨어지고 동적 경로 세그먼트는 그대로 박제된다. 실측:
+  `finalUrl = https://shop.co/orders/586738/done` → `to: "shop.co/orders/586738/done"`이 얼려지고
+  다음 실행의 `/orders/999001/done`은 `urlReached` false = #172와 같은 영구 false FAIL.
+  **`navigated`는 모델 제안 없이 기본으로 붙는 단언**이라 실제 빈도는 `request-status`보다 높고,
+  주문번호를 URL에 담는 주문완료 페이지는 커머스 기본형이라 #172 신고 플로우에서 거의 확실히 밟는다.
+  단순 치환으로는 못 고친다 — 직접 확인했다: 잘라낸 prefix(`shop.co/orders`)는 `urlReached`가
+  "부모 경로는 자식 URL의 도달점이 아니다"로 판정해 **발견 당시의 URL조차 만족시키지 못한다**.
+  이동 판정(#96)이 같은 `destinationKey`를 쓰는 것과 얽혀 있어 별도 작업이다 → 후속으로 분리.
+- **5차에서 같이 닫은 것 2건:** ① `deriveAssertions`가 status 하한이 없어 **비행 중(status 0) 요청을
+  단언으로 얼 수 있었다** — 재생 때 "요청이 떴다"만 확인하고 그 요청이 500으로 끝나도 초록이다.
+  스텝 expect는 원래 2xx/3xx를 요구했으니 또 하나의 두 경로 비대칭이었다. 200 하한을 넣고 drop 사유를
+  trace에 남긴다. 프롬프트의 "이 중에서 골라라" 목록(`renderEvidence`)에서도 status 0을 뺐다.
+  ② dedupe 주석이 코드보다 더 주장하고 있었다 — 정규화는 "한 액션의 두 발화"만 합치는 게 아니라
+  **id가 동사 앞에 오면 서로 다른 액션도 합친다**(`/orders/111/confirm` + `/orders/222/cancel` →
+  `host/api/orders` 하나). 주문 확정 시나리오가 취소로 통과한다는 뜻이라 주석을 사실대로 고치고
+  반례 테스트로 고정했다.
 - **미해결(리뷰 지적, 이 PR 밖):** ① 쿼리로 오퍼레이션을 가르는 API(`/graphql?op=AddToCart`)는 쿼리를
   통째로 버리므로 행위 증명이 사라진다 — 값만 정규화하려면 "실행별로 변하는 값" 판별이 따로 필요하고
   별도 결정 사안. ② host-only drop은 fail-closed가 아니다 — 비항진 `navigated`가 하나라도 남으면

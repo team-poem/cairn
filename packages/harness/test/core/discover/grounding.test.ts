@@ -182,3 +182,43 @@ describe("request-status grounding freezes a replayable URL (#172)", () => {
     }
   });
 });
+
+describe("what normalization costs (pinned, not endorsed)", () => {
+  const ev = (requests: Evidence["logic"]["requests"]): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl: "https://shop.co/orders", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+
+  it("an id before the verb merges two different actions into one check", () => {
+    // /api/orders/{id}/confirm and /api/orders/{id}/cancel both cut to host/api/orders, so the
+    // frozen check no longer distinguishes them: a scenario proving a confirm passes on a cancel.
+    const out = deriveAssertions(
+      [
+        { kind: "request-status", urlIncludes: "/api/orders/111/confirm", status: 200 },
+        { kind: "request-status", urlIncludes: "/api/orders/222/cancel", status: 200 },
+      ],
+      ev([
+        { method: "POST", url: "https://shop.co/api/orders/111/confirm", status: 200 },
+        { method: "POST", url: "https://shop.co/api/orders/222/cancel", status: 200 },
+      ]),
+      false,
+    );
+    expect(out.filter((a) => a.kind === "request-status")).toEqual([
+      { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST", origin: "derived" },
+    ]);
+  });
+
+  it("a still-in-flight request is never frozen as proof", () => {
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/orders", status: 0 }],
+      ev([{ method: "POST", url: "https://shop.co/api/orders/586738", status: 0 }]),
+      false,
+      [],
+      (_a, reason) => drops.push(reason),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/not a settled outcome/);
+  });
+});

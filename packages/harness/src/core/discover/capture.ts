@@ -118,7 +118,36 @@ export function stableEndpointPrefix(url: string): string {
     if (isDynamicSegment(seg)) break;
     stable.push(seg);
   }
-  return [host, ...stable].join("/");
+  const path = [host, ...stable].join("/");
+  // A cut path is a prefix of the URL, so nothing that follows the cut can be appended to it.
+  if (stable.length < segs.length) return path;
+  const withQuery = path + stableQuerySuffix(url);
+  // The frozen value is matched by substring, so it must actually occur in the URL — a trailing
+  // slash or an encoding difference between `destinationKey` and the raw URL would break that.
+  return url.includes(withQuery) ? withQuery : path;
+}
+
+/**
+ * The leading run of query params whose values the run did not mint — the discriminator for an API
+ * that dispatches on the query rather than the path (`/graphql?op=AddToCart`, `?action=checkout`),
+ * where the path alone names no action and any other POST to the endpoint would satisfy the check.
+ * Stops at the first run-specific value (`?buyRequestIds=586738`), which is what #172 must drop.
+ *
+ * Leading run, not a filter: the frozen value is matched by substring, so the kept params have to
+ * be contiguous from the start of the query. A client that emits its params in a different order
+ * run to run therefore freezes no query at all rather than an unmatchable one.
+ */
+function stableQuerySuffix(url: string): string {
+  const query = url.match(/\?([^#]*)/)?.[1];
+  if (!query) return "";
+  const kept: string[] = [];
+  for (const pair of query.split("&")) {
+    const eq = pair.indexOf("=");
+    const value = eq === -1 ? "" : pair.slice(eq + 1);
+    if (!value || isDynamicSegment(value)) break;
+    kept.push(pair);
+  }
+  return kept.length ? `?${kept.join("&")}` : "";
 }
 
 /**

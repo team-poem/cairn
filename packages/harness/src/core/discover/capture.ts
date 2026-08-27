@@ -101,8 +101,10 @@ export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefin
 
 /** host + path cut at the first dynamic-looking segment (all digits, or ≥8 chars containing one —
  * ids, uuids, timestamps) — a stable prefix that still substring-matches the full request URL on a
- * later replay, where a run-specific id would never match again. */
-function stableEndpointPrefix(url: string): string {
+ * later replay, where a run-specific id would never match again. Query and hash are dropped with
+ * the rest of the URL by `destinationKey`. Shared with assertion grounding (#172) so a step expect
+ * and a `request-status` assertion freeze the same endpoint identity. */
+export function stableEndpointPrefix(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
   const stable: string[] = [];
   for (const seg of segs) {

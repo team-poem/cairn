@@ -79,3 +79,34 @@ export const DESTINATION_CHANGE_CORPUS: DestinationChangeCase[] = [
   { note: "host change, same path", before: "https://a.co/x", after: "https://b.co/x", changed: true },
   { note: "path change with query noise on both sides", before: "https://app/list?page=2", after: "https://app/detail?from=list", changed: true },
 ];
+
+/** What a captured request URL freezes to in a `request-status` assertion / step expect
+ * (`stableEndpointPrefix`): host + path cut before the first dynamic-looking segment, with
+ * query and hash gone. `frozen: null` = nothing but the host survives, so the check is dropped
+ * instead of frozen — a host-only substring matches every request to that host (false GREEN). */
+export interface StablePrefixCase {
+  note: string;
+  url: string;
+  frozen: string | null;
+}
+
+export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
+  // the #172 shape: a per-run id the model pinned to tell two firings of one POST apart
+  { note: "run-specific id in the query is dropped (#172)", url: "https://shop.co/cart/add-carts?buyRequestIds=586738", frozen: "shop.co/cart/add-carts" },
+  { note: "multi-value query dropped whole", url: "https://shop.co/cart/add-carts?buyRequestIds=586738,586739&from=list", frozen: "shop.co/cart/add-carts" },
+  { note: "hash dropped", url: "https://shop.co/api/order#done", frozen: "shop.co/api/order" },
+  { note: "trailing slash dropped", url: "https://shop.co/api/cart/", frozen: "shop.co/api/cart" },
+  // dynamic path segments
+  { note: "numeric id segment cuts the path", url: "https://shop.co/api/orders/586738/confirm", frozen: "shop.co/api/orders" },
+  { note: "uuid segment cuts the path", url: "https://shop.co/api/carts/9f8b7c6d-1234-4a5b-8c9d-000111222333/items", frozen: "shop.co/api/carts" },
+  { note: "timestamp segment cuts the path", url: "https://shop.co/api/events/20260827120000/ack", frozen: "shop.co/api/events" },
+  // segments that only LOOK dynamic must survive — the cut is a heuristic, not a fact
+  { note: "short version segment survives (v2 is neither all-digits nor ≥8 chars)", url: "https://shop.co/api/v2/cart?x=1", frozen: "shop.co/api/v2/cart" },
+  { note: "long alphabetic segment survives (no digit)", url: "https://shop.co/api/subscriptions/cancel", frozen: "shop.co/api/subscriptions/cancel" },
+  { note: "KNOWN over-cut: a real ≥8-char route containing a digit is treated as an id", url: "https://shop.co/api/oauth2-callback/done", frozen: "shop.co/api" },
+  // hosts
+  { note: "port is part of the host", url: "http://localhost:3000/api/cart?x=1", frozen: "localhost:3000/api/cart" },
+  // nothing stable left → the assertion is dropped, not frozen host-only
+  { note: "first path segment is an id → no stable path", url: "https://api.shop.co/586738", frozen: null },
+  { note: "root POST → no stable path", url: "https://api.shop.co/", frozen: null },
+];

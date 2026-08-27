@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { deriveAssertions, markVacuous } from "../../../src/core/discover/grounding.js";
 import type { Evidence } from "../../../src/core/types.js";
+import { findRequestStatus } from "../../../src/core/requests.js";
+import { STABLE_PREFIX_CORPUS } from "../../support/url-corpus.js";
 
 const evidence: Evidence = {
   execution: { actions: [], navigated: true, finalUrl: "https://shop/products", blocked: false },
@@ -79,5 +81,104 @@ describe("markVacuous (#137) — checks the starting state already satisfies", (
       baseline(),
     );
     expect(out.every((a) => a.vacuous === undefined)).toBe(true);
+  });
+});
+
+describe("request-status grounding freezes a replayable URL (#172)", () => {
+  const evidenceWith = (requests: Evidence["logic"]["requests"]): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+
+  it("freezes the endpoint prefix, not the run-specific query the model proposed", () => {
+    // The regression: the same add-to-cart POST fired twice, so the model pinned each firing by
+    // full URL. Freezing that verbatim pins a one-shot id — no replay can ever satisfy it, and
+    // outcome-heal re-judges against the same pinned assertion, so the FAIL is permanent.
+    const out = deriveAssertions(
+      [
+        { kind: "request-status", urlIncludes: "/cart/add-carts?buyRequestIds=586738", status: 200 },
+        { kind: "request-status", urlIncludes: "/cart/add-carts?buyRequestIds=586739", status: 200 },
+      ],
+      evidenceWith([
+        { method: "POST", url: "https://shop.co/cart/add-carts?buyRequestIds=586738", status: 200 },
+        { method: "POST", url: "https://shop.co/cart/add-carts?buyRequestIds=586739", status: 200 },
+      ]),
+      false,
+    );
+    const kept = out.filter((a) => a.kind === "request-status");
+    // Both proposals collapse into one replayable check.
+    expect(kept).toEqual([
+      { kind: "request-status", urlIncludes: "shop.co/cart/add-carts", status: 200, method: "POST", origin: "derived" },
+    ]);
+  });
+
+  it("the frozen check still matches a later run's own ids", () => {
+    const frozen = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/cart/add-carts?buyRequestIds=586738", status: 200 }],
+      evidenceWith([{ method: "POST", url: "https://shop.co/cart/add-carts?buyRequestIds=586738", status: 200 }]),
+      false,
+    ).find((a) => a.kind === "request-status");
+    const replay = { method: "POST", url: "https://shop.co/cart/add-carts?buyRequestIds=999001", status: 200 };
+    expect(findRequestStatus([replay], frozen!.urlIncludes, frozen!.status, frozen!.method)).toBe(replay);
+  });
+
+  it("keeps a non-mutation check method-free (a GET proof freezes no method)", () => {
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/cart?token=abc12345", status: 200 }],
+      evidenceWith([{ method: "GET", url: "https://shop.co/api/cart?token=abc12345", status: 200 }]),
+      false,
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "shop.co/api/cart",
+      status: 200,
+      origin: "derived",
+    });
+  });
+
+  it("drops a match whose URL leaves no stable path, with a reason on the trace", () => {
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/586738", status: 201 }],
+      evidenceWith([{ method: "POST", url: "https://api.shop.co/586738", status: 201 }]),
+      false,
+      [],
+      (_a, reason) => drops.push(reason),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/no stable path/);
+  });
+
+  it("normalizing can newly expose a vacuous check the pinned URL hid (#137 interaction)", () => {
+    // The baseline fired the same endpoint with a different query. Pre-#172 the frozen URL carried
+    // the flow's own id, so the overlap was invisible; the grounded prefix makes it visible, and a
+    // check the starting state already satisfies must be flagged, not silently frozen green.
+    const grounded = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/track?e=2", status: 200 }],
+      evidenceWith([{ method: "POST", url: "https://shop.co/api/track?e=2", status: 200 }]),
+      false,
+    );
+    const baseline: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "POST", url: "https://shop.co/api/track?e=1", status: 200 }], console: [] },
+    };
+    const marked = markVacuous(grounded, baseline).filter((a) => a.kind === "request-status");
+    expect(marked[0]?.vacuous).toBe(true);
+  });
+
+  describe("URL-corpus: what a captured request freezes to", () => {
+    for (const c of STABLE_PREFIX_CORPUS) {
+      it(`${c.note} → ${c.frozen ?? "dropped"}`, () => {
+        const out = deriveAssertions(
+          [{ kind: "request-status", urlIncludes: c.url, status: 201 }],
+          evidenceWith([{ method: "POST", url: c.url, status: 201 }]),
+          false,
+        ).filter((a) => a.kind === "request-status");
+        if (c.frozen === null) expect(out).toEqual([]);
+        else expect(out[0]?.urlIncludes).toBe(c.frozen);
+      });
+    }
   });
 });

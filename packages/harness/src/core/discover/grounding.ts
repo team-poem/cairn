@@ -8,7 +8,7 @@ import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../typ
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
-import { destinationKey } from "./capture.js";
+import { destinationKey, stableEndpointPrefix } from "./capture.js";
 
 /**
  * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
@@ -53,7 +53,9 @@ function isVacuousOn(a: Assertion, baseline: Evidence, benign: readonly string[]
  * guessed — it would propose `navigated` even on a SPA that never navigates, making every
  * replay fail. Always check requests; add `navigated` only if the run truly navigated;
  * keep a proposed `request-status` ONLY if a captured request actually matches it (so a
- * hallucinated check can't fail every replay). `expect` (LLM-judged) is frozen only when
+ * hallucinated check can't fail every replay), frozen as that request's stable endpoint prefix
+ * rather than the proposed substring (#172 — a run-specific id in the proposal would never
+ * match again). `expect` (LLM-judged) is frozen only when
  * `semantic` is set — otherwise the freeze stays deterministic (invariant #4).
  * `benign` is the product's noise list (mirror of `RunScenarioOptions.benign`) — a marked
  * endpoint's failure never disqualifies a check.
@@ -96,20 +98,36 @@ export function deriveAssertions(
       const match = evidence.logic.requests.find(
         (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
       );
+      if (!match) {
+        onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}`);
+        continue;
+      }
+      // #172: freeze the matching request's STABLE prefix, never the proposed substring. When one
+      // action POST fires twice in a run the model tells the two apart by full URL, so the proposal
+      // carries a run-specific query/id that no replay can ever produce again — a permanent false
+      // FAIL, and outcome-heal cannot escape it (it re-judges against these same pinned assertions).
+      // Matching still uses the proposal; only what is frozen is normalized. Two proposals that
+      // differ only in that run-specific part collapse to one assertion in `dedupeAssertions`.
+      const urlIncludes = stableEndpointPrefix(match.url);
+      // Nothing but the host survived (the first path segment is itself an id): a host-only check
+      // would be satisfied by ANY request to that host — a false GREEN, worse than the missing
+      // check. Drop it; the trace carries the reason.
+      if (!urlIncludes.includes("/")) {
+        onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
+        continue;
+      }
       // #105: when the proving request is a mutation, freeze its method too — a same-prefix GET
       // must not satisfy the check at replay (parity with step-level expect capture).
-      if (match)
-        out.push(
-          isMutation(match.method)
-            ? {
-                kind: "request-status",
-                urlIncludes: a.urlIncludes,
-                status: a.status,
-                method: match.method.toUpperCase(),
-              }
-            : { kind: "request-status", urlIncludes: a.urlIncludes, status: a.status },
-        );
-      else onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}`);
+      out.push(
+        isMutation(match.method)
+          ? {
+              kind: "request-status",
+              urlIncludes,
+              status: a.status,
+              method: match.method.toUpperCase(),
+            }
+          : { kind: "request-status", urlIncludes, status: a.status },
+      );
     } else if (a.kind === "expect") {
       if (semantic && typeof a.criterion === "string" && a.criterion.trim()) {
         out.push({ kind: "expect", criterion: a.criterion.trim() });

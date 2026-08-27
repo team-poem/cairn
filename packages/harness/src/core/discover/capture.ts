@@ -99,17 +99,38 @@ export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefin
     : undefined;
 }
 
-/** host + path cut at the first dynamic-looking segment (all digits, or ≥8 chars containing one —
- * ids, uuids, timestamps) — a stable prefix that still substring-matches the full request URL on a
- * later replay, where a run-specific id would never match again. Query and hash are dropped with
- * the rest of the URL by `destinationKey`. Shared with assertion grounding (#172) so a step expect
- * and a `request-status` assertion freeze the same endpoint identity. */
+/** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
+ * that still substring-matches the full request URL on a later replay, where a run-specific id
+ * would never match again. Query and hash are dropped with the rest of the URL by `destinationKey`.
+ * Shared with assertion grounding (#172) so a step expect and a `request-status` assertion freeze
+ * the same endpoint identity. */
 export function stableEndpointPrefix(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
   const stable: string[] = [];
   for (const seg of segs) {
-    if (/^\d+$/.test(seg) || (seg.length >= 8 && /\d/.test(seg))) break;
+    if (isDynamicSegment(seg)) break;
     stable.push(seg);
   }
   return [host, ...stable].join("/");
+}
+
+/**
+ * Does this path segment look like a value the run minted, rather than a route the developer named?
+ * The cut decides what a frozen check matches, so both errors are real: cutting a route name
+ * (`checkout-v2` → the check then matches every sibling endpoint) is a false GREEN, and keeping a
+ * run-specific id is the permanent false FAIL of #172. The rule therefore recognizes *id shapes*
+ * and treats a hyphen, dot or percent-escape as the mark of a human-authored name:
+ *
+ *   cut  — 586738 · a uuid · deadbeefcafebabe (bare hex) · ord_8f3a2c · s3kr3t99 · orders;id=586738
+ *   keep — checkout-v2 · b2b-orders · oauth2-callback · 2026-08-27 · app.3fa4b1c2.js · %E7%A2%BA
+ *
+ * Known gaps (kept deliberately — an under-cut fails loudly, an over-cut passes silently):
+ * a short id (`a3f9`), a digit-free token (`ord_abcdef`, a base64 slug). See STABLE_PREFIX_CORPUS.
+ */
+function isDynamicSegment(seg: string): boolean {
+  if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return true; // uuid
+  if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
+  // A long token carrying digits, with none of the separators a named route uses.
+  return seg.length >= 8 && /\d/.test(seg) && !/[-.%]/.test(seg);
 }

@@ -26,4 +26,22 @@
   ② 얼린 값에 **host가 포함**되므로 #171(프로즌 시나리오가 절대 URL을 고정해 타 환경 replay를 막음)과
   겹친다. 여기서는 스텝 expect와 동일한 정체성을 쓰는 쪽(파리티)을 택했고, host 제거는 #171이
   두 경로를 한꺼번에 다루는 게 맞다.
+- **교차검증(코덱스, PR #178 1차 리뷰) → 컷 규칙 재보정:** 리뷰가 실측으로 blocker 2건을 잡았다.
+  ① 기존 컷 조건 "8자 이상이며 숫자 포함"이 실제 라우트 이름을 id로 오인 —
+  `/api/checkout-v2/submit` → `shop.co/api`가 되어 무관한 `POST /api/newsletter/subscribe 200`이
+  단언을 만족시킨다(false GREEN). 정규화가 판정 경로로 승격되면서 **원래 있던 느슨함이 더 위험한
+  자리로 올라온 것** — 스텝 expect는 자기 tail만 보지만 단언은 전체 요청 로그를 뒤진다.
+  ② 같은 과다 컷이 #137 baseline과 겹쳐 정상 단언을 전부-항진 fail-closed로 죽이는 false RED도 만든다.
+  대응: `isDynamicSegment`를 **id 형상**으로 좁혔다 — 전부 숫자 / uuid / 순수 hex(≥8) /
+  "8자 이상 + 숫자 포함 + 하이픈·점·퍼센트 없음". 하이픈·점·퍼센트를 사람이 지은 이름의 표지로 쓴다.
+  결과: `checkout-v2`·`b2b-orders`·`oauth2-callback`·`2026-08-27`·`app.3fa4b1c2.js`·percent-encoded는
+  살아남고, `ord_8f3a2c`·`orders;id=586738`·`deadbeefcafebabe`는 컷된다.
+  **의도적으로 남긴 구멍**(코퍼스에 KNOWN GAP으로 명시): 짧은 id(`a3f9`), 숫자 없는 토큰
+  (`ord_abcdef`, base64 슬러그). 판단 기준 = **과소 컷은 시끄럽게 실패(false FAIL), 과다 컷은 조용히
+  통과(false GREEN)** 이므로 애매하면 안 자른다.
+- **미해결(리뷰 지적, 이 PR 밖):** ① 쿼리로 오퍼레이션을 가르는 API(`/graphql?op=AddToCart`)는 쿼리를
+  통째로 버리므로 행위 증명이 사라진다 — 값만 정규화하려면 "실행별로 변하는 값" 판별이 따로 필요하고
+  별도 결정 사안. ② host-only drop은 fail-closed가 아니다 — 비항진 `navigated`가 하나라도 남으면
+  행위 증명 없이 GREEN이 된다. CLI 경고로 노출하려면 discover→CLI 반환 채널(현재 없음)이 필요.
 - **state 변화:** #172 close. #171 착수 시 "단언·스텝 expect 양쪽의 host 고정"을 한 세트로 볼 것.
+  후속 후보 2건(위 미해결)은 이슈로 등록 여부 판단 필요.

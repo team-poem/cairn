@@ -8,7 +8,7 @@ import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../typ
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
-import { destinationKey, stableEndpointPrefix } from "./capture.js";
+import { destinationKey, hasStablePath, stableEndpointPrefix } from "./capture.js";
 
 /**
  * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
@@ -112,7 +112,7 @@ export function deriveAssertions(
       // Nothing but the host survived (the first path segment is itself an id): a host-only check
       // would be satisfied by ANY request to that host — a false GREEN, worse than the missing
       // check. Drop it; the trace carries the reason.
-      if (!urlIncludes.includes("/")) {
+      if (!hasStablePath(urlIncludes)) {
         onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
         continue;
       }

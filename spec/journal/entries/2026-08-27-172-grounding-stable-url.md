@@ -39,6 +39,23 @@
   **의도적으로 남긴 구멍**(코퍼스에 KNOWN GAP으로 명시): 짧은 id(`a3f9`), 숫자 없는 토큰
   (`ord_abcdef`, base64 슬러그). 판단 기준 = **과소 컷은 시끄럽게 실패(false FAIL), 과다 컷은 조용히
   통과(false GREEN)** 이므로 애매하면 안 자른다.
+- **2차 교차검증 → 컷 규칙 3차 보정 + 드랍 파리티:** 리뷰가 새 blocker 3건을 실측으로 잡았다.
+  ① 하이픈만 "사람이 지은 이름"의 표지로 쓴 탓에 `checkout_v2`·`v1_orders`·`checkoutV2`·`addToCart2`
+  같은 언더스코어·camelCase 라우트가 그대로 과다 컷됐다(1차 blocker가 `-`→`_`로 옮겨간 것뿐).
+  ② 접두사 붙은 uuid(`order-<uuid>`)·`sess-a1b2c3d4`·JWT·소수점 타임스탬프는 하이픈·점 때문에
+  거꾸로 과소 컷됐다 — 규칙(순수 uuid만 매칭)이 표지 논리에 무력화됐다.
+  ③ host-only 드랍이 `deriveAssertions`에만 있고 `freshMutationExpect`에는 없어, 단언에서 false GREEN이라
+  버린 값을 스텝 expect가 그대로 얼렸다(문서-코드 불일치).
+  대응: 판정을 **세그먼트를 구분자(`-._%;=~`)로 쪼갠 뒤 조각 하나라도 id 형상이면 컷**하는 방식으로 바꿨다.
+  이러면 라우트 이름은 조각이 전부 단어라 살아남고(`checkout_v2`·`b2b-orders`·`oauth2-callback`),
+  접두사 붙은 id는 조각에 digest가 있어 컷된다. hex 조각은 **숫자를 포함할 때만** id로 본다
+  (`decade`·`facade` 같은 단어가 digest로 오인되지 않게). 구분자가 없으면 대문자 유무(camelCase는 이름)와
+  숫자 그룹 수(이름은 `base64decode`처럼 한 덩어리, 토큰은 `s3kr3t99`처럼 흩어진다)로 가른다.
+  드랍은 `hasStablePath`로 뽑아 양쪽이 같은 판단을 쓰게 했다.
+  **날짜 세그먼트는 보존→컷으로 재분류**했다 — `/reports/2026-08-27`의 날짜는 라우트 이름이 아니라
+  리소스 키이고, 보존하면 발견 당일만 초록이고 다음 날부터 영구 빨강이 된다(리뷰 실측).
+  **KNOWN GAP 문구도 고쳤다**: 과소 컷은 "시끄럽고 싼 실패"가 아니다 — 매치 불가 단언은 실행마다
+  outcome-heal을 돌려 LLM을 태운다(run.ts:229). 그래도 false GREEN보다 낫다는 순위는 유지.
 - **미해결(리뷰 지적, 이 PR 밖):** ① 쿼리로 오퍼레이션을 가르는 API(`/graphql?op=AddToCart`)는 쿼리를
   통째로 버리므로 행위 증명이 사라진다 — 값만 정규화하려면 "실행별로 변하는 값" 판별이 따로 필요하고
   별도 결정 사안. ② host-only drop은 fail-closed가 아니다 — 비항진 `navigated`가 하나라도 남으면

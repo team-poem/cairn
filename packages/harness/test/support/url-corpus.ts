@@ -99,28 +99,47 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   // id-shaped path segments cut the path
   { note: "numeric id segment", url: "https://shop.co/api/orders/586738/confirm", frozen: "shop.co/api/orders" },
   { note: "uuid segment", url: "https://shop.co/api/carts/9f8b7c6d-1234-4a5b-8c9d-000111222333/items", frozen: "shop.co/api/carts" },
+  { note: "prefixed uuid segment", url: "https://shop.co/api/carts/cart-9f8b7c6d-1234-4a5b-8c9d-000111222333/items", frozen: "shop.co/api/carts" },
   { note: "timestamp segment", url: "https://shop.co/api/events/20260827120000/ack", frozen: "shop.co/api/events" },
+  { note: "fractional timestamp segment", url: "https://shop.co/api/t/1756276800.123/ack", frozen: "shop.co/api/t" },
   { note: "bare hex digest segment", url: "https://shop.co/x/deadbeefcafebabe/confirm", frozen: "shop.co/x" },
   { note: "prefixed id segment (ord_8f3a2c)", url: "https://shop.co/orders/ord_8f3a2c/confirm", frozen: "shop.co/orders" },
-  { note: "opaque token segment", url: "https://shop.co/api/s3kr3t99/items", frozen: "shop.co/api" },
+  { note: "session slug (sess-a1b2c3d4)", url: "https://shop.co/s/sess-a1b2c3d4/resume", frozen: "shop.co/s" },
+  { note: "jwt segment", url: "https://shop.co/verify/eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abc123/confirm", frozen: "shop.co/verify" },
+  { note: "opaque token, digits scattered", url: "https://shop.co/api/s3kr3t99/items", frozen: "shop.co/api" },
   { note: "matrix param carrying an id", url: "https://shop.co/api/orders;id=586738/confirm", frozen: "shop.co/api" },
+  { note: "percent-encoded id value", url: "https://shop.co/api/q/%7B%22id%22%3A586738%7D/run", frozen: "shop.co/api/q" },
+  { note: "a date in a path is a resource key, not a route name", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
+  { note: "hashed asset filename", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files" },
   // NAMED ROUTES THAT ONLY LOOK DYNAMIC — cutting one makes the frozen check match every sibling
   // endpoint under the surviving prefix (a false GREEN, the worse error). All of these must survive.
   { note: "hyphenated route with a version suffix", url: "https://shop.co/api/checkout-v2/submit", frozen: "shop.co/api/checkout-v2/submit" },
+  { note: "underscored route with a version suffix", url: "https://shop.co/api/checkout_v2/submit", frozen: "shop.co/api/checkout_v2/submit" },
+  { note: "underscored route, version first", url: "https://shop.co/api/v1_orders/create", frozen: "shop.co/api/v1_orders/create" },
+  { note: "underscored route, digit at the end of a word", url: "https://shop.co/api/order_items2/add", frozen: "shop.co/api/order_items2/add" },
   { note: "hyphenated route, digits mid-name", url: "https://shop.co/api/b2b-orders/create", frozen: "shop.co/api/b2b-orders/create" },
   { note: "hyphenated route, digit inside a word", url: "https://shop.co/api/oauth2-callback/done", frozen: "shop.co/api/oauth2-callback/done" },
-  { note: "date-shaped route segment", url: "https://shop.co/api/2026-08-27/report", frozen: "shop.co/api/2026-08-27/report" },
-  { note: "hashed asset filename (dots)", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files/app.3fa4b1c2.js" },
+  { note: "unseparated route, digits in one run", url: "https://shop.co/api/oauth2callback/done", frozen: "shop.co/api/oauth2callback/done" },
+  { note: "unseparated route naming an encoding", url: "https://shop.co/api/base64decode/run", frozen: "shop.co/api/base64decode/run" },
+  { note: "camelCase route with a version digit", url: "https://shop.co/api/checkoutV2/submit", frozen: "shop.co/api/checkoutV2/submit" },
+  { note: "camelCase route, digit at the end", url: "https://shop.co/api/addToCart2/run", frozen: "shop.co/api/addToCart2/run" },
   { note: "percent-encoded non-ASCII route", url: "https://shop.co/api/%E7%A2%BA%E8%AA%8D/submit", frozen: "shop.co/api/%E7%A2%BA%E8%AA%8D/submit" },
   { note: "short version segment", url: "https://shop.co/api/v2/cart?x=1", frozen: "shop.co/api/v2/cart" },
   { note: "long alphabetic segment (no digit)", url: "https://shop.co/api/subscriptions/cancel", frozen: "shop.co/api/subscriptions/cancel" },
-  // KNOWN GAPS — an id the rule does not recognize stays frozen, so #172 can still bite in these
-  // shapes. Deliberate: an under-cut fails loudly at replay, an over-cut passes silently.
+  { note: "a word that spells hex is not a digest", url: "https://shop.co/api/facade-decade/run", frozen: "shop.co/api/facade-decade/run" },
+  // KNOWN GAPS — an id the rule does not recognize stays frozen, so #172 bites in these shapes:
+  // the frozen check can never match again, and outcome-heal re-judges against it every run
+  // (run.ts:229), so the cost is repeated LLM calls, not one loud failure. Kept anyway because the
+  // alternative — cutting these — would also cut real route names and pass on the wrong request.
   { note: "KNOWN GAP: short id keeps the run-specific value", url: "https://shop.co/api/orders/a3f9/confirm", frozen: "shop.co/api/orders/a3f9/confirm" },
   { note: "KNOWN GAP: digit-free prefixed id", url: "https://shop.co/orders/ord_abcdef/confirm", frozen: "shop.co/orders/ord_abcdef/confirm" },
   { note: "KNOWN GAP: digit-free base64 slug", url: "https://shop.co/r/YWJjZGVm/confirm", frozen: "shop.co/r/YWJjZGVm/confirm" },
+  { note: "token that is all hex chars is cut by the digest rule", url: "https://shop.co/r/abc12345/confirm", frozen: "shop.co/r" },
   // hosts
   { note: "port is part of the host", url: "http://localhost:3000/api/cart?x=1", frozen: "localhost:3000/api/cart" },
+  // WEAK BUT KEPT: one surviving segment is close to host-level — `shop.co/api` matches every
+  // sibling endpoint under /api. The drop guard below only refuses a prefix with NO path at all.
+  { note: "WEAK: an id in the second segment leaves a near-host prefix", url: "https://shop.co/api/586738/confirm", frozen: "shop.co/api" },
   // nothing stable left → the assertion is dropped, not frozen host-only
   { note: "first path segment is an id → no stable path", url: "https://api.shop.co/586738", frozen: null },
   { note: "root POST → no stable path", url: "https://api.shop.co/", frozen: null },

@@ -88,15 +88,12 @@ export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefin
   const fresh = tail.find(
     (r) => isMutation(r.method) && r.status >= 200 && r.status < 400 && !isBenignRequest(r.url),
   );
-  return fresh
-    ? {
-        requestStatus: {
-          urlIncludes: stableEndpointPrefix(fresh.url),
-          status: fresh.status,
-          method: fresh.method.toUpperCase(),
-        },
-      }
-    : undefined;
+  if (!fresh) return undefined;
+  const urlIncludes = stableEndpointPrefix(fresh.url);
+  // Same refusal the assertion path makes (#172): a host-only value would be satisfied by any
+  // request to that host, so the step stays unchecked rather than checked by something meaningless.
+  if (!hasStablePath(urlIncludes)) return undefined;
+  return { requestStatus: { urlIncludes, status: fresh.status, method: fresh.method.toUpperCase() } };
 }
 
 /** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
@@ -118,19 +115,48 @@ export function stableEndpointPrefix(url: string): string {
  * Does this path segment look like a value the run minted, rather than a route the developer named?
  * The cut decides what a frozen check matches, so both errors are real: cutting a route name
  * (`checkout-v2` → the check then matches every sibling endpoint) is a false GREEN, and keeping a
- * run-specific id is the permanent false FAIL of #172. The rule therefore recognizes *id shapes*
- * and treats a hyphen, dot or percent-escape as the mark of a human-authored name:
+ * run-specific id is the permanent false FAIL of #172.
  *
- *   cut  — 586738 · a uuid · deadbeefcafebabe (bare hex) · ord_8f3a2c · s3kr3t99 · orders;id=586738
- *   keep — checkout-v2 · b2b-orders · oauth2-callback · 2026-08-27 · app.3fa4b1c2.js · %E7%A2%BA
+ *   cut  — 586738 · a uuid · deadbeefcafebabe · ord_8f3a2c · order-<uuid> · sess-a1b2c3d4 ·
+ *          2026-08-27 (a date in a path is a resource key, not a route name) · orders;id=586738
+ *   keep — checkout-v2 · checkout_v2 · b2b-orders · oauth2-callback · oauth2callback · checkoutV2 ·
+ *          base64decode · %E7%A2%BA (a percent-escaped name)
  *
- * Known gaps (kept deliberately — an under-cut fails loudly, an over-cut passes silently):
- * a short id (`a3f9`), a digit-free token (`ord_abcdef`, a base64 slug). See STABLE_PREFIX_CORPUS.
+ * Known gaps: a short id (`a3f9`), a digit-free token (`ord_abcdef`, a base64 slug) and a
+ * single-digit-group token (`abc12345`) all survive the cut and freeze verbatim, so #172 can still
+ * bite in those shapes — they are NOT cheap failures (a frozen check that can never match re-runs
+ * outcome-heal on every execution), just less bad than a check that passes on the wrong request.
+ * See STABLE_PREFIX_CORPUS.
  */
 function isDynamicSegment(seg: string): boolean {
   if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(seg)) return true; // uuid
+  if (isUuid(seg)) return true;
   if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
-  // A long token carrying digits, with none of the separators a named route uses.
-  return seg.length >= 8 && /\d/.test(seg) && !/[-.%]/.test(seg);
+  // A named route separates its words (`checkout-v2`, `oauth2_callback`, a percent-escaped name);
+  // an id survives that separation (`order-<uuid>`, `sess-a1b2c3d4`, `2026-08-27`, `orders;id=1`).
+  if (SEGMENT_SEPARATORS.test(seg)) return seg.split(SEGMENT_SEPARATORS).some(isIdPart);
+  // Unseparated: a camelCase name keeps its capitals, and a route word carries its digits in one
+  // run (`base64decode`, `oauth2callback`) where a token scatters them (`s3kr3t99`).
+  return seg.length >= 8 && !/[A-Z]/.test(seg) && (seg.match(/\d+/g)?.length ?? 0) >= 2;
+}
+
+/** The characters a named route uses between its words — and that an id keeps its shape across. */
+const SEGMENT_SEPARATORS = /[-._%;=~]/;
+
+/** An id-shaped piece of a separated segment. Digits are required of the hex form so a plain word
+ * that happens to spell hex (`decade`, `facade`) is not read as a digest. */
+function isIdPart(part: string): boolean {
+  if (/^\d+$/.test(part)) return true;
+  if (isUuid(part)) return true;
+  return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
+}
+
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
+ * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
+export function hasStablePath(prefix: string): boolean {
+  return prefix.includes("/");
 }

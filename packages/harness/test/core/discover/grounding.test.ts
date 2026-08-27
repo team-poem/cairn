@@ -461,3 +461,57 @@ describe("the destination-mismatch signal ignores formatting (#178 review)", () 
     expect(dropsFor("app.test/success")[0]).toMatch(/reached app.test\/error, not app.test\/success/);
   });
 });
+
+describe("query-dispatch endpoints keep their operation", () => {
+  it("two operations on one endpoint stay two distinct checks", () => {
+    // /graphql (or an ?action= RPC) names no action in its path, so dropping the query whole left
+    // a check that any other POST to the endpoint — a heartbeat, a session refresh — satisfies.
+    const out = deriveAssertions(
+      [
+        { kind: "request-status", urlIncludes: "/graphql?op=AddToCart", status: 200 },
+        { kind: "request-status", urlIncludes: "/graphql?op=Heartbeat", status: 200 },
+      ],
+      {
+        execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+        perception: {},
+        logic: {
+          requests: [
+            { method: "POST", url: "https://shop.co/graphql?op=AddToCart", status: 200 },
+            { method: "POST", url: "https://shop.co/graphql?op=Heartbeat", status: 200 },
+          ],
+          console: [],
+        },
+      },
+      false,
+    );
+    expect(out.filter((a) => a.kind === "request-status").map((a) => a.urlIncludes)).toEqual([
+      "shop.co/graphql?op=AddToCart",
+      "shop.co/graphql?op=Heartbeat",
+    ]);
+    // An unrelated operation must not satisfy the frozen check.
+    expect(
+      findRequestStatus(
+        [{ method: "POST", url: "https://shop.co/graphql?op=RefreshSession", status: 200 }],
+        "shop.co/graphql?op=AddToCart",
+        200,
+        "POST",
+      ),
+    ).toBeUndefined();
+  });
+
+  it("still drops the run-specific value that motivated #172", () => {
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/cart/add?buyRequestIds=586738", status: 200 }],
+      {
+        execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+        perception: {},
+        logic: {
+          requests: [{ method: "POST", url: "https://shop.co/cart/add?buyRequestIds=586738", status: 200 }],
+          console: [],
+        },
+      },
+      false,
+    );
+    expect(out.find((a) => a.kind === "request-status")?.urlIncludes).toBe("shop.co/cart/add");
+  });
+});

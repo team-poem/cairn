@@ -103,12 +103,13 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "timestamp segment", url: "https://shop.co/api/events/20260827120000/ack", frozen: "shop.co/api/events" },
   { note: "fractional timestamp segment", url: "https://shop.co/api/t/1756276800.123/ack", frozen: "shop.co/api/t" },
   { note: "bare hex digest segment", url: "https://shop.co/x/deadbeefcafebabe/confirm", frozen: "shop.co/x" },
-  { note: "prefixed id segment (ord_8f3a2c)", url: "https://shop.co/orders/ord_8f3a2c/confirm", frozen: "shop.co/orders" },
-  { note: "session slug (sess-a1b2c3d4)", url: "https://shop.co/s/sess-a1b2c3d4/resume", frozen: "shop.co/s" },
+  { note: "prefixed id — caught because THIS sample is pure hex; a base62 tail is a KNOWN GAP below", url: "https://shop.co/orders/ord_8f3a2c/confirm", frozen: "shop.co/orders" },
+  { note: "session slug — same: hex-alphabet sample, not session slugs in general", url: "https://shop.co/s/sess-a1b2c3d4/resume", frozen: "shop.co/s" },
   { note: "opaque token, digits scattered", url: "https://shop.co/api/s3kr3t99/items", frozen: "shop.co/api" },
   { note: "matrix param carrying an id", url: "https://shop.co/api/orders;id=586738/confirm", frozen: "shop.co/api" },
-  { note: "percent-encoded id value", url: "https://shop.co/api/q/%7B%22id%22%3A586738%7D/run", frozen: "shop.co/api/q" },
-  { note: "a date in a path is a resource key, not a route name", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
+  { note: "percent-encoded id — caught only because %3A + a 6-digit id spells an 8-char hex piece", url: "https://shop.co/api/q/%7B%22id%22%3A586738%7D/run", frozen: "shop.co/api/q" },
+  { note: "ISO date in a path is a resource key (this century, YYYY-MM[-DD] only)", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
+  { note: "ISO year-month", url: "https://shop.co/api/stats/2026-08/summary", frozen: "shop.co/api/stats" },
   { note: "hashed asset filename", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files" },
   // NAMED ROUTES THAT ONLY LOOK DYNAMIC — cutting one makes the frozen check match every sibling
   // endpoint under the surviving prefix (a false GREEN, the worse error). All of these must survive.
@@ -126,6 +127,8 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "short version segment", url: "https://shop.co/api/v2/cart?x=1", frozen: "shop.co/api/v2/cart" },
   { note: "long alphabetic segment (no digit)", url: "https://shop.co/api/subscriptions/cancel", frozen: "shop.co/api/subscriptions/cancel" },
   { note: "a word that spells hex is not a digest", url: "https://shop.co/api/facade-decade/run", frozen: "shop.co/api/facade-decade/run" },
+  { note: "numeric part code is not a date (month range)", url: "https://shop.co/parts/1234-56/order", frozen: "shop.co/parts/1234-56/order" },
+  { note: "numeric SKU is not a date (year range)", url: "https://shop.co/sku/1000-01/buy", frozen: "shop.co/sku/1000-01/buy" },
   // A short number inside a named route is a qualifier — an ordinal, a version, a tier, a year, an
   // error code. Cutting these made a 2nd-step check pass on the 1st step, and on /checkout/abandon.
   { note: "ordinal step in a multi-step flow", url: "https://shop.co/checkout/step-2/submit", frozen: "shop.co/checkout/step-2/submit" },
@@ -147,12 +150,23 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "KNOWN GAP: short id keeps the run-specific value", url: "https://shop.co/api/orders/a3f9/confirm", frozen: "shop.co/api/orders/a3f9/confirm" },
   { note: "KNOWN GAP: digit-free prefixed id", url: "https://shop.co/orders/ord_abcdef/confirm", frozen: "shop.co/orders/ord_abcdef/confirm" },
   { note: "KNOWN GAP: digit-free base64 slug", url: "https://shop.co/r/YWJjZGVm/confirm", frozen: "shop.co/r/YWJjZGVm/confirm" },
-  { note: "KNOWN GAP: a 4-digit id is short enough to look like a qualifier", url: "https://shop.co/o/order-1234/confirm", frozen: "shop.co/o/order-1234/confirm" },
+  // Numbers joined by a separator are read as qualifiers unless a group reaches five digits — so
+  // an order/invoice/part number split into short groups survives.
+  { note: "KNOWN GAP: dash-joined numeric groups all under five digits", url: "https://shop.co/o/order-1234/confirm", frozen: "shop.co/o/order-1234/confirm" },
+  { note: "KNOWN GAP: grouped order number", url: "https://shop.co/o/12-345-678/confirm", frozen: "shop.co/o/12-345-678/confirm" },
+  { note: "one group of five digits is enough to cut", url: "https://shop.co/o/978-3-16-148410-0/confirm", frozen: "shop.co/o" },
+  // Only the ISO forms are recognized as dates; the rest freeze verbatim and go red the next day.
+  { note: "KNOWN GAP: US date order", url: "https://shop.co/api/reports/08-27-2026/export", frozen: "shop.co/api/reports/08-27-2026/export" },
+  { note: "KNOWN GAP: dotted date", url: "https://shop.co/api/reports/2026.08.27/export", frozen: "shop.co/api/reports/2026.08.27/export" },
+  { note: "KNOWN GAP: full timestamp — fails within the same day", url: "https://shop.co/api/t/2026-08-27T10:00:00Z/ack", frozen: "shop.co/api/t/2026-08-27T10:00:00Z/ack" },
   // The mixed-case family — the widest gap, and these are mainstream id generators, not exotica.
   { note: "KNOWN GAP: ULID", url: "https://shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm", frozen: "shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm" },
   { note: "KNOWN GAP: nanoid", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm" },
   { note: "KNOWN GAP: Stripe-style prefixed key", url: "https://shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm" },
   { note: "KNOWN GAP: base62 slug", url: "https://shop.co/o/x7Kp2Qw/confirm", frozen: "shop.co/o/x7Kp2Qw/confirm" },
+  { note: "KNOWN GAP: base62 session slug (the realistic form of the sess- case above)", url: "https://shop.co/s/sess-k9m2p4q7/resume", frozen: "shop.co/s/sess-k9m2p4q7/resume" },
+  { note: "KNOWN GAP: prefixed id with a non-hex letter", url: "https://shop.co/orders/ord_8f3a2k/confirm", frozen: "shop.co/orders/ord_8f3a2k/confirm" },
+  { note: "KNOWN GAP: percent-encoded short id", url: "https://shop.co/api/q/%7B%22id%22%3A999%7D/run", frozen: "shop.co/api/q/%7B%22id%22%3A999%7D/run" },
   { note: "KNOWN GAP: a real JWT (base64url signature, mixed case)", url: "https://shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm", frozen: "shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm" },
   { note: "token that is all hex chars is cut by the digest rule", url: "https://shop.co/r/abc12345/confirm", frozen: "shop.co/r" },
   // hosts

@@ -127,8 +127,8 @@ export function stableEndpointPrefix(url: string): string {
  * (`checkout-v2` → the check then matches every sibling endpoint) is a false GREEN, and keeping a
  * run-specific id is the permanent false FAIL of #172.
  *
- *   cut  — 586738 · a uuid · deadbeefcafebabe · ord_8f3a2c · order-<uuid> · sess-a1b2c3d4 ·
- *          2026-08-27 (a date in a path is a resource key, not a route name) · orders;id=586738
+ *   cut  — 586738 · a uuid · deadbeefcafebabe · ord_8f3a2c · order-<uuid> (its first block is a
+ *          digest — the uuid rule only reads a whole segment) · 2026-08-27 · orders;id=586738
  *   keep — checkout-v2 · checkout_v2 · b2b-orders · oauth2-callback · oauth2callback · checkoutV2 ·
  *          base64decode · %E7%A2%BA (a percent-escaped name)
  *
@@ -144,7 +144,7 @@ function isDynamicSegment(seg: string): boolean {
   if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
   if (isUuid(seg)) return true;
   if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
-  if (/^\d{4}-\d{2}(-\d{2})?$/.test(seg)) return true; // a date is a resource key, not a route name
+  if (isIsoDate(seg)) return true; // a date is a resource key, not a route name
   // A named route separates its words (`checkout-v2`, `oauth2_callback`, a percent-escaped name);
   // an id survives that separation (`order-<uuid>`, `sess-a1b2c3d4`, `orders;id=586738`).
   if (SEGMENT_SEPARATORS.test(seg)) return seg.split(SEGMENT_SEPARATORS).some(isIdPart);
@@ -166,12 +166,21 @@ const SEGMENT_SEPARATORS = /[-._%;=~]/;
  */
 function isIdPart(part: string): boolean {
   if (/^\d{5,}$/.test(part)) return true;
-  if (isUuid(part)) return true;
   return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
 }
 
 function isUuid(s: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/**
+ * ISO `YYYY-MM` / `YYYY-MM-DD` only, and only in this century. The ranges matter: without them a
+ * numeric part code (`1234-56`, a SKU `1000-01`) reads as a date, and the check then matches every
+ * sibling part number. Other written forms — `08-27-2026`, `2026.08.27`, `2026-W35`, a full
+ * timestamp — are NOT recognized and freeze verbatim (see the corpus).
+ */
+function isIsoDate(seg: string): boolean {
+  return /^20\d{2}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/.test(seg);
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

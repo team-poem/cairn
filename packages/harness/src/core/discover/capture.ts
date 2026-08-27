@@ -85,15 +85,25 @@ export function assignStepExpects(
  * before a run-specific id segment (which would never match on a later replay). A repeated identical
  * mutation (a second add-to-cart) still counts — the tail is positional, not a seen-set. */
 export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefined {
+  // A host-only endpoint is skipped rather than frozen — it would be satisfied by any request to
+  // that host (the same refusal the assertion path makes, #172) — but the search continues past it:
+  // a pixel or RPC fired at the root must not cost the step the real mutation behind it.
   const fresh = tail.find(
-    (r) => isMutation(r.method) && r.status >= 200 && r.status < 400 && !isBenignRequest(r.url),
+    (r) =>
+      isMutation(r.method) &&
+      r.status >= 200 &&
+      r.status < 400 &&
+      !isBenignRequest(r.url) &&
+      hasStablePath(stableEndpointPrefix(r.url)),
   );
   if (!fresh) return undefined;
-  const urlIncludes = stableEndpointPrefix(fresh.url);
-  // Same refusal the assertion path makes (#172): a host-only value would be satisfied by any
-  // request to that host, so the step stays unchecked rather than checked by something meaningless.
-  if (!hasStablePath(urlIncludes)) return undefined;
-  return { requestStatus: { urlIncludes, status: fresh.status, method: fresh.method.toUpperCase() } };
+  return {
+    requestStatus: {
+      urlIncludes: stableEndpointPrefix(fresh.url),
+      status: fresh.status,
+      method: fresh.method.toUpperCase(),
+    },
+  };
 }
 
 /** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
@@ -122,18 +132,21 @@ export function stableEndpointPrefix(url: string): string {
  *   keep — checkout-v2 · checkout_v2 · b2b-orders · oauth2-callback · oauth2callback · checkoutV2 ·
  *          base64decode · %E7%A2%BA (a percent-escaped name)
  *
- * Known gaps: a short id (`a3f9`), a digit-free token (`ord_abcdef`, a base64 slug) and a
- * single-digit-group token (`abc12345`) all survive the cut and freeze verbatim, so #172 can still
- * bite in those shapes — they are NOT cheap failures (a frozen check that can never match re-runs
- * outcome-heal on every execution), just less bad than a check that passes on the wrong request.
- * See STABLE_PREFIX_CORPUS.
+ * Known gap, and it is a wide one: id recognition only knows the hex alphabet, and an unseparated
+ * segment carrying capitals is read as a camelCase NAME. So every mixed-case id format survives the
+ * cut and freezes verbatim — ULID, nanoid, Stripe-style keys, a real base64url JWT signature — as
+ * do a short id (`a3f9`) and a digit-free token (`ord_abcdef`). #172 still bites in those shapes,
+ * and not cheaply: a frozen check that can never match re-runs outcome-heal on every execution.
+ * Kept anyway because widening the cut here would also swallow real route names, which fails the
+ * other way (a check that passes on the wrong request). See STABLE_PREFIX_CORPUS.
  */
 function isDynamicSegment(seg: string): boolean {
   if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
   if (isUuid(seg)) return true;
   if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
+  if (/^\d{4}-\d{2}(-\d{2})?$/.test(seg)) return true; // a date is a resource key, not a route name
   // A named route separates its words (`checkout-v2`, `oauth2_callback`, a percent-escaped name);
-  // an id survives that separation (`order-<uuid>`, `sess-a1b2c3d4`, `2026-08-27`, `orders;id=1`).
+  // an id survives that separation (`order-<uuid>`, `sess-a1b2c3d4`, `orders;id=586738`).
   if (SEGMENT_SEPARATORS.test(seg)) return seg.split(SEGMENT_SEPARATORS).some(isIdPart);
   // Unseparated: a camelCase name keeps its capitals, and a route word carries its digits in one
   // run (`base64decode`, `oauth2callback`) where a token scatters them (`s3kr3t99`).
@@ -143,10 +156,16 @@ function isDynamicSegment(seg: string): boolean {
 /** The characters a named route uses between its words — and that an id keeps its shape across. */
 const SEGMENT_SEPARATORS = /[-._%;=~]/;
 
-/** An id-shaped piece of a separated segment. Digits are required of the hex form so a plain word
- * that happens to spell hex (`decade`, `facade`) is not read as a digest. */
+/**
+ * An id-shaped piece of a separated segment. Two calibrations, both from counter-examples:
+ * digits are required of the hex form, so a plain word that spells hex (`decade`, `facade`) is not
+ * read as a digest; and a numeric piece must be long enough to be a key, because a short number
+ * inside a named route is a qualifier, not an id — `step-2`, `top-100`, `tier-1`, `covid-19`,
+ * `error-404`, `sale-2024` are route names, and cutting them made a 2nd-step check pass on the
+ * 1st step (and on `/checkout/abandon`). A 4-digit id therefore survives; see the corpus.
+ */
 function isIdPart(part: string): boolean {
-  if (/^\d+$/.test(part)) return true;
+  if (/^\d{5,}$/.test(part)) return true;
   if (isUuid(part)) return true;
   return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
 }

@@ -231,6 +231,17 @@ describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () =>
     expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/", status: 201 }])).toBeUndefined();
   });
 
+  it("skips past a host-only mutation to the real one behind it", () => {
+    // A pixel or RPC fired at the root must not cost the step its actual proof.
+    const tail: NetworkRequest[] = [
+      { method: "POST", url: "https://api.shop.co/", status: 204 },
+      { method: "POST", url: "https://shop.co/api/orders/586738/confirm", status: 200 },
+    ];
+    expect(freshMutationExpect(tail)).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
   it("still freezes when a path survives the cut", () => {
     expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/orders/586738", status: 201 }])).toEqual({
       requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },

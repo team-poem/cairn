@@ -42,12 +42,16 @@ Four composition rules keep `verdict.passed` honest for the CI-gate use case:
   individually warned on — a flow action can still break them.
 
 - **Unprovable action → fail** (#172 follow-up): grounding refuses a `request-status` whose proving
-  request has no stable URL to check (`POST https://api.shop.co/` — a host-only value would be
-  satisfied by any request to that host). When discovery saw such an action and no proof survived,
-  the freeze carries `Scenario.unprovenAction` and replay fails closed: the assertions that did
-  survive — a `navigated` above all — hold whether or not the action fired, so a green would mean
-  "the page was reached", not "the work was done". A suite-merged `origin: user` criterion lifts it,
-  the same carve-out the vacuity rule makes.
+  request has no static path segment at all (`POST https://api.shop.co/`, or an id as the whole
+  path — a host-only value would be satisfied by any request to that host). When the *flow* (not the
+  entry page load) fired such a mutation and no proof survived, the freeze carries
+  `Scenario.unprovenAction` and replay fails closed: the assertions that did survive — a `navigated`
+  above all — hold whether or not the action fired, so a green would mean "the page was reached",
+  not "the work was done". Two limits are deliberate. The proof half is coarse: **any** surviving
+  `request-status` disarms the gate, including one proving a different action. And **any**
+  `origin: user` criterion lifts it, related to that action or not — the same carve-out the vacuity
+  rule makes, kept for consistency even though an unrelated user check does not make the action
+  verifiable.
 
 ## Grounded — "a green run means it actually worked"
 

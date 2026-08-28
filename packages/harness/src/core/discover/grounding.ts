@@ -10,7 +10,9 @@ import { urlReached } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
 import {
+  destinationKey,
   hasStablePath,
+  hasStaticPathSegment,
   namesAPage,
   sameEndpointShape,
   stableDestination,
@@ -272,29 +274,45 @@ function groundingMatch(
 
 /**
  * Did the run perform an action that the freeze could not express a check for? True only when BOTH
- * hold: no `request-status` proof survived grounding, and discovery saw a successful, non-benign
- * mutation whose URL leaves no stable path (`POST https://api.shop.co/`, an id as the whole path).
- * Such a check is refused because a host-only value is satisfied by any request to that host — but
- * refusing it silently turns a loud failure into a green run over an unverified action, since a
+ * hold: no `request-status` proof survived grounding, and the FLOW (not the entry page load — see
+ * `sinceRequest`) fired a successful, non-benign mutation at a URL with no static path segment at
+ * all: `POST https://api.shop.co/`, or `DELETE https://api.shop.co/586738`. Any check written from
+ * such a URL would be satisfied by every request to that host, which is why grounding refuses it —
+ * but refusing it silently turns a loud failure into a green run over an unverified action, since a
  * surviving `navigated` passes as soon as the page is reached, with or without the action.
  *
- * Both halves matter: with a proof frozen, the flow is verified and a root-path beacon is
- * irrelevant; without an unexpressible mutation, a scenario simply has no action to prove.
+ * A URL keeping one static segment (`/123/abc/xhr_send`, the SockJS transport shape) is NOT counted:
+ * this freeze cannot express a check for it either, but the class is common enough as background
+ * traffic that gating on it would fail whole apps closed for reasons the author cannot act on.
+ *
+ * The proof half is deliberately coarse and this is its limit: ANY surviving proof disarms the gate,
+ * including one belonging to a different action than the unexpressible mutation. Pairing a proof to
+ * the action it proves is a larger change (see the PR discussion), so the gate under-fires there.
  */
 export function hasUnprovenAction(
   evidence: Evidence,
   assertions: readonly Assertion[],
   benign: readonly string[] = [],
+  /** Index into the cumulative request log where the flow's own traffic starts — everything the
+   * entry page load fired is excluded, the same separation `markVacuous` makes with the baseline. */
+  sinceRequest = 0,
 ): boolean {
   if (assertions.some((a) => a.kind === "request-status" && a.vacuous !== true)) return false;
-  return evidence.logic.requests.some(
-    (r) =>
-      isMutation(r.method) &&
-      r.status >= 200 &&
-      r.status < 400 &&
-      !isBenignRequest(r.url, benign) &&
-      !hasStablePath(stableEndpointPrefix(r.url)),
-  );
+  return evidence.logic.requests
+    .slice(sinceRequest)
+    .some(
+      (r) =>
+        isMutation(r.method) &&
+        r.status >= 200 &&
+        r.status < 400 &&
+        !isBenignRequest(r.url, benign) &&
+        hasNoStaticSegment(r.url),
+    );
+}
+
+/** No path segment survives the id cut — the whole path, if any, is run-minted. */
+function hasNoStaticSegment(url: string): boolean {
+  return !hasStaticPathSegment(url);
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

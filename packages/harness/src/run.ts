@@ -240,7 +240,14 @@ export async function runScenario(
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
         heals,
         stepHeals,
-        healedScenario: { ...repaired, assertions: scenario.assertions },
+        // The verdict judged the ORIGINAL assertions, so the flag that belongs with them travels
+        // from the original too: `unprovenAction` is a property of an (evidence, assertions) pair,
+        // and taking it from the re-discovery would arm or disarm the gate for a set it never saw.
+        healedScenario: {
+          ...repaired,
+          assertions: scenario.assertions,
+          ...(scenario.unprovenAction ? { unprovenAction: true as const } : { unprovenAction: undefined }),
+        },
       };
     }
 

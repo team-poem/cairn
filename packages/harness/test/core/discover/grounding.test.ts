@@ -379,6 +379,21 @@ describe("an action no check can express is recorded, not swallowed", () => {
     expect(hasUnprovenAction(evWith([ok]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
   });
 
+  it("ignores a transport URL that still names something (SockJS: /<server>/<session>/xhr_send)", () => {
+    // No check can be written for it either, but this shape is ordinary background traffic — gating
+    // on it would fail whole apps closed for a reason their author cannot act on.
+    const sockjs = { method: "POST", url: "https://sockjs.shop.co/123/abc/xhr_send", status: 200 };
+    expect(hasUnprovenAction(evWith([sockjs]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
+  });
+
+  it("ignores what the entry page fired — only the flow's own traffic counts", () => {
+    const pageview = { method: "POST", url: "https://shop.co/586738", status: 204 };
+    const flowRequest = { method: "GET", url: "https://shop.co/api/search", status: 200 };
+    expect(
+      hasUnprovenAction(evWith([pageview, flowRequest]), [{ kind: "navigated" }], [], 1),
+    ).toBe(false);
+  });
+
   it("ignores a benign root beacon and a failed mutation", () => {
     const beacon = { method: "POST", url: "https://collect.io/", status: 204 };
     expect(hasUnprovenAction(evWith([beacon]), [{ kind: "navigated" }], ["collect.io"])).toBe(false);

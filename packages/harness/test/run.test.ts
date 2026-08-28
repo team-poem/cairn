@@ -549,13 +549,32 @@ describe("a scenario whose action nothing can verify fails closed", () => {
     expect(result.verdict.detail).toMatch(/no assertion can verify/);
   });
 
-  it("a user-authored criterion lifts it — whoever wrote the check owns what it proves", async () => {
+  it("ANY user-authored criterion lifts it, related to the action or not", async () => {
     const withUser: Scenario = {
       ...unproven,
       assertions: [...unproven.assertions, { kind: "navigated", origin: "user" }],
     };
     const { result } = await runScenario(withUser, { driver: new FakeDriver({ evidence: evidence() }) });
     expect(result.verdict.passed).toBe(true);
+  });
+
+  it("outcome-heal carries the flag from the ORIGINAL scenario, not the re-discovery", async () => {
+    // The verdict judges the original assertions, so the flag that belongs with them must travel
+    // with them. A re-discovery that saw no unprovable mutation would otherwise disarm the gate for
+    // an assertion set that still has no proof — and the suite freezes that scenario to disk.
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "delete the account",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }], // always fails → triggers outcome-heal
+      unprovenAction: true,
+    };
+    const llm = { id: "scripted", async complete() { return "[]"; } };
+
+    const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+
+    expect(healedScenario?.assertions).toEqual(broken.assertions);
+    expect(healedScenario?.unprovenAction).toBe(true);
   });
 
   it("a scenario without the flag is untouched (old frozen skills)", async () => {

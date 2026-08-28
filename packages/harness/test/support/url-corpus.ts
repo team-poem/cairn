@@ -116,6 +116,9 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   // Generated ids that carry capitals: by exact shape (ULID, JWT) or by digit density.
   { note: "ULID", url: "https://shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm", frozen: "shop.co/o" },
   { note: "nanoid", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o" },
+  { note: "nanoid with no separator in it — about half of them", url: "https://shop.co/o/V1StGXR8Z5jdHi6BmyT9k/confirm", frozen: "shop.co/o" },
+  { note: "a key tail standing alone, not only behind a prefix", url: "https://shop.co/o/a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o" },
+  { note: "lowercase ULID — cut by the digit-run rule, NOT by the ULID shape", url: "https://shop.co/o/01arz3ndektsv4rrffq69g5fav/confirm", frozen: "shop.co/o" },
   { note: "prefixed key with a random tail (Stripe shape)", url: "https://shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o" },
   { note: "a real JWT — three base64url parts", url: "https://shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm", frozen: "shop.co/verify" },
   // NAMED ROUTES THAT ONLY LOOK DYNAMIC — cutting one makes the frozen check match every sibling
@@ -132,6 +135,13 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "camelCase route, digit at the end", url: "https://shop.co/api/addToCart2/run", frozen: "shop.co/api/addToCart2/run" },
   { note: "long camelCase route with a version digit", url: "https://shop.co/api/checkoutV2Submit/run", frozen: "shop.co/api/checkoutV2Submit/run" },
   { note: "camelCase route naming a service with a digit", url: "https://shop.co/api/getS3BucketUrl2/run", frozen: "shop.co/api/getS3BucketUrl2/run" },
+  // A standard's name clears the density bar but carries its digits in one run — that is the half
+  // of the density rule that keeps these alive.
+  { note: "digest standard in a route name", url: "https://shop.co/api/SHA256Digest-v1/run", frozen: "shop.co/api/SHA256Digest-v1/run" },
+  { note: "signature standard in a route name", url: "https://shop.co/api/Ed25519Sign-v1/run", frozen: "shop.co/api/Ed25519Sign-v1/run" },
+  { note: "date standard in a route name", url: "https://shop.co/api/ISO8601Date-parse/run", frozen: "shop.co/api/ISO8601Date-parse/run" },
+  { note: "camelCase route with one digit run", url: "https://shop.co/api/OAuth2Callback/run", frozen: "shop.co/api/OAuth2Callback/run" },
+  { note: "dotted config slug is not a JWT (no digits, no mixed case)", url: "https://shop.co/cfg/production-cluster.service-registry.canary-rollout/get", frozen: "shop.co/cfg/production-cluster.service-registry.canary-rollout/get" },
   { note: "lowercase route naming a digest algorithm", url: "https://shop.co/api/sha256sum/run", frozen: "shop.co/api/sha256sum/run" },
   { note: "underscored route with words, not a random tail", url: "https://shop.co/api/user_profile_settings/read", frozen: "shop.co/api/user_profile_settings/read" },
   { note: "percent-encoded non-ASCII route", url: "https://shop.co/api/%E7%A2%BA%E8%AA%8D/submit", frozen: "shop.co/api/%E7%A2%BA%E8%AA%8D/submit" },
@@ -177,6 +187,11 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   // The mixed-case family — the widest gap, and these are mainstream id generators, not exotica.
   { note: "KNOWN GAP: base62 slug too short to read as generated", url: "https://shop.co/o/x7Kp2Qw/confirm", frozen: "shop.co/o/x7Kp2Qw/confirm" },
   { note: "KNOWN GAP: a long token whose digits are too sparse", url: "https://shop.co/o/AbcdefghijKlmnop1/confirm", frozen: "shop.co/o/AbcdefghijKlmnop1/confirm" },
+  { note: "KNOWN GAP: a digit-sparse base62 video-style id", url: "https://shop.co/v/dQw4w9WgXcQ/watch", frozen: "shop.co/v/dQw4w9WgXcQ/watch" },
+  // KNOWN FALSE POSITIVE, the other direction: a converter name joins two digit-bearing words, so
+  // it reads as scattered digits and gets cut. Narrow (camelCase, two standards in one name) but
+  // real — the result is a near-host prefix that a sibling endpoint would satisfy.
+  { note: "KNOWN FALSE POSITIVE: converter route name is cut like a token", url: "https://shop.co/api/utf8ToUtf16-conv/run", frozen: "shop.co/api" },
   { note: "KNOWN GAP: base62 session slug (the realistic form of the sess- case above)", url: "https://shop.co/s/sess-k9m2p4q7/resume", frozen: "shop.co/s/sess-k9m2p4q7/resume" },
   { note: "KNOWN GAP: prefixed id with a non-hex letter", url: "https://shop.co/orders/ord_8f3a2k/confirm", frozen: "shop.co/orders/ord_8f3a2k/confirm" },
   { note: "KNOWN GAP: percent-encoded short id", url: "https://shop.co/api/q/%7B%22id%22%3A999%7D/run", frozen: "shop.co/api/q/%7B%22id%22%3A999%7D/run" },

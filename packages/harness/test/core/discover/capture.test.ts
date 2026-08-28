@@ -248,3 +248,19 @@ describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () =>
     });
   });
 });
+
+describe("a step's URL expect generalizes the run's own ids (#172 on the URL path)", () => {
+  it("freezes a wildcard for the minted segment, while the move itself is judged on the real urls", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
+  });
+
+  it("a query-only move still freezes no URL expect (#96 unchanged)", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next" } }];
+    const marks = [{ url: "https://shop.co/list?page=1", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/list?page=2", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});

@@ -54,20 +54,30 @@ function splitHostPath(u: string): HostPath {
   return { host, segs: path.split("/").filter(Boolean) };
 }
 
-function hostPathKey({ host, segs }: HostPath): string {
-  const p = segs.join("/");
-  return host ? (p ? `${host}/${p}` : host) : p;
-}
-
 function stripLocale(hp: HostPath, prefixes: readonly string[]): HostPath {
   const first = hp.segs[0];
   const isLocale = first !== undefined && prefixes.some((p) => first === p || first.startsWith(p + "-"));
   return isLocale ? { host: hp.host, segs: hp.segs.slice(1) } : hp;
 }
 
-// Boundary match (never raw substring): equal, or a suffix starting at a path boundary.
-function boundaryMatch(dest: string, want: string): boolean {
-  return want !== "" && (dest === want || dest.endsWith("/" + want));
+// Boundary match (never raw substring): equal, or a suffix starting at a path boundary. Compared
+// segment by segment so a frozen `*` stands for exactly one segment — the freeze writes one where
+// the run minted the value (an order id in a confirmation URL), and matching it literally would
+// fail every later run. A want that is nothing but wildcards is refused: it would reach anything.
+function boundaryMatch(dest: HostPath, want: HostPath): boolean {
+  const wantTokens = tokens(want);
+  const destTokens = tokens(dest);
+  if (wantTokens.length === 0 || wantTokens.length > destTokens.length) return false;
+  if (wantTokens.every((t) => t === WILDCARD)) return false;
+  const tail = destTokens.slice(destTokens.length - wantTokens.length);
+  return wantTokens.every((t, i) => t === WILDCARD || t === tail[i]);
+}
+
+/** One segment the run minted, written into a frozen destination in its place. */
+export const WILDCARD = "*";
+
+function tokens({ host, segs }: HostPath): string[] {
+  return host ? [host, ...segs] : segs;
 }
 
 /** Whether `finalUrl` reached `want`, matched at a path boundary (not raw substring) — a parent
@@ -79,12 +89,12 @@ function boundaryMatch(dest: string, want: string): boolean {
 export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions = {}): boolean {
   const dest = splitHostPath(finalUrl);
   const w = splitHostPath(want);
-  if (boundaryMatch(hostPathKey(dest), hostPathKey(w))) return true;
+  if (boundaryMatch(dest, w)) return true;
   const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
   const strippedDest = stripLocale(dest, prefixes);
   const strippedWant = stripLocale(w, prefixes);
   if (strippedDest === dest && strippedWant === w) return false; // nothing stripped — stage 1 decided
-  return boundaryMatch(hostPathKey(strippedDest), hostPathKey(strippedWant));
+  return boundaryMatch(strippedDest, strippedWant);
 }
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */

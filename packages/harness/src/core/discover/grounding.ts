@@ -8,7 +8,7 @@ import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../typ
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
-import { destinationKey, hasStablePath, sameEndpointShape, stableEndpointPrefix } from "./capture.js";
+import { hasStablePath, sameEndpointShape, stableDestination, stableEndpointPrefix } from "./capture.js";
 
 /**
  * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
@@ -85,8 +85,10 @@ export function deriveAssertions(
   }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
-  // that lands on an error/wrong page yet technically navigated.
-  if (navigated && finalUrl) out.push({ kind: "navigated", to: destinationKey(finalUrl) });
+  // that lands on an error/wrong page yet technically navigated. Run-minted segments are frozen as
+  // wildcards (#172's shape on this path): an order-confirmation URL carries the order id, and
+  // freezing that id makes every later replay miss a destination it actually reached.
+  if (navigated && finalUrl) out.push({ kind: "navigated", to: stableDestination(finalUrl) });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") {

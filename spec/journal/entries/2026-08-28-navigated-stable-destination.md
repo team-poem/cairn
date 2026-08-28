@@ -1,0 +1,25 @@
+# 2026-08-28 — navigated·스텝 URL expect: 실행별 세그먼트를 와일드카드로 얼린다
+
+- **브랜치:** `fix/navigated-stable-destination` (`fix/172-ground-stable-url` 위에 스택, PR #178 후속)
+- **문제:** #172 작업이 정규화한 건 URL을 얼리는 **네 경로 중 둘**(`request-status` 단언,
+  mutation 스텝 expect)뿐이었다. 나머지 둘 — 기본 단언 `navigated`와 스텝 URL expect — 은
+  `destinationKey`만 거쳐 쿼리·해시만 떨어지고 **동적 경로 세그먼트는 그대로 박제**됐다.
+  주문완료 URL이 `https://shop.co/orders/586738/done`이면 그 주문번호가 스킬에 박히고 다음 실행의
+  `/orders/999001/done`은 도달 판정 false — #172와 같은 영구 false FAIL이다. `navigated`는 모델 제안
+  없이 붙는 기본 단언이라 실제 빈도는 `request-status`보다 높다. 5차 교차검증에서 발견.
+- **왜 prefix 컷을 못 쓰나(직접 확인):** 요청 URL은 substring으로 매칭돼서 첫 id 앞에서 잘라도
+  원본을 계속 매칭하지만, **목적지는 경로 경계로 매칭되고 부모는 자식의 도달점이 아니다.**
+  `shop.co/orders`로 자르면 발견 당시의 URL조차 만족시키지 못한다(실측).
+- **구현:** 실행이 만든 세그먼트를 **`*` 한 칸**으로 치환해 얼린다(`stableDestination`).
+  깊이와 앞뒤 세그먼트가 보존되므로 판정력이 유지된다 — `shop.co/orders/*/done`은 `/cancel`이나
+  다른 깊이를 여전히 거른다. 판정은 단일 술어 `urlReached`가 세 소비자(critic·waitFor/expect·
+  markVacuous)를 전부 덮으므로 거기 한 곳만 세그먼트 단위 비교로 바꿨다. 와일드카드만으로 된 목적지
+  (`*`)는 아무거나 도달하므로 거부한다. 동적 세그먼트가 없는 URL은 이전과 **완전히 동일**하게 얼려지고,
+  옛 스킬은 `*`가 없으니 동작이 안 바뀐다(additive).
+  **이동 여부 판정은 구체 URL(`destinationKey`)로 유지** — 얼리는 값만 일반화한다(#96 유지).
+- **검증:** typecheck·build·542 테스트(+17). 반례 코퍼스 `URL_REACHED_WILDCARD_CORPUS` 12케이스 신설
+  (한 칸 = 한 세그먼트, 앞뒤 세그먼트·호스트·깊이는 여전히 강제, bare-suffix에 와일드카드, 로케일
+  폴백과의 조합, 와일드카드만 있는 목적지 거부). 실앱 도그푸딩은 안 돌림.
+- **부산물:** `hostPathKey`가 죽은 코드가 되어 제거했다.
+- **state 변화:** URL을 얼리는 네 경로가 전부 정규화됐다. 남은 것은 substring 표현형 자체에서 오는
+  문제(1세그먼트 prefix, 대문자 포함 id).

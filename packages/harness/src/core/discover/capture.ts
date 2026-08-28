@@ -69,8 +69,11 @@ export function assignStepExpects(
     if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
     const urlAfter = next ? next.url : evidence.execution.finalUrl;
+    // Whether the step navigated is judged on the CONCRETE urls (#96 — a query/hash-only move is
+    // not a destination change); only the frozen value is generalized, so a run-minted segment does
+    // not pin the expect to this run.
     if (urlAfter && (!mark.url || destinationKey(urlAfter) !== destinationKey(mark.url))) {
-      steps[i]!.expect = { url: destinationKey(urlAfter) };
+      steps[i]!.expect = { url: stableDestination(urlAfter) };
       continue;
     }
     const tail = requests.slice(mark.requestCount, next?.requestCount ?? requests.length);
@@ -227,6 +230,22 @@ export function sameEndpointShape(a: string, b: string): boolean {
   const segsB = destinationKey(b).split("/");
   if (segsA.length !== segsB.length) return false;
   return segsA.every((seg, i) => seg === segsB[i] || (isDynamicSegment(seg) && isDynamicSegment(segsB[i]!)));
+}
+
+/**
+ * The destination to freeze for a `navigated` check (and a step's URL expect): host + path with
+ * every run-minted segment replaced by `*`, which `urlReached` matches one-for-one. A URL with no
+ * such segment freezes exactly as before.
+ *
+ * Why not the stable PREFIX used for request URLs: a request check matches by substring, so cutting
+ * at the first id still matches the whole URL, but a destination is matched at a path boundary and
+ * a parent never counts as reaching a deeper page — `shop.co/orders` would fail even against the
+ * run that discovered `shop.co/orders/586738/done`. The wildcard keeps the depth and the segments
+ * around the id, and pins the host either way.
+ */
+export function stableDestination(url: string): string {
+  const [host = "", ...segs] = destinationKey(url).split("/");
+  return [host, ...segs.map((seg) => (isDynamicSegment(seg) ? "*" : seg))].join("/");
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

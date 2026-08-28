@@ -6,7 +6,7 @@ import {
   urlReached,
 } from "../../src/core/steps.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
-import { URL_REACHED_CORPUS } from "../support/url-corpus.js";
+import { URL_REACHED_CORPUS, URL_REACHED_WILDCARD_CORPUS } from "../support/url-corpus.js";
 import type { Evidence, Step } from "../../src/core/types.js";
 
 describe("urlReached", () => {
@@ -34,6 +34,14 @@ describe("urlReached", () => {
 
 describe("urlReached — URL counter-example corpus (default options)", () => {
   for (const c of URL_REACHED_CORPUS) {
+    it(`${c.note}: ${c.final} vs "${c.want}" → ${c.reached}`, () => {
+      expect(urlReached(c.final, c.want)).toBe(c.reached);
+    });
+  }
+});
+
+describe("urlReached — wildcard segments in a frozen destination", () => {
+  for (const c of URL_REACHED_WILDCARD_CORPUS) {
     it(`${c.note}: ${c.final} vs "${c.want}" → ${c.reached}`, () => {
       expect(urlReached(c.final, c.want)).toBe(c.reached);
     });

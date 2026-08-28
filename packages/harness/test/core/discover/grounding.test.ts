@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deriveAssertions, markVacuous } from "../../../src/core/discover/grounding.js";
 import type { Evidence } from "../../../src/core/types.js";
 import { findRequestStatus } from "../../../src/core/requests.js";
+import { urlReached } from "../../../src/core/steps.js";
 import { STABLE_PREFIX_CORPUS } from "../../support/url-corpus.js";
 
 const evidence: Evidence = {
@@ -347,6 +348,31 @@ describe("grounding matches the proposal's method (#178 review)", () => {
       status: 200,
       origin: "derived",
     });
+describe("navigated freezes a destination a later run can still reach (#172 on the URL path)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("writes a wildcard where the run minted the segment", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
+  });
+
+  it("the frozen destination matches the discovering run AND the next one", () => {
+    const to = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false).find(
+      (a) => a.kind === "navigated",
+    )?.to;
+    expect(urlReached("https://shop.co/orders/586738/done", to!)).toBe(true);
+    expect(urlReached("https://shop.co/orders/999001/done", to!)).toBe(true);
+    // and it still catches landing somewhere else
+    expect(urlReached("https://shop.co/orders/999001/cancel", to!)).toBe(false);
+  });
+
+  it("a destination with no run-minted segment freezes exactly as before", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/checkout/complete"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/checkout/complete", origin: "derived" });
   });
 });
 

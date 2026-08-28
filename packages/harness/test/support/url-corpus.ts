@@ -115,7 +115,6 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "hashed asset filename", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files" },
   // Generated ids that carry capitals: by exact shape (ULID, JWT) or by digit density.
   { note: "ULID", url: "https://shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm", frozen: "shop.co/o" },
-  { note: "nanoid", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o" },
   { note: "nanoid with no separator in it — about half of them", url: "https://shop.co/o/V1StGXR8Z5jdHi6BmyT9k/confirm", frozen: "shop.co/o" },
   { note: "a key tail standing alone, not only behind a prefix", url: "https://shop.co/o/a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o" },
   // Human-readable keys: a letter prefix on a number block. Scatter never catches these, so the
@@ -147,6 +146,16 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "signature standard in a route name", url: "https://shop.co/api/Ed25519Sign-v1/run", frozen: "shop.co/api/Ed25519Sign-v1/run" },
   { note: "date standard in a route name", url: "https://shop.co/api/ISO8601Date-parse/run", frozen: "shop.co/api/ISO8601Date-parse/run" },
   { note: "camelCase route with one digit run", url: "https://shop.co/api/OAuth2Callback/run", frozen: "shop.co/api/OAuth2Callback/run" },
+  // Names that scatter their digits TWICE. Reading these as generated is worse than it looks:
+  // `sameEndpointShape` asks `isDynamicSegment` whether two requests are the same endpoint, so
+  // cutting `step2Of3` would also make it one endpoint with `step3Of3` — and a 3-step checkout
+  // would freeze a check that `/checkout/abandon` satisfies.
+  { note: "ordinal-of-total step in a route name", url: "https://shop.co/api/checkout/step2Of3/submit", frozen: "shop.co/api/checkout/step2Of3/submit" },
+  { note: "quarter-and-year report name", url: "https://shop.co/api/reports/Q1Report2026/export", frozen: "shop.co/api/reports/Q1Report2026/export" },
+  { note: "campaign name carrying year and quarter", url: "https://shop.co/api/campaigns/Sale2024Q4/apply", frozen: "shop.co/api/campaigns/Sale2024Q4/apply" },
+  { note: "two standards joined by a conversion — a name, and now read as one", url: "https://shop.co/api/utf8ToUtf16-conv/run", frozen: "shop.co/api/utf8ToUtf16-conv/run" },
+  { note: "two standards listed in one name", url: "https://shop.co/api/P256AndP384/run", frozen: "shop.co/api/P256AndP384/run" },
+  { note: "protocol versions in one name", url: "https://shop.co/api/IPv4ToIPv6/convert", frozen: "shop.co/api/IPv4ToIPv6/convert" },
   { note: "elliptic-curve standard in a route name (56% digits, under the one-run floor)", url: "https://shop.co/api/X25519Key-gen/run", frozen: "shop.co/api/X25519Key-gen/run" },
   { note: "dotted config slug is not a JWT (no digits, no mixed case)", url: "https://shop.co/cfg/production-cluster.service-registry.canary-rollout/get", frozen: "shop.co/cfg/production-cluster.service-registry.canary-rollout/get" },
   { note: "lowercase route naming a digest algorithm", url: "https://shop.co/api/sha256sum/run", frozen: "shop.co/api/sha256sum/run" },
@@ -195,15 +204,11 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "KNOWN GAP: base62 slug too short to read as generated", url: "https://shop.co/o/x7Kp2Qw/confirm", frozen: "shop.co/o/x7Kp2Qw/confirm" },
   { note: "KNOWN GAP: a long token whose digits are too sparse", url: "https://shop.co/o/AbcdefghijKlmnop1/confirm", frozen: "shop.co/o/AbcdefghijKlmnop1/confirm" },
   { note: "KNOWN GAP: a digit-sparse base62 video-style id", url: "https://shop.co/v/dQw4w9WgXcQ/watch", frozen: "shop.co/v/dQw4w9WgXcQ/watch" },
+  { note: "KNOWN GAP: a nanoid split by its own separators — two runs per piece, under the scatter floor", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm" },
+  { note: "KNOWN GAP: two digit runs at 50% — scattered, but not scattered enough", url: "https://shop.co/o/AbCd1234EfGh5678/confirm", frozen: "shop.co/o/AbCd1234EfGh5678/confirm" },
   { note: "KNOWN GAP: a word-prefixed key too sparse for the one-run floor", url: "https://shop.co/o/CustomerA1234567/confirm", frozen: "shop.co/o/CustomerA1234567/confirm" },
-  // KNOWN FALSE POSITIVES, the other direction. The scatter rule keeps ONE standard's name safe but
-  // not two in one segment — whether they are joined by a conversion (`utf8ToUtf16`) or merely
-  // listed (`P256AndP384`). `IPv4ToIPv6` sits exactly on the density floor, which is where the
-  // fifth-of-the-characters line stands after being lowered to catch a whole nanoid (24%). The cost
-  // is real: the result is a near-host prefix a sibling endpoint would satisfy.
-  { note: "KNOWN FALSE POSITIVE: two standards joined by a conversion", url: "https://shop.co/api/utf8ToUtf16-conv/run", frozen: "shop.co/api" },
-  { note: "KNOWN FALSE POSITIVE: two standards listed in one name", url: "https://shop.co/api/P256AndP384/run", frozen: "shop.co/api" },
-  { note: "KNOWN FALSE POSITIVE: exactly on the density floor", url: "https://shop.co/api/IPv4ToIPv6/convert", frozen: "shop.co/api" },
+  // KNOWN FALSE POSITIVE, the other direction — one left. Three parts of base64url with mixed case
+  // is a JWT's shape and also a .NET-style namespace's, and nothing in the string tells them apart.
   { note: "KNOWN FALSE POSITIVE: PascalCase namespace reads as a JWT (mixed case, three parts)", url: "https://shop.co/cfg/MyCompanyApp.ServiceRegistry.CanaryRollout/get", frozen: "shop.co/cfg" },
   { note: "KNOWN GAP: base62 session slug (the realistic form of the sess- case above)", url: "https://shop.co/s/sess-k9m2p4q7/resume", frozen: "shop.co/s/sess-k9m2p4q7/resume" },
   { note: "KNOWN GAP: prefixed id with a non-hex letter", url: "https://shop.co/orders/ord_8f3a2k/confirm", frozen: "shop.co/orders/ord_8f3a2k/confirm" },

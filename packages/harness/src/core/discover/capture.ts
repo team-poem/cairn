@@ -219,7 +219,7 @@ function isDigitDenseToken(part: string): boolean {
   const digits = runs.join("").length;
   // Scattered digits behind capitals: a generated token. A fifth of the characters is the floor —
   // a whole nanoid sits at 24%.
-  if (runs.length >= 2 && /[A-Z]/.test(part) && digits * 5 >= part.length) return true;
+  if (runs.length >= 3 && /[A-Z]/.test(part) && digits * 5 >= part.length) return true;
   // One run instead, but the token is mostly number: a human-readable key with a letter prefix —
   // ORD12345678, INV20260827, TXN0001234567 — which no amount of scatter would catch. The floor is
   // three fifths precisely so a standard's name stays out: X25519Key is 56%, Ed25519Sign 45%.

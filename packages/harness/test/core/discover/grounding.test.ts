@@ -348,6 +348,9 @@ describe("grounding matches the proposal's method (#178 review)", () => {
       status: 200,
       origin: "derived",
     });
+  });
+});
+
 describe("an action no check can express is recorded, not swallowed", () => {
   const evWith = (requests: Evidence["logic"]["requests"]): Evidence => ({
     execution: { actions: [], navigated: true, finalUrl: "https://shop.co/done", blocked: false },
@@ -379,11 +382,20 @@ describe("an action no check can express is recorded, not swallowed", () => {
     expect(hasUnprovenAction(evWith([ok]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
   });
 
-  it("ignores a transport URL that still names something (SockJS: /<server>/<session>/xhr_send)", () => {
-    // No check can be written for it either, but this shape is ordinary background traffic — gating
-    // on it would fail whole apps closed for a reason their author cannot act on.
+  it("flags an id-first URL even when a later segment names something", () => {
+    // The gate asks exactly what grounding asks when it refuses a check. Anything else leaves the
+    // gap between the two answers passing silently — /586738/confirm gets no check AND no gate.
+    const midway = { method: "POST", url: "https://api.shop.co/586738/confirm", status: 200 };
+    expect(hasUnprovenAction(evWith([midway]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(true);
+  });
+
+  it("…which arms it on transport traffic of the same shape — the cost, paid down with `benign`", () => {
+    // A SockJS session mounts under a run-minted first segment and reads like an unprovable action.
+    // Loud and fixable from outside: the product marks the endpoint, the seam meant for app noise.
     const sockjs = { method: "POST", url: "https://sockjs.shop.co/123/abc/xhr_send", status: 200 };
-    expect(hasUnprovenAction(evWith([sockjs]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
+    const assertions: Assertion[] = [{ kind: "navigated", to: "shop.co/done" }];
+    expect(hasUnprovenAction(evWith([sockjs]), assertions)).toBe(true);
+    expect(hasUnprovenAction(evWith([sockjs]), assertions, ["sockjs.shop.co"])).toBe(false);
   });
 
   it("ignores what the entry page fired — only the flow's own traffic counts", () => {

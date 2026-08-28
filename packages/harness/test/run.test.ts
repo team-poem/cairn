@@ -577,6 +577,18 @@ describe("a scenario whose action nothing can verify fails closed", () => {
     expect(healedScenario?.unprovenAction).toBe(true);
   });
 
+  it("…and does not pick the flag UP from a re-discovery the original never had", async () => {
+    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const broken: Scenario = {
+      name: "reach the moon",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }],
+    };
+    const llm = { id: "scripted", async complete() { return "[]"; } };
+    const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+    expect(healedScenario?.unprovenAction).toBeUndefined();
+  });
+
   it("a scenario without the flag is untouched (old frozen skills)", async () => {
     const { result } = await runScenario(scenario, { driver: new FakeDriver({ evidence: evidence() }) });
     expect(result.verdict.passed).toBe(true);

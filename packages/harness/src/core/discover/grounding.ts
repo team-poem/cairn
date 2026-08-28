@@ -12,7 +12,6 @@ import { extractFirstJsonArray } from "../json.js";
 import {
   destinationKey,
   hasStablePath,
-  hasStaticPathSegment,
   namesAPage,
   sameEndpointShape,
   stableDestination,
@@ -275,15 +274,15 @@ function groundingMatch(
 /**
  * Did the run perform an action that the freeze could not express a check for? True only when BOTH
  * hold: no `request-status` proof survived grounding, and the FLOW (not the entry page load — see
- * `sinceRequest`) fired a successful, non-benign mutation at a URL with no static path segment at
- * all: `POST https://api.shop.co/`, or `DELETE https://api.shop.co/586738`. Any check written from
- * such a URL would be satisfied by every request to that host, which is why grounding refuses it —
- * but refusing it silently turns a loud failure into a green run over an unverified action, since a
- * surviving `navigated` passes as soon as the page is reached, with or without the action.
+ * `sinceRequest`) fired a successful, non-benign mutation whose URL `hasStablePath` rejects — the
+ * SAME predicate grounding refuses a check with. Sharing it is the point: a gate that asks a
+ * different question than the refusal it exists to cover leaves the gap between the two answers
+ * passing silently, which is the failure this rule is for.
  *
- * A URL keeping one static segment (`/123/abc/xhr_send`, the SockJS transport shape) is NOT counted:
- * this freeze cannot express a check for it either, but the class is common enough as background
- * traffic that gating on it would fail whole apps closed for reasons the author cannot act on.
+ * The cost is that background traffic of the same shape arms it too — a transport that mounts its
+ * session under a run-minted first segment (`/123/abc/xhr_send`) reads exactly like an unprovable
+ * action. That is loud and fixable from the outside: the product marks the endpoint `benign`, the
+ * seam this engine already uses for app-specific noise rather than guessing at it.
  *
  * The proof half is deliberately coarse and this is its limit: ANY surviving proof disarms the gate,
  * including one belonging to a different action than the unexpressible mutation. Pairing a proof to
@@ -306,13 +305,8 @@ export function hasUnprovenAction(
         r.status >= 200 &&
         r.status < 400 &&
         !isBenignRequest(r.url, benign) &&
-        hasNoStaticSegment(r.url),
+        !hasStablePath(stableEndpointPrefix(r.url)),
     );
-}
-
-/** No path segment survives the id cut — the whole path, if any, is run-minted. */
-function hasNoStaticSegment(url: string): boolean {
-  return !hasStaticPathSegment(url);
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

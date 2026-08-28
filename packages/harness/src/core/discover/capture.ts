@@ -324,16 +324,6 @@ export function namesAPage(destination: string): boolean {
   return path.length > 0 && path[path.length - 1] !== WILDCARD;
 }
 
-/**
- * Does any path segment name something the developer chose, rather than something the run minted?
- * `/123/abc/xhr_send` does (`xhr_send`); `/586738` and `/` do not. Used to tell an endpoint whose
- * check merely lands on a weak prefix from one no check can address at all.
- */
-export function hasStaticPathSegment(url: string): boolean {
-  const [, ...segs] = destinationKey(url).split("/");
-  return segs.some((seg) => seg !== "" && !isDynamicSegment(seg));
-}
-
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
  * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
 export function hasStablePath(prefix: string): boolean {

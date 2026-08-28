@@ -187,6 +187,19 @@ function isIsoDate(seg: string): boolean {
   return /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(seg);
 }
 
+/**
+ * Do two request URLs name the same endpoint — same shape, differing only where the run mints
+ * values? `/cart/add?ids=586738` and `/cart/add?ids=586739` do (one action, fired twice);
+ * `/api/products` and `/api/products/586738` do not, nor do `/orders/1/confirm` and
+ * `/orders/2/cancel`. Used to tell a widening that keeps the check's meaning from one that spends it.
+ */
+export function sameEndpointShape(a: string, b: string): boolean {
+  const segsA = destinationKey(a).split("/");
+  const segsB = destinationKey(b).split("/");
+  if (segsA.length !== segsB.length) return false;
+  return segsA.every((seg, i) => seg === segsB[i] || (isDynamicSegment(seg) && isDynamicSegment(segsB[i]!)));
+}
+
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
  * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
 export function hasStablePath(prefix: string): boolean {

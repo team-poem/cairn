@@ -8,7 +8,7 @@ import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../typ
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
-import { destinationKey, hasStablePath, stableEndpointPrefix } from "./capture.js";
+import { destinationKey, hasStablePath, sameEndpointShape, stableEndpointPrefix } from "./capture.js";
 
 /**
  * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
@@ -137,6 +137,26 @@ export function deriveAssertions(
       // Nothing but the host survived (the first path segment is itself an id): a host-only check
       // would be satisfied by ANY request to that host — a false GREEN, worse than the missing
       // check. Drop it; the trace carries the reason.
+      // Normalizing widens the check. That is the point when the extra matches are the same action
+      // (one POST fired twice, told apart by a run-minted id), and a loss when they are not: a
+      // read-only flow proposing `/api/products/586738` freezes `shop.co/api/products`, which the
+      // page's own list request already satisfies, so a replay that never opens the detail passes.
+      // Freezing a check the evidence itself shows to be undiscriminating trades a loud failure for
+      // a silent pass, so drop it and say why.
+      const spent = evidence.logic.requests.find(
+        (r) =>
+          r.url.includes(urlIncludes) &&
+          r.status === a.status &&
+          !sameEndpointShape(r.url, match.url) &&
+          !isBenignRequest(r.url, benign),
+      );
+      if (spent) {
+        onDrop?.(
+          a,
+          `${urlIncludes} would also match ${spent.method} ${spent.url}, which is a different endpoint than the one proposed`,
+        );
+        continue;
+      }
       if (!hasStablePath(urlIncludes)) {
         onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
         continue;

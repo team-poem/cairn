@@ -190,9 +190,11 @@ describe("what normalization costs (pinned, not endorsed)", () => {
     logic: { requests, console: [] },
   });
 
-  it("an id before the verb merges two different actions into one check", () => {
-    // /api/orders/{id}/confirm and /api/orders/{id}/cancel both cut to host/api/orders, so the
-    // frozen check no longer distinguishes them: a scenario proving a confirm passes on a cancel.
+  it("drops both checks when the cut would merge a confirm and a cancel", () => {
+    // /api/orders/{id}/confirm and /api/orders/{id}/cancel both cut to host/api/orders. Freezing
+    // that would let a scenario proving a confirm pass on a cancel, so neither is frozen — the run
+    // itself shows the value no longer tells the two apart.
+    const drops: string[] = [];
     const out = deriveAssertions(
       [
         { kind: "request-status", urlIncludes: "/api/orders/111/confirm", status: 200 },
@@ -203,10 +205,48 @@ describe("what normalization costs (pinned, not endorsed)", () => {
         { method: "POST", url: "https://shop.co/api/orders/222/cancel", status: 200 },
       ]),
       false,
+      [],
+      (_a, reason) => drops.push(reason),
     );
-    expect(out.filter((a) => a.kind === "request-status")).toEqual([
-      { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST", origin: "derived" },
-    ]);
+    expect(out.filter((a) => a.kind === "request-status")).toEqual([]);
+    expect(drops[0]).toMatch(/different endpoint than the one proposed/);
+  });
+
+  it("still keeps the check when the extra matches are the SAME action fired twice", () => {
+    // The widening #172 exists for: two firings of one add-to-cart, told apart by a run-minted id.
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/cart/add?ids=586738", status: 200 }],
+      ev([
+        { method: "POST", url: "https://shop.co/cart/add?ids=586738", status: 200 },
+        { method: "POST", url: "https://shop.co/cart/add?ids=586739", status: 200 },
+      ]),
+      false,
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "shop.co/cart/add",
+      status: 200,
+      method: "POST",
+      origin: "derived",
+    });
+  });
+
+  it("drops a read-only flow's check the page's own list request already satisfies", () => {
+    // The maintainer's case: nothing to prefer as a mutation, and the widened prefix is answered by
+    // the list the page loaded — a replay that never opens the detail would pass.
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/products/586738", status: 200 }],
+      ev([
+        { method: "GET", url: "https://shop.co/api/products", status: 200 },
+        { method: "GET", url: "https://shop.co/api/products/586738", status: 200 },
+      ]),
+      false,
+      [],
+      (_a, reason) => drops.push(reason),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/GET https:\/\/shop.co\/api\/products/);
   });
 
   it("a still-in-flight request is never frozen as proof", () => {

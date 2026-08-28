@@ -180,8 +180,10 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "port is part of the host", url: "http://localhost:3000/api/cart?x=1", frozen: "localhost:3000/api/cart" },
   // THE CUT ALSO TAKES THE VERB. Everything after the first run-minted segment goes with it, and in
   // REST that is the action itself: `/orders/{id}/confirm` and `/orders/{id}/cancel` freeze to the
-  // same value, so a scenario proving a confirm is satisfied by a cancel. Substring matching cannot
-  // express "this prefix AND that suffix"; naming the endpoint by parts would.
+  // same value. When ONE run shows both, grounding now drops the check rather than freeze a value
+  // that cannot tell them apart; these rows are what the transform still produces when only one of
+  // them is observed, and a replay firing the other verb would satisfy it. Substring matching
+  // cannot express "this prefix AND that suffix"; naming the endpoint by parts would.
   { note: "VERB LOST: confirm freezes to the collection", url: "https://shop.co/api/orders/111/confirm", frozen: "shop.co/api/orders" },
   { note: "VERB LOST: cancel freezes to the same value", url: "https://shop.co/api/orders/222/cancel", frozen: "shop.co/api/orders" },
   // WEAK BUT KEPT: one surviving segment is close to host-level — `shop.co/api` matches every

@@ -160,12 +160,13 @@ const SEGMENT_SEPARATORS = /[-._%;=~]/;
  * An id-shaped piece of a separated segment. Two calibrations, both from counter-examples:
  * digits are required of the hex form, so a plain word that spells hex (`decade`, `facade`) is not
  * read as a digest; and a numeric piece must be long enough to be a key, because a short number
- * inside a named route is a qualifier, not an id — `step-2`, `top-100`, `tier-1`, `covid-19`,
- * `error-404`, `sale-2024` are route names, and cutting them made a 2nd-step check pass on the
- * 1st step (and on `/checkout/abandon`). A 4-digit id therefore survives; see the corpus.
+ * inside a named route is a qualifier or a fixed identifier, not a run-minted id — `step-2`,
+ * `top-100`, `tier-1`, `covid-19`, `error-404`, `sale-2024`, `CVE-2024-21413`. Cutting them made a
+ * 2nd-step check pass on the 1st step (and on `/checkout/abandon`). Six digits is the floor, so an
+ * id with shorter groups survives; see the corpus.
  */
 function isIdPart(part: string): boolean {
-  if (/^\d{5,}$/.test(part)) return true;
+  if (/^\d{6,}$/.test(part)) return true;
   return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
 }
 
@@ -174,13 +175,16 @@ function isUuid(s: string): boolean {
 }
 
 /**
- * ISO `YYYY-MM` / `YYYY-MM-DD` only, and only in this century. The ranges matter: without them a
- * numeric part code (`1234-56`, a SKU `1000-01`) reads as a date, and the check then matches every
- * sibling part number. Other written forms — `08-27-2026`, `2026.08.27`, `2026-W35`, a full
- * timestamp — are NOT recognized and freeze verbatim (see the corpus).
+ * A full ISO date, `YYYY-MM-DD`, this century only. The ranges keep a numeric part code (`1234-56`,
+ * a SKU `1000-01`) from reading as a date, and the day is REQUIRED because `YYYY-MM` alone is a
+ * name at least as often as it is a value: `/admin/api/2024-01/orders` is a pinned API version and
+ * `/blog/2024-03/index` a monthly archive. Cutting those is a false GREEN (every endpoint under
+ * that version satisfies the check), while keeping a monthly report path is a loud failure — the
+ * cheaper error. Other written forms (`08-27-2026`, `2026.08.27`, `2026-W35`, a timestamp) are not
+ * recognized either; see the corpus.
  */
 function isIsoDate(seg: string): boolean {
-  return /^20\d{2}-(0[1-9]|1[0-2])(-(0[1-9]|[12]\d|3[01]))?$/.test(seg);
+  return /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(seg);
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

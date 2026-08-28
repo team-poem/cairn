@@ -102,6 +102,24 @@
   **id가 동사 앞에 오면 서로 다른 액션도 합친다**(`/orders/111/confirm` + `/orders/222/cancel` →
   `host/api/orders` 하나). 주문 확정 시나리오가 취소로 통과한다는 뜻이라 주석을 사실대로 고치고
   반례 테스트로 고정했다.
+- **6차 교차검증(codex 파일 단위 분할 성공) → 부모에서 HIGH 1 + MAJOR 2:**
+  ① **HIGH — 컷이 id 뒤의 액션 동사까지 버린다.** `/api/orders/111/confirm`과 `/api/orders/222/cancel`이
+  둘 다 `shop.co/api/orders`로 얼려져 **주문 확정 시나리오가 주문 취소로 초록이 된다.** REST 표준형
+  `/collection/{id}/verb` 전부가 해당된다(publish/unpublish, approve/reject…). 다섯 라운드 동안 dedupe
+  쪽 절반(제안 둘이 합쳐지는 것)만 봤고, 단언이 하나일 때도 같은 손실이 일어난다는 걸 양쪽 다 못 봤다.
+  substring 표현형으로는 "이 접두사 **그리고** 저 접미사"를 표현할 수 없어 구조화 매칭 결정의 입력이다 —
+  코퍼스에 `VERB LOST:` 반례 2건으로 박아뒀다. 코퍼스의 `WEAK:`(1세그먼트 prefix)와는 **다른 문제**다.
+  ② **MAJOR — grounding이 제안의 method를 무시했다.** `GET /api/jobs 200`이 "POST로 증명하라"는 제안을
+  grounded 처리했고, #105가 매칭이 mutation일 때만 method를 얼리므로 **읽기면 만족하는 약한 체크**가 남았다.
+  게다가 그 체크가 비항진 `request-status`로 카운트되어 #184 게이트를 꺼버린다. 매칭을 `findRequestStatus`
+  (critic이 판정에 쓰는 그 술어)로 교체해 프리즈와 판정이 한 질문을 하게 했다.
+  ③ **MAJOR — `YYYY-MM` 단독을 컷 대상에서 뺐다.** `/admin/api/2024-01/orders`(Shopify Admin API의 실제
+  형태)에서 그건 실행별 값이 아니라 **고정된 API 버전**이고, 자르면 그 버전의 모든 엔드포인트가 서로를
+  만족시킨다. 월별 아카이브도 같다. 내가 세운 순위(false GREEN > false FAIL)를 그대로 적용한 결과다 —
+  월별 리포트 경로를 안 자르는 건 시끄러운 실패라 더 싸다. `YYYY-MM-DD`는 그대로 컷.
+  ④ 숫자 조각 하한을 5 → **6자리**로 올렸다. `CVE-2024-21413` 같은 **고정 공개 식별자**를 살리기 위해서고,
+  잃는 건 숫자 그룹이 정확히 5자리인 id뿐이다. 코퍼스의 KNOWN GAP도 합성 문자열 대신 **실물 포맷**
+  (Stripe `cus_…`, KSUID, Hashids)으로 바꿔 "희귀한 모양"이 아니라 "주류 생성기"임이 표에서 읽히게 했다.
 - **미해결(리뷰 지적, 이 PR 밖):** ① 쿼리로 오퍼레이션을 가르는 API(`/graphql?op=AddToCart`)는 쿼리를
   통째로 버리므로 행위 증명이 사라진다 — 값만 정규화하려면 "실행별로 변하는 값" 판별이 따로 필요하고
   별도 결정 사안. ② host-only drop은 fail-closed가 아니다 — 비항진 `navigated`가 하나라도 남으면

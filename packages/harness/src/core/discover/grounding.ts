@@ -102,10 +102,13 @@ export function deriveAssertions(
         onDrop?.(a, `status ${a.status} is not a settled outcome`);
         continue;
       }
-      // grounding: keep only if a real captured request matches this URL + status.
-      const match = evidence.logic.requests.find(
-        (r) => r.url.includes(a.urlIncludes) && r.status === a.status,
-      );
+      // grounding: keep only if a real captured request matches this URL + status + method. The
+      // method matters at THIS step, not only in what gets frozen: without it a `GET /api/jobs 200`
+      // grounds a proposal that asked for a POST, and since #105 only freezes a method when the
+      // matching request is a mutation, the freeze then carries a check any read satisfies — which
+      // also counts as a proof and disarms the unprovable-action gate. `findRequestStatus` is the
+      // predicate the critic judges with, so freeze and verdict ask one question.
+      const match = findRequestStatus(evidence.logic.requests, a.urlIncludes, a.status, a.method);
       if (!match) {
         onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}`);
         continue;

@@ -222,3 +222,58 @@ describe("what normalization costs (pinned, not endorsed)", () => {
     expect(drops[0]).toMatch(/not a settled outcome/);
   });
 });
+
+describe("grounding matches the proposal's method (#178 review)", () => {
+  const ev = (requests: Evidence["logic"]["requests"]): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl: "https://api.test/done", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+
+  it("a read does not ground a proposal that asked for a write", () => {
+    // Without the method, GET /api/jobs 200 answers a POST proposal, and #105 then freezes no
+    // method (the match is not a mutation) — leaving a check any read satisfies.
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/jobs", status: 200, method: "POST" }],
+      ev([{ method: "GET", url: "https://api.test/api/jobs", status: 200 }]),
+      false,
+      [],
+      (_a, reason) => drops.push(reason),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/no captured request matched/);
+  });
+
+  it("the same proposal grounds on the write when one is there", () => {
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/jobs", status: 200, method: "POST" }],
+      ev([
+        { method: "GET", url: "https://api.test/api/jobs", status: 200 },
+        { method: "POST", url: "https://api.test/api/jobs", status: 200 },
+      ]),
+      false,
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "api.test/api/jobs",
+      status: 200,
+      method: "POST",
+      origin: "derived",
+    });
+  });
+
+  it("a proposal with no method still grounds on whatever matched", () => {
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/jobs", status: 200 }],
+      ev([{ method: "GET", url: "https://api.test/api/jobs", status: 200 }]),
+      false,
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "api.test/api/jobs",
+      status: 200,
+      origin: "derived",
+    });
+  });
+});

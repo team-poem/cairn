@@ -109,7 +109,9 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "matrix param carrying an id", url: "https://shop.co/api/orders;id=586738/confirm", frozen: "shop.co/api" },
   { note: "percent-encoded id — caught only because %3A + a 6-digit id spells an 8-char hex piece", url: "https://shop.co/api/q/%7B%22id%22%3A586738%7D/run", frozen: "shop.co/api/q" },
   { note: "ISO date in a path is a resource key (this century, YYYY-MM[-DD] only)", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
-  { note: "ISO year-month", url: "https://shop.co/api/stats/2026-08/summary", frozen: "shop.co/api/stats" },
+  { note: "year-month is NOT cut — an API version pins one (`/admin/api/2024-01/...`)", url: "https://shop.co/admin/api/2024-01/orders", frozen: "shop.co/admin/api/2024-01/orders" },
+  { note: "…and a monthly archive is a name too", url: "https://shop.co/blog/2024-03/index", frozen: "shop.co/blog/2024-03/index" },
+  { note: "a fixed public identifier is not a run-minted id", url: "https://shop.co/advisories/CVE-2024-21413/details", frozen: "shop.co/advisories/CVE-2024-21413/details" },
   { note: "hashed asset filename", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files" },
   // NAMED ROUTES THAT ONLY LOOK DYNAMIC — cutting one makes the frozen check match every sibling
   // endpoint under the surviving prefix (a false GREEN, the worse error). All of these must survive.
@@ -150,6 +152,9 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "KNOWN GAP: short id keeps the run-specific value", url: "https://shop.co/api/orders/a3f9/confirm", frozen: "shop.co/api/orders/a3f9/confirm" },
   { note: "KNOWN GAP: digit-free prefixed id", url: "https://shop.co/orders/ord_abcdef/confirm", frozen: "shop.co/orders/ord_abcdef/confirm" },
   { note: "KNOWN GAP: digit-free base64 slug", url: "https://shop.co/r/YWJjZGVm/confirm", frozen: "shop.co/r/YWJjZGVm/confirm" },
+  { note: "KNOWN GAP: Stripe customer id (real format)", url: "https://shop.co/c/cus_NffrFeUfNV2Hib/confirm", frozen: "shop.co/c/cus_NffrFeUfNV2Hib/confirm" },
+  { note: "KNOWN GAP: KSUID (real format)", url: "https://shop.co/o/0ujtsYcgvSTl8PAuAdqWYSMnLOv/confirm", frozen: "shop.co/o/0ujtsYcgvSTl8PAuAdqWYSMnLOv/confirm" },
+  { note: "KNOWN GAP: Hashids slug (real format)", url: "https://shop.co/s/o2fXhV/confirm", frozen: "shop.co/s/o2fXhV/confirm" },
   // Numbers joined by a separator are read as qualifiers unless a group reaches five digits — so
   // an order/invoice/part number split into short groups survives.
   { note: "KNOWN GAP: dash-joined numeric groups all under five digits", url: "https://shop.co/o/order-1234/confirm", frozen: "shop.co/o/order-1234/confirm" },
@@ -171,6 +176,12 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "token that is all hex chars is cut by the digest rule", url: "https://shop.co/r/abc12345/confirm", frozen: "shop.co/r" },
   // hosts
   { note: "port is part of the host", url: "http://localhost:3000/api/cart?x=1", frozen: "localhost:3000/api/cart" },
+  // THE CUT ALSO TAKES THE VERB. Everything after the first run-minted segment goes with it, and in
+  // REST that is the action itself: `/orders/{id}/confirm` and `/orders/{id}/cancel` freeze to the
+  // same value, so a scenario proving a confirm is satisfied by a cancel. Substring matching cannot
+  // express "this prefix AND that suffix"; naming the endpoint by parts would.
+  { note: "VERB LOST: confirm freezes to the collection", url: "https://shop.co/api/orders/111/confirm", frozen: "shop.co/api/orders" },
+  { note: "VERB LOST: cancel freezes to the same value", url: "https://shop.co/api/orders/222/cancel", frozen: "shop.co/api/orders" },
   // WEAK BUT KEPT: one surviving segment is close to host-level — `shop.co/api` matches every
   // sibling endpoint under /api. The drop guard below only refuses a prefix with NO path at all.
   { note: "WEAK: an id in the second segment leaves a near-host prefix", url: "https://shop.co/api/586738/confirm", frozen: "shop.co/api" },

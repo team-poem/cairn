@@ -137,16 +137,27 @@ export function deriveAssertions(
       // Nothing but the host survived (the first path segment is itself an id): a host-only check
       // would be satisfied by ANY request to that host — a false GREEN, worse than the missing
       // check. Drop it; the trace carries the reason.
+      if (!hasStablePath(urlIncludes)) {
+        onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
+        continue;
+      }
+      // #105: freeze the method whenever the check should bind to one — the proposal's if it named
+      // one (an explicit GET must not be silently widened into "any verb"), otherwise the matching
+      // request's when that request is a mutation, so a same-prefix read cannot satisfy a check
+      // written for a write.
+      const method = a.method?.toUpperCase() ?? (isMutation(match.method) ? match.method.toUpperCase() : undefined);
       // Normalizing widens the check. That is the point when the extra matches are the same action
       // (one POST fired twice, told apart by a run-minted id), and a loss when they are not: a
       // read-only flow proposing `/api/products/586738` freezes `shop.co/api/products`, which the
       // page's own list request already satisfies, so a replay that never opens the detail passes.
       // Freezing a check the evidence itself shows to be undiscriminating trades a loud failure for
-      // a silent pass, so drop it and say why.
+      // a silent pass, so drop it and say why. The collision is judged against the METHOD about to
+      // be frozen: a POST-bound check is not spent by a `GET …/status` that could never satisfy it.
       const spent = evidence.logic.requests.find(
         (r) =>
           r.url.includes(urlIncludes) &&
           r.status === a.status &&
+          (!method || r.method.toUpperCase() === method) &&
           !sameEndpointShape(r.url, match.url) &&
           !isBenignRequest(r.url, benign),
       );
@@ -157,15 +168,6 @@ export function deriveAssertions(
         );
         continue;
       }
-      if (!hasStablePath(urlIncludes)) {
-        onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
-        continue;
-      }
-      // #105: freeze the method whenever the check should bind to one — the proposal's if it named
-      // one (an explicit GET must not be silently widened into "any verb"), otherwise the matching
-      // request's when that request is a mutation, so a same-prefix read cannot satisfy a check
-      // written for a write.
-      const method = a.method?.toUpperCase() ?? (isMutation(match.method) ? match.method.toUpperCase() : undefined);
       out.push(
         method
           ? { kind: "request-status", urlIncludes, status: a.status, method }

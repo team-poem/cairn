@@ -231,6 +231,38 @@ describe("what normalization costs (pinned, not endorsed)", () => {
     });
   });
 
+  it("a read on a sibling path does not spend a write-bound check", () => {
+    // The frozen check carries POST; a GET on a neighbouring path could never satisfy it, so it is
+    // not a collision. Judging the collision without the method dropped these three shapes.
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/checkout", status: 200 }],
+      ev([
+        { method: "POST", url: "https://shop.co/api/checkout", status: 200 },
+        { method: "GET", url: "https://shop.co/api/checkout/status", status: 200 },
+      ]),
+      false,
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "shop.co/api/checkout",
+      status: 200,
+      method: "POST",
+      origin: "derived",
+    });
+  });
+
+  it("…and a same-method sibling still spends it", () => {
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/orders/111/confirm", status: 200 }],
+      ev([
+        { method: "POST", url: "https://shop.co/api/orders/111/confirm", status: 200 },
+        { method: "POST", url: "https://shop.co/api/orders/222/cancel", status: 200 },
+      ]),
+      false,
+    );
+    expect(out.some((x) => x.kind === "request-status")).toBe(false);
+  });
+
   it("drops a read-only flow's check the page's own list request already satisfies", () => {
     // The maintainer's case: nothing to prefer as a mutation, and the widened prefix is answered by
     // the list the page loaded — a replay that never opens the detail would pass.

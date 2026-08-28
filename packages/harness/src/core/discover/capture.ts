@@ -134,8 +134,8 @@ export function stableEndpointPrefix(url: string): string {
  * Stops at the first run-specific value (`?buyRequestIds=586738`), which is what #172 must drop.
  *
  * Leading run, not a filter: the frozen value is matched by substring, so the kept params have to
- * be contiguous from the start of the query. A client that emits its params in a different order
- * run to run therefore freezes no query at all rather than an unmatchable one.
+ * be contiguous from the start of the query — everything from the first run-specific value on is
+ * dropped with it, since a frozen value cannot skip a param it does not know.
  */
 function stableQuerySuffix(url: string): string {
   const query = url.match(/\?([^#]*)/)?.[1];

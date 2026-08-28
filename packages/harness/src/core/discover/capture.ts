@@ -85,29 +85,152 @@ export function assignStepExpects(
  * before a run-specific id segment (which would never match on a later replay). A repeated identical
  * mutation (a second add-to-cart) still counts — the tail is positional, not a seen-set. */
 export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefined {
+  // A host-only endpoint is skipped rather than frozen — it would be satisfied by any request to
+  // that host (the same refusal the assertion path makes, #172) — but the search continues past it:
+  // a pixel or RPC fired at the root must not cost the step the real mutation behind it.
   const fresh = tail.find(
-    (r) => isMutation(r.method) && r.status >= 200 && r.status < 400 && !isBenignRequest(r.url),
+    (r) =>
+      isMutation(r.method) &&
+      r.status >= 200 &&
+      r.status < 400 &&
+      !isBenignRequest(r.url) &&
+      hasStablePath(stableEndpointPrefix(r.url)),
   );
-  return fresh
-    ? {
-        requestStatus: {
-          urlIncludes: stableEndpointPrefix(fresh.url),
-          status: fresh.status,
-          method: fresh.method.toUpperCase(),
-        },
-      }
-    : undefined;
+  if (!fresh) return undefined;
+  return {
+    requestStatus: {
+      urlIncludes: stableEndpointPrefix(fresh.url),
+      status: fresh.status,
+      method: fresh.method.toUpperCase(),
+    },
+  };
 }
 
-/** host + path cut at the first dynamic-looking segment (all digits, or ≥8 chars containing one —
- * ids, uuids, timestamps) — a stable prefix that still substring-matches the full request URL on a
- * later replay, where a run-specific id would never match again. */
-function stableEndpointPrefix(url: string): string {
+/** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
+ * that still substring-matches the full request URL on a later replay, where a run-specific id
+ * would never match again. Query and hash are dropped with the rest of the URL by `destinationKey`.
+ * Shared with assertion grounding (#172) so a step expect and a `request-status` assertion freeze
+ * the same endpoint identity. */
+export function stableEndpointPrefix(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
   const stable: string[] = [];
   for (const seg of segs) {
-    if (/^\d+$/.test(seg) || (seg.length >= 8 && /\d/.test(seg))) break;
+    if (isDynamicSegment(seg)) break;
     stable.push(seg);
   }
-  return [host, ...stable].join("/");
+  const path = [host, ...stable].join("/");
+  // A cut path is a prefix of the URL, so nothing that follows the cut can be appended to it.
+  if (stable.length < segs.length) return path;
+  const withQuery = path + stableQuerySuffix(url);
+  // The frozen value is matched by substring, so it must actually occur in the URL — a trailing
+  // slash or an encoding difference between `destinationKey` and the raw URL would break that.
+  return url.includes(withQuery) ? withQuery : path;
+}
+
+/**
+ * The leading run of query params whose values the run did not mint — the discriminator for an API
+ * that dispatches on the query rather than the path (`/graphql?op=AddToCart`, `?action=checkout`),
+ * where the path alone names no action and any other POST to the endpoint would satisfy the check.
+ * Stops at the first run-specific value (`?buyRequestIds=586738`), which is what #172 must drop.
+ *
+ * Leading run, not a filter: the frozen value is matched by substring, so the kept params have to
+ * be contiguous from the start of the query — everything from the first run-specific value on is
+ * dropped with it, since a frozen value cannot skip a param it does not know.
+ */
+function stableQuerySuffix(url: string): string {
+  const query = url.match(/\?([^#]*)/)?.[1];
+  if (!query) return "";
+  const kept: string[] = [];
+  for (const pair of query.split("&")) {
+    const eq = pair.indexOf("=");
+    const value = eq === -1 ? "" : pair.slice(eq + 1);
+    if (!value || isDynamicSegment(value)) break;
+    kept.push(pair);
+  }
+  return kept.length ? `?${kept.join("&")}` : "";
+}
+
+/**
+ * Does this path segment look like a value the run minted, rather than a route the developer named?
+ * The cut decides what a frozen check matches, so both errors are real: cutting a route name
+ * (`checkout-v2` → the check then matches every sibling endpoint) is a false GREEN, and keeping a
+ * run-specific id is the permanent false FAIL of #172.
+ *
+ *   cut  — 586738 · a uuid · deadbeefcafebabe · ord_8f3a2c · order-<uuid> (its first block is a
+ *          digest — the uuid rule only reads a whole segment) · 2026-08-27 · orders;id=586738
+ *   keep — checkout-v2 · checkout_v2 · b2b-orders · oauth2-callback · oauth2callback · checkoutV2 ·
+ *          base64decode · %E7%A2%BA (a percent-escaped name)
+ *
+ * Known gap, and it is a wide one: id recognition only knows the hex alphabet, and an unseparated
+ * segment carrying capitals is read as a camelCase NAME. So every mixed-case id format survives the
+ * cut and freezes verbatim — ULID, nanoid, Stripe-style keys, a real base64url JWT signature — as
+ * do a short id (`a3f9`) and a digit-free token (`ord_abcdef`). #172 still bites in those shapes,
+ * and not cheaply: a frozen check that can never match re-runs outcome-heal on every execution.
+ * Kept anyway because widening the cut here would also swallow real route names, which fails the
+ * other way (a check that passes on the wrong request). See STABLE_PREFIX_CORPUS.
+ */
+function isDynamicSegment(seg: string): boolean {
+  if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
+  if (isUuid(seg)) return true;
+  if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
+  if (isIsoDate(seg)) return true; // a date is a resource key, not a route name
+  // A named route separates its words (`checkout-v2`, `oauth2_callback`, a percent-escaped name);
+  // an id survives that separation (`order-<uuid>`, `sess-a1b2c3d4`, `orders;id=586738`).
+  if (SEGMENT_SEPARATORS.test(seg)) return seg.split(SEGMENT_SEPARATORS).some(isIdPart);
+  // Unseparated: a camelCase name keeps its capitals, and a route word carries its digits in one
+  // run (`base64decode`, `oauth2callback`) where a token scatters them (`s3kr3t99`).
+  return seg.length >= 8 && !/[A-Z]/.test(seg) && (seg.match(/\d+/g)?.length ?? 0) >= 2;
+}
+
+/** The characters a named route uses between its words — and that an id keeps its shape across. */
+const SEGMENT_SEPARATORS = /[-._%;=~]/;
+
+/**
+ * An id-shaped piece of a separated segment. Two calibrations, both from counter-examples:
+ * digits are required of the hex form, so a plain word that spells hex (`decade`, `facade`) is not
+ * read as a digest; and a numeric piece must be long enough to be a key, because a short number
+ * inside a named route is a qualifier or a fixed identifier, not a run-minted id — `step-2`,
+ * `top-100`, `tier-1`, `covid-19`, `error-404`, `sale-2024`, `CVE-2024-21413`. Cutting them made a
+ * 2nd-step check pass on the 1st step (and on `/checkout/abandon`). Six digits is the floor, so an
+ * id with shorter groups survives; see the corpus.
+ */
+function isIdPart(part: string): boolean {
+  if (/^\d{6,}$/.test(part)) return true;
+  return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
+}
+
+function isUuid(s: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+/**
+ * A full ISO date, `YYYY-MM-DD`, this century only. The ranges keep a numeric part code (`1234-56`,
+ * a SKU `1000-01`) from reading as a date, and the day is REQUIRED because `YYYY-MM` alone is a
+ * name at least as often as it is a value: `/admin/api/2024-01/orders` is a pinned API version and
+ * `/blog/2024-03/index` a monthly archive. Cutting those is a false GREEN (every endpoint under
+ * that version satisfies the check), while keeping a monthly report path is a loud failure — the
+ * cheaper error. Other written forms (`08-27-2026`, `2026.08.27`, `2026-W35`, a timestamp) are not
+ * recognized either; see the corpus.
+ */
+function isIsoDate(seg: string): boolean {
+  return /^20\d{2}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(seg);
+}
+
+/**
+ * Do two request URLs name the same endpoint — same shape, differing only where the run mints
+ * values? `/cart/add?ids=586738` and `/cart/add?ids=586739` do (one action, fired twice);
+ * `/api/products` and `/api/products/586738` do not, nor do `/orders/1/confirm` and
+ * `/orders/2/cancel`. Used to tell a widening that keeps the check's meaning from one that spends it.
+ */
+export function sameEndpointShape(a: string, b: string): boolean {
+  const segsA = destinationKey(a).split("/");
+  const segsB = destinationKey(b).split("/");
+  if (segsA.length !== segsB.length) return false;
+  return segsA.every((seg, i) => seg === segsB[i] || (isDynamicSegment(seg) && isDynamicSegment(segsB[i]!)));
+}
+
+/** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
+ * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
+export function hasStablePath(prefix: string): boolean {
+  return prefix.includes("/");
 }

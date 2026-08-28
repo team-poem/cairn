@@ -185,11 +185,13 @@ describe("discover", () => {
     const scenario = await discover("pay", { driver, llm });
     // #105: the matched proving request is a mutation, so its method is frozen too — a
     // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
+    // #172: the frozen URL is the matching request's stable endpoint (host+path), not the
+    // proposed substring.
     expect(scenario.assertions).toEqual([
       { kind: "no-failed-requests", origin: "derived", vacuous: true },
       { kind: "no-console-errors", origin: "derived", vacuous: true },
       { kind: "navigated", to: "shop/payment", origin: "derived", vacuous: true },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST", origin: "derived", vacuous: true },
+      { kind: "request-status", urlIncludes: "shop/api/orders", status: 200, method: "POST", origin: "derived", vacuous: true },
     ]);
   });
 
@@ -210,7 +212,7 @@ describe("discover", () => {
     });
     expect(scenario.assertions).toContainEqual({
       kind: "request-status",
-      urlIncludes: "/api/cart",
+      urlIncludes: "shop/api/cart",
       status: 200,
       origin: "derived",
       vacuous: true,

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
-import { assignStepExpects, destinationKey } from "../../../src/core/discover/capture.js";
+import { assignStepExpects, destinationKey, freshMutationExpect } from "../../../src/core/discover/capture.js";
 import type { Step } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import { DESTINATION_CHANGE_CORPUS } from "../../support/url-corpus.js";
@@ -217,5 +217,34 @@ describe("discover captures intent + expect", () => {
     ]);
     const found = await discover("wait then done", { driver, llm });
     expect(found.steps[0]).toMatchObject({ kind: "waitFor", until: { url: "dashboard" } });
+  });
+});
+
+describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () => {
+  // The assertion path drops such a value because any request to that host satisfies it. The step
+  // expect froze it anyway, so a replay could pass its post-condition on an unrelated POST.
+  it("freezes nothing when the id is the whole path", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/586738", status: 201 }])).toBeUndefined();
+  });
+
+  it("freezes nothing for a root mutation", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/", status: 201 }])).toBeUndefined();
+  });
+
+  it("skips past a host-only mutation to the real one behind it", () => {
+    // A pixel or RPC fired at the root must not cost the step its actual proof.
+    const tail: NetworkRequest[] = [
+      { method: "POST", url: "https://api.shop.co/", status: 204 },
+      { method: "POST", url: "https://shop.co/api/orders/586738/confirm", status: 200 },
+    ];
+    expect(freshMutationExpect(tail)).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("still freezes when a path survives the cut", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/orders/586738", status: 201 }])).toEqual({
+      requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
+    });
   });
 });

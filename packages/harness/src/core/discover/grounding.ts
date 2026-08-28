@@ -107,9 +107,12 @@ export function deriveAssertions(
       // the proposal names one — `findRequestStatus` is the predicate the critic judges with, so
       // freeze and verdict ask one question). Without it a `GET /api/jobs 200` would answer a
       // proposal that asked for a POST.
-      const match = groundingMatch(evidence.logic.requests, a);
+      const match = groundingMatch(evidence.logic.requests, a, benign);
       if (!match) {
-        onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`);
+        onDrop?.(
+          a,
+          `no captured request matched ${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`,
+        );
         continue;
       }
       // #172: freeze the matching request's STABLE prefix, never the proposed substring. When one
@@ -160,7 +163,15 @@ export function deriveAssertions(
       // The observed destination wins — but a model that expected the success page while the run
       // sat on an error page is exactly what a reader needs to see, and silently replacing one with
       // the other is the kind of substitution `onDrop` exists to surface.
-      else if (a.kind === "navigated" && a.to && grounded.kind === "navigated" && grounded.to !== a.to)
+      else if (
+        a.kind === "navigated" &&
+        a.to &&
+        grounded.kind === "navigated" &&
+        // `urlReached`, not string equality: the frozen value is normalized while the proposal may
+        // carry a scheme or a trailing slash, and a signal that cries on formatting is one readers
+        // learn to skip. Same predicate the verdict uses, so trace and judgment agree.
+        !(grounded.to !== undefined && urlReached(grounded.to, a.to))
+      )
         onDrop?.(a, `the run reached ${grounded.to ?? "no recorded destination"}, not ${a.to}`);
     } else {
       onDrop?.(a, `unknown proposed kind "${(a as { kind: string }).kind}"`);
@@ -179,12 +190,21 @@ export function deriveAssertions(
  * state-changing request, and picking by arrival order instead would let the network decide whether
  * the frozen check binds to a verb (the same evidence freezing differently run to run).
  */
-function groundingMatch(requests: readonly NetworkRequest[], a: Assertion & { kind: "request-status" }) {
-  if (a.method) return findRequestStatus(requests, a.urlIncludes, a.status, a.method);
-  const mutation = requests.find(
+function groundingMatch(
+  requests: readonly NetworkRequest[],
+  a: Assertion & { kind: "request-status" },
+  benign: readonly string[],
+): NetworkRequest | undefined {
+  // Noise cannot prove an action. For `no-failed-requests`, `benign` means "its failure does not
+  // count"; for a proof it means the opposite — a product marks an endpoint benign precisely
+  // because it is incidental, and standing a tracking beacon up as the evidence an order was placed
+  // inverts that. Worse, such a check also counts as a proof and disarms the unproven-action gate.
+  const candidates = requests.filter((r) => !isBenignRequest(r.url, benign));
+  if (a.method) return findRequestStatus(candidates, a.urlIncludes, a.status, a.method);
+  const mutation = candidates.find(
     (r) => isMutation(r.method) && r.url.includes(a.urlIncludes) && r.status === a.status,
   );
-  return mutation ?? findRequestStatus(requests, a.urlIncludes, a.status);
+  return mutation ?? findRequestStatus(candidates, a.urlIncludes, a.status);
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

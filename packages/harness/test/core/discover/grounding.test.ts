@@ -350,3 +350,73 @@ describe("which request proves the action, and which method is frozen (#178 revi
     expect(drops[0]).toMatch(/reached app.test\/error, not app.test\/success/);
   });
 });
+
+describe("noise cannot prove an action (#178 review)", () => {
+  const beacon = { method: "POST", url: "https://analytics.co/collect", status: 200 };
+  const ev = (requests: Evidence["logic"]["requests"]): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl: "https://shop.co/done", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+  const proposal = { kind: "request-status" as const, urlIncludes: "analytics.co/collect", status: 200 };
+
+  it("a product-marked endpoint cannot ground a proof", () => {
+    // benign means "its failure does not count" for no-failed-requests, and "it is incidental" here.
+    // Freezing it would make a tracking beacon the evidence the order was placed.
+    const drops: string[] = [];
+    const out = deriveAssertions([proposal], ev([beacon]), false, ["analytics.co"], (_a, r) => drops.push(r));
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/no captured request matched/);
+  });
+
+  it("…and the same proposal still grounds when the product marked nothing", () => {
+    expect(deriveAssertions([proposal], ev([beacon]), false)).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "analytics.co/collect",
+      status: 200,
+      method: "POST",
+      origin: "derived",
+    });
+  });
+
+  it("a beacon does not stand in for the real action when both fired", () => {
+    const real = { method: "POST", url: "https://shop.co/api/orders", status: 201 };
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "/api/orders", status: 201 }],
+      ev([beacon, real]),
+      false,
+      ["analytics.co"],
+    );
+    expect(out).toContainEqual({
+      kind: "request-status",
+      urlIncludes: "shop.co/api/orders",
+      status: 201,
+      method: "POST",
+      origin: "derived",
+    });
+  });
+});
+
+describe("the destination-mismatch signal ignores formatting (#178 review)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const dropsFor = (to: string): string[] => {
+    const drops: string[] = [];
+    deriveAssertions([{ kind: "navigated", to }], ranTo("https://app.test/error"), false, [], (_a, r) =>
+      drops.push(r),
+    );
+    return drops;
+  };
+
+  it("says nothing when the proposal names the same page with a scheme or a trailing slash", () => {
+    expect(dropsFor("https://app.test/error")).toEqual([]);
+    expect(dropsFor("app.test/error/")).toEqual([]);
+  });
+
+  it("still reports a real mismatch", () => {
+    expect(dropsFor("app.test/success")[0]).toMatch(/reached app.test\/error, not app.test\/success/);
+  });
+});

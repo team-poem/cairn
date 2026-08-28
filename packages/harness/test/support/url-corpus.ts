@@ -113,6 +113,11 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "…and a monthly archive is a name too", url: "https://shop.co/blog/2024-03/index", frozen: "shop.co/blog/2024-03/index" },
   { note: "a fixed public identifier is not a run-minted id", url: "https://shop.co/advisories/CVE-2024-21413/details", frozen: "shop.co/advisories/CVE-2024-21413/details" },
   { note: "hashed asset filename", url: "https://shop.co/files/app.3fa4b1c2.js", frozen: "shop.co/files" },
+  // Generated ids that carry capitals: by exact shape (ULID, JWT) or by digit density.
+  { note: "ULID", url: "https://shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm", frozen: "shop.co/o" },
+  { note: "nanoid", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o" },
+  { note: "prefixed key with a random tail (Stripe shape)", url: "https://shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o" },
+  { note: "a real JWT — three base64url parts", url: "https://shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm", frozen: "shop.co/verify" },
   // NAMED ROUTES THAT ONLY LOOK DYNAMIC — cutting one makes the frozen check match every sibling
   // endpoint under the surviving prefix (a false GREEN, the worse error). All of these must survive.
   { note: "hyphenated route with a version suffix", url: "https://shop.co/api/checkout-v2/submit", frozen: "shop.co/api/checkout-v2/submit" },
@@ -125,6 +130,10 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "unseparated route naming an encoding", url: "https://shop.co/api/base64decode/run", frozen: "shop.co/api/base64decode/run" },
   { note: "camelCase route with a version digit", url: "https://shop.co/api/checkoutV2/submit", frozen: "shop.co/api/checkoutV2/submit" },
   { note: "camelCase route, digit at the end", url: "https://shop.co/api/addToCart2/run", frozen: "shop.co/api/addToCart2/run" },
+  { note: "long camelCase route with a version digit", url: "https://shop.co/api/checkoutV2Submit/run", frozen: "shop.co/api/checkoutV2Submit/run" },
+  { note: "camelCase route naming a service with a digit", url: "https://shop.co/api/getS3BucketUrl2/run", frozen: "shop.co/api/getS3BucketUrl2/run" },
+  { note: "lowercase route naming a digest algorithm", url: "https://shop.co/api/sha256sum/run", frozen: "shop.co/api/sha256sum/run" },
+  { note: "underscored route with words, not a random tail", url: "https://shop.co/api/user_profile_settings/read", frozen: "shop.co/api/user_profile_settings/read" },
   { note: "percent-encoded non-ASCII route", url: "https://shop.co/api/%E7%A2%BA%E8%AA%8D/submit", frozen: "shop.co/api/%E7%A2%BA%E8%AA%8D/submit" },
   { note: "short version segment", url: "https://shop.co/api/v2/cart?x=1", frozen: "shop.co/api/v2/cart" },
   { note: "long alphabetic segment (no digit)", url: "https://shop.co/api/subscriptions/cancel", frozen: "shop.co/api/subscriptions/cancel" },
@@ -146,9 +155,8 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   // the frozen check can never match again, and outcome-heal re-judges against it every run
   // (run.ts:229), so the cost is repeated LLM calls, not one loud failure. Kept anyway because the
   // alternative — cutting these — would also cut real route names and pass on the wrong request.
-  // The widest one is the mixed-case family: id recognition knows only the hex alphabet, and an
-  // unseparated segment with capitals is read as a camelCase name, so ULID/nanoid/Stripe keys and
-  // real JWT signatures all survive. That is a follow-up, not a "rare shape" footnote.
+  // Capitalized ids are recognized now (ULID/JWT by shape, the rest by digit density), so what is
+  // left is what density cannot separate from a name: short slugs and digit-sparse tokens.
   { note: "KNOWN GAP: short id keeps the run-specific value", url: "https://shop.co/api/orders/a3f9/confirm", frozen: "shop.co/api/orders/a3f9/confirm" },
   { note: "KNOWN GAP: digit-free prefixed id", url: "https://shop.co/orders/ord_abcdef/confirm", frozen: "shop.co/orders/ord_abcdef/confirm" },
   { note: "KNOWN GAP: digit-free base64 slug", url: "https://shop.co/r/YWJjZGVm/confirm", frozen: "shop.co/r/YWJjZGVm/confirm" },
@@ -167,14 +175,11 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "KNOWN GAP: dotted date", url: "https://shop.co/api/reports/2026.08.27/export", frozen: "shop.co/api/reports/2026.08.27/export" },
   { note: "KNOWN GAP: full timestamp — fails within the same day", url: "https://shop.co/api/t/2026-08-27T10:00:00Z/ack", frozen: "shop.co/api/t/2026-08-27T10:00:00Z/ack" },
   // The mixed-case family — the widest gap, and these are mainstream id generators, not exotica.
-  { note: "KNOWN GAP: ULID", url: "https://shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm", frozen: "shop.co/o/01ARZ3NDEKTSV4RRFFQ69G5FAV/confirm" },
-  { note: "KNOWN GAP: nanoid", url: "https://shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm", frozen: "shop.co/o/V1StGXR8_Z5jdHi6B-myT/confirm" },
-  { note: "KNOWN GAP: Stripe-style prefixed key", url: "https://shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm", frozen: "shop.co/o/cs_test_a1B2c3D4e5F6g7H8/confirm" },
-  { note: "KNOWN GAP: base62 slug", url: "https://shop.co/o/x7Kp2Qw/confirm", frozen: "shop.co/o/x7Kp2Qw/confirm" },
+  { note: "KNOWN GAP: base62 slug too short to read as generated", url: "https://shop.co/o/x7Kp2Qw/confirm", frozen: "shop.co/o/x7Kp2Qw/confirm" },
+  { note: "KNOWN GAP: a long token whose digits are too sparse", url: "https://shop.co/o/AbcdefghijKlmnop1/confirm", frozen: "shop.co/o/AbcdefghijKlmnop1/confirm" },
   { note: "KNOWN GAP: base62 session slug (the realistic form of the sess- case above)", url: "https://shop.co/s/sess-k9m2p4q7/resume", frozen: "shop.co/s/sess-k9m2p4q7/resume" },
   { note: "KNOWN GAP: prefixed id with a non-hex letter", url: "https://shop.co/orders/ord_8f3a2k/confirm", frozen: "shop.co/orders/ord_8f3a2k/confirm" },
   { note: "KNOWN GAP: percent-encoded short id", url: "https://shop.co/api/q/%7B%22id%22%3A999%7D/run", frozen: "shop.co/api/q/%7B%22id%22%3A999%7D/run" },
-  { note: "KNOWN GAP: a real JWT (base64url signature, mixed case)", url: "https://shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm", frozen: "shop.co/verify/eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c/confirm" },
   { note: "token that is all hex chars is cut by the digest rule", url: "https://shop.co/r/abc12345/confirm", frozen: "shop.co/r" },
   // QUERY-DISPATCH APIs — the path names no action, so the leading run of stable query params is
   // kept; without it any other POST to the same endpoint satisfies the check (false GREEN).

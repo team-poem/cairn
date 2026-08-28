@@ -161,17 +161,17 @@ function stableQuerySuffix(url: string): string {
  *   keep — checkout-v2 · checkout_v2 · b2b-orders · oauth2-callback · oauth2callback · checkoutV2 ·
  *          base64decode · %E7%A2%BA (a percent-escaped name)
  *
- * Known gap, and it is a wide one: id recognition only knows the hex alphabet, and an unseparated
- * segment carrying capitals is read as a camelCase NAME. So every mixed-case id format survives the
- * cut and freezes verbatim — ULID, nanoid, Stripe-style keys, a real base64url JWT signature — as
- * do a short id (`a3f9`) and a digit-free token (`ord_abcdef`). #172 still bites in those shapes,
- * and not cheaply: a frozen check that can never match re-runs outcome-heal on every execution.
- * Kept anyway because widening the cut here would also swallow real route names, which fails the
- * other way (a check that passes on the wrong request). See STABLE_PREFIX_CORPUS.
+ * Generated ids that carry capitals are recognized by shape (ULID, JWT) or by digit density — see
+ * `isDigitDenseToken`. Known gaps that remain: a short id (`a3f9`), a digit-free token
+ * (`ord_abcdef`, a bare base62 slug), and any id whose digits are too sparse to tell it apart from
+ * a name. #172 still bites there, and not cheaply — a frozen check that can never match re-runs
+ * outcome-heal on every execution — but widening further would swallow real route names, which
+ * fails the other way (a check that passes on the wrong request). See STABLE_PREFIX_CORPUS.
  */
 function isDynamicSegment(seg: string): boolean {
   if (/^\d+$/.test(seg)) return true; // 586738, a timestamp
   if (isUuid(seg)) return true;
+  if (isUlid(seg) || isJwt(seg)) return true;
   if (/^[0-9a-f]{8,}$/i.test(seg)) return true; // bare hex digest
   if (isIsoDate(seg)) return true; // a date is a resource key, not a route name
   // A named route separates its words (`checkout-v2`, `oauth2_callback`, a percent-escaped name);
@@ -197,6 +197,33 @@ const SEGMENT_SEPARATORS = /[-._%;=~]/;
 function isIdPart(part: string): boolean {
   if (/^\d{6,}$/.test(part)) return true;
   return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
+  if (/^\d{5,}$/.test(part)) return true;
+  if (part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part)) return true;
+  return isDigitDenseToken(part);
+}
+
+/**
+ * A token whose capitals AND digit density mark it as generated rather than written: a quarter of
+ * its characters or more are digits. That ratio is what separates a random token from a camelCase
+ * route name, which carries a digit or two at most — `a1B2c3D4e5F6g7H8` (a key's tail) is 50%,
+ * `V1StGXR8` (a nanoid block) is 25%, while `checkoutV2Submit` is 6% and `getS3BucketUrl2` is 13%.
+ * All-lowercase tokens are left to the digit-run rule above; they are the most name-like, and
+ * pulling them in here would swallow `sha256sum` and its kind.
+ */
+function isDigitDenseToken(part: string): boolean {
+  if (part.length < 8 || !/^[A-Za-z0-9]+$/.test(part) || !/[A-Z]/.test(part)) return false;
+  const digits = part.replace(/\D/g, "").length;
+  return digits * 4 >= part.length;
+}
+
+/** Crockford base32, 26 characters, no I/L/O/U — the ULID alphabet exactly. */
+function isUlid(s: string): boolean {
+  return /^[0-9A-HJKMNP-TV-Z]{26}$/.test(s);
+}
+
+/** Three base64url parts: header.payload.signature. Each real part is far longer than ten. */
+function isJwt(s: string): boolean {
+  return /^[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}$/.test(s);
 }
 
 function isUuid(s: string): boolean {

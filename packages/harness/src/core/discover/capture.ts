@@ -7,6 +7,7 @@
 import type { Driver } from "../ports.js";
 import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
 import { isBenignRequest, isMutation } from "../requests.js";
+import { urlReached, WILDCARD } from "../steps.js";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -69,11 +70,15 @@ export function assignStepExpects(
     if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
     const urlAfter = next ? next.url : evidence.execution.finalUrl;
-    // Whether the step navigated is judged on the CONCRETE urls (#96 — a query/hash-only move is
-    // not a destination change); only the frozen value is generalized, so a run-minted segment does
-    // not pin the expect to this run.
-    if (urlAfter && (!mark.url || destinationKey(urlAfter) !== destinationKey(mark.url))) {
-      steps[i]!.expect = { url: stableDestination(urlAfter) };
+    // Judge on the value ABOUT TO BE FROZEN, not on the concrete urls: replay pre-checks a URL
+    // expect before running the step and skips it when already satisfied, so an expect the
+    // pre-navigation page also satisfies makes the step vanish (#96's failure class). Generalizing
+    // the frozen value re-opened that door — two siblings of one template (`/orders/111` →
+    // `/orders/222`) both match `shop.co/orders/*`. Such a step keeps no URL expect and falls
+    // through to its mutation expect, or stays unchecked.
+    const frozenUrl = urlAfter ? stableDestination(urlAfter) : undefined;
+    if (frozenUrl && namesAPage(frozenUrl) && (!mark.url || !urlReached(mark.url, frozenUrl))) {
+      steps[i]!.expect = { url: frozenUrl };
       continue;
     }
     const tail = requests.slice(mark.requestCount, next?.requestCount ?? requests.length);
@@ -245,7 +250,21 @@ export function sameEndpointShape(a: string, b: string): boolean {
  */
 export function stableDestination(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
-  return [host, ...segs.map((seg) => (isDynamicSegment(seg) ? "*" : seg))].join("/");
+  return [host, ...segs.map((seg) => (isDynamicSegment(seg) ? WILDCARD : seg))].join("/");
+}
+
+/**
+ * Does a frozen destination name a page, or merely a host? `shop.co/*` is reached by an error page
+ * and a login redirect alike, which is exactly what `navigated` exists to catch — so a destination
+ * with no literal segment left is not worth freezing (the assertion path refuses the equivalent
+ * host-only value for the same reason).
+ *
+ * Caveat: a literal `*` is legal in a URL path and is not escaped here, so a page whose real path
+ * contains one freezes as a wildcard and matches more than it did before.
+ */
+export function namesAPage(destination: string): boolean {
+  const [, ...segs] = destination.split("/");
+  return segs.some((seg) => seg !== WILDCARD && seg !== "");
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

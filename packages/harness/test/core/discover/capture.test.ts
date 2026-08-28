@@ -264,3 +264,43 @@ describe("a step's URL expect generalizes the run's own ids (#172 on the URL pat
     expect(steps[0]?.expect).toBeUndefined();
   });
 });
+
+describe("a generalized URL expect must not pre-satisfy its own step (#96)", () => {
+  it("freezes no URL expect for a move between two siblings of one template", () => {
+    // /orders/111 → /orders/222 both match shop.co/orders/*, and replay pre-checks a URL expect
+    // before running the step — freezing it would make the step skip itself.
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/222", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("that step still gets its mutation expect when one fired", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(
+      steps,
+      marks,
+      evidenceAt("https://shop.co/orders/222", [
+        { method: "POST", url: "https://shop.co/api/orders/222/open", status: 200 },
+      ]),
+    );
+    expect(steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("list → detail still freezes: the list page does not satisfy the detail template", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Order 586738" } }];
+    const marks = [{ url: "https://shop.co/orders", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*" });
+  });
+
+  it("freezes no URL expect when nothing but the host would survive", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Open" } }];
+    const marks = [{ url: "https://shop.co/home", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/586738", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});

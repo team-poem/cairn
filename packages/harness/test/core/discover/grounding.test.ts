@@ -438,6 +438,35 @@ describe("which request proves the action, and which method is frozen (#178 revi
       [{ kind: "navigated", to: "app.test/success" }],
       {
         execution: { actions: [], navigated: true, finalUrl: "https://app.test/error", blocked: false },
+describe("a destination that names no page degrades to bare navigated (#182 review)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("an app whose first path segment is the id freezes no destination", () => {
+    // shop.co/* is reached by the error page and the login redirect too — exactly what this
+    // assertion exists to catch — so the bare form is the honest freeze.
+    const out = deriveAssertions([], ranTo("https://shop.co/586738"), false);
+    expect(out).toContainEqual({ kind: "navigated", origin: "derived" });
+    expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
+  });
+
+  it("one literal segment is enough to keep the destination", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*", origin: "derived" });
+  });
+});
+
+describe("generalizing a destination also widens vacuity (#137 interaction)", () => {
+  it("entering on one detail page and landing on another is now marked vacuous", () => {
+    // The frozen check `shop.co/p/*` cannot tell the two apart, so the starting state already
+    // satisfies it — which is the honest reading, and (with the guards) fails the scenario closed.
+    const grounded = deriveAssertions(
+      [],
+      {
+        execution: { actions: [], navigated: true, finalUrl: "https://shop.co/p/586738", blocked: false },
         perception: {},
         logic: { requests: [], console: [] },
       },
@@ -446,6 +475,13 @@ describe("which request proves the action, and which method is frozen (#178 revi
       (_a, reason) => drops.push(reason),
     );
     expect(drops[0]).toMatch(/reached app.test\/error, not app.test\/success/);
+    );
+    const baseline: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop.co/p/999001", blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    };
+    expect(markVacuous(grounded, baseline).find((a) => a.kind === "navigated")?.vacuous).toBe(true);
   });
 });
 

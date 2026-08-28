@@ -109,9 +109,17 @@ export function deriveAssertions(
       // proposal that asked for a POST.
       const match = groundingMatch(evidence.logic.requests, a, benign);
       if (!match) {
+        // Say WHICH way it failed. "Nothing matched" sends a reader looking for a request that was
+        // there — it was only set aside as noise, which is a different thing to fix.
+        const setAside = evidence.logic.requests.some(
+          (r) => isBenignRequest(r.url, benign) && r.url.includes(a.urlIncludes) && r.status === a.status,
+        );
+        const asked = `${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`;
         onDrop?.(
           a,
-          `no captured request matched ${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`,
+          setAside
+            ? `the only request matching ${asked} is on an endpoint marked benign`
+            : `no captured request matched ${asked}`,
         );
         continue;
       }

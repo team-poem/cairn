@@ -366,7 +366,8 @@ describe("noise cannot prove an action (#178 review)", () => {
     const drops: string[] = [];
     const out = deriveAssertions([proposal], ev([beacon]), false, ["analytics.co"], (_a, r) => drops.push(r));
     expect(out.some((a) => a.kind === "request-status")).toBe(false);
-    expect(drops[0]).toMatch(/no captured request matched/);
+    // …and the reason says which way it failed: the request was there, it was set aside as noise.
+    expect(drops[0]).toMatch(/is on an endpoint marked benign/);
   });
 
   it("…and the same proposal still grounds when the product marked nothing", () => {

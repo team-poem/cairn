@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { deriveAssertions, markVacuous } from "../../../src/core/discover/grounding.js";
-import type { Evidence } from "../../../src/core/types.js";
+import { deriveAssertions, hasUnprovenAction, markVacuous } from "../../../src/core/discover/grounding.js";
+import type { Assertion, Evidence } from "../../../src/core/types.js";
 import { findRequestStatus } from "../../../src/core/requests.js";
 import { urlReached } from "../../../src/core/steps.js";
 import { STABLE_PREFIX_CORPUS } from "../../support/url-corpus.js";
@@ -348,6 +348,41 @@ describe("grounding matches the proposal's method (#178 review)", () => {
       status: 200,
       origin: "derived",
     });
+describe("an action no check can express is recorded, not swallowed", () => {
+  const evWith = (requests: Evidence["logic"]["requests"]): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl: "https://shop.co/done", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+  const rootDelete = { method: "DELETE", url: "https://api.shop.co/586738", status: 200 };
+
+  it("flags a successful mutation whose URL leaves no stable path", () => {
+    expect(hasUnprovenAction(evWith([rootDelete]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(true);
+  });
+
+  it("stays quiet once a real proof was frozen — the flow is verified either way", () => {
+    const assertions: Assertion[] = [
+      { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    ];
+    expect(hasUnprovenAction(evWith([rootDelete]), assertions)).toBe(false);
+  });
+
+  it("a vacuous proof does not count as one", () => {
+    const assertions: Assertion[] = [
+      { kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true },
+    ];
+    expect(hasUnprovenAction(evWith([rootDelete]), assertions)).toBe(true);
+  });
+
+  it("stays quiet when the mutation has a checkable URL — that is just a missing proposal", () => {
+    const ok = { method: "POST", url: "https://shop.co/api/orders/586738", status: 200 };
+    expect(hasUnprovenAction(evWith([ok]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
+  });
+
+  it("ignores a benign root beacon and a failed mutation", () => {
+    const beacon = { method: "POST", url: "https://collect.io/", status: 204 };
+    expect(hasUnprovenAction(evWith([beacon]), [{ kind: "navigated" }], ["collect.io"])).toBe(false);
+    expect(hasUnprovenAction(evWith([{ ...rootDelete, status: 500 }]), [{ kind: "navigated" }])).toBe(false);
   });
 });
 

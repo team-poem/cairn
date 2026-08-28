@@ -270,6 +270,33 @@ function groundingMatch(
   return mutation ?? findRequestStatus(candidates, a.urlIncludes, a.status);
 }
 
+/**
+ * Did the run perform an action that the freeze could not express a check for? True only when BOTH
+ * hold: no `request-status` proof survived grounding, and discovery saw a successful, non-benign
+ * mutation whose URL leaves no stable path (`POST https://api.shop.co/`, an id as the whole path).
+ * Such a check is refused because a host-only value is satisfied by any request to that host — but
+ * refusing it silently turns a loud failure into a green run over an unverified action, since a
+ * surviving `navigated` passes as soon as the page is reached, with or without the action.
+ *
+ * Both halves matter: with a proof frozen, the flow is verified and a root-path beacon is
+ * irrelevant; without an unexpressible mutation, a scenario simply has no action to prove.
+ */
+export function hasUnprovenAction(
+  evidence: Evidence,
+  assertions: readonly Assertion[],
+  benign: readonly string[] = [],
+): boolean {
+  if (assertions.some((a) => a.kind === "request-status" && a.vacuous !== true)) return false;
+  return evidence.logic.requests.some(
+    (r) =>
+      isMutation(r.method) &&
+      r.status >= 200 &&
+      r.status < 400 &&
+      !isBenignRequest(r.url, benign) &&
+      !hasStablePath(stableEndpointPrefix(r.url)),
+  );
+}
+
 /** Did discovery observe a request failure that actually counts — neither benign noise
  * (built-in + product list) nor a transient the app retried and recovered? Mirrors the
  * critic's `no-failed-requests` judgment (#66) so freeze and verdict can't drift. */

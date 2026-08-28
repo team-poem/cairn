@@ -538,3 +538,28 @@ describe("the wildcard notation is declared by the file, not assumed (#182 revie
     expect(r2.verdict.passed).toBe(true);
   });
 });
+
+describe("a scenario whose action nothing can verify fails closed", () => {
+  const unproven: Scenario = { ...scenario, unprovenAction: true };
+
+  it("fails even though every assertion holds", async () => {
+    const { result } = await runScenario(unproven, { driver: new FakeDriver({ evidence: evidence() }) });
+    expect(result.verdict.results.every((r) => r.passed)).toBe(true);
+    expect(result.verdict.passed).toBe(false);
+    expect(result.verdict.detail).toMatch(/no assertion can verify/);
+  });
+
+  it("a user-authored criterion lifts it — whoever wrote the check owns what it proves", async () => {
+    const withUser: Scenario = {
+      ...unproven,
+      assertions: [...unproven.assertions, { kind: "navigated", origin: "user" }],
+    };
+    const { result } = await runScenario(withUser, { driver: new FakeDriver({ evidence: evidence() }) });
+    expect(result.verdict.passed).toBe(true);
+  });
+
+  it("a scenario without the flag is untouched (old frozen skills)", async () => {
+    const { result } = await runScenario(scenario, { driver: new FakeDriver({ evidence: evidence() }) });
+    expect(result.verdict.passed).toBe(true);
+  });
+});

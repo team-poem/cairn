@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, hasUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -92,9 +92,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       steps.some((step) => wrote(step.expect?.url))
         ? { wildcards: true as const }
         : {};
+    // Record an action the freeze could not express a check for, so replay fails closed on it
+    // instead of passing on the assertions that survived (spec/core/judgment.md).
+    const unproven = hasUnprovenAction(evidence, assertions, benign, firstCount)
+      ? { unprovenAction: true as const }
+      : {};
     return truncated
-      ? { name: intent, steps, assertions, truncated: true, ...wildcards }
-      : { name: intent, steps, assertions, ...wildcards };
+      ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
+      : { name: intent, steps, assertions, ...wildcards, ...unproven };
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

@@ -108,7 +108,7 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "opaque token, digits scattered", url: "https://shop.co/api/s3kr3t99/items", frozen: "shop.co/api" },
   { note: "matrix param carrying an id", url: "https://shop.co/api/orders;id=586738/confirm", frozen: "shop.co/api" },
   { note: "percent-encoded id — caught only because %3A + a 6-digit id spells an 8-char hex piece", url: "https://shop.co/api/q/%7B%22id%22%3A586738%7D/run", frozen: "shop.co/api/q" },
-  { note: "ISO date in a path is a resource key (this century, YYYY-MM[-DD] only)", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
+  { note: "a full ISO date in a path is a resource key (this century, YYYY-MM-DD only)", url: "https://shop.co/api/reports/2026-08-27/export", frozen: "shop.co/api/reports" },
   { note: "year-month is NOT cut — an API version pins one (`/admin/api/2024-01/...`)", url: "https://shop.co/admin/api/2024-01/orders", frozen: "shop.co/admin/api/2024-01/orders" },
   { note: "…and a monthly archive is a name too", url: "https://shop.co/blog/2024-03/index", frozen: "shop.co/blog/2024-03/index" },
   { note: "a fixed public identifier is not a run-minted id", url: "https://shop.co/advisories/CVE-2024-21413/details", frozen: "shop.co/advisories/CVE-2024-21413/details" },
@@ -157,8 +157,10 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "KNOWN GAP: Hashids slug (real format)", url: "https://shop.co/s/o2fXhV/confirm", frozen: "shop.co/s/o2fXhV/confirm" },
   // Numbers joined by a separator are read as qualifiers unless a group reaches five digits — so
   // an order/invoice/part number split into short groups survives.
-  { note: "KNOWN GAP: dash-joined numeric groups all under five digits", url: "https://shop.co/o/order-1234/confirm", frozen: "shop.co/o/order-1234/confirm" },
+  { note: "KNOWN GAP: dash-joined numeric groups all under six digits", url: "https://shop.co/o/order-1234/confirm", frozen: "shop.co/o/order-1234/confirm" },
   { note: "KNOWN GAP: grouped order number", url: "https://shop.co/o/12-345-678/confirm", frozen: "shop.co/o/12-345-678/confirm" },
+  { note: "KNOWN GAP: a five-digit id group — the cost of raising the floor to six for CVE-2024-21413", url: "https://shop.co/o/order-12345/confirm", frozen: "shop.co/o/order-12345/confirm" },
+  { note: "KNOWN GAP: a monthly report path — the cost of keeping YYYY-MM as a name", url: "https://shop.co/api/reports/2026-08/export", frozen: "shop.co/api/reports/2026-08/export" },
   { note: "one group of five digits is enough to cut", url: "https://shop.co/o/978-3-16-148410-0/confirm", frozen: "shop.co/o" },
   // Only the ISO forms are recognized as dates; the rest freeze verbatim and go red the next day.
   { note: "KNOWN GAP: US date order", url: "https://shop.co/api/reports/08-27-2026/export", frozen: "shop.co/api/reports/08-27-2026/export" },

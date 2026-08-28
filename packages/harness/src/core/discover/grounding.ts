@@ -94,23 +94,22 @@ export function deriveAssertions(
       continue;
     }
     if (a.kind === "request-status") {
-      // A status under 200 is not an outcome: 0 means the request was still in flight when the
-      // freeze ran (`observeOutcomes` waits, but only up to its timeout). Freezing it turns the
-      // check into "a request went out", which stays green even when that request ends 500 — the
-      // step-level expect has always required a resolved 2xx/3xx, so this is that same floor.
-      if (typeof a.status !== "number" || a.status < 200) {
-        onDrop?.(a, `status ${a.status} is not a settled outcome`);
+      // Only a settled SUCCESS can prove an action. Under 200 means unsettled — 0 is a request
+      // still in flight when the freeze ran (`observeOutcomes` waits, but only to its timeout) —
+      // and 400+ would freeze the app's failure as the success condition, so replay would demand
+      // that the order API keep answering 500. This is the range the step-level expect has always
+      // required; a deliberate check on an error response is a user criterion, not a derived one.
+      if (typeof a.status !== "number" || a.status < 200 || a.status >= 400) {
+        onDrop?.(a, `status ${a.status} is not a settled success`);
         continue;
       }
-      // grounding: keep only if a real captured request matches this URL + status + method. The
-      // method matters at THIS step, not only in what gets frozen: without it a `GET /api/jobs 200`
-      // grounds a proposal that asked for a POST, and since #105 only freezes a method when the
-      // matching request is a mutation, the freeze then carries a check any read satisfies — which
-      // also counts as a proof and disarms the unprovable-action gate. `findRequestStatus` is the
-      // predicate the critic judges with, so freeze and verdict ask one question.
-      const match = findRequestStatus(evidence.logic.requests, a.urlIncludes, a.status, a.method);
+      // grounding: keep only if a real captured request matches this URL + status (+ method, when
+      // the proposal names one — `findRequestStatus` is the predicate the critic judges with, so
+      // freeze and verdict ask one question). Without it a `GET /api/jobs 200` would answer a
+      // proposal that asked for a POST.
+      const match = groundingMatch(evidence.logic.requests, a);
       if (!match) {
-        onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}`);
+        onDrop?.(a, `no captured request matched ${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`);
         continue;
       }
       // #172: freeze the matching request's STABLE prefix, never the proposed substring. When one
@@ -131,16 +130,14 @@ export function deriveAssertions(
         onDrop?.(a, `no stable path in ${match.url} — a host-only check would pass on any request`);
         continue;
       }
-      // #105: when the proving request is a mutation, freeze its method too — a same-prefix GET
-      // must not satisfy the check at replay (parity with step-level expect capture).
+      // #105: freeze the method whenever the check should bind to one — the proposal's if it named
+      // one (an explicit GET must not be silently widened into "any verb"), otherwise the matching
+      // request's when that request is a mutation, so a same-prefix read cannot satisfy a check
+      // written for a write.
+      const method = a.method?.toUpperCase() ?? (isMutation(match.method) ? match.method.toUpperCase() : undefined);
       out.push(
-        isMutation(match.method)
-          ? {
-              kind: "request-status",
-              urlIncludes,
-              status: a.status,
-              method: match.method.toUpperCase(),
-            }
+        method
+          ? { kind: "request-status", urlIncludes, status: a.status, method }
           : { kind: "request-status", urlIncludes, status: a.status },
       );
     } else if (a.kind === "expect") {
@@ -154,11 +151,17 @@ export function deriveAssertions(
     } else if (a.kind === "navigated" || a.kind === "no-failed-requests" || a.kind === "no-console-errors") {
       // These are grounded by the defaults above; a proposal only matters when the default did
       // NOT hold — that's a real drop the trace should carry, not silence.
-      if (!out.some((o) => o.kind === a.kind))
+      const grounded = out.find((o) => o.kind === a.kind);
+      if (!grounded)
         onDrop?.(
           a,
           a.kind === "navigated" ? "the run did not navigate" : `${a.kind} did not hold during discovery`,
         );
+      // The observed destination wins — but a model that expected the success page while the run
+      // sat on an error page is exactly what a reader needs to see, and silently replacing one with
+      // the other is the kind of substitution `onDrop` exists to surface.
+      else if (a.kind === "navigated" && a.to && grounded.kind === "navigated" && grounded.to !== a.to)
+        onDrop?.(a, `the run reached ${grounded.to ?? "no recorded destination"}, not ${a.to}`);
     } else {
       onDrop?.(a, `unknown proposed kind "${(a as { kind: string }).kind}"`);
     }
@@ -167,6 +170,21 @@ export function deriveAssertions(
   // never the user's own criterion; stamp provenance so a trace/report can tell them apart
   // (spec/core/trace.md). The suite stamps its merged criteria `user` at the same freeze.
   return dedupeAssertions(out.map((a): Assertion => ({ ...a, origin: "derived" })));
+}
+
+/**
+ * The captured request a proposal is grounded on. With a method named, that method is required.
+ * Without one — which is the common case, since the prompt's example JSON carries no `method` — a
+ * MUTATION match is preferred over a read: the prompt asks the model to prove the action with the
+ * state-changing request, and picking by arrival order instead would let the network decide whether
+ * the frozen check binds to a verb (the same evidence freezing differently run to run).
+ */
+function groundingMatch(requests: readonly NetworkRequest[], a: Assertion & { kind: "request-status" }) {
+  if (a.method) return findRequestStatus(requests, a.urlIncludes, a.status, a.method);
+  const mutation = requests.find(
+    (r) => isMutation(r.method) && r.url.includes(a.urlIncludes) && r.status === a.status,
+  );
+  return mutation ?? findRequestStatus(requests, a.urlIncludes, a.status);
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

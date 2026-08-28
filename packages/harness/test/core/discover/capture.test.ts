@@ -304,3 +304,22 @@ describe("a generalized URL expect must not pre-satisfy its own step (#96)", () 
     expect(steps[0]?.expect).toBeUndefined();
   });
 });
+
+describe("the freeze decides a URL expect under the consumer's matching rules", () => {
+  it("does not freeze an expect the replay-side locale list would pre-satisfy", () => {
+    // A step that redirects /cart → /de/cart: with "de" injected, replay's pre-check finds the
+    // pre-navigation page already reaches shop.co/de/cart and skips the step. Freezing under the
+    // engine defaults while replay runs with the consumer list is exactly that mismatch (#86).
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []), { localePrefixes: ["de"] });
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes it when the consumer declares no such locale", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/de/cart" });
+  });
+});

@@ -348,31 +348,6 @@ describe("grounding matches the proposal's method (#178 review)", () => {
       status: 200,
       origin: "derived",
     });
-describe("navigated freezes a destination a later run can still reach (#172 on the URL path)", () => {
-  const ranTo = (finalUrl: string): Evidence => ({
-    execution: { actions: [], navigated: true, finalUrl, blocked: false },
-    perception: {},
-    logic: { requests: [], console: [] },
-  });
-
-  it("writes a wildcard where the run minted the segment", () => {
-    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
-    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
-  });
-
-  it("the frozen destination matches the discovering run AND the next one", () => {
-    const to = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false).find(
-      (a) => a.kind === "navigated",
-    )?.to;
-    expect(urlReached("https://shop.co/orders/586738/done", to!)).toBe(true);
-    expect(urlReached("https://shop.co/orders/999001/done", to!)).toBe(true);
-    // and it still catches landing somewhere else
-    expect(urlReached("https://shop.co/orders/999001/cancel", to!)).toBe(false);
-  });
-
-  it("a destination with no run-minted segment freezes exactly as before", () => {
-    const out = deriveAssertions([], ranTo("https://shop.co/checkout/complete"), false);
-    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/checkout/complete", origin: "derived" });
   });
 });
 
@@ -438,6 +413,45 @@ describe("which request proves the action, and which method is frozen (#178 revi
       [{ kind: "navigated", to: "app.test/success" }],
       {
         execution: { actions: [], navigated: true, finalUrl: "https://app.test/error", blocked: false },
+        perception: {},
+        logic: { requests: [], console: [] },
+      },
+      false,
+      [],
+      (_a, reason) => drops.push(reason),
+    );
+    expect(drops[0]).toMatch(/reached app.test\/error, not app.test\/success/);
+  });
+});
+
+describe("navigated freezes a destination a later run can still reach (#172 on the URL path)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("writes a wildcard where the run minted the segment", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
+  });
+
+  it("the frozen destination matches the discovering run AND the next one", () => {
+    const to = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false).find(
+      (a) => a.kind === "navigated",
+    )?.to;
+    expect(urlReached("https://shop.co/orders/586738/done", to!)).toBe(true);
+    expect(urlReached("https://shop.co/orders/999001/done", to!)).toBe(true);
+    // and it still catches landing somewhere else
+    expect(urlReached("https://shop.co/orders/999001/cancel", to!)).toBe(false);
+  });
+
+  it("a destination with no run-minted segment freezes exactly as before", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/checkout/complete"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/checkout/complete", origin: "derived" });
+  });
+});
+
 describe("a destination that names no page degrades to bare navigated (#182 review)", () => {
   const ranTo = (finalUrl: string): Evidence => ({
     execution: { actions: [], navigated: true, finalUrl, blocked: false },
@@ -445,11 +459,13 @@ describe("a destination that names no page degrades to bare navigated (#182 revi
     logic: { requests: [], console: [] },
   });
 
-  it("an app whose first path segment is the id freezes no destination", () => {
+  it("an app whose first path segment is the id freezes no destination, and the leftover proves nothing", () => {
     // shop.co/* is reached by the error page and the login redirect too — exactly what this
-    // assertion exists to catch — so the bare form is the honest freeze.
+    // assertion exists to catch — so the bare form is the honest freeze. It carries `vacuous` so
+    // the all-vacuous gate still counts it as the non-check it is: without the stamp, degrading
+    // would turn a scenario that failed closed into a green one (#137).
     const out = deriveAssertions([], ranTo("https://shop.co/586738"), false);
-    expect(out).toContainEqual({ kind: "navigated", origin: "derived" });
+    expect(out).toContainEqual({ kind: "navigated", vacuous: true, origin: "derived" });
     expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
   });
 
@@ -458,6 +474,7 @@ describe("a destination that names no page degrades to bare navigated (#182 revi
     expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*", origin: "derived" });
   });
 });
+
 
 describe("generalizing a destination also widens vacuity (#137 interaction)", () => {
   it("entering on one detail page and landing on another is now marked vacuous", () => {
@@ -471,10 +488,6 @@ describe("generalizing a destination also widens vacuity (#137 interaction)", ()
         logic: { requests: [], console: [] },
       },
       false,
-      [],
-      (_a, reason) => drops.push(reason),
-    );
-    expect(drops[0]).toMatch(/reached app.test\/error, not app.test\/success/);
     );
     const baseline: Evidence = {
       execution: { actions: [], navigated: false, finalUrl: "https://shop.co/p/999001", blocked: false },

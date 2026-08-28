@@ -210,6 +210,7 @@ export async function runScenario(
         signal: opts.signal,
         policy: opts.policy,
         perceive: opts.perceive,
+        localePrefixes: opts.localePrefixes,
         // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
         // the kinds say what ran (spec/core/trace.md).
         trace: scope,

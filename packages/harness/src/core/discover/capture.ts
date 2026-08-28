@@ -8,6 +8,7 @@ import type { Driver } from "../ports.js";
 import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
 import { isBenignRequest, isMutation } from "../requests.js";
 import { urlReached, WILDCARD } from "../steps.js";
+import type { UrlMatchOptions } from "../steps.js";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -63,6 +64,11 @@ export function assignStepExpects(
   steps: Step[],
   marks: readonly (OutcomeMark | null)[],
   evidence: Evidence,
+  /** The consumer's matching rules — replay pre-checks a frozen URL expect with these, so the
+   * freeze has to ask "is this already satisfied?" under the same ones. Locale stripping only ever
+   * makes matching MORE permissive, so freezing under the defaults while replay runs with an
+   * injected prefix flips a discriminating expect into a pre-satisfied one, and the step is skipped. */
+  urlMatch: UrlMatchOptions = {},
 ): void {
   const requests = evidence.logic.requests;
   for (let i = 0; i < steps.length; i++) {
@@ -77,7 +83,7 @@ export function assignStepExpects(
     // `/orders/222`) both match `shop.co/orders/*`. Such a step keeps no URL expect and falls
     // through to its mutation expect, or stays unchecked.
     const frozenUrl = urlAfter ? stableDestination(urlAfter) : undefined;
-    if (frozenUrl && namesAPage(frozenUrl) && (!mark.url || !urlReached(mark.url, frozenUrl))) {
+    if (frozenUrl && namesAPage(frozenUrl) && (!mark.url || !urlReached(mark.url, frozenUrl, urlMatch))) {
       steps[i]!.expect = { url: frozenUrl };
       continue;
     }

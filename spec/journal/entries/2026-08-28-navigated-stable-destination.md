@@ -36,5 +36,14 @@
 - **동작 변경(기록):** 일반화는 `markVacuous`도 넓힌다. 상세 페이지에서 진입해 **다른 상세 페이지**로 가는
   플로우는 이제 목적지 단언이 항진으로 찍히고, 가드와 합쳐 전부-항진 fail-closed로 죽는다. 일반화된
   체크가 실제로 그 둘을 구별 못 하므로 의미상 맞는 판정이지만, 이전에 초록이던 시나리오가 빨개진다.
-- **state 변화:** URL을 얼리는 네 경로가 전부 정규화됐다. 남은 것은 substring 표현형 자체에서 오는
+- **2차 교차검증 대응(HIGH 0, MAJOR 2):** ① **프리즈와 재생이 서로 다른 매칭 규칙을 썼다.**
+  `assignStepExpects`는 `urlReached`를 옵션 없이(엔진 기본 로케일 목록) 부르고 재생 프리체크는
+  소비자가 주입한 `localePrefixes`를 넘긴다. 로케일 스트리핑은 매칭을 **관대하게만** 만들므로,
+  프리즈 때 "아직 만족 안 함"이던 expect가 재생 때 "이미 만족함"이 되어 스텝이 스킵된다 —
+  방금 닫은 그 스킵이 옵션 쪽 문으로 되돌아온다. `DiscoverOptions.localePrefixes`를 신설해
+  `assignStepExpects`까지 배선했고, outcome-heal 재발견에도 같은 목록을 넘긴다.
+  ② **degrade가 항진 회계를 비웠다.** 목적지 없는 `navigated`는 `isVacuousOn`이 절대 항진으로 안 찍는데,
+  degrade로 그 형태가 생기면서 "살아 있는 단언" 하나가 생겨 전부-항진 fail-closed가 풀렸다.
+  이전에는 `shop.co/*`가 항진으로 찍혀 빨갛게 죽던 시나리오가 초록이 된다. degrade 지점에서
+  `vacuous: true`를 함께 찍어 회계에 남긴다(모델이 제안한 bare navigated는 여전히 안 찍는다). URL을 얼리는 네 경로가 전부 정규화됐다. 남은 것은 substring 표현형 자체에서 오는
   문제(1세그먼트 prefix, 대문자 포함 id).

@@ -101,6 +101,11 @@ export function deriveAssertions(
   // to the matcher would bury an unsatisfiable assertion in the skill with no reason recorded.
   const destination = finalUrl ? stableDestination(finalUrl) : undefined;
   if (navigated && destination && namesAPage(destination)) out.push({ kind: "navigated", to: destination });
+  // The degraded form is stamped `vacuous` on the spot. "Something navigated" cannot tell a wrong
+  // page from the right one, so leaving it unstamped would hand the all-vacuous gate (#137) a live
+  // assertion it should never have counted — trading an unsatisfiable check for a green run. A bare
+  // `navigated` the MODEL proposed is a different thing and is not stamped here.
+  else if (navigated && destination) out.push({ kind: "navigated", vacuous: true });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") {

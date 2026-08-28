@@ -199,8 +199,6 @@ const SEGMENT_SEPARATORS = /[-._%;=~]/;
  */
 function isIdPart(part: string): boolean {
   if (/^\d{6,}$/.test(part)) return true;
-  return part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part);
-  if (/^\d{5,}$/.test(part)) return true;
   if (part.length >= 6 && /^[0-9a-f]+$/i.test(part) && /\d/.test(part)) return true;
   return isDigitDenseToken(part);
 }
@@ -216,11 +214,16 @@ function isIdPart(part: string): boolean {
  * them in here would swallow `sha256sum` and its kind.
  */
 function isDigitDenseToken(part: string): boolean {
-  if (part.length < 8 || !/^[A-Za-z0-9]+$/.test(part) || !/[A-Z]/.test(part)) return false;
+  if (part.length < 8 || !/^[A-Za-z0-9]+$/.test(part)) return false;
   const runs = part.match(/\d+/g) ?? [];
-  if (runs.length < 2) return false; // a standard's name carries its digits in one run: SHA256, Ed25519, ISO8601
   const digits = runs.join("").length;
-  return digits * 5 >= part.length;
+  // Scattered digits behind capitals: a generated token. A fifth of the characters is the floor —
+  // a whole nanoid sits at 24%.
+  if (runs.length >= 2 && /[A-Z]/.test(part) && digits * 5 >= part.length) return true;
+  // One run instead, but the token is mostly number: a human-readable key with a letter prefix —
+  // ORD12345678, INV20260827, TXN0001234567 — which no amount of scatter would catch. The floor is
+  // three fifths precisely so a standard's name stays out: X25519Key is 56%, Ed25519Sign 45%.
+  return digits * 5 >= part.length * 3;
 }
 
 /** Crockford base32, 26 characters, no I/L/O/U — the ULID alphabet exactly. */

@@ -47,9 +47,13 @@ When discover proposes assertions, it **grounds them in what actually happened**
 - a proposed `request-status` is kept *only if a captured request matches it* (hallucinations dropped);
 - `navigated` asserts the *right destination* (host+path) — catching "navigated, but to the wrong
   page." A segment the run minted is frozen as `*`, which matches exactly one segment, so an order
-  id in a confirmation URL does not pin the check to that run; a destination whose path is nothing
-  but wildcards is refused, since the app's error page would satisfy it. A literal `*` in a page's
-  own path is read as a wildcard — the one place this notation is lossy.
+  id in a confirmation URL does not pin the check to that run. Two limits keep the notation from
+  buying that with a check that proves nothing: a destination whose path ends in a wildcard is
+  refused (`/app/*` and `/products/*` are reached by that app's own `/app/login`), and the freeze
+  degrades to a bare `navigated` stamped `vacuousBecause: "no-destination"` — so the verdict says
+  the run navigated somewhere unnameable, not that nothing changed. The notation is declared per
+  file by `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen
+  as, so a page whose real path contains one keeps its meaning under a newer engine.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 

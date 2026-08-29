@@ -84,9 +84,17 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       }),
     );
     const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    // Declare the notation only when this freeze actually used it, so a file without the marker
+    // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
+    const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
+    const wildcards =
+      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      steps.some((step) => wrote(step.expect?.url))
+        ? { wildcards: true as const }
+        : {};
     return truncated
-      ? { name: intent, steps, assertions, truncated: true }
-      : { name: intent, steps, assertions };
+      ? { name: intent, steps, assertions, truncated: true, ...wildcards }
+      : { name: intent, steps, assertions, ...wildcards };
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

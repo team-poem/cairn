@@ -75,7 +75,7 @@ export const URL_REACHED_WILDCARD_CORPUS: UrlReachedCase[] = [
   { note: "one wildcard is one segment, not many", final: "https://shop.co/orders/1/2/done", want: "shop.co/orders/*/done", reached: false },
   { note: "…and as a bare suffix too (no host to align the lengths)", final: "https://shop.co/orders/1/2/done", want: "orders/*/done", reached: false },
   { note: "same depth as a control for the case above", final: "https://shop.co/orders/1/done", want: "orders/*/done", reached: true },
-  { note: "a literal * in a page's own path is read as a wildcard (documented exception)", final: "https://shop.co/search/shoes/results", want: "shop.co/search/*/results", reached: true },
+  { note: "a literal * in a page's own path is read as a wildcard once the freeze declares the notation", final: "https://shop.co/search/shoes/results", want: "shop.co/search/*/results", reached: true },
   { note: "surrounding segments still have to match", final: "https://shop.co/orders/586738/cancel", want: "shop.co/orders/*/done", reached: false },
   { note: "host still has to match", final: "https://evil.co/orders/586738/done", want: "shop.co/orders/*/done", reached: false },
   { note: "depth still has to match — a parent does not reach a wildcard child", final: "https://shop.co/orders", want: "shop.co/orders/*", reached: false },

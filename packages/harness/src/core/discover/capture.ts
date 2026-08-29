@@ -260,17 +260,22 @@ export function stableDestination(url: string): string {
 }
 
 /**
- * Does a frozen destination name a page, or merely a host? `shop.co/*` is reached by an error page
- * and a login redirect alike, which is exactly what `navigated` exists to catch — so a destination
- * with no literal segment left is not worth freezing (the assertion path refuses the equivalent
- * host-only value for the same reason).
+ * Does a frozen destination name a page, or merely the area one lives in? `shop.co/*` is reached by
+ * an error page and a login redirect alike, which is exactly what `navigated` exists to catch — and
+ * `shop.co/app/*` is no better in an app that mounts login and errors under the same prefix. The
+ * cost of this line is real: a list → detail step freezes no URL check, since `/products/586738`
+ * generalizes to a wildcard leaf. Losing a check is the loud direction; keeping one that the error
+ * page satisfies is the silent one.
  *
  * Caveat: a literal `*` is legal in a URL path and is not escaped here, so a page whose real path
  * contains one freezes as a wildcard and matches more than it did before.
  */
 export function namesAPage(destination: string): boolean {
-  const [, ...segs] = destination.split("/");
-  return segs.some((seg) => seg !== WILDCARD && seg !== "");
+  const path = destination.split("/").slice(1).filter((seg) => seg !== "");
+  // The LAST segment has to be literal, not merely some segment: `/app/*` and `/products/*` keep a
+  // literal mount prefix and are still reached by that app's own `/app/login` and `/app/error`,
+  // because the leaf is where the page's identity lives. `/orders/*/done` keeps it.
+  return path.length > 0 && path[path.length - 1] !== WILDCARD;
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

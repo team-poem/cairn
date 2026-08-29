@@ -24,6 +24,9 @@ export const DEFAULT_LOCALE_PREFIXES: readonly string[] = ["en", "ko", "ja", "jp
 
 /** URL-matching knobs — consumer-injected, never guessed from the URL itself. */
 export interface UrlMatchOptions {
+  /** Does this scenario's frozen data use `*` for a run-minted segment? Set from
+   * `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen as. */
+  wildcards?: boolean;
   /** First-path-segment prefixes treated as locales in the stripping fallback.
    * Default: `DEFAULT_LOCALE_PREFIXES`. Pass `[]` to disable the fallback. */
   localePrefixes?: readonly string[];
@@ -68,14 +71,16 @@ function stripLocale(hp: HostPath, prefixes: readonly string[]): HostPath {
 // destination check is for. The test skips the host token deliberately — counting it would let
 // `shop.co/*` through, and refusing here rather than only at freeze also covers a hand-written
 // target and a skill already on disk.
-function boundaryMatch(dest: HostPath, want: HostPath): boolean {
+function boundaryMatch(dest: HostPath, want: HostPath, wildcards: boolean): boolean {
   const wantTokens = tokens(want);
   const destTokens = tokens(dest);
   if (wantTokens.length === 0 || wantTokens.length > destTokens.length) return false;
-  if (want.segs.length > 0 && want.segs.every((t) => t === WILDCARD)) return false;
-  if (want.segs.length === 0 && want.host === WILDCARD) return false;
+  if (wildcards) {
+    if (want.segs.length > 0 && want.segs.every((t) => t === WILDCARD)) return false;
+    if (want.segs.length === 0 && want.host === WILDCARD) return false;
+  }
   const tail = destTokens.slice(destTokens.length - wantTokens.length);
-  return wantTokens.every((t, i) => t === WILDCARD || t === tail[i]);
+  return wantTokens.every((t, i) => (wildcards && t === WILDCARD) || t === tail[i]);
 }
 
 /** One segment the run minted, written into a frozen destination in its place. */
@@ -94,12 +99,13 @@ function tokens({ host, segs }: HostPath): string[] {
 export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions = {}): boolean {
   const dest = splitHostPath(finalUrl);
   const w = splitHostPath(want);
-  if (boundaryMatch(dest, w)) return true;
+  const wildcards = opts.wildcards ?? false;
+  if (boundaryMatch(dest, w, wildcards)) return true;
   const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
   const strippedDest = stripLocale(dest, prefixes);
   const strippedWant = stripLocale(w, prefixes);
   if (strippedDest === dest && strippedWant === w) return false; // nothing stripped — stage 1 decided
-  return boundaryMatch(strippedDest, strippedWant);
+  return boundaryMatch(strippedDest, strippedWant, wildcards);
 }
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */

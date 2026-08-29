@@ -290,11 +290,20 @@ describe("a generalized URL expect must not pre-satisfy its own step (#96)", () 
     });
   });
 
-  it("list → detail still freezes: the list page does not satisfy the detail template", () => {
+  it("list → detail freezes NO url expect: a wildcard leaf names an area, not a page", () => {
+    // The cost of the wildcard-leaf rule, taken deliberately: `/orders/*` is satisfied by
+    // `/orders/login` in an app that routes it there, and one run cannot tell us whether it does.
     const steps: Step[] = [{ kind: "click", target: { text: "Order 586738" } }];
     const marks = [{ url: "https://shop.co/orders", requestCount: 0 }];
     assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738", []));
-    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*" });
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes one when the destination ends in a literal segment", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
   });
 
   it("freezes no URL expect when nothing but the host would survive", () => {

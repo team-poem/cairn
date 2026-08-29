@@ -138,8 +138,8 @@ export async function runScenario(
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes)
-      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards));
 
   // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
   // sink opens its own trace — header, then one implicit case so every consumer reads one shape.

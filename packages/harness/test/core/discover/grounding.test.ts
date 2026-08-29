@@ -440,10 +440,11 @@ describe("navigated freezes a destination a later run can still reach (#172 on t
     const to = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false).find(
       (a) => a.kind === "navigated",
     )?.to;
-    expect(urlReached("https://shop.co/orders/586738/done", to!)).toBe(true);
-    expect(urlReached("https://shop.co/orders/999001/done", to!)).toBe(true);
+    const opts = { wildcards: true };
+    expect(urlReached("https://shop.co/orders/586738/done", to!, opts)).toBe(true);
+    expect(urlReached("https://shop.co/orders/999001/done", to!, opts)).toBe(true);
     // and it still catches landing somewhere else
-    expect(urlReached("https://shop.co/orders/999001/cancel", to!)).toBe(false);
+    expect(urlReached("https://shop.co/orders/999001/cancel", to!, opts)).toBe(false);
   });
 
   it("a destination with no run-minted segment freezes exactly as before", () => {
@@ -465,13 +466,25 @@ describe("a destination that names no page degrades to bare navigated (#182 revi
     // the all-vacuous gate still counts it as the non-check it is: without the stamp, degrading
     // would turn a scenario that failed closed into a green one (#137).
     const out = deriveAssertions([], ranTo("https://shop.co/586738"), false);
-    expect(out).toContainEqual({ kind: "navigated", vacuous: true, origin: "derived" });
+    expect(out).toContainEqual({
+      kind: "navigated",
+      vacuous: true,
+      vacuousBecause: "no-destination",
+      origin: "derived",
+    });
     expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
   });
 
-  it("one literal segment is enough to keep the destination", () => {
+  it("a wildcard leaf is not a page either — the mount prefix does not save it", () => {
+    // shop.co/orders/* is reached by /orders/login and /orders/error in an app that routes them
+    // under the prefix, and one URL cannot tell us whether this app does.
     const out = deriveAssertions([], ranTo("https://shop.co/orders/586738"), false);
-    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*", origin: "derived" });
+    expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
+  });
+
+  it("a literal leaf keeps the destination", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
   });
 });
 

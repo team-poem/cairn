@@ -19,12 +19,14 @@ export function checkAssertion(
   benign: readonly string[] = [],
   benignConsole: readonly string[] = [],
   localePrefixes?: readonly string[],
+  /** Does the scenario being judged use `*` for a run-minted segment (`Scenario.wildcards`)? */
+  wildcards?: boolean,
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
-      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes })) {
+      if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes, wildcards })) {
         return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
       }
       return { assertion, passed: true, detail: finalUrl };
@@ -79,6 +81,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
     private readonly benign: readonly string[] = [],
     private readonly benignConsole: readonly string[] = [],
     private readonly localePrefixes?: readonly string[],
+    private readonly wildcards?: boolean,
   ) {}
 
   supports(assertion: Assertion): boolean {
@@ -86,7 +89,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes, this.wildcards);
   }
 }
 
@@ -116,11 +119,15 @@ export function toVerdict(results: AssertionResult[]): Verdict {
   // #137: every check was already true before the flow ran (stamped at freeze) — the scenario
   // cannot go red, so a green would mean nothing. Same fail-closed stance as the empty set.
   if (results.every((r) => r.assertion.vacuous === true)) {
+    // Say which kind of nothing it is. A freeze that could not name the destination did watch the
+    // flow navigate; calling that "already satisfied before the flow ran" points at the wrong fix.
+    const pageless = results.some((r) => r.assertion.vacuousBecause === "no-destination");
     return {
       passed: false,
       results,
-      detail:
-        "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
+      detail: pageless
+        ? "the run navigated, but no destination could be frozen for it, and nothing else here can fail — the scenario cannot detect a broken flow"
+        : "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
     };
   }
   return { passed: results.every((r) => r.passed), results };
@@ -158,15 +165,18 @@ export class AssertionCritic implements Critic {
    *   default is `urlReached`'s conservative built-in list. Keep this consistent with whatever
    *   the same run passed as `RunHarnessOptions.localePrefixes`, or the verdict and the mid-run
    *   `expect` checks can disagree on the same URL.
+   * @param wildcards whether the scenario's frozen destinations use `*` for a run-minted segment
+   *   (`Scenario.wildcards`). Absent for a file frozen before the notation, whose `*` is literal.
    */
   constructor(
     custom: CustomChecks = {},
     benign: readonly string[] = [],
     benignConsole: readonly string[] = [],
     localePrefixes?: readonly string[],
+    wildcards?: boolean,
   ) {
     this.handlers = [
-      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes),
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards),
       new CustomAssertionHandler(custom),
     ];
   }

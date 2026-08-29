@@ -114,9 +114,12 @@ export function deriveAssertions(
   if (navigated && destination && namesAPage(destination)) out.push({ kind: "navigated", to: destination });
   // The degraded form is stamped `vacuous` on the spot. "Something navigated" cannot tell a wrong
   // page from the right one, so leaving it unstamped would hand the all-vacuous gate (#137) a live
-  // assertion it should never have counted — trading an unsatisfiable check for a green run. A bare
-  // `navigated` the MODEL proposed is a different thing and is not stamped here.
-  else if (navigated && destination) out.push({ kind: "navigated", vacuous: true });
+  // assertion it should never have counted — trading an unsatisfiable check for a green run. It
+  // carries its own reason, because the flow DID navigate and reporting it as "nothing changed"
+  // sends a reader looking in the wrong place. A bare `navigated` the MODEL proposed is a different
+  // thing and is not stamped here.
+  else if (navigated && destination)
+    out.push({ kind: "navigated", vacuous: true, vacuousBecause: "no-destination" });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") {

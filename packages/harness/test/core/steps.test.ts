@@ -41,11 +41,18 @@ describe("urlReached — URL counter-example corpus (default options)", () => {
 });
 
 describe("urlReached — wildcard segments in a frozen destination", () => {
+  // `wildcards: true` is what `Scenario.wildcards` sets: this freeze wrote the notation.
   for (const c of URL_REACHED_WILDCARD_CORPUS) {
     it(`${c.note}: ${c.final} vs "${c.want}" → ${c.reached}`, () => {
-      expect(urlReached(c.final, c.want)).toBe(c.reached);
+      expect(urlReached(c.final, c.want, { wildcards: true })).toBe(c.reached);
     });
   }
+
+  it("without the marker a * is the character it was frozen as", () => {
+    // A skill written before the notation existed: its path really does contain a star.
+    expect(urlReached("https://shop.co/search/*/results", "shop.co/search/*/results")).toBe(true);
+    expect(urlReached("https://shop.co/search/shoes/results", "shop.co/search/*/results")).toBe(false);
+  });
 });
 
 describe("urlReached — locale prefixes are consumer-injected, not guessed (#86)", () => {

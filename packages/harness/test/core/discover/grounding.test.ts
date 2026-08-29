@@ -622,3 +622,25 @@ describe("query-dispatch endpoints keep their operation", () => {
     expect(out.find((a) => a.kind === "request-status")?.urlIncludes).toBe("shop.co/cart/add");
   });
 });
+
+describe("vacuity is judged with the consumer's locale list (#182 review)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("an injected prefix makes the entry page's own destination vacuous", () => {
+    // Without the list, `fr` is not a locale to the engine, so a check the untouched entry page
+    // already satisfies would look discriminating.
+    const marked = markVacuous([{ kind: "navigated", to: "shop.co/en/cart" }], at("https://shop.co/fr/cart"), [], {
+      localePrefixes: ["fr", "en"],
+    });
+    expect(marked[0]?.vacuous).toBe(true);
+  });
+
+  it("and without it the same pair is not vacuous", () => {
+    const marked = markVacuous([{ kind: "navigated", to: "shop.co/en/cart" }], at("https://shop.co/fr/cart"));
+    expect(marked[0]?.vacuous).toBeUndefined();
+  });
+});

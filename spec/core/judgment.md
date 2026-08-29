@@ -45,7 +45,11 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):
 - a proposed `request-status` is kept *only if a captured request matches it* (hallucinations dropped);
-- `navigated` asserts the *right destination* (host+path) — catching "navigated, but to the wrong page."
+- `navigated` asserts the *right destination* (host+path) — catching "navigated, but to the wrong
+  page." A segment the run minted is frozen as `*`, which matches exactly one segment, so an order
+  id in a confirmation URL does not pin the check to that run; a destination whose path is nothing
+  but wildcards is refused, since the app's error page would satisfy it. A literal `*` in a page's
+  own path is read as a wildcard — the one place this notation is lossy.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 

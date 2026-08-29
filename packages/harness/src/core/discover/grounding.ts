@@ -7,6 +7,7 @@ import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
+import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
 import {
   hasStablePath,
@@ -30,20 +31,30 @@ export function markVacuous(
   assertions: Assertion[],
   baseline: Evidence,
   benign: readonly string[] = [],
+  /** The consumer's locale list — the same one the verdict judges `navigated` with. Judging vacuity
+   * under the engine defaults instead cuts both ways: an injected prefix makes a check the entry
+   * page already satisfies look discriminating, and a run the consumer would call reached gets
+   * stamped as one that was not. */
+  urlMatch: UrlMatchOptions = {},
 ): Assertion[] {
   return assertions.map((a) =>
-    isVacuousOn(a, baseline, benign) ? { ...a, vacuous: true as const } : a,
+    isVacuousOn(a, baseline, benign, urlMatch) ? { ...a, vacuous: true as const } : a,
   );
 }
 
-function isVacuousOn(a: Assertion, baseline: Evidence, benign: readonly string[]): boolean {
+function isVacuousOn(
+  a: Assertion,
+  baseline: Evidence,
+  benign: readonly string[],
+  urlMatch: UrlMatchOptions = {},
+): boolean {
   switch (a.kind) {
     case "request-status":
       return (
         findRequestStatus(baseline.logic.requests, a.urlIncludes, a.status, a.method) !== undefined
       );
     case "navigated":
-      return a.to !== undefined && urlReached(baseline.execution.finalUrl ?? "", a.to);
+      return a.to !== undefined && urlReached(baseline.execution.finalUrl ?? "", a.to, urlMatch);
     case "no-failed-requests":
       return !sawRequestFailure(baseline.logic.requests, benign);
     case "no-console-errors":

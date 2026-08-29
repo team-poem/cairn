@@ -83,7 +83,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
-    const assertions = markVacuous(grounded, baseline, benign);
+    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
     return truncated
       ? { name: intent, steps, assertions, truncated: true }
       : { name: intent, steps, assertions };

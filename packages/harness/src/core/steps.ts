@@ -63,12 +63,17 @@ function stripLocale(hp: HostPath, prefixes: readonly string[]): HostPath {
 // Boundary match (never raw substring): equal, or a suffix starting at a path boundary. Compared
 // segment by segment so a frozen `*` stands for exactly one segment — the freeze writes one where
 // the run minted the value (an order id in a confirmation URL), and matching it literally would
-// fail every later run. A want that is nothing but wildcards is refused: it would reach anything.
+// fail every later run. A want whose PATH is nothing but wildcards is refused: `shop.co/*` is
+// reached by the app's error page and its login redirect alike, which is the opposite of what a
+// destination check is for. The test skips the host token deliberately — counting it would let
+// `shop.co/*` through, and refusing here rather than only at freeze also covers a hand-written
+// target and a skill already on disk.
 function boundaryMatch(dest: HostPath, want: HostPath): boolean {
   const wantTokens = tokens(want);
   const destTokens = tokens(dest);
   if (wantTokens.length === 0 || wantTokens.length > destTokens.length) return false;
-  if (wantTokens.every((t) => t === WILDCARD)) return false;
+  if (want.segs.length > 0 && want.segs.every((t) => t === WILDCARD)) return false;
+  if (want.segs.length === 0 && want.host === WILDCARD) return false;
   const tail = destTokens.slice(destTokens.length - wantTokens.length);
   return wantTokens.every((t, i) => t === WILDCARD || t === tail[i]);
 }

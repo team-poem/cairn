@@ -82,8 +82,9 @@ export const URL_REACHED_WILDCARD_CORPUS: UrlReachedCase[] = [
   { note: "a bare-suffix want may carry a wildcard", final: "https://shop.co/en/orders/586738/done", want: "orders/*/done", reached: true },
   { note: "query and hash are ignored as ever", final: "https://shop.co/orders/586738/done?from=cart#top", want: "shop.co/orders/*/done", reached: true },
   { note: "a wildcard-only want reaches nothing", final: "https://shop.co/orders", want: "*", reached: false },
-  { note: "host + wildcard pins host and depth", final: "https://shop.co/586738", want: "shop.co/*", reached: true },
-  { note: "host + wildcard does not span depths", final: "https://shop.co/orders/586738", want: "shop.co/*", reached: false },
+  { note: "host + wildcard reaches nothing — the error page would satisfy it too", final: "https://shop.co/586738", want: "shop.co/*", reached: false },
+  { note: "…the refusal looks at the path, so one literal segment still matches", final: "https://shop.co/app/586738", want: "shop.co/app/*", reached: true },
+  { note: "host + wildcard does not span depths either", final: "https://shop.co/orders/586738", want: "shop.co/*", reached: false },
   { note: "cross-locale still works around a wildcard", final: "https://shop.co/ko/orders/586738/done", want: "shop.co/en/orders/*/done", reached: true },
 ];
 

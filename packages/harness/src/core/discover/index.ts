@@ -43,6 +43,10 @@ export interface DiscoverOptions {
   /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
    * gate (every action runs) — behaviour unchanged. */
   policy?: ActionPolicy;
+  /** The consumer's locale prefixes — the same list replay judges with. The freeze must decide a
+   * step's URL expect under the SAME matching rules replay will pre-check it with, or an expect
+   * that looked discriminating at freeze becomes pre-satisfied at replay and the step is skipped. */
+  localePrefixes?: readonly string[];
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
@@ -58,7 +62,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover" } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -70,7 +74,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
     const firstCount = marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? 0;
     const evidence = await observeOutcomes(driver, firstCount);
-    assignStepExpects(steps, marks, evidence);
+    assignStepExpects(steps, marks, evidence, { localePrefixes });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({
@@ -79,10 +83,18 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
-    const assertions = markVacuous(grounded, baseline, benign);
+    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    // Declare the notation only when this freeze actually used it, so a file without the marker
+    // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
+    const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
+    const wildcards =
+      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      steps.some((step) => wrote(step.expect?.url))
+        ? { wildcards: true as const }
+        : {};
     return truncated
-      ? { name: intent, steps, assertions, truncated: true }
-      : { name: intent, steps, assertions };
+      ? { name: intent, steps, assertions, truncated: true, ...wildcards }
+      : { name: intent, steps, assertions, ...wildcards };
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

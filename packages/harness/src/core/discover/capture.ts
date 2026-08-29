@@ -7,6 +7,8 @@
 import type { Driver } from "../ports.js";
 import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
 import { isBenignRequest, isMutation } from "../requests.js";
+import { urlReached, WILDCARD } from "../steps.js";
+import type { UrlMatchOptions } from "../steps.js";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -62,6 +64,11 @@ export function assignStepExpects(
   steps: Step[],
   marks: readonly (OutcomeMark | null)[],
   evidence: Evidence,
+  /** The consumer's matching rules — replay pre-checks a frozen URL expect with these, so the
+   * freeze has to ask "is this already satisfied?" under the same ones. Locale stripping only ever
+   * makes matching MORE permissive, so freezing under the defaults while replay runs with an
+   * injected prefix flips a discriminating expect into a pre-satisfied one, and the step is skipped. */
+  urlMatch: UrlMatchOptions = {},
 ): void {
   const requests = evidence.logic.requests;
   for (let i = 0; i < steps.length; i++) {
@@ -69,8 +76,15 @@ export function assignStepExpects(
     if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
     const urlAfter = next ? next.url : evidence.execution.finalUrl;
-    if (urlAfter && (!mark.url || destinationKey(urlAfter) !== destinationKey(mark.url))) {
-      steps[i]!.expect = { url: destinationKey(urlAfter) };
+    // Judge on the value ABOUT TO BE FROZEN, not on the concrete urls: replay pre-checks a URL
+    // expect before running the step and skips it when already satisfied, so an expect the
+    // pre-navigation page also satisfies makes the step vanish (#96's failure class). Generalizing
+    // the frozen value re-opened that door — two siblings of one template (`/orders/111` →
+    // `/orders/222`) both match `shop.co/orders/*`. Such a step keeps no URL expect and falls
+    // through to its mutation expect, or stays unchecked.
+    const frozenUrl = urlAfter ? stableDestination(urlAfter) : undefined;
+    if (frozenUrl && namesAPage(frozenUrl) && (!mark.url || !urlReached(mark.url, frozenUrl, urlMatch))) {
+      steps[i]!.expect = { url: frozenUrl };
       continue;
     }
     const tail = requests.slice(mark.requestCount, next?.requestCount ?? requests.length);
@@ -273,6 +287,41 @@ export function sameEndpointShape(a: string, b: string): boolean {
   const segsB = destinationKey(b).split("/");
   if (segsA.length !== segsB.length) return false;
   return segsA.every((seg, i) => seg === segsB[i] || (isDynamicSegment(seg) && isDynamicSegment(segsB[i]!)));
+}
+
+/**
+ * The destination to freeze for a `navigated` check (and a step's URL expect): host + path with
+ * every run-minted segment replaced by `*`, which `urlReached` matches one-for-one. A URL with no
+ * such segment freezes exactly as before.
+ *
+ * Why not the stable PREFIX used for request URLs: a request check matches by substring, so cutting
+ * at the first id still matches the whole URL, but a destination is matched at a path boundary and
+ * a parent never counts as reaching a deeper page — `shop.co/orders` would fail even against the
+ * run that discovered `shop.co/orders/586738/done`. The wildcard keeps the depth and the segments
+ * around the id, and pins the host either way.
+ */
+export function stableDestination(url: string): string {
+  const [host = "", ...segs] = destinationKey(url).split("/");
+  return [host, ...segs.map((seg) => (isDynamicSegment(seg) ? WILDCARD : seg))].join("/");
+}
+
+/**
+ * Does a frozen destination name a page, or merely the area one lives in? `shop.co/*` is reached by
+ * an error page and a login redirect alike, which is exactly what `navigated` exists to catch — and
+ * `shop.co/app/*` is no better in an app that mounts login and errors under the same prefix. The
+ * cost of this line is real: a list → detail step freezes no URL check, since `/products/586738`
+ * generalizes to a wildcard leaf. Losing a check is the loud direction; keeping one that the error
+ * page satisfies is the silent one.
+ *
+ * Caveat: a literal `*` is legal in a URL path and is not escaped here, so a page whose real path
+ * contains one freezes as a wildcard and matches more than it did before.
+ */
+export function namesAPage(destination: string): boolean {
+  const path = destination.split("/").slice(1).filter((seg) => seg !== "");
+  // The LAST segment has to be literal, not merely some segment: `/app/*` and `/products/*` keep a
+  // literal mount prefix and are still reached by that app's own `/app/login` and `/app/error`,
+  // because the leaf is where the page's identity lives. `/orders/*/done` keeps it.
+  return path.length > 0 && path[path.length - 1] !== WILDCARD;
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that

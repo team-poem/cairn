@@ -74,6 +74,12 @@ export interface AssertionMeta {
    * without the flow doing anything (#137). Stamped at freeze; when EVERY assertion carries it,
    * replay fails closed — the empty-assertion rule's sibling. */
   vacuous?: true;
+  /** Why the check cannot discriminate, when it is not the usual reason. Absent means the starting
+   * state already satisfied it; `no-destination` means the freeze had a destination it could not
+   * name (every path segment was run-minted), so "the flow navigated somewhere" is all that is
+   * left. The verdict says which, instead of reporting a flow that did navigate as one that
+   * changed nothing. */
+  vacuousBecause?: "no-destination";
 }
 
 /**
@@ -100,6 +106,11 @@ export interface Scenario {
   /** Set by discover when it stopped at the step cap without reaching "done" — the path may be
    * incomplete, so a host can warn before trusting the freeze. Absent on a normal finish. */
   truncated?: boolean;
+  /** Set by discover when this freeze wrote a `*` for a segment the run minted, in a `navigated`
+   * destination or a step's URL expect. Absent means the file predates the notation, so a `*` in it
+   * is a literal path character and is matched as one — a page whose real path contains one keeps
+   * the meaning it was frozen with instead of quietly widening under a newer engine. */
+  wildcards?: true;
 }
 
 /** An interactive element the discover loop perceives and acts on. Form state rides along so

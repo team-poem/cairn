@@ -507,3 +507,34 @@ describe("runScenario trace", () => {
     expect(result.verdict.passed).toBe(true);
   });
 });
+
+describe("the wildcard notation is declared by the file, not assumed (#182 review)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const wildcarded: Scenario = {
+    name: "order → done",
+    steps: [{ kind: "goto", url: "https://shop.co/cart" }],
+    assertions: [{ kind: "navigated", to: "shop.co/orders/*/done" }],
+  };
+
+  it("a freeze that declared it matches any id in that segment", async () => {
+    const driver = new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") });
+    const { result } = await runScenario({ ...wildcarded, wildcards: true }, { driver });
+    expect(result.verdict.passed).toBe(true);
+  });
+
+  it("a file frozen before the notation keeps its * literal", async () => {
+    // Same assertion, no marker: the page's path really contains a star, so a different id is not
+    // that page and the check must fail rather than quietly widen.
+    const driver = new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") });
+    const { result } = await runScenario(wildcarded, { driver });
+    expect(result.verdict.passed).toBe(false);
+
+    const exact = new FakeDriver({ evidence: at("https://shop.co/orders/*/done") });
+    const { result: r2 } = await runScenario(wildcarded, { driver: exact });
+    expect(r2.verdict.passed).toBe(true);
+  });
+});

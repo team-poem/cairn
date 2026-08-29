@@ -221,6 +221,12 @@ verdicts + whole-suite LLM usage; `renderSuiteReport(result)` renders the markdo
 }
 ```
 
+A frozen destination writes `*` where the run minted the segment — `"to": "shop.co/orders/*/done"`
+matches one order id as well as the next, while still rejecting `/orders/999/cancel` and any other
+depth. A destination that would *end* in a wildcard is refused instead: `/products/*` is reached by
+that app's own `/products/login`. Scenarios that use the notation carry `"wildcards": true`; without
+it a `*` is matched as the literal character it was frozen as.
+
 Each `target` keeps several locators — `text` (accessible name) first, with `nth` to address
 the Nth of several identically-named elements (`{"text": "Accept", "role": "button", "nth": 2}`
 is the 3rd Accept button, 0-based), `role` + `index` as a rename-resilient fallback, `selector`

@@ -7,8 +7,15 @@ import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
 import { urlReached } from "../steps.js";
+import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
-import { destinationKey, hasStablePath, sameEndpointShape, stableEndpointPrefix } from "./capture.js";
+import {
+  hasStablePath,
+  namesAPage,
+  sameEndpointShape,
+  stableDestination,
+  stableEndpointPrefix,
+} from "./capture.js";
 
 /**
  * Stamp assertions the STARTING state already satisfies (#137), judged against the baseline
@@ -24,20 +31,30 @@ export function markVacuous(
   assertions: Assertion[],
   baseline: Evidence,
   benign: readonly string[] = [],
+  /** The consumer's locale list — the same one the verdict judges `navigated` with. Judging vacuity
+   * under the engine defaults instead cuts both ways: an injected prefix makes a check the entry
+   * page already satisfies look discriminating, and a run the consumer would call reached gets
+   * stamped as one that was not. */
+  urlMatch: UrlMatchOptions = {},
 ): Assertion[] {
   return assertions.map((a) =>
-    isVacuousOn(a, baseline, benign) ? { ...a, vacuous: true as const } : a,
+    isVacuousOn(a, baseline, benign, urlMatch) ? { ...a, vacuous: true as const } : a,
   );
 }
 
-function isVacuousOn(a: Assertion, baseline: Evidence, benign: readonly string[]): boolean {
+function isVacuousOn(
+  a: Assertion,
+  baseline: Evidence,
+  benign: readonly string[],
+  urlMatch: UrlMatchOptions = {},
+): boolean {
   switch (a.kind) {
     case "request-status":
       return (
         findRequestStatus(baseline.logic.requests, a.urlIncludes, a.status, a.method) !== undefined
       );
     case "navigated":
-      return a.to !== undefined && urlReached(baseline.execution.finalUrl ?? "", a.to);
+      return a.to !== undefined && urlReached(baseline.execution.finalUrl ?? "", a.to, urlMatch);
     case "no-failed-requests":
       return !sawRequestFailure(baseline.logic.requests, benign);
     case "no-console-errors":
@@ -85,8 +102,24 @@ export function deriveAssertions(
   }
   const { navigated, finalUrl } = evidence.execution;
   // assert reaching the RIGHT destination (host+path), not just "navigated" — catches a flow
-  // that lands on an error/wrong page yet technically navigated.
-  if (navigated && finalUrl) out.push({ kind: "navigated", to: destinationKey(finalUrl) });
+  // that lands on an error/wrong page yet technically navigated. Run-minted segments are frozen as
+  // wildcards (#172's shape on this path): an order-confirmation URL carries the order id, and
+  // freezing that id makes every later replay miss a destination it actually reached.
+  // A destination whose segments are all wildcards (an app whose first path segment is the id) is
+  // reached by the error page and the login redirect too — the very thing this check exists to
+  // catch — so it degrades to the bare form rather than freezing a check that proves nothing. The
+  // refusal happens HERE, at freeze, the way the request path refuses a host-only URL; leaving it
+  // to the matcher would bury an unsatisfiable assertion in the skill with no reason recorded.
+  const destination = finalUrl ? stableDestination(finalUrl) : undefined;
+  if (navigated && destination && namesAPage(destination)) out.push({ kind: "navigated", to: destination });
+  // The degraded form is stamped `vacuous` on the spot. "Something navigated" cannot tell a wrong
+  // page from the right one, so leaving it unstamped would hand the all-vacuous gate (#137) a live
+  // assertion it should never have counted — trading an unsatisfiable check for a green run. It
+  // carries its own reason, because the flow DID navigate and reporting it as "nothing changed"
+  // sends a reader looking in the wrong place. A bare `navigated` the MODEL proposed is a different
+  // thing and is not stamped here.
+  else if (navigated && destination)
+    out.push({ kind: "navigated", vacuous: true, vacuousBecause: "no-destination" });
   else if (navigated) out.push({ kind: "navigated" });
   for (const a of proposed ?? []) {
     if (!a || typeof (a as { kind?: unknown }).kind !== "string") {

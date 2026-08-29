@@ -248,3 +248,87 @@ describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () =>
     });
   });
 });
+
+describe("a step's URL expect generalizes the run's own ids (#172 on the URL path)", () => {
+  it("freezes a wildcard for the minted segment, while the move itself is judged on the real urls", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
+  });
+
+  it("a query-only move still freezes no URL expect (#96 unchanged)", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next" } }];
+    const marks = [{ url: "https://shop.co/list?page=1", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/list?page=2", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});
+
+describe("a generalized URL expect must not pre-satisfy its own step (#96)", () => {
+  it("freezes no URL expect for a move between two siblings of one template", () => {
+    // /orders/111 → /orders/222 both match shop.co/orders/*, and replay pre-checks a URL expect
+    // before running the step — freezing it would make the step skip itself.
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/222", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("that step still gets its mutation expect when one fired", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(
+      steps,
+      marks,
+      evidenceAt("https://shop.co/orders/222", [
+        { method: "POST", url: "https://shop.co/api/orders/222/open", status: 200 },
+      ]),
+    );
+    expect(steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("list → detail freezes NO url expect: a wildcard leaf names an area, not a page", () => {
+    // The cost of the wildcard-leaf rule, taken deliberately: `/orders/*` is satisfied by
+    // `/orders/login` in an app that routes it there, and one run cannot tell us whether it does.
+    const steps: Step[] = [{ kind: "click", target: { text: "Order 586738" } }];
+    const marks = [{ url: "https://shop.co/orders", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes one when the destination ends in a literal segment", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
+  });
+
+  it("freezes no URL expect when nothing but the host would survive", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Open" } }];
+    const marks = [{ url: "https://shop.co/home", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/586738", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});
+
+describe("the freeze decides a URL expect under the consumer's matching rules", () => {
+  it("does not freeze an expect the replay-side locale list would pre-satisfy", () => {
+    // A step that redirects /cart → /de/cart: with "de" injected, replay's pre-check finds the
+    // pre-navigation page already reaches shop.co/de/cart and skips the step. Freezing under the
+    // engine defaults while replay runs with the consumer list is exactly that mismatch (#86).
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []), { localePrefixes: ["de"] });
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes it when the consumer declares no such locale", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/de/cart" });
+  });
+});

@@ -135,10 +135,14 @@ export async function runHarness(
   const { context, planner, driver, critic, reporter } = harness;
   const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
-  const urlMatch: UrlMatchOptions = { localePrefixes: opts.localePrefixes };
-
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
+  // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
+  // segment" is a property of the file being replayed, and an older file predates the notation.
+  const urlMatch: UrlMatchOptions = {
+    localePrefixes: opts.localePrefixes,
+    wildcards: scenario.wildcards,
+  };
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).

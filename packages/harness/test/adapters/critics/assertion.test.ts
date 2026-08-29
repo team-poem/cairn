@@ -7,7 +7,7 @@ import {
   judgeAssertion,
   toVerdict,
 } from "../../../src/adapters/critics/assertion.js";
-import type { Evidence } from "../../../src/core/types.js";
+import type { Assertion, Evidence } from "../../../src/core/types.js";
 
 function ev(requests: { method: string; url: string; status: number }[]): Evidence {
   return {
@@ -298,5 +298,23 @@ describe("toVerdict — all-vacuous gate (#137)", () => {
       { assertion: { kind: "expect", criterion: "cart shows the item", origin: "user" }, passed: true },
     ]);
     expect(v.passed).toBe(true);
+  });
+});
+
+describe("an all-vacuous verdict says which kind of nothing it is (#182 review)", () => {
+  const held = (assertion: Assertion) => ({ assertion, passed: true });
+
+  it("a freeze that could not name the destination is not 'nothing changed'", () => {
+    const v = toVerdict([
+      held({ kind: "navigated", vacuous: true, vacuousBecause: "no-destination" }),
+      held({ kind: "no-failed-requests", vacuous: true }),
+    ]);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toMatch(/no destination could be frozen/);
+  });
+
+  it("the ordinary case keeps its own wording", () => {
+    const v = toVerdict([held({ kind: "no-failed-requests", vacuous: true })]);
+    expect(v.detail).toMatch(/already satisfied before the flow ran/);
   });
 });

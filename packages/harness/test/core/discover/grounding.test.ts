@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { deriveAssertions, markVacuous } from "../../../src/core/discover/grounding.js";
 import type { Evidence } from "../../../src/core/types.js";
 import { findRequestStatus } from "../../../src/core/requests.js";
+import { urlReached } from "../../../src/core/steps.js";
 import { STABLE_PREFIX_CORPUS } from "../../support/url-corpus.js";
 
 const evidence: Evidence = {
@@ -423,6 +424,93 @@ describe("which request proves the action, and which method is frozen (#178 revi
   });
 });
 
+describe("navigated freezes a destination a later run can still reach (#172 on the URL path)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("writes a wildcard where the run minted the segment", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
+  });
+
+  it("the frozen destination matches the discovering run AND the next one", () => {
+    const to = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false).find(
+      (a) => a.kind === "navigated",
+    )?.to;
+    const opts = { wildcards: true };
+    expect(urlReached("https://shop.co/orders/586738/done", to!, opts)).toBe(true);
+    expect(urlReached("https://shop.co/orders/999001/done", to!, opts)).toBe(true);
+    // and it still catches landing somewhere else
+    expect(urlReached("https://shop.co/orders/999001/cancel", to!, opts)).toBe(false);
+  });
+
+  it("a destination with no run-minted segment freezes exactly as before", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/checkout/complete"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/checkout/complete", origin: "derived" });
+  });
+});
+
+describe("a destination that names no page degrades to bare navigated (#182 review)", () => {
+  const ranTo = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("an app whose first path segment is the id freezes no destination, and the leftover proves nothing", () => {
+    // shop.co/* is reached by the error page and the login redirect too — exactly what this
+    // assertion exists to catch — so the bare form is the honest freeze. It carries `vacuous` so
+    // the all-vacuous gate still counts it as the non-check it is: without the stamp, degrading
+    // would turn a scenario that failed closed into a green one (#137).
+    const out = deriveAssertions([], ranTo("https://shop.co/586738"), false);
+    expect(out).toContainEqual({
+      kind: "navigated",
+      vacuous: true,
+      vacuousBecause: "no-destination",
+      origin: "derived",
+    });
+    expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
+  });
+
+  it("a wildcard leaf is not a page either — the mount prefix does not save it", () => {
+    // shop.co/orders/* is reached by /orders/login and /orders/error in an app that routes them
+    // under the prefix, and one URL cannot tell us whether this app does.
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738"), false);
+    expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
+  });
+
+  it("a literal leaf keeps the destination", () => {
+    const out = deriveAssertions([], ranTo("https://shop.co/orders/586738/done"), false);
+    expect(out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
+  });
+});
+
+
+describe("generalizing a destination also widens vacuity (#137 interaction)", () => {
+  it("entering on one detail page and landing on another is now marked vacuous", () => {
+    // The frozen check `shop.co/p/*` cannot tell the two apart, so the starting state already
+    // satisfies it — which is the honest reading, and (with the guards) fails the scenario closed.
+    const grounded = deriveAssertions(
+      [],
+      {
+        execution: { actions: [], navigated: true, finalUrl: "https://shop.co/p/586738", blocked: false },
+        perception: {},
+        logic: { requests: [], console: [] },
+      },
+      false,
+    );
+    const baseline: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop.co/p/999001", blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    };
+    expect(markVacuous(grounded, baseline).find((a) => a.kind === "navigated")?.vacuous).toBe(true);
+  });
+});
+
 describe("noise cannot prove an action (#178 review)", () => {
   const beacon = { method: "POST", url: "https://analytics.co/collect", status: 200 };
   const ev = (requests: Evidence["logic"]["requests"]): Evidence => ({
@@ -545,5 +633,27 @@ describe("query-dispatch endpoints keep their operation", () => {
       false,
     );
     expect(out.find((a) => a.kind === "request-status")?.urlIncludes).toBe("shop.co/cart/add");
+  });
+});
+
+describe("vacuity is judged with the consumer's locale list (#182 review)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: false, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+
+  it("an injected prefix makes the entry page's own destination vacuous", () => {
+    // Without the list, `fr` is not a locale to the engine, so a check the untouched entry page
+    // already satisfies would look discriminating.
+    const marked = markVacuous([{ kind: "navigated", to: "shop.co/en/cart" }], at("https://shop.co/fr/cart"), [], {
+      localePrefixes: ["fr", "en"],
+    });
+    expect(marked[0]?.vacuous).toBe(true);
+  });
+
+  it("and without it the same pair is not vacuous", () => {
+    const marked = markVacuous([{ kind: "navigated", to: "shop.co/en/cart" }], at("https://shop.co/fr/cart"));
+    expect(marked[0]?.vacuous).toBeUndefined();
   });
 });

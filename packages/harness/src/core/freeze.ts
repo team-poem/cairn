@@ -104,6 +104,23 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
 }
 
 /**
+ * Does this freeze carry a check that only the flow can satisfy? A live (non-vacuous)
+ * `request-status` is the strongest form — it proves work happened rather than a page being
+ * reached — but a `custom` check the product registered and an `expect` criterion frozen under
+ * `--semantic` are checks someone authored for this flow too, and calling a scenario unverified
+ * because of their kind would be false. What remains outside this set is a bare `navigated` and
+ * the two guards, which pass as soon as the page loads clean.
+ *
+ * It still over-warns on a genuinely read-only flow, which has no action to prove; that is the
+ * loud direction and is left as is.
+ */
+export function provesAnAction(scenario: Scenario): boolean {
+  return scenario.assertions.some(
+    (a) => (a.kind === "request-status" || a.kind === "custom" || a.kind === "expect") && a.vacuous !== true,
+  );
+}
+
+/**
  * The reason a grounding gate dropped a proposed `request-status` — or `undefined` for any other
  * event. These are the lines worth reading next to a freeze that ended up with no proof: the most
  * common is a check the model invented that no captured request matched, and the rest are the
@@ -115,17 +132,6 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
  * Whether to warn is therefore decided by what the freeze CARRIES, not by what it dropped; these
  * reasons only explain a freeze already found wanting.
  */
-/**
- * Does this freeze carry a check that the action itself fired? A live (non-vacuous)
- * `request-status` is the only assertion that proves work happened rather than a page being
- * reached, so its absence is what a reader needs told — whether the model proposed nothing, or
- * proposed something the freeze refused. It over-warns on a genuinely read-only flow, which has no
- * action to prove; that is the loud direction and is left as is.
- */
-export function provesAnAction(scenario: Scenario): boolean {
-  return scenario.assertions.some((a) => a.kind === "request-status" && a.vacuous !== true);
-}
-
 export function droppedProofReason(event: TraceEvent): string | undefined {
   if (event.kind !== "gate" || event.payload.gate !== "grounding" || !event.payload.action) return undefined;
   try {

@@ -193,8 +193,9 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
   if (!provesAnAction(scenario)) {
     console.log(
-      `\n⚠ nothing here checks that the action itself fired — replay passes as soon as the page is ` +
-        `reached. Fine for a read-only flow; otherwise re-discover, or add a check of your own.`,
+      `\n⚠ nothing here checks that the action itself fired — no request check, no custom check, ` +
+        `no judged criterion, so replay passes as soon as the page is reached. Fine for a read-only ` +
+        `flow; otherwise re-discover, or add a check of your own.`,
     );
     for (const reason of droppedProofs) console.log(`  · proposed check dropped: ${reason}`);
   }

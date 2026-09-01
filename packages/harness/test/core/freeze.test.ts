@@ -143,3 +143,23 @@ describe("provesAnAction — what decides the warning is the freeze, not the dro
     expect(provesAnAction(scenario([{ kind: "navigated", to: "shop.co/done" }, { kind: "no-failed-requests" }]))).toBe(false);
   });
 });
+
+describe("provesAnAction counts every authored check, not only request ones", () => {
+  const only = (assertions: Scenario["assertions"]): Scenario => ({
+    name: "t",
+    steps: [{ kind: "goto", url: "https://shop.co" }],
+    assertions,
+  });
+
+  it("a semantic criterion counts — --semantic froze a check for this flow", () => {
+    expect(provesAnAction(only([{ kind: "expect", criterion: "the order shows in the list" }]))).toBe(true);
+  });
+
+  it("a product's custom check counts", () => {
+    expect(provesAnAction(only([{ kind: "custom", name: "cart-has-item" }]))).toBe(true);
+  });
+
+  it("a vacuous one of either kind does not", () => {
+    expect(provesAnAction(only([{ kind: "expect", criterion: "looks fine", vacuous: true }]))).toBe(false);
+  });
+});

@@ -481,21 +481,28 @@ export class ChromeDevToolsDriver implements Driver {
   private async resolveVisible(rows: SnapshotRow[], target: Target): Promise<string | undefined> {
     const candidates = crossRoleCandidates(rows, target);
     if (!candidates.length) return resolveTargetUid(rows, target); // no probe when nothing is ambiguous
-    const probe = await this.probeReachableRoles(target.text!);
-    const role = probedRole(candidates, probe.reachable, probe.unknown);
+    const role = probedRole(candidates, await this.probeReachableRoles(target.text!));
     return resolveTargetUid(rows, role ? { ...target, role } : target);
   }
 
   /** Roles of the same-named elements a center-point hit test actually reaches; [] on any failure. */
-  private async probeReachableRoles(text: string): Promise<{ reachable: string[]; unknown: string[] }> {
+  private async probeReachableRoles(
+    text: string,
+  ): Promise<{ reachable: string[]; occluded: string[]; unknown: string[] }> {
     const strings = (v: unknown): string[] =>
       Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : [];
     try {
       const reply = await this.call("evaluate_script", { function: reachableRolesProbeScript(text) });
-      const probe = extractFirstJsonObject(reply) as { reachable?: unknown; unknown?: unknown } | undefined;
-      return { reachable: strings(probe?.reachable), unknown: strings(probe?.unknown) };
+      const probe = extractFirstJsonObject(reply) as
+        | { reachable?: unknown; occluded?: unknown; unknown?: unknown }
+        | undefined;
+      return {
+        reachable: strings(probe?.reachable),
+        occluded: strings(probe?.occluded),
+        unknown: strings(probe?.unknown),
+      };
     } catch {
-      return { reachable: [], unknown: [] };
+      return { reachable: [], occluded: [], unknown: [] };
     }
   }
 
@@ -615,17 +622,22 @@ export function crossRoleCandidates(rows: SnapshotRow[], target: Target): string
 }
 
 /**
- * The one role to narrow a cross-role ambiguity by — and only on evidence. Narrowing requires a
- * single reachable candidate role AND nothing unknown in the pool: with an unmeasured candidate
- * still in play, "the one I could see" is a guess, and it is the wrong one exactly when the real
- * target sits below the fold behind a visible decoy. Anything else abstains and the caller keeps
- * the existing tree-order behavior.
+ * The one role to narrow a cross-role ambiguity by — and only on evidence. Narrowing requires that
+ * every candidate role was accounted for by the probe, that none of them is merely unmeasured, and
+ * that exactly one is reachable. Anything else abstains and the caller keeps the existing
+ * tree-order behavior, which is what this did before #176.
  */
 export function probedRole(
   candidates: readonly string[],
-  reachable: readonly string[],
-  unknown: readonly string[] = [],
+  probe: { reachable: readonly string[]; occluded?: readonly string[]; unknown?: readonly string[] },
 ): string | undefined {
+  const { reachable, occluded = [], unknown = [] } = probe;
+  // Every candidate must be accounted for. A role the probe placed in no bucket is one it never
+  // saw — inside a shadow root or an iframe, named by `aria-labelledby`, or mapped to a role this
+  // script spells differently — and "the one I could see" is then a guess, wrong in exactly the
+  // case this exists to fix: the real target hidden from the probe, a visible decoy beside it.
+  const seen = new Set([...reachable, ...occluded, ...unknown]);
+  if (!candidates.every((r) => seen.has(r))) return undefined;
   if (unknown.some((r) => candidates.includes(r))) return undefined;
   const hits = [...new Set(reachable)].filter((r) => candidates.includes(r));
   return hits.length === 1 ? hits[0] : undefined;
@@ -639,8 +651,15 @@ export function probedRole(
  * snapshot it narrows is unfiltered by viewport — so an off-screen control is a perfectly good
  * click target, and treating it as unreachable would narrow onto a visible decoy instead. Only
  * occlusion is evidence. `value` is read for inputs, since `<input type="submit" value="Continue">`
- * is the common modal submit and carries its name nowhere else. Roles are named as the a11y
- * snapshot names them, so the answer joins straight back onto its rows.
+ * is the common modal submit and carries its name nowhere else.
+ *
+ * All three buckets are returned, including the one the caller then ignores: `occluded` is how the
+ * caller tells "the page hid it" from "this probe never saw it". The probe's reach is narrower than
+ * the a11y tree in four known ways — it does not enter shadow roots or iframes, its name is a
+ * short approximation (no `aria-labelledby`, no `<label for>`, no `alt`), and its role mapping is
+ * coarser (`input[type=number]` is `spinbutton` in the tree, `textbox` here). A candidate the probe
+ * cannot account for at all lands in none of the buckets, and `probedRole` refuses to narrow on
+ * that — which is cheaper and safer than teaching this script to compute accessible names.
  */
 export function reachableRolesProbeScript(text: string): string {
   return (
@@ -664,12 +683,11 @@ export function reachableRolesProbeScript(text: string): string {
     `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return "unknown"; ` +
     `const top = document.elementFromPoint(x, y); if (!top) return "unknown"; ` +
     `return top === el || el.contains(top) ? "reachable" : "occluded"; }; ` +
-    `const reachable = [], unknown = []; ` +
+    `const buckets = { reachable: [], occluded: [], unknown: [] }; ` +
     `for (const el of document.querySelectorAll("a,button,summary,input,textarea,select,[role]")) { ` +
-    `if (named(el) !== want) continue; const verdict = classify(el); if (verdict === "occluded") continue; ` +
-    `const role = roleOf(el); const bucket = verdict === "reachable" ? reachable : unknown; ` +
+    `if (named(el) !== want) continue; const bucket = buckets[classify(el)]; const role = roleOf(el); ` +
     `if (!bucket.includes(role)) bucket.push(role); } ` +
-    `return { reachable, unknown }; }`
+    `return buckets; }`
   );
 }
 

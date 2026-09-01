@@ -481,18 +481,21 @@ export class ChromeDevToolsDriver implements Driver {
   private async resolveVisible(rows: SnapshotRow[], target: Target): Promise<string | undefined> {
     const candidates = crossRoleCandidates(rows, target);
     if (!candidates.length) return resolveTargetUid(rows, target); // no probe when nothing is ambiguous
-    const role = probedRole(candidates, await this.probeReachableRoles(target.text!));
+    const probe = await this.probeReachableRoles(target.text!);
+    const role = probedRole(candidates, probe.reachable, probe.unknown);
     return resolveTargetUid(rows, role ? { ...target, role } : target);
   }
 
   /** Roles of the same-named elements a center-point hit test actually reaches; [] on any failure. */
-  private async probeReachableRoles(text: string): Promise<string[]> {
+  private async probeReachableRoles(text: string): Promise<{ reachable: string[]; unknown: string[] }> {
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : [];
     try {
       const reply = await this.call("evaluate_script", { function: reachableRolesProbeScript(text) });
-      const probe = extractFirstJsonObject(reply) as { roles?: unknown } | undefined;
-      return Array.isArray(probe?.roles) ? probe.roles.filter((r): r is string => typeof r === "string") : [];
+      const probe = extractFirstJsonObject(reply) as { reachable?: unknown; unknown?: unknown } | undefined;
+      return { reachable: strings(probe?.reachable), unknown: strings(probe?.unknown) };
     } catch {
-      return [];
+      return { reachable: [], unknown: [] };
     }
   }
 
@@ -612,27 +615,39 @@ export function crossRoleCandidates(rows: SnapshotRow[], target: Target): string
 }
 
 /**
- * The one role to narrow a cross-role ambiguity by: reachable on the page AND present in the
- * snapshot pool. Several reachable roles (two genuinely visible same-named controls) or none
- * (nothing reachable, an unmapped role, a failed probe) yields nothing — the caller then keeps the
- * existing tree-order behavior rather than trading one guess for another.
+ * The one role to narrow a cross-role ambiguity by — and only on evidence. Narrowing requires a
+ * single reachable candidate role AND nothing unknown in the pool: with an unmeasured candidate
+ * still in play, "the one I could see" is a guess, and it is the wrong one exactly when the real
+ * target sits below the fold behind a visible decoy. Anything else abstains and the caller keeps
+ * the existing tree-order behavior.
  */
-export function probedRole(candidates: readonly string[], reachable: readonly string[]): string | undefined {
+export function probedRole(
+  candidates: readonly string[],
+  reachable: readonly string[],
+  unknown: readonly string[] = [],
+): string | undefined {
+  if (unknown.some((r) => candidates.includes(r))) return undefined;
   const hits = [...new Set(reachable)].filter((r) => candidates.includes(r));
   return hits.length === 1 ? hits[0] : undefined;
 }
 
 /**
- * In-page probe: the roles of the elements named `text` that a center-point hit test actually
- * reaches. A backdrop-covered nav link, a `display:none` menu item and an off-screen control all
- * fall out; the visible modal button survives. Roles are named as the a11y snapshot names them, so
- * the answer joins straight back onto its rows.
+ * In-page probe over the elements named `text`, sorted by what a center-point hit test can say:
+ * `reachable` (the point lands on it), `occluded` (it lands on something else — a backdrop), and
+ * `unknown` (below the fold, zero-size, nothing at the point). The split matters because the driver
+ * clicks through puppeteer's `Locator`, which scrolls the target into view first, and the a11y
+ * snapshot it narrows is unfiltered by viewport — so an off-screen control is a perfectly good
+ * click target, and treating it as unreachable would narrow onto a visible decoy instead. Only
+ * occlusion is evidence. `value` is read for inputs, since `<input type="submit" value="Continue">`
+ * is the common modal submit and carries its name nowhere else. Roles are named as the a11y
+ * snapshot names them, so the answer joins straight back onto its rows.
  */
 export function reachableRolesProbeScript(text: string): string {
   return (
     `() => { const want = ${JSON.stringify(text.trim().toLowerCase())}; ` +
     `const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase(); ` +
-    `const named = (el) => norm(el.getAttribute("aria-label") || el.getAttribute("title") || el.textContent); ` +
+    `const named = (el) => norm(el.getAttribute("aria-label") || el.getAttribute("title") || ` +
+    `(el.tagName.toLowerCase() === "input" ? el.getAttribute("value") : null) || el.textContent); ` +
     `const roleOf = (el) => { const explicit = el.getAttribute("role"); if (explicit) return explicit.trim(); ` +
     `const tag = el.tagName.toLowerCase(); const type = (el.getAttribute("type") || "").toLowerCase(); ` +
     `if (tag === "a") return el.hasAttribute("href") ? "link" : "generic"; ` +
@@ -640,15 +655,21 @@ export function reachableRolesProbeScript(text: string): string {
     `if (tag === "input") { if (type === "checkbox" || type === "radio") return type; ` +
     `return ["submit", "button", "reset", "image"].includes(type) ? "button" : "textbox"; } ` +
     `if (tag === "textarea") return "textbox"; if (tag === "select") return "combobox"; return "generic"; }; ` +
-    `const reaches = (el) => { const r = el.getBoundingClientRect(); if (!r.width || !r.height) return false; ` +
+    // "reachable" / "occluded" / "unknown" — the driver clicks through puppeteer's Locator, which
+    // scrolls first, so a control below the fold is not unreachable, it is unmeasured. Only a hit
+    // test that lands on something ELSE is evidence of occlusion.
+    `const classify = (el) => { const r = el.getBoundingClientRect(); ` +
+    `if (!r.width || !r.height) return "unknown"; ` +
     `const x = r.left + r.width / 2, y = r.top + r.height / 2; ` +
-    `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return false; ` +
-    `const top = document.elementFromPoint(x, y); return !!top && (top === el || el.contains(top)); }; ` +
-    `const roles = []; ` +
+    `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return "unknown"; ` +
+    `const top = document.elementFromPoint(x, y); if (!top) return "unknown"; ` +
+    `return top === el || el.contains(top) ? "reachable" : "occluded"; }; ` +
+    `const reachable = [], unknown = []; ` +
     `for (const el of document.querySelectorAll("a,button,summary,input,textarea,select,[role]")) { ` +
-    `if (named(el) !== want || !reaches(el)) continue; const role = roleOf(el); ` +
-    `if (!roles.includes(role)) roles.push(role); } ` +
-    `return { roles }; }`
+    `if (named(el) !== want) continue; const verdict = classify(el); if (verdict === "occluded") continue; ` +
+    `const role = roleOf(el); const bucket = verdict === "reachable" ? reachable : unknown; ` +
+    `if (!bucket.includes(role)) bucket.push(role); } ` +
+    `return { reachable, unknown }; }`
   );
 }
 

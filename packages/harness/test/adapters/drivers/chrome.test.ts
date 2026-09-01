@@ -508,13 +508,13 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
   // The failure shape: a modal's submit button and a background nav link share a name. Tree order
   // picks the link, so replay navigates away instead of submitting.
   const modal = 'uid=3_1 link "Continue"\nuid=3_2 button "Continue"';
-  const roles = (list: string[]) =>
-    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ roles: list })}\n\`\`\``;
+  const probe = (reachable: string[], unknown: string[] = []) =>
+    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ reachable, unknown })}\n\`\`\``;
 
   it("clicks the reachable candidate, not the tree-order-first one", async () => {
     const { driver, calls } = stubbedDriver({
       take_snapshot: modal,
-      evaluate_script: roles(["button"]), // the backdrop covers the nav link
+      evaluate_script: probe(["button"]), // the backdrop covers the nav link — the link is occluded, not unknown
       list_pages: "",
     });
     await driver.click({ text: "Continue" });
@@ -522,7 +522,7 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
   });
 
   it("keeps tree order when nothing is reachable — the probe never makes things worse", async () => {
-    const { driver, calls } = stubbedDriver({ take_snapshot: modal, evaluate_script: roles([]), list_pages: "" });
+    const { driver, calls } = stubbedDriver({ take_snapshot: modal, evaluate_script: probe([]), list_pages: "" });
     await driver.click({ text: "Continue" });
     expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1");
   });
@@ -540,7 +540,7 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
   it("leaves the a11y wrapper pair alone (link over StaticText is one element)", async () => {
     const { driver, calls } = stubbedDriver({
       take_snapshot: 'uid=1_3 link "Learn more"\nuid=1_4 StaticText "Learn more"',
-      evaluate_script: roles(["link"]),
+      evaluate_script: probe(["link"]),
       list_pages: "",
     });
     await driver.click({ text: "Learn more" });
@@ -554,7 +554,7 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
   });
 
   it("locate freezes the reachable candidate's role, so replay never re-guesses", async () => {
-    const { driver } = stubbedDriver({ take_snapshot: modal, evaluate_script: roles(["button"]) });
+    const { driver } = stubbedDriver({ take_snapshot: modal, evaluate_script: probe(["button"]) });
     expect(await driver.locate({ text: "Continue" })).toMatchObject({ text: "Continue", role: "button" });
   });
 
@@ -579,6 +579,32 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
     });
   });
 
+  it("abstains when the correct target is unmeasured — a visible decoy must not win", async () => {
+    // The driver clicks through puppeteer's Locator, which scrolls first, so a button below the
+    // fold is a fine click target. Narrowing to the decoy would freeze the wrong role for good.
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["link"], ["button"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1"); // tree order, unchanged
+  });
+
+  it("still narrows when the unmeasured role is not one of the candidates", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["button"], ["textbox"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
+  });
+
+  it("reads an input's value as its name (<input type=submit value=Continue>)", () => {
+    expect(reachableRolesProbeScript("Continue")).toContain('getAttribute("value")');
+  });
+
   describe("probedRole — narrow only when the answer is single and real", () => {
     it("narrows to the one reachable role that exists in the snapshot pool", () => {
       expect(probedRole(["link", "button"], ["button"])).toBe("button");
@@ -591,6 +617,12 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
     });
     it("nothing reachable narrows nothing", () => {
       expect(probedRole(["link", "button"], [])).toBeUndefined();
+    });
+    it("an unmeasured candidate blocks the narrowing", () => {
+      expect(probedRole(["link", "button"], ["link"], ["button"])).toBeUndefined();
+    });
+    it("an unmeasured role outside the pool does not", () => {
+      expect(probedRole(["link", "button"], ["link"], ["textbox"])).toBe("link");
     });
   });
 

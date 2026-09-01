@@ -27,7 +27,7 @@ import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
 import { renderSuiteReport } from "./adapters/reporters/suite.js";
-import { droppedProofReason, guessedKeyRuns, weakTargets } from "./core/freeze.js";
+import { droppedProofReason, guessedKeyRuns, provesAnAction, weakTargets } from "./core/freeze.js";
 import { Tracer } from "./core/trace.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
@@ -124,9 +124,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   const llm = createLlmClient(model ? { model } : {});
   console.log(`discovering with ${llm.id} …`);
 
-  // A grounding drop only rides the trace, so a CLI user never learns the freeze refused the
-  // model's proof that the action fired — and a dropped proof is not fail-closed: any surviving
-  // non-vacuous check still passes the scenario. Collect them through the shipped sink seam.
+  // A grounding drop only rides the trace, so a CLI user never learns why the freeze ended up
+  // without a proof that the action fired — and that is not fail-closed on its own: a surviving
+  // `navigated` still passes the scenario. Collect the reasons through the shipped sink seam; what
+  // decides the warning is the frozen result, not these.
   const droppedProofs: string[] = [];
   const trace = new Tracer({
     emit: (event) => {
@@ -187,12 +188,15 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     }
   }
 
-  if (droppedProofs.length) {
+  // Warn on what the freeze CARRIES: a scenario with a live request check proves its action even if
+  // another proposal was dropped along the way, and one with none needs saying so even if nothing
+  // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
+  if (!provesAnAction(scenario)) {
     console.log(
-      `\n⚠ ${droppedProofs.length} proposed request check(s) dropped while grounding — ` +
-        `this freeze may carry no proof the action itself fired:`,
+      `\n⚠ nothing here checks that the action itself fired — replay passes as soon as the page is ` +
+        `reached. Fine for a read-only flow; otherwise re-discover, or add a check of your own.`,
     );
-    for (const reason of droppedProofs) console.log(`  · ${reason}`);
+    for (const reason of droppedProofs) console.log(`  · proposed check dropped: ${reason}`);
   }
 
   const freeze = flagStr(flags, "freeze");

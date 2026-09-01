@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { droppedProofReason, guessedKeyRuns, scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import {
+  droppedProofReason,
+  guessedKeyRuns,
+  provesAnAction,
+  scoreScenario,
+  scoreTarget,
+  weakTargets,
+} from "../../src/core/freeze.js";
 import type { TraceEvent } from "../../src/core/trace.js";
 import type { Scenario } from "../../src/core/types.js";
 
@@ -112,5 +119,27 @@ describe("droppedProofReason", () => {
 
   it("ignores events that are not gates", () => {
     expect(droppedProofReason({ seq: 0, ts: 0, kind: "run-end", payload: { passed: true } } as TraceEvent)).toBeUndefined();
+  });
+});
+
+describe("provesAnAction — what decides the warning is the freeze, not the drops", () => {
+  const scenario = (assertions: Scenario["assertions"]): Scenario => ({
+    name: "t",
+    steps: [{ kind: "goto", url: "https://shop.co" }],
+    assertions,
+  });
+
+  it("a live request check proves the action, even if another proposal was dropped", () => {
+    expect(provesAnAction(scenario([{ kind: "request-status", urlIncludes: "shop.co/api/checkout", status: 200 }]))).toBe(true);
+  });
+
+  it("a vacuous one does not — it was already true before the flow ran", () => {
+    expect(
+      provesAnAction(scenario([{ kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true }])),
+    ).toBe(false);
+  });
+
+  it("a freeze with only a destination proves nothing about the action, dropped proposals or not", () => {
+    expect(provesAnAction(scenario([{ kind: "navigated", to: "shop.co/done" }, { kind: "no-failed-requests" }]))).toBe(false);
   });
 });

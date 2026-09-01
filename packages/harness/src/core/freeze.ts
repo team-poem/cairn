@@ -104,13 +104,28 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
 }
 
 /**
- * The reason a grounding gate dropped a proposed *proof* — a `request-status` check the model
- * offered that the freeze then refused — or `undefined` for any other event. Those drops matter to whoever reads the freeze:
- * a dropped proof is not fail-closed on its own (any surviving non-vacuous check, a `navigated`,
- * still passes the scenario), so the skill can go green with nothing verifying that the action
- * fired. Other grounding drops are routine (a hallucinated check, an `expect` without `--semantic`)
- * and stay trace-only.
+ * The reason a grounding gate dropped a proposed `request-status` — or `undefined` for any other
+ * event. These are the lines worth reading next to a freeze that ended up with no proof: the most
+ * common is a check the model invented that no captured request matched, and the rest are the
+ * freeze refusing a value it could not make replayable (no stable path, a widening that would
+ * match a different endpoint). Drops of other kinds — an `expect` without `--semantic` — stay
+ * trace-only.
+ *
+ * A dropped proof does not fail the scenario by itself: a surviving `navigated` still passes it.
+ * Whether to warn is therefore decided by what the freeze CARRIES, not by what it dropped; these
+ * reasons only explain a freeze already found wanting.
  */
+/**
+ * Does this freeze carry a check that the action itself fired? A live (non-vacuous)
+ * `request-status` is the only assertion that proves work happened rather than a page being
+ * reached, so its absence is what a reader needs told — whether the model proposed nothing, or
+ * proposed something the freeze refused. It over-warns on a genuinely read-only flow, which has no
+ * action to prove; that is the loud direction and is left as is.
+ */
+export function provesAnAction(scenario: Scenario): boolean {
+  return scenario.assertions.some((a) => a.kind === "request-status" && a.vacuous !== true);
+}
+
 export function droppedProofReason(event: TraceEvent): string | undefined {
   if (event.kind !== "gate" || event.payload.gate !== "grounding" || !event.payload.action) return undefined;
   try {

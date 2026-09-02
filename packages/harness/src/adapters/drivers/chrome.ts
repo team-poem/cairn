@@ -435,7 +435,7 @@ export class ChromeDevToolsDriver implements Driver {
 
   async locate(target: Target): Promise<Target> {
     const rows = parseSnapshotRows(await this.getSnapshot());
-    const uid = resolveTargetUid(rows, target);
+    const uid = await this.resolveVisible(rows, target);
     if (!uid) return target; // can't enrich right now — freeze what we have
     const row = rows.find((r) => r.uid === uid)!;
     const index = rows.filter((r) => r.role === row.role).findIndex((r) => r.uid === uid);
@@ -454,13 +454,55 @@ export class ChromeDevToolsDriver implements Driver {
       const rows = parseSnapshotRows(await this.getSnapshot());
       const uid =
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
-        resolveTargetUid(rows, target);
+        (await this.resolveVisible(rows, target));
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) {
         throw new Error(describeResolutionMiss(rows, target));
       }
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
+    }
+  }
+
+  /**
+   * `resolveTargetUid`, plus a hit test when the name is ambiguous ACROSS roles (#176). That case
+   * resolves by tree order today — deliberately, because an a11y wrapper pair (link "X" over
+   * StaticText "X") is two rows for one element — but the same shape covers a real failure: a
+   * modal's button and a background nav link share a name, and tree order picks the background
+   * link, navigating away instead of submitting. `role=dialog` is absent on plenty of real modals,
+   * so the reachable candidate is the signal: a backdrop-covered or hidden element fails a
+   * center-point hit test, the wrapper pair still answers with its own element's role.
+   *
+   * The probe reports a ROLE, not an element: the MCP text interface has no uid → DOM mapping, so
+   * the answer is fed back through the existing role narrowing instead of joined positionally.
+   * Nothing reachable, an unmapped role, or a page that refuses the script leaves the current
+   * tree-order behavior untouched (fail-safe), and replay stays model-free either way (invariant #4).
+   */
+  private async resolveVisible(rows: SnapshotRow[], target: Target): Promise<string | undefined> {
+    const candidates = crossRoleCandidates(rows, target);
+    if (!candidates.length) return resolveTargetUid(rows, target); // no probe when nothing is ambiguous
+    const role = probedRole(candidates, await this.probeReachableRoles(target.text!));
+    return resolveTargetUid(rows, role ? { ...target, role } : target);
+  }
+
+  /** Roles of the same-named elements a center-point hit test actually reaches; [] on any failure. */
+  private async probeReachableRoles(
+    text: string,
+  ): Promise<{ reachable: string[]; occluded: string[]; unknown: string[] }> {
+    const strings = (v: unknown): string[] =>
+      Array.isArray(v) ? v.filter((r): r is string => typeof r === "string") : [];
+    try {
+      const reply = await this.call("evaluate_script", { function: reachableRolesProbeScript(text) });
+      const probe = extractFirstJsonObject(reply) as
+        | { reachable?: unknown; occluded?: unknown; unknown?: unknown }
+        | undefined;
+      return {
+        reachable: strings(probe?.reachable),
+        occluded: strings(probe?.occluded),
+        unknown: strings(probe?.unknown),
+      };
+    } catch {
+      return { reachable: [], occluded: [], unknown: [] };
     }
   }
 
@@ -563,6 +605,104 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     return sameRole[target.index]?.uid;
   }
   return undefined;
+}
+
+/**
+ * The distinct roles of the exact name matches that `resolveTargetUid` would settle by TREE ORDER —
+ * the cross-role ambiguity it deliberately does not refuse (#127). Empty when the target already
+ * says which element it means (`role`/`nth`), when the name resolves without a guess, or when the
+ * matches repeat a role (that class is refused, not guessed).
+ */
+export function crossRoleCandidates(rows: SnapshotRow[], target: Target): string[] {
+  if (!target.text || target.role || target.nth !== undefined) return [];
+  const needle = target.text.trim().toLowerCase();
+  const exacts = rows.filter((r) => r.name.toLowerCase() === needle);
+  if (exacts.length < 2 || hasSameRoleDupes(exacts)) return [];
+  return [...new Set(exacts.map((r) => r.role))];
+}
+
+/**
+ * The one role to narrow a cross-role ambiguity by — and only on evidence. Narrowing requires that
+ * every candidate role was accounted for by the probe, that none of them is merely unmeasured, and
+ * that exactly one is reachable. Anything else abstains and the caller keeps the existing
+ * tree-order behavior, which is what this did before #176.
+ */
+export function probedRole(
+  candidates: readonly string[],
+  probe: { reachable: readonly string[]; occluded?: readonly string[]; unknown?: readonly string[] },
+): string | undefined {
+  const { reachable, occluded = [], unknown = [] } = probe;
+  // Every candidate must be accounted for. A role the probe placed in no bucket is one it never
+  // saw — inside a shadow root or an iframe, named by `aria-labelledby`, or mapped to a role this
+  // script spells differently — and "the one I could see" is then a guess, wrong in exactly the
+  // case this exists to fix: the real target hidden from the probe, a visible decoy beside it.
+  const seen = new Set([...reachable, ...occluded, ...unknown]);
+  if (!candidates.every((r) => seen.has(r))) return undefined;
+  if (unknown.some((r) => candidates.includes(r))) return undefined;
+  const hits = [...new Set(reachable)].filter((r) => candidates.includes(r));
+  return hits.length === 1 ? hits[0] : undefined;
+}
+
+/**
+ * In-page probe over the elements named `text`, sorted by what a center-point hit test can say:
+ * `reachable` (the point lands on it), `occluded` (it lands on something else — a backdrop), and
+ * `unknown` (below the fold, zero-size, nothing at the point, or scrolled out of its own
+ * `overflow` container). The split matters because the driver clicks through puppeteer's `Locator`,
+ * which scrolls the target into view first — the window and any clipping ancestor alike — and the
+ * a11y snapshot it narrows is unfiltered by viewport. So a control the viewer cannot see right now
+ * is still a perfectly good click target, and treating it as unreachable would narrow onto a
+ * visible decoy instead. Only being covered where it does sit is evidence. `value` is read for inputs, since `<input type="submit" value="Continue">`
+ * is the common modal submit and carries its name nowhere else.
+ *
+ * All three buckets are returned, including the one the caller then ignores: `occluded` is how the
+ * caller tells "the page hid it" from "this probe never saw it". The probe's reach is narrower than
+ * the a11y tree in four known ways — it does not enter shadow roots or iframes, its name is a
+ * short approximation (no `aria-labelledby`, no `<label for>`, no `alt`), and its role mapping is
+ * coarser (`input[type=number]` is `spinbutton` in the tree, `textbox` here). A candidate the probe
+ * cannot account for at all lands in none of the buckets, and `probedRole` refuses to narrow on
+ * that — which is cheaper and safer than teaching this script to compute accessible names.
+ */
+export function reachableRolesProbeScript(text: string): string {
+  return (
+    `() => { const want = ${JSON.stringify(text.trim().toLowerCase())}; ` +
+    `const norm = (s) => (s || "").replace(/\\s+/g, " ").trim().toLowerCase(); ` +
+    `const named = (el) => norm(el.getAttribute("aria-label") || el.getAttribute("title") || ` +
+    `(el.tagName.toLowerCase() === "input" ? el.getAttribute("value") : null) || el.textContent); ` +
+    `const roleOf = (el) => { const explicit = el.getAttribute("role"); if (explicit) return explicit.trim(); ` +
+    `const tag = el.tagName.toLowerCase(); const type = (el.getAttribute("type") || "").toLowerCase(); ` +
+    `if (tag === "a") return el.hasAttribute("href") ? "link" : "generic"; ` +
+    `if (tag === "button" || tag === "summary") return "button"; ` +
+    `if (tag === "input") { if (type === "checkbox" || type === "radio") return type; ` +
+    `return ["submit", "button", "reset", "image"].includes(type) ? "button" : "textbox"; } ` +
+    `if (tag === "textarea") return "textbox"; if (tag === "select") return "combobox"; return "generic"; }; ` +
+    // "reachable" / "occluded" / "unknown" — the driver clicks through puppeteer's Locator, which
+    // scrolls first, so a control below the fold is not unreachable, it is unmeasured. Only a hit
+    // test that lands on something ELSE is evidence of occlusion.
+    // A candidate whose centre falls outside one of its own scroll containers is clipped, not
+    // covered: puppeteer scrolls that container and clicks it. The walk stops before <body>, or a
+    // page that scrolls at the root would turn every real occlusion — a modal backdrop lives in the
+    // body too — into an abstention.
+    `const clippedByOwnBox = (el, x, y) => { ` +
+    `if (getComputedStyle(el).position === "fixed") return false; ` +
+    `for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) { ` +
+    `const st = getComputedStyle(p); ` +
+    `if (st.position === "fixed") return false; ` +
+    `if (!/(auto|scroll|overlay|hidden)/.test(st.overflowY + " " + st.overflowX)) continue; ` +
+    `const b = p.getBoundingClientRect(); ` +
+    `if (x < b.left || x > b.right || y < b.top || y > b.bottom) return true; } return false; }; ` +
+    `const classify = (el) => { const r = el.getBoundingClientRect(); ` +
+    `if (!r.width || !r.height) return "unknown"; ` +
+    `const x = r.left + r.width / 2, y = r.top + r.height / 2; ` +
+    `if (clippedByOwnBox(el, x, y)) return "unknown"; ` +
+    `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return "unknown"; ` +
+    `const top = document.elementFromPoint(x, y); if (!top) return "unknown"; ` +
+    `return top === el || el.contains(top) ? "reachable" : "occluded"; }; ` +
+    `const buckets = { reachable: [], occluded: [], unknown: [] }; ` +
+    `for (const el of document.querySelectorAll("a,button,summary,input,textarea,select,[role]")) { ` +
+    `if (named(el) !== want) continue; const bucket = buckets[classify(el)]; const role = roleOf(el); ` +
+    `if (!bucket.includes(role)) bucket.push(role); } ` +
+    `return buckets; }`
+  );
 }
 
 /** True when two or more rows share one role — the ambiguity class the resolver refuses (#127). */

@@ -15,6 +15,9 @@ import {
   parsePageEntries,
   parsePageIds,
   parseSelectedUrl,
+  crossRoleCandidates,
+  probedRole,
+  reachableRolesProbeScript,
   selectorProbeScript,
 } from "../../../src/adapters/drivers/chrome.js";
 
@@ -498,5 +501,172 @@ describe("clickable-region promotion (#132)", () => {
   it("a probe that finds nothing promotes nothing", async () => {
     const { driver } = stubbedDriver({ take_snapshot: snap, evaluate_script: regions([-1, -1, -1, -1]) });
     expect((await driver.snapshot()).every((e) => e.role !== "button")).toBe(true);
+  });
+});
+
+describe("cross-role duplicate names resolve to what the page shows (#176)", () => {
+  // The failure shape: a modal's submit button and a background nav link share a name. Tree order
+  // picks the link, so replay navigates away instead of submitting.
+  const modal = 'uid=3_1 link "Continue"\nuid=3_2 button "Continue"';
+  const probe = (reachable: string[], occluded: string[] = [], unknown: string[] = []) =>
+    `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ reachable, occluded, unknown })}\n\`\`\``;
+
+  it("clicks the reachable candidate, not the tree-order-first one", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["button"], ["link"]), // the backdrop covers the nav link
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
+  });
+
+  it("keeps tree order when nothing is reachable — the probe never makes things worse", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: modal, evaluate_script: probe([]), list_pages: "" });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1");
+  });
+
+  it("keeps tree order when the page refuses the probe", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: "not json at all",
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1");
+  });
+
+  it("leaves the a11y wrapper pair alone (link over StaticText is one element)", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: 'uid=1_3 link "Learn more"\nuid=1_4 StaticText "Learn more"',
+      evaluate_script: probe(["link"], ["StaticText"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Learn more" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("1_3");
+  });
+
+  it("never probes when the name is not ambiguous across roles", async () => {
+    const { driver, calls } = stubbedDriver({ take_snapshot: 'uid=9 button "Pay"', list_pages: "" });
+    await driver.click({ text: "Pay" });
+    expect(calls.some((c) => c.name === "evaluate_script")).toBe(false);
+  });
+
+  it("locate freezes the reachable candidate's role, so replay never re-guesses", async () => {
+    const { driver } = stubbedDriver({ take_snapshot: modal, evaluate_script: probe(["button"], ["link"]) });
+    expect(await driver.locate({ text: "Continue" })).toMatchObject({ text: "Continue", role: "button" });
+  });
+
+  describe("crossRoleCandidates — which ambiguities the probe is for", () => {
+    const rowsOf = (snap: string) => parseSnapshotRows(snap);
+    it("reports the roles of a cross-role duplicate", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue" })).toEqual(["link", "button"]);
+    });
+    it("stays out of the same-role class (#127 refuses it instead of guessing)", () => {
+      const same = 'uid=1 button "Log in"\nuid=2 button "Log in"';
+      expect(crossRoleCandidates(rowsOf(same), { text: "Log in" })).toEqual([]);
+    });
+    it("stays out when the target already says which element it means", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue", role: "button" })).toEqual([]);
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Continue", nth: 1 })).toEqual([]);
+    });
+    it("stays out when the name resolves without a guess", () => {
+      expect(crossRoleCandidates(rowsOf('uid=1 button "Pay"'), { text: "Pay" })).toEqual([]);
+    });
+    it("exact matches only — a substring match is a different (already unambiguous) path", () => {
+      expect(crossRoleCandidates(rowsOf(modal), { text: "Contin" })).toEqual([]);
+    });
+  });
+
+  it("abstains when the correct target is unmeasured — a visible decoy must not win", async () => {
+    // The driver clicks through puppeteer's Locator, which scrolls first, so a button below the
+    // fold is a fine click target. Narrowing to the decoy would freeze the wrong role for good.
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["link"], [], ["button"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1"); // tree order, unchanged
+  });
+
+  it("abstains when a candidate role is in no bucket at all — the probe never saw it", async () => {
+    // A shadow-root button, an iframe, an `aria-labelledby` name, a role this script spells
+    // differently: the element is in the snapshot and invisible to the probe. Narrowing on what is
+    // left would pick the decoy, which is the failure this whole guard exists for.
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["link"]), // "button" accounted for nowhere
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_1"); // tree order, unchanged
+  });
+
+  it("still narrows when the unmeasured role is not one of the candidates", async () => {
+    const { driver, calls } = stubbedDriver({
+      take_snapshot: modal,
+      evaluate_script: probe(["button"], ["link"], ["textbox"]),
+      list_pages: "",
+    });
+    await driver.click({ text: "Continue" });
+    expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
+  });
+
+  it("a fixed candidate, or one under a fixed ancestor, is never 'clipped' by a scroll box", () => {
+    // A modal rendered in place inside a scrolled container: `position: fixed` escapes the
+    // ancestor's overflow clip, so treating it as clipped would abstain on the very shape #176 is
+    // for. Verified in a real browser against the maintainer's fixture.
+    const script = reachableRolesProbeScript("Continue");
+    expect(script).toContain('getComputedStyle(el).position === "fixed"');
+    expect(script).toContain('st.position === "fixed"');
+  });
+
+  it("treats a candidate clipped by its own scroll container as unmeasured, not covered", () => {
+    // The script decides this in-page; what the unit can pin is that the rule is asked before the
+    // hit test, since a clipped candidate's centre lands on whatever the page shows there.
+    const script = reachableRolesProbeScript("Continue");
+    expect(script).toContain("clippedByOwnBox");
+    expect(script.indexOf("clippedByOwnBox(el, x, y)")).toBeLessThan(script.indexOf("elementFromPoint"));
+    // and the walk stops before <body>, or a root-scrolling page would abstain on every backdrop
+    expect(script).toContain("p !== document.body");
+  });
+
+  it("reads an input's value as its name (<input type=submit value=Continue>)", () => {
+    expect(reachableRolesProbeScript("Continue")).toContain('getAttribute("value")');
+  });
+
+  describe("probedRole — narrow only when the answer is single and real", () => {
+    it("narrows to the one reachable role that exists in the snapshot pool", () => {
+      expect(probedRole(["link", "button"], { reachable: ["button"], occluded: ["link"] })).toBe("button");
+    });
+    it("refuses two genuinely visible same-named controls", () => {
+      expect(probedRole(["link", "button"], { reachable: ["button", "link"] })).toBeUndefined();
+    });
+    it("ignores a reachable role the snapshot pool does not contain", () => {
+      expect(probedRole(["link", "button"], { reachable: ["textbox"] })).toBeUndefined();
+    });
+    it("nothing reachable narrows nothing", () => {
+      expect(probedRole(["link", "button"], { reachable: [] })).toBeUndefined();
+    });
+    it("an unmeasured candidate blocks the narrowing", () => {
+      expect(probedRole(["link", "button"], { reachable: ["link"], unknown: ["button"] })).toBeUndefined();
+    });
+    it("a candidate the probe placed in no bucket blocks it", () => {
+      expect(probedRole(["link", "button"], { reachable: ["link"] })).toBeUndefined();
+    });
+    it("an unmeasured role outside the pool does not", () => {
+      expect(probedRole(["link", "button"], { reachable: ["link"], occluded: ["button"], unknown: ["textbox"] })).toBe("link");
+    });
+  });
+
+  it("reachableRolesProbeScript is a parseable function carrying the wanted name", () => {
+    const script = reachableRolesProbeScript("  Continue  ");
+    expect(script).toContain('const want = "continue"');
+    expect(() => new Function(`return ${script}`)).not.toThrow();
+    // The script is built inside template literals, where an unescaped \s silently becomes "s" —
+    // the whitespace-collapsing regex then matches literal letters instead (caught in a browser).
+    expect(script).toContain("replace(/\\s+/g");
   });
 });

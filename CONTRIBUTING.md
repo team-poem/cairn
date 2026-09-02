@@ -69,6 +69,11 @@ npm run typecheck   # type-check without emitting
 npm run test        # run the test suites (vitest)
 ```
 
+One suite is kept out of `npm run test`: `packages/harness/test/browser` drives a headless Chrome
+because the in-page probe reads element boxes and hit tests, which jsdom cannot answer. Run it with
+`npm run test:browser -w cairn-engine` — it uses the Chrome you already have installed, and CI runs
+it as its own job.
+
 The engine lives in `packages/harness` (published as `cairn-engine`); the CLI is a
 thin wrapper over the library. Run it from source with `npm run dev` inside that
 package.
@@ -131,6 +136,9 @@ Keep commits small and meaningful — one logical step each.
 Before you request review:
 
 - `npm run typecheck`, `npm run build`, and `npm run test` pass.
+- If you touched the in-page probe (`packages/harness/src/adapters/drivers/chrome.ts`), also
+  `npm run test:browser -w cairn-engine` — and add the layout you were fixing to
+  `test/fixtures/probe/` so the next person inherits the case rather than the bug.
 - When you can, **dogfood** — run cairn against a real flow once to confirm the loop
   still holds.
 - Don't commit generated or frozen outputs: `dist/`, `build/`, and `bench/frozen/`

@@ -1,0 +1,10 @@
+<!doctype html>
+<!-- The common modal submit: an input whose name lives only in `value`. Missing it made the
+     element nameless to the probe, which then narrowed onto the nav link beside it. -->
+<meta charset="utf-8">
+<title>input submit in a modal</title>
+<nav style="position:relative;z-index:1"><a href="/away">Continue</a></nav>
+<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10"></div>
+<form style="position:fixed;top:40%;left:30%;padding:20px;background:#fff;z-index:20">
+  <input type="submit" value="Continue">
+</form>

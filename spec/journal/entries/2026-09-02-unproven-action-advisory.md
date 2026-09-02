@@ -14,10 +14,15 @@
   - **플래그가 URL을 담는다.** `Scenario.unprovenAction: true` → `string`(`"DELETE https://…"`).
     사람이 어떤 요청이 무장시켰는지 보고, #169에서 오탐을 분류할 수 있다. 미머지 필드라 형태 변경 자유.
   - **같은 사이트만.** `findUnprovenAction`(구 `hasUnprovenAction`, 요청을 반환)이 플로우가 밟은
-    페이지(`marks[].url` + `finalUrl`)와 registrable domain이 같은 요청만 본다(`sameSite`, 마지막
-    두 라벨). 분석 호스트 목록이 아니라 구조로 끊었다(불변식 #1 패턴≠데이터). 크로스사이트
-    비콘(Amplitude·GA·Sentry)은 절대 안 세고, 같은 사이트 전송 노이즈(SockJS)는 여전히 세며
-    `benign`으로 푼다. public-suffix 목록은 없다 — `co.uk`류는 접미사로 뭉개져 "세는" 쪽으로 틀린다.
+    페이지(`marks[].url` + `finalUrl`)의 호스트이거나 그 서브도메인인 요청만 본다(`onSiteOf`,
+    suffix 매치, 페이지의 `www.`는 무시). 분석 호스트 목록이 아니라 구조로 끊었다(불변식 #1
+    패턴≠데이터). 크로스사이트 비콘(Amplitude·GA·Sentry)은 절대 안 세고, 같은 사이트 전송
+    노이즈(SockJS)는 여전히 세며 `benign`으로 푼다. 처음엔 "마지막 두 라벨" 비교였는데 리뷰가
+    `shop.co.kr` vs `other.co.kr`이 같은 사이트로 읽힌다고 잡아서 suffix 매치로 바꿨다 —
+    public-suffix 목록 없이 ccTLD가 맞는다. 놓치는 건 `app.shop.co` 페이지가 `api.shop.co`를
+    못 잡는 경우이고, 조용한 쪽이다.
+  - **리뷰 대응 중 사고:** 테스트 블록을 교체하면서 바로 뒤의 #178 리뷰 테스트 6개를 함께 지웠다.
+    리뷰어가 잡았고 develop에서 그대로 복원했다.
   - **워터마크.** 액션이 없으면 `baseline.logic.requests.length`(settle 후 진입 로드 끝)로 떨어진다.
     도착 순서 문제(진입 로드가 쏜 비콘이 첫 mark 뒤에 도착)는 same-site 필터가 크로스사이트 쪽을
     없애고, 남는 같은 사이트 케이스는 SockJS와 같은 부류로 `benign` 처리. 완전 해결은 아니다.

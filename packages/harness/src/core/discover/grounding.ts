@@ -5,7 +5,7 @@
  */
 import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
-import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure, sameSite } from "../requests.js";
+import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure, onSiteOf } from "../requests.js";
 import { urlReached } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
@@ -298,7 +298,8 @@ export function findUnprovenAction(
     /** Index into the cumulative request log where the flow's own traffic starts — everything the
      * entry page load fired is excluded, the same separation `markVacuous` makes with the baseline. */
     sinceRequest?: number;
-    /** Pages the flow was on, besides `finalUrl` — the sites whose traffic is the app's own. */
+    /** Pages the flow was on, besides `finalUrl` — a request on one of their hosts, or a subdomain
+     * of it, is the app's own (`onSiteOf`). */
     pageUrls?: readonly (string | undefined)[];
   } = {},
 ): NetworkRequest | undefined {
@@ -313,7 +314,7 @@ export function findUnprovenAction(
         r.status >= 200 &&
         r.status < 400 &&
         !isBenignRequest(r.url, benign) &&
-        pages.some((page) => sameSite(page, r.url)) &&
+        pages.some((page) => onSiteOf(page, r.url)) &&
         !hasStablePath(stableEndpointPrefix(r.url)),
     );
 }

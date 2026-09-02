@@ -50,22 +50,25 @@ export function isRecoveredFailure(requests: readonly NetworkRequest[], index: n
     .some((r) => r.status > 0 && r.status < 400 && r.method.toUpperCase() === method && endpointKey(r.url) === key);
 }
 
-/** Are two URLs on the same site — same registrable domain, so `api.shop.co` and `shop.co` are one
- * site and `api2.amplitude.com` is not? The line between an app's own traffic and third-party
- * background posts (analytics, error reporters), which fire on their own schedule and never prove
- * the app's action. Unparseable URLs never match.
- * ponytail: no public-suffix list — the last two labels are the site, so `shop.co.uk` and
- * `amplitude.co.uk` read as one site. That errs toward COUNTING a request, the loud direction. */
-export function sameSite(a: string, b: string): boolean {
-  const site = (url: string): string | undefined => {
+/** Is `url` on the site of a page the flow was on — the page's host or a subdomain of it, so with
+ * the page at `shop.co` both `api.shop.co` and `sockjs.shop.co` are the app's own and
+ * `api2.amplitude.com` is not? The line between an app's traffic and third-party background posts
+ * (analytics, error reporters), which fire on their own schedule and never prove the app's action.
+ * A leading `www.` on the page is not a site boundary. No public-suffix list is needed: `shop.co.kr`
+ * and `other.co.kr` are different sites because neither is under the other. The miss is a page on
+ * `app.shop.co` claiming nothing on `api.shop.co` — the quiet direction; callers pass every page the
+ * flow visited to narrow it. Unparseable URLs never match. */
+export function onSiteOf(pageUrl: string, url: string): boolean {
+  const host = (u: string): string | undefined => {
     try {
-      return new URL(url).hostname.split(".").slice(-2).join(".");
+      return new URL(u).hostname;
     } catch {
       return undefined;
     }
   };
-  const sa = site(a);
-  return sa !== undefined && sa === site(b);
+  const page = host(pageUrl)?.replace(/^www\./, "");
+  const h = host(url);
+  return page !== undefined && h !== undefined && (h === page || h.endsWith("." + page));
 }
 
 /** Whether a request is a state-changing mutation (the kind that proves an action happened, vs a

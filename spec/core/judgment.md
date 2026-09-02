@@ -54,9 +54,10 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   costs more trust than the hole it closes; the flag is frozen so that rate can be counted, and the
   flip to fail-closed is a follow-up. Two limits are deliberate meanwhile. The proof half is coarse:
   **any** surviving `request-status` disarms it, including one proving a different action. And the
-  site filter is structural, not a list: third-party background posts (analytics, error reporters)
-  are cross-site and never count, while same-site transport noise (a SockJS session mounted under a
-  run-minted first segment) still arms it — the product clears that by marking the endpoint
+  site filter is structural, not a list — a request counts when its host is a page the flow visited
+  or a subdomain of one — so third-party background posts (analytics, error reporters) never count,
+  while same-site transport noise (a SockJS session mounted under a run-minted first segment) still
+  arms it — the product clears that by marking the endpoint
   `benign`, the seam for app-specific noise.
 
 ## Grounded — "a green run means it actually worked"

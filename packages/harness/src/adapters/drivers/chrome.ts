@@ -683,8 +683,10 @@ export function reachableRolesProbeScript(text: string): string {
     // page that scrolls at the root would turn every real occlusion — a modal backdrop lives in the
     // body too — into an abstention.
     `const clippedByOwnBox = (el, x, y) => { ` +
+    `if (getComputedStyle(el).position === "fixed") return false; ` +
     `for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) { ` +
     `const st = getComputedStyle(p); ` +
+    `if (st.position === "fixed") return false; ` +
     `if (!/(auto|scroll|overlay|hidden)/.test(st.overflowY + " " + st.overflowX)) continue; ` +
     `const b = p.getBoundingClientRect(); ` +
     `if (x < b.left || x > b.right || y < b.top || y > b.bottom) return true; } return false; }; ` +

@@ -614,6 +614,15 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
     expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
   });
 
+  it("a fixed candidate, or one under a fixed ancestor, is never 'clipped' by a scroll box", () => {
+    // A modal rendered in place inside a scrolled container: `position: fixed` escapes the
+    // ancestor's overflow clip, so treating it as clipped would abstain on the very shape #176 is
+    // for. Verified in a real browser against the maintainer's fixture.
+    const script = reachableRolesProbeScript("Continue");
+    expect(script).toContain('getComputedStyle(el).position === "fixed"');
+    expect(script).toContain('st.position === "fixed"');
+  });
+
   it("treats a candidate clipped by its own scroll container as unmeasured, not covered", () => {
     // The script decides this in-page; what the unit can pin is that the rule is asked before the
     // hit test, since a clipped candidate's centre lands on whatever the page shows there.

@@ -584,3 +584,50 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
     expect(result.verdict.passed).toBe(true);
   });
 });
+
+describe("finalizeVerdict on the heal path (#186)", () => {
+  // Outcome-heal re-discovers on a live LLM loop, which ends either at `done` or at the step cap.
+  // A capped re-discovery is an unverified path: the suite already refuses one at first discovery
+  // (nothing frozen), but the heal path returned the critic's verdict raw, so the goal assertions
+  // holding on the partial state read as a successful heal. The stale skill below never reaches
+  // the goal (its click goes nowhere), so the replay fails and outcome-heal runs; the re-discovery
+  // reaches the goal on its very first click.
+  const stale: Scenario = {
+    name: "reach payment",
+    steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+    assertions: [{ kind: "navigated", to: "app/payment" }],
+  };
+  const driverReachingPaymentOn = (text: string): StubDriver => {
+    const d = new StubDriver();
+    d.els = [{ role: "button", name: text }];
+    d.navOn[text] = "https://app/payment";
+    return d;
+  };
+
+  it("a re-discovery that hits the step cap is red, even when the goal assertions hold on its partial state", async () => {
+    const driver = driverReachingPaymentOn("go");
+    // Never says `done`: every reply is another click, so discovery runs to its cap.
+    const llm = { id: "always-click", async complete() { return '{"action":"click","text":"go","reason":"keep going"}'; } };
+
+    const { result, healedScenario } = await runScenario(stale, { driver, llm, heal: true });
+
+    expect(healedScenario?.truncated).toBe(true); // the re-discovery really did cap out
+    expect(result.verdict.results.every((r) => r.passed)).toBe(true); // …and the goal held on that partial state
+    expect(result.verdict.passed).toBe(false); // …which is exactly what must not read as green
+    expect(result.verdict.detail).toMatch(/truncated/);
+  });
+
+  it("a re-discovery that reaches `done` and the goal is still a green heal", async () => {
+    // The finalizer must not kill outcome-heal: a completed re-discovery whose end-state satisfies
+    // the ORIGINAL goal is the heal working as designed.
+    const driver = driverReachingPaymentOn("go");
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario } = await runScenario(stale, { driver, llm, heal: true });
+
+    expect(healedScenario).toBeDefined(); // heal ran
+    expect(healedScenario?.truncated).toBeUndefined();
+    expect(result.verdict.passed).toBe(true);
+    expect(result.verdict.detail).toBeUndefined();
+  });
+});

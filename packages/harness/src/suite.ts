@@ -305,7 +305,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       // through), but an outcome-heal comes back from discover() without the suite-local field —
       // frozen bare, the next run would mismatch and re-discover a skill that was just repaired
       // (#153). caseHash stays a suite concept; the engine never learns it (pattern ≠ data).
-      if (healedScenario) {
+      // A truncated re-discovery is red (finalizeVerdict) and must not be frozen either, or the next
+      // run replays a path that never reached the goal — the same refusal first discovery gets above.
+      if (healedScenario && !healedScenario.truncated) {
         const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c, ctx.baseUrl) };
         await ctx.store.freeze(ref, restamped);
         scope?.emit({ kind: "freeze", phase: "heal", payload: freezePayload(ref, restamped) });

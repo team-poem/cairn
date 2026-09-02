@@ -579,3 +579,30 @@ describe("renderSuiteReport", () => {
     expect(md).toContain("**request-status**: no request matching api/pay");
   });
 });
+
+describe("a truncated outcome-heal re-discovery is not frozen (#186)", () => {
+  it("leaves the stale skill in the store and reports the truncated verdict", async () => {
+    const store = new MemoryStore();
+    const stale: FrozenSuiteScenario = {
+      name: "checkout",
+      steps: [{ kind: "click", target: { text: "Checkout" }, intent: "go to payment" }],
+      assertions: [{ kind: "navigated", to: "the-moon" }], // never reached → outcome-heal runs
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, stale);
+    const driverFactory = (): StubDriver => {
+      const d = new StubDriver();
+      d.els = [{ role: "button", name: "go" }]; // every re-discovery click succeeds…
+      return d;
+    };
+    // …and the LLM never says `done`, so the re-discovery runs to the step cap.
+    const llm: LlmClient = { id: "always-click", async complete() { return '{"action":"click","text":"go"}'; } };
+
+    const suite = await runSuite([{ ...CASE, id: "catalog" }], { store, driverFactory, llm, reporter: silent, expectTimeoutMs: 50 });
+
+    const v = suite.verdicts[0]!;
+    expect(v.verdict.passed).toBe(false);
+    expect(v.verdict.detail).toMatch(/truncated/);
+    expect(store.skills.get(REF)).toBe(stale); // not re-frozen: the next run must not replay a capped path
+  });
+});

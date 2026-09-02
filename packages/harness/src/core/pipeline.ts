@@ -117,6 +117,32 @@ async function runStep(
  * rule, #69). `detail` says which step blocked and why, so a CI gate can tell "run didn't finish"
  * apart from "assertions failed". A healed step is recorded ok, so a healed run is not penalized.
  */
+/**
+ * How the run that produced the evidence ended. A replay is a fixed step list, so completion is
+ * "every step ran"; a re-discovery (outcome-heal) is a loop, so completion is "the loop reached
+ * `done`, not the step cap". Both feed one finalizer so a rule added there applies to both paths.
+ */
+export type Completion =
+  | { kind: "replay"; actions: ExecutedAction[]; totalSteps: number }
+  | { kind: "rediscovery"; truncated: boolean };
+
+/**
+ * The last word on a verdict, shared by replay and outcome-heal (#186). The critic judges
+ * assertions; this folds in whatever the assertions cannot see about the run itself. Today that is
+ * completion — a blocked replay (#90) or a step-capped re-discovery both stopped collecting
+ * evidence partway, so assertions satisfied by the prefix must not read as green. The next such
+ * rule belongs here, not at a call site: the heal path once returned the critic's verdict raw and
+ * silently skipped every rule the replay path applied.
+ */
+export function finalizeVerdict(judged: Verdict, completion: Completion): Verdict {
+  if (completion.kind === "replay") return withStepCompletion(judged, completion.actions, completion.totalSteps);
+  if (!completion.truncated) return judged;
+  // Mirrors the suite's first-discovery rule: a path that never reached `done` is unverified,
+  // whatever its partial state happens to satisfy.
+  const why = "re-discovery truncated at the step cap — unverified path";
+  return { ...judged, passed: false, detail: judged.detail ? `${judged.detail}; ${why}` : why };
+}
+
 function withStepCompletion(verdict: Verdict, actions: ExecutedAction[], totalSteps: number): Verdict {
   const blockedAt = actions.findIndex((a) => !a.ok);
   if (blockedAt === -1) return verdict;
@@ -184,7 +210,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = withStepCompletion(judged, actions, scenario.steps.length);
+  const verdict = finalizeVerdict(judged, { kind: "replay", actions, totalSteps: scenario.steps.length });
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

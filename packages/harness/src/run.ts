@@ -3,7 +3,7 @@
  * app, or CI all go through here). No LLM is constructed unless an `expect` critic or
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
-import { runHarness } from "./core/pipeline.js";
+import { runHarness, finalizeVerdict } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
@@ -227,8 +227,11 @@ export async function runScenario(
       };
       // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
       // else a path that reaches a different end-state passes as green (P2 false green).
-      const verdict = await critic.judge(evidence, scenario.assertions, ctx);
-      for (const r of verdict.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
+      const judged = await critic.judge(evidence, scenario.assertions, ctx);
+      for (const r of judged.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
+      // Same finalizer as replay (#186): a re-discovery that hit the step cap is an unverified path,
+      // and the goal assertions holding on its partial state is not a heal.
+      const verdict = finalizeVerdict(judged, { kind: "rediscovery", truncated: repaired.truncated === true });
       if (ownTracer) {
         scope?.emit({
           kind: "case-end",

@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { guessedKeyRuns, scoreScenario, scoreTarget, weakTargets } from "../../src/core/freeze.js";
+import {
+  droppedProofReason,
+  guessedKeyRuns,
+  hasSemanticCriterion,
+  provesAnAction,
+  scoreScenario,
+  scoreTarget,
+  weakTargets,
+} from "../../src/core/freeze.js";
+import type { TraceEvent } from "../../src/core/trace.js";
 import type { Scenario } from "../../src/core/types.js";
 
 describe("scoreTarget", () => {
@@ -85,5 +94,78 @@ describe("guessedKeyRuns (#61)", () => {
       { kind: "pressKey", key: "Enter" },
     ]);
     expect(guessedKeyRuns(s)).toEqual([]);
+  });
+});
+
+describe("droppedProofReason", () => {
+  const gate = (action: string | undefined, gateName = "grounding"): TraceEvent =>
+    ({ seq: 1, ts: 0, kind: "gate", payload: { gate: gateName, action, reason: "why" } }) as TraceEvent;
+
+  it("reports a dropped request-status proposal — the freeze may prove nothing without it", () => {
+    expect(droppedProofReason(gate('{"kind":"request-status","urlIncludes":"/api/x","status":200}'))).toBe("why");
+  });
+
+  it("stays quiet on routine drops (an expect without --semantic)", () => {
+    expect(droppedProofReason(gate('{"kind":"expect","criterion":"looks right"}'))).toBeUndefined();
+  });
+
+  it("stays quiet on another gate and on a gate carrying no action", () => {
+    expect(droppedProofReason(gate('{"kind":"request-status"}', "policy"))).toBeUndefined();
+    expect(droppedProofReason(gate(undefined))).toBeUndefined();
+  });
+
+  it("stays quiet on an unparseable action instead of throwing", () => {
+    expect(droppedProofReason(gate("{not json"))).toBeUndefined();
+  });
+
+  it("ignores events that are not gates", () => {
+    expect(droppedProofReason({ seq: 0, ts: 0, kind: "run-end", payload: { passed: true } } as TraceEvent)).toBeUndefined();
+  });
+});
+
+describe("provesAnAction — what decides the warning is the freeze, not the drops", () => {
+  const scenario = (assertions: Scenario["assertions"]): Scenario => ({
+    name: "t",
+    steps: [{ kind: "goto", url: "https://shop.co" }],
+    assertions,
+  });
+
+  it("a live request check proves the action, even if another proposal was dropped", () => {
+    expect(provesAnAction(scenario([{ kind: "request-status", urlIncludes: "shop.co/api/checkout", status: 200 }]))).toBe(true);
+  });
+
+  it("a vacuous one does not — it was already true before the flow ran", () => {
+    expect(
+      provesAnAction(scenario([{ kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true }])),
+    ).toBe(false);
+  });
+
+  it("a freeze with only a destination proves nothing about the action, dropped proposals or not", () => {
+    expect(provesAnAction(scenario([{ kind: "navigated", to: "shop.co/done" }, { kind: "no-failed-requests" }]))).toBe(false);
+  });
+});
+
+describe("provesAnAction counts what the freeze can stand behind", () => {
+  const only = (assertions: Scenario["assertions"]): Scenario => ({
+    name: "t",
+    steps: [{ kind: "goto", url: "https://shop.co" }],
+    assertions,
+  });
+
+  it("a product's custom check counts — its own code judges it", () => {
+    expect(provesAnAction(only([{ kind: "custom", name: "cart-has-item" }]))).toBe(true);
+  });
+
+  it("a semantic criterion does NOT — the freeze never grounded it and cannot mark it vacuous", () => {
+    const scenario = only([{ kind: "expect", criterion: "the order shows in the list" }]);
+    expect(provesAnAction(scenario)).toBe(false);
+    // …but it is not nothing, and the warning says which of the two situations this is.
+    expect(hasSemanticCriterion(scenario)).toBe(true);
+  });
+
+  it("a vacuous request check counts as neither", () => {
+    const scenario = only([{ kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true }]);
+    expect(provesAnAction(scenario)).toBe(false);
+    expect(hasSemanticCriterion(scenario)).toBe(false);
   });
 });

@@ -40,7 +40,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry"; action?: string; reason: string };
+        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "unproven-action"; action?: string; reason: string };
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {

@@ -209,6 +209,15 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // identical lines reads as many problems instead of one.
     for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
+  // #184: the flow DID fire a state change, and no check could be written for it — so this is not a
+  // read-only flow, and the warning above is not fine to wave through.
+  if (scenario.unprovenAction) {
+    console.log(
+      `\n⚠ the flow fired ${scenario.unprovenAction} and no check can express it (its URL has no ` +
+        `stable path) — replay cannot tell whether that action happened. Mark the endpoint benign if ` +
+        `it is background traffic; otherwise add a check of your own.`,
+    );
+  }
 
   const freeze = flagStr(flags, "freeze");
   if (freeze) {

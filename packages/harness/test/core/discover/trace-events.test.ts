@@ -48,6 +48,26 @@ describe("discover trace events", () => {
     expect(sink.events.map((e) => e.seq)).toEqual(sink.events.map((_, i) => i));
   });
 
+  it("an action no check can express is frozen as `METHOD url` and traced as gate unproven-action (#184)", async () => {
+    const { sink, scope } = scoped();
+    // The log grows only when the flow acts, so the mutation is the flow's own, not the entry load's.
+    const live: Evidence = {
+      ...evidence,
+      execution: { ...evidence.execution, finalUrl: "https://shop.co/cart" },
+      logic: { requests: [], console: [] },
+    };
+    const driver = new (class extends FakeDriver {
+      override async click(): Promise<void> {
+        live.logic.requests.push({ method: "DELETE", url: "https://api.shop.co/586738", status: 200 });
+      }
+    })({ evidence: live, elements: [{ role: "button", name: "Delete" }] });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Delete"}', '{"action":"done"}', "[]"]);
+    const scenario = await discover("delete it", { driver, llm, trace: scope });
+    expect(scenario.unprovenAction).toBe("DELETE https://api.shop.co/586738");
+    const gate = sink.events.find((e) => e.kind === "gate");
+    expect(gate?.payload).toMatchObject({ gate: "unproven-action", action: "DELETE https://api.shop.co/586738" });
+  });
+
   it("a failed apply emits action{ok:false} with the error", async () => {
     const { sink, scope } = scoped();
     const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Gone" }], failOn: ["Gone"] });

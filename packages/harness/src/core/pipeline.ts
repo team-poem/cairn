@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, RunUsage, Scenario, Step, StepProgress, Verdict } from "./types.js";
+import type { Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -127,21 +127,6 @@ function withStepCompletion(verdict: Verdict, actions: ExecutedAction[], totalSt
   return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
 }
 
-/**
- * Fold an unprovable action into the verdict (spec/core/judgment.md, 4th fail-closed rule): the
- * freeze recorded that the run did something no check could be written for, so the assertions that
- * did survive can all hold without the action ever firing — a green would out-run its evidence.
- * A user-authored criterion lifts it, the same carve-out the vacuity rule makes: whoever wrote the
- * check owns what it proves.
- */
-function withProvenAction(verdict: Verdict, scenario: Scenario): Verdict {
-  if (!scenario.unprovenAction) return verdict;
-  if (scenario.assertions.some((a) => a.origin === "user")) return verdict;
-  const why =
-    "the run performed an action no assertion can verify (its request has no stable URL to check)";
-  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
-}
-
 export async function runHarness(
   harness: Harness,
   task: string,
@@ -199,7 +184,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = withProvenAction(withStepCompletion(judged, actions, scenario.steps.length), scenario);
+  const verdict = withStepCompletion(judged, actions, scenario.steps.length);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

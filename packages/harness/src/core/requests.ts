@@ -50,6 +50,24 @@ export function isRecoveredFailure(requests: readonly NetworkRequest[], index: n
     .some((r) => r.status > 0 && r.status < 400 && r.method.toUpperCase() === method && endpointKey(r.url) === key);
 }
 
+/** Are two URLs on the same site — same registrable domain, so `api.shop.co` and `shop.co` are one
+ * site and `api2.amplitude.com` is not? The line between an app's own traffic and third-party
+ * background posts (analytics, error reporters), which fire on their own schedule and never prove
+ * the app's action. Unparseable URLs never match.
+ * ponytail: no public-suffix list — the last two labels are the site, so `shop.co.uk` and
+ * `amplitude.co.uk` read as one site. That errs toward COUNTING a request, the loud direction. */
+export function sameSite(a: string, b: string): boolean {
+  const site = (url: string): string | undefined => {
+    try {
+      return new URL(url).hostname.split(".").slice(-2).join(".");
+    } catch {
+      return undefined;
+    }
+  };
+  const sa = site(a);
+  return sa !== undefined && sa === site(b);
+}
+
 /** Whether a request is a state-changing mutation (the kind that proves an action happened, vs a
  * navigation/read) — used to ground a scenario's success assertion on what did the work. */
 export function isMutation(method: string): boolean {

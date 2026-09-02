@@ -246,7 +246,7 @@ export async function runScenario(
         healedScenario: {
           ...repaired,
           assertions: scenario.assertions,
-          ...(scenario.unprovenAction ? { unprovenAction: true as const } : { unprovenAction: undefined }),
+          ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
         },
       };
     }

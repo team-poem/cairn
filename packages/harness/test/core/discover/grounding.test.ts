@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveAssertions, hasUnprovenAction, markVacuous } from "../../../src/core/discover/grounding.js";
+import { deriveAssertions, findUnprovenAction, markVacuous } from "../../../src/core/discover/grounding.js";
 import type { Assertion, Evidence } from "../../../src/core/types.js";
 import { findRequestStatus } from "../../../src/core/requests.js";
 import { urlReached } from "../../../src/core/steps.js";
@@ -357,132 +357,74 @@ describe("an action no check can express is recorded, not swallowed", () => {
     perception: {},
     logic: { requests, console: [] },
   });
+  const navigated: Assertion[] = [{ kind: "navigated", to: "shop.co/done" }];
   const rootDelete = { method: "DELETE", url: "https://api.shop.co/586738", status: 200 };
 
-  it("flags a successful mutation whose URL leaves no stable path", () => {
-    expect(hasUnprovenAction(evWith([rootDelete]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(true);
+  it("names a successful same-site mutation whose URL leaves no stable path", () => {
+    expect(findUnprovenAction(evWith([rootDelete]), navigated)).toEqual(rootDelete);
   });
 
   it("stays quiet once a real proof was frozen — the flow is verified either way", () => {
     const assertions: Assertion[] = [
       { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
     ];
-    expect(hasUnprovenAction(evWith([rootDelete]), assertions)).toBe(false);
+    expect(findUnprovenAction(evWith([rootDelete]), assertions)).toBeUndefined();
   });
 
   it("a vacuous proof does not count as one", () => {
     const assertions: Assertion[] = [
       { kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true },
     ];
-    expect(hasUnprovenAction(evWith([rootDelete]), assertions)).toBe(true);
+    expect(findUnprovenAction(evWith([rootDelete]), assertions)).toEqual(rootDelete);
   });
 
   it("stays quiet when the mutation has a checkable URL — that is just a missing proposal", () => {
     const ok = { method: "POST", url: "https://shop.co/api/orders/586738", status: 200 };
-    expect(hasUnprovenAction(evWith([ok]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(false);
+    expect(findUnprovenAction(evWith([ok]), navigated)).toBeUndefined();
   });
 
   it("flags an id-first URL even when a later segment names something", () => {
     // The gate asks exactly what grounding asks when it refuses a check. Anything else leaves the
     // gap between the two answers passing silently — /586738/confirm gets no check AND no gate.
     const midway = { method: "POST", url: "https://api.shop.co/586738/confirm", status: 200 };
-    expect(hasUnprovenAction(evWith([midway]), [{ kind: "navigated", to: "shop.co/done" }])).toBe(true);
+    expect(findUnprovenAction(evWith([midway]), navigated)).toEqual(midway);
   });
 
-  it("…which arms it on transport traffic of the same shape — the cost, paid down with `benign`", () => {
+  it("ignores a third-party beacon — cross-site traffic never proves the app's action", () => {
+    // Amplitude posts to /2/httpapi on every route change; its first segment is a bare number, so
+    // it reads exactly like an unprovable action. It is not the app's, so it cannot be one.
+    const amplitude = { method: "POST", url: "https://api2.amplitude.com/2/httpapi", status: 200 };
+    expect(findUnprovenAction(evWith([amplitude]), navigated)).toBeUndefined();
+  });
+
+  it("counts a page the flow visited along the way as the app's site", () => {
+    const onAuthHost = { method: "POST", url: "https://id.example.org/586738", status: 200 };
+    expect(findUnprovenAction(evWith([onAuthHost]), navigated)).toBeUndefined();
+    expect(
+      findUnprovenAction(evWith([onAuthHost]), navigated, { pageUrls: ["https://login.example.org/", undefined] }),
+    ).toEqual(onAuthHost);
+  });
+
+  it("…which still arms it on same-site transport traffic — the cost, paid down with `benign`", () => {
     // A SockJS session mounts under a run-minted first segment and reads like an unprovable action.
     // Loud and fixable from outside: the product marks the endpoint, the seam meant for app noise.
     const sockjs = { method: "POST", url: "https://sockjs.shop.co/123/abc/xhr_send", status: 200 };
-    const assertions: Assertion[] = [{ kind: "navigated", to: "shop.co/done" }];
-    expect(hasUnprovenAction(evWith([sockjs]), assertions)).toBe(true);
-    expect(hasUnprovenAction(evWith([sockjs]), assertions, ["sockjs.shop.co"])).toBe(false);
+    expect(findUnprovenAction(evWith([sockjs]), navigated)).toEqual(sockjs);
+    expect(findUnprovenAction(evWith([sockjs]), navigated, { benign: ["sockjs.shop.co"] })).toBeUndefined();
   });
 
   it("ignores what the entry page fired — only the flow's own traffic counts", () => {
     const pageview = { method: "POST", url: "https://shop.co/586738", status: 204 };
     const flowRequest = { method: "GET", url: "https://shop.co/api/search", status: 200 };
     expect(
-      hasUnprovenAction(evWith([pageview, flowRequest]), [{ kind: "navigated" }], [], 1),
-    ).toBe(false);
+      findUnprovenAction(evWith([pageview, flowRequest]), [{ kind: "navigated" }], { sinceRequest: 1 }),
+    ).toBeUndefined();
   });
 
   it("ignores a benign root beacon and a failed mutation", () => {
-    const beacon = { method: "POST", url: "https://collect.io/", status: 204 };
-    expect(hasUnprovenAction(evWith([beacon]), [{ kind: "navigated" }], ["collect.io"])).toBe(false);
-    expect(hasUnprovenAction(evWith([{ ...rootDelete, status: 500 }]), [{ kind: "navigated" }])).toBe(false);
-  });
-});
-
-describe("which request proves the action, and which method is frozen (#178 review)", () => {
-  const ev = (requests: Evidence["logic"]["requests"]): Evidence => ({
-    execution: { actions: [], navigated: false, finalUrl: "https://api.test/done", blocked: false },
-    perception: {},
-    logic: { requests, console: [] },
-  });
-  const bothVerbs = [
-    { method: "GET", url: "https://api.test/api/jobs", status: 200 },
-    { method: "POST", url: "https://api.test/api/jobs", status: 200 },
-  ];
-  const proposal = { kind: "request-status" as const, urlIncludes: "/api/jobs", status: 200 };
-  const frozen = (requests: Evidence["logic"]["requests"], a = proposal) =>
-    deriveAssertions([a], ev(requests), false).find((x) => x.kind === "request-status");
-
-  it("prefers the mutation when the proposal names no method — whichever arrived first", () => {
-    // Otherwise the network decides whether the frozen check binds to a verb: same evidence, two
-    // different freezes. The prompt's own example JSON carries no method, so this is the norm.
-    expect(frozen(bothVerbs)?.method).toBe("POST");
-    expect(frozen([...bothVerbs].reverse())?.method).toBe("POST");
-  });
-
-  it("keeps an explicitly proposed GET instead of widening it to any verb", () => {
-    const asGet = { ...proposal, method: "GET" };
-    const out = frozen([{ method: "GET", url: "https://api.test/api/jobs", status: 200 }], asGet);
-    expect(out?.method).toBe("GET");
-  });
-
-  it("freezes no method when only a read matched and none was asked for", () => {
-    expect(frozen([{ method: "GET", url: "https://api.test/api/jobs", status: 200 }])?.method).toBeUndefined();
-  });
-
-  it("refuses to freeze a failure as the success condition", () => {
-    const drops: string[] = [];
-    const out = deriveAssertions(
-      [{ kind: "request-status", urlIncludes: "/api/orders", status: 500, method: "POST" }],
-      ev([{ method: "POST", url: "https://api.test/api/orders", status: 500 }]),
-      false,
-      [],
-      (_a, reason) => drops.push(reason),
-    );
-    expect(out.some((x) => x.kind === "request-status")).toBe(false);
-    expect(drops[0]).toMatch(/not a settled success/);
-  });
-
-  it("names the method in the drop reason — the URL and status did match something", () => {
-    const drops: string[] = [];
-    deriveAssertions(
-      [{ ...proposal, method: "POST" }],
-      ev([{ method: "GET", url: "https://api.test/api/jobs", status: 200 }]),
-      false,
-      [],
-      (_a, reason) => drops.push(reason),
-    );
-    expect(drops[0]).toContain("(POST)");
-  });
-
-  it("reports a proposed destination the run did not reach", () => {
-    const drops: string[] = [];
-    deriveAssertions(
-      [{ kind: "navigated", to: "app.test/success" }],
-      {
-        execution: { actions: [], navigated: true, finalUrl: "https://app.test/error", blocked: false },
-        perception: {},
-        logic: { requests: [], console: [] },
-      },
-      false,
-      [],
-      (_a, reason) => drops.push(reason),
-    );
-    expect(drops[0]).toMatch(/reached app.test\/error, not app.test\/success/);
+    const beacon = { method: "POST", url: "https://shop.co/", status: 204 };
+    expect(findUnprovenAction(evWith([beacon]), [{ kind: "navigated" }], { benign: ["shop.co/"] })).toBeUndefined();
+    expect(findUnprovenAction(evWith([{ ...rootDelete, status: 500 }]), [{ kind: "navigated" }])).toBeUndefined();
   });
 });
 

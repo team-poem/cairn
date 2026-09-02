@@ -27,7 +27,14 @@ import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
 import { renderSuiteReport } from "./adapters/reporters/suite.js";
-import { guessedKeyRuns, weakTargets } from "./core/freeze.js";
+import {
+  droppedProofReason,
+  guessedKeyRuns,
+  hasSemanticCriterion,
+  provesAnAction,
+  weakTargets,
+} from "./core/freeze.js";
+import { Tracer } from "./core/trace.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
@@ -123,6 +130,18 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   const llm = createLlmClient(model ? { model } : {});
   console.log(`discovering with ${llm.id} …`);
 
+  // A grounding drop only rides the trace, so a CLI user never learns why the freeze ended up
+  // without a proof that the action fired — and that is not fail-closed on its own: a surviving
+  // `navigated` still passes the scenario. Collect the reasons through the shipped sink seam; what
+  // decides the warning is the frozen result, not these.
+  const droppedProofs: string[] = [];
+  const trace = new Tracer({
+    emit: (event) => {
+      const reason = droppedProofReason(event);
+      if (reason) droppedProofs.push(reason);
+    },
+  }).scope("discover");
+
   let scenario: Scenario;
   try {
     // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
@@ -133,6 +152,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
       baseUrl: url,
       maxSteps: flagNum(flags, "max-steps"),
       semanticChecks: Boolean(flags.get("semantic")),
+      trace,
     });
   } finally {
     await driver.close();
@@ -172,6 +192,22 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
         console.log(`\n⚠ ${JSON.stringify(a)} — already true at the start; this check cannot detect a broken flow.`);
       }
     }
+  }
+
+  // Warn on what the freeze CARRIES: a scenario with a live request check proves its action even if
+  // another proposal was dropped along the way, and one with none needs saying so even if nothing
+  // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
+  if (!provesAnAction(scenario)) {
+    console.log(
+      hasSemanticCriterion(scenario)
+        ? `\n⚠ nothing mechanical here checks that the action fired — only the semantic criterion, ` +
+            `which an LLM judges at replay and which this freeze never grounded against the run.`
+        : `\n⚠ nothing here checks that the action itself fired — replay passes as soon as the page ` +
+            `is reached. Fine for a read-only flow; otherwise re-discover, or add a check of your own.`,
+    );
+    // One line per distinct reason: the same refusal repeats once per proposal, and a wall of
+    // identical lines reads as many problems instead of one.
+    for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
 
   const freeze = flagStr(flags, "freeze");

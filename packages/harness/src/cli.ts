@@ -27,7 +27,13 @@ import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
 import { renderSuiteReport } from "./adapters/reporters/suite.js";
-import { droppedProofReason, guessedKeyRuns, provesAnAction, weakTargets } from "./core/freeze.js";
+import {
+  droppedProofReason,
+  guessedKeyRuns,
+  hasSemanticCriterion,
+  provesAnAction,
+  weakTargets,
+} from "./core/freeze.js";
 import { Tracer } from "./core/trace.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { JsonReporter } from "./adapters/reporters/json.js";
@@ -193,11 +199,15 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
   if (!provesAnAction(scenario)) {
     console.log(
-      `\n⚠ nothing here checks that the action itself fired — no request check, no custom check, ` +
-        `no judged criterion, so replay passes as soon as the page is reached. Fine for a read-only ` +
-        `flow; otherwise re-discover, or add a check of your own.`,
+      hasSemanticCriterion(scenario)
+        ? `\n⚠ nothing mechanical here checks that the action fired — only the semantic criterion, ` +
+            `which an LLM judges at replay and which this freeze never grounded against the run.`
+        : `\n⚠ nothing here checks that the action itself fired — replay passes as soon as the page ` +
+            `is reached. Fine for a read-only flow; otherwise re-discover, or add a check of your own.`,
     );
-    for (const reason of droppedProofs) console.log(`  · proposed check dropped: ${reason}`);
+    // One line per distinct reason: the same refusal repeats once per proposal, and a wall of
+    // identical lines reads as many problems instead of one.
+    for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
 
   const freeze = flagStr(flags, "freeze");

@@ -104,20 +104,27 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
 }
 
 /**
- * Does this freeze carry a check that only the flow can satisfy? A live (non-vacuous)
- * `request-status` is the strongest form — it proves work happened rather than a page being
- * reached — but a `custom` check the product registered and an `expect` criterion frozen under
- * `--semantic` are checks someone authored for this flow too, and calling a scenario unverified
- * because of their kind would be false. What remains outside this set is a bare `navigated` and
- * the two guards, which pass as soon as the page loads clean.
+ * Does this freeze carry a check that only the flow can satisfy, and that the freeze itself can
+ * stand behind? Two kinds qualify: a live `request-status`, grounded against a request the run
+ * actually made, and a `custom` check the product registered and judges with its own code.
+ *
+ * `expect` is deliberately NOT counted. A semantic criterion is a sentence the model wrote: it is
+ * never grounded against the evidence, and `markVacuous` cannot judge it either, so the freeze has
+ * no basis for claiming it verifies anything. It may well be the real check of the flow — an LLM
+ * critic judges it at replay — which is why the warning names it instead of ignoring it.
  *
  * It still over-warns on a genuinely read-only flow, which has no action to prove; that is the
  * loud direction and is left as is.
  */
 export function provesAnAction(scenario: Scenario): boolean {
   return scenario.assertions.some(
-    (a) => (a.kind === "request-status" || a.kind === "custom" || a.kind === "expect") && a.vacuous !== true,
+    (a) => (a.kind === "request-status" || a.kind === "custom") && a.vacuous !== true,
   );
+}
+
+/** Did the freeze keep a semantic criterion? Judged by an LLM at replay, never grounded here. */
+export function hasSemanticCriterion(scenario: Scenario): boolean {
+  return scenario.assertions.some((a) => a.kind === "expect" && a.vacuous !== true);
 }
 
 /**

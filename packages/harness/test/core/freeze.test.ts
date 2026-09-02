@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   droppedProofReason,
   guessedKeyRuns,
+  hasSemanticCriterion,
   provesAnAction,
   scoreScenario,
   scoreTarget,
@@ -144,22 +145,27 @@ describe("provesAnAction — what decides the warning is the freeze, not the dro
   });
 });
 
-describe("provesAnAction counts every authored check, not only request ones", () => {
+describe("provesAnAction counts what the freeze can stand behind", () => {
   const only = (assertions: Scenario["assertions"]): Scenario => ({
     name: "t",
     steps: [{ kind: "goto", url: "https://shop.co" }],
     assertions,
   });
 
-  it("a semantic criterion counts — --semantic froze a check for this flow", () => {
-    expect(provesAnAction(only([{ kind: "expect", criterion: "the order shows in the list" }]))).toBe(true);
-  });
-
-  it("a product's custom check counts", () => {
+  it("a product's custom check counts — its own code judges it", () => {
     expect(provesAnAction(only([{ kind: "custom", name: "cart-has-item" }]))).toBe(true);
   });
 
-  it("a vacuous one of either kind does not", () => {
-    expect(provesAnAction(only([{ kind: "expect", criterion: "looks fine", vacuous: true }]))).toBe(false);
+  it("a semantic criterion does NOT — the freeze never grounded it and cannot mark it vacuous", () => {
+    const scenario = only([{ kind: "expect", criterion: "the order shows in the list" }]);
+    expect(provesAnAction(scenario)).toBe(false);
+    // …but it is not nothing, and the warning says which of the two situations this is.
+    expect(hasSemanticCriterion(scenario)).toBe(true);
+  });
+
+  it("a vacuous request check counts as neither", () => {
+    const scenario = only([{ kind: "request-status", urlIncludes: "shop.co/api/boot", status: 200, vacuous: true }]);
+    expect(provesAnAction(scenario)).toBe(false);
+    expect(hasSemanticCriterion(scenario)).toBe(false);
   });
 });

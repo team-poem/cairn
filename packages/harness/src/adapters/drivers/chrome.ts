@@ -646,11 +646,12 @@ export function probedRole(
 /**
  * In-page probe over the elements named `text`, sorted by what a center-point hit test can say:
  * `reachable` (the point lands on it), `occluded` (it lands on something else — a backdrop), and
- * `unknown` (below the fold, zero-size, nothing at the point). The split matters because the driver
- * clicks through puppeteer's `Locator`, which scrolls the target into view first, and the a11y
- * snapshot it narrows is unfiltered by viewport — so an off-screen control is a perfectly good
- * click target, and treating it as unreachable would narrow onto a visible decoy instead. Only
- * occlusion is evidence. `value` is read for inputs, since `<input type="submit" value="Continue">`
+ * `unknown` (below the fold, zero-size, nothing at the point, or scrolled out of its own
+ * `overflow` container). The split matters because the driver clicks through puppeteer's `Locator`,
+ * which scrolls the target into view first — the window and any clipping ancestor alike — and the
+ * a11y snapshot it narrows is unfiltered by viewport. So a control the viewer cannot see right now
+ * is still a perfectly good click target, and treating it as unreachable would narrow onto a
+ * visible decoy instead. Only being covered where it does sit is evidence. `value` is read for inputs, since `<input type="submit" value="Continue">`
  * is the common modal submit and carries its name nowhere else.
  *
  * All three buckets are returned, including the one the caller then ignores: `occluded` is how the
@@ -677,9 +678,20 @@ export function reachableRolesProbeScript(text: string): string {
     // "reachable" / "occluded" / "unknown" — the driver clicks through puppeteer's Locator, which
     // scrolls first, so a control below the fold is not unreachable, it is unmeasured. Only a hit
     // test that lands on something ELSE is evidence of occlusion.
+    // A candidate whose centre falls outside one of its own scroll containers is clipped, not
+    // covered: puppeteer scrolls that container and clicks it. The walk stops before <body>, or a
+    // page that scrolls at the root would turn every real occlusion — a modal backdrop lives in the
+    // body too — into an abstention.
+    `const clippedByOwnBox = (el, x, y) => { ` +
+    `for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) { ` +
+    `const st = getComputedStyle(p); ` +
+    `if (!/(auto|scroll|overlay|hidden)/.test(st.overflowY + " " + st.overflowX)) continue; ` +
+    `const b = p.getBoundingClientRect(); ` +
+    `if (x < b.left || x > b.right || y < b.top || y > b.bottom) return true; } return false; }; ` +
     `const classify = (el) => { const r = el.getBoundingClientRect(); ` +
     `if (!r.width || !r.height) return "unknown"; ` +
     `const x = r.left + r.width / 2, y = r.top + r.height / 2; ` +
+    `if (clippedByOwnBox(el, x, y)) return "unknown"; ` +
     `if (x < 0 || y < 0 || x > window.innerWidth || y > window.innerHeight) return "unknown"; ` +
     `const top = document.elementFromPoint(x, y); if (!top) return "unknown"; ` +
     `return top === el || el.contains(top) ? "reachable" : "occluded"; }; ` +

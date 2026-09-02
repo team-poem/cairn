@@ -614,6 +614,16 @@ describe("cross-role duplicate names resolve to what the page shows (#176)", () 
     expect(calls.find((c) => c.name === "click")?.args.uid).toBe("3_2");
   });
 
+  it("treats a candidate clipped by its own scroll container as unmeasured, not covered", () => {
+    // The script decides this in-page; what the unit can pin is that the rule is asked before the
+    // hit test, since a clipped candidate's centre lands on whatever the page shows there.
+    const script = reachableRolesProbeScript("Continue");
+    expect(script).toContain("clippedByOwnBox");
+    expect(script.indexOf("clippedByOwnBox(el, x, y)")).toBeLessThan(script.indexOf("elementFromPoint"));
+    // and the walk stops before <body>, or a root-scrolling page would abstain on every backdrop
+    expect(script).toContain("p !== document.body");
+  });
+
   it("reads an input's value as its name (<input type=submit value=Continue>)", () => {
     expect(reachableRolesProbeScript("Continue")).toContain('getAttribute("value")');
   });

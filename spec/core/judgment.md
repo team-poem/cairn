@@ -41,6 +41,25 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   guards (`no-failed-requests`/`no-console-errors`) carry the stamp on a clean start but are not
   individually warned on — a flow action can still break them.
 
+- **Unprovable action → recorded, not yet failed** (#184, #172 follow-up): grounding refuses a
+  `request-status` whose proving request has no stable path to check — the same predicate the
+  freeze asks again here, so the two cannot answer differently and leave the gap between them
+  passing silently. When the *flow* (not the entry page load) fired such a mutation on the app's
+  own site and no proof survived, the freeze carries `Scenario.unprovenAction` (`METHOD url` of
+  that request), the trace emits `gate: unproven-action`, and `cairn discover` warns: the
+  assertions that did survive — a `navigated` above all — hold whether or not the action fired, so
+  a green means "the page was reached", not "the work was done". Replay does **not** fail on the
+  flag yet. Failing closed is the intent, but the gate's false-positive rate is unmeasured until the
+  reliability bench (#169) exists, and a rule that reddens a read-only flow on background traffic
+  costs more trust than the hole it closes; the flag is frozen so that rate can be counted, and the
+  flip to fail-closed is a follow-up. Two limits are deliberate meanwhile. The proof half is coarse:
+  **any** surviving `request-status` disarms it, including one proving a different action. And the
+  site filter is structural, not a list — a request counts when its host is a page the flow visited
+  or a subdomain of one — so third-party background posts (analytics, error reporters) never count,
+  while same-site transport noise (a SockJS session mounted under a run-minted first segment) still
+  arms it — the product clears that by marking the endpoint
+  `benign`, the seam for app-specific noise.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

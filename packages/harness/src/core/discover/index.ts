@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -72,7 +72,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
   // then propose+ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
-    const firstCount = marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? 0;
+    // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
+    // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
+    const firstCount =
+      marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
     const evidence = await observeOutcomes(driver, firstCount);
     assignStepExpects(steps, marks, evidence, { localePrefixes });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
@@ -92,9 +95,24 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       steps.some((step) => wrote(step.expect?.url))
         ? { wildcards: true as const }
         : {};
+    // Record an action the freeze could not express a check for — advisory for now (see
+    // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
+    const unprovenRequest = findUnprovenAction(evidence, assertions, {
+      benign,
+      sinceRequest: firstCount,
+      pageUrls: marks.map((m) => m?.url),
+    });
+    const unproven = unprovenRequest ? { unprovenAction: `${unprovenRequest.method} ${unprovenRequest.url}` } : {};
+    if (unprovenRequest) {
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "unproven-action", action: unproven.unprovenAction, reason: "no stable URL to check" },
+      });
+    }
     return truncated
-      ? { name: intent, steps, assertions, truncated: true, ...wildcards }
-      : { name: intent, steps, assertions, ...wildcards };
+      ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
+      : { name: intent, steps, assertions, ...wildcards, ...unproven };
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

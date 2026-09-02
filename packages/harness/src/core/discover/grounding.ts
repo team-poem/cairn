@@ -5,11 +5,12 @@
  */
 import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
-import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../requests.js";
+import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure, onSiteOf } from "../requests.js";
 import { urlReached } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
 import {
+  destinationKey,
   hasStablePath,
   namesAPage,
   sameEndpointShape,
@@ -268,6 +269,54 @@ function groundingMatch(
     (r) => isMutation(r.method) && r.url.includes(a.urlIncludes) && r.status === a.status,
   );
   return mutation ?? findRequestStatus(candidates, a.urlIncludes, a.status);
+}
+
+/**
+ * The request behind an action the freeze could not express a check for, if the run performed one.
+ * Found only when BOTH hold: no `request-status` proof survived grounding, and the FLOW (not the
+ * entry page load — see `sinceRequest`) fired a successful, non-benign, same-site mutation whose URL
+ * `hasStablePath` rejects — the SAME predicate grounding refuses a check with. Sharing it is the
+ * point: a gate that asks a different question than the refusal it exists to cover leaves the gap
+ * between the two answers passing silently, which is the failure this rule is for.
+ *
+ * Same-site, because third-party background posts (an analytics SDK batching to
+ * `api2.amplitude.com/2/httpapi` on every route change) have exactly this shape and never prove the
+ * app's action; they would arm this on every read-only flow of an instrumented app. Same-site
+ * transport noise (`sockjs.shop.co/123/abc/xhr_send`) still arms it — loud and fixable from the
+ * outside: the product marks the endpoint `benign`, the seam this engine already uses for
+ * app-specific noise rather than guessing at it.
+ *
+ * The proof half is deliberately coarse and this is its limit: ANY surviving proof disarms the gate,
+ * including one belonging to a different action than the unexpressible mutation. Pairing a proof to
+ * the action it proves is a larger change (see the PR discussion), so the gate under-fires there.
+ */
+export function findUnprovenAction(
+  evidence: Evidence,
+  assertions: readonly Assertion[],
+  opts: {
+    benign?: readonly string[];
+    /** Index into the cumulative request log where the flow's own traffic starts — everything the
+     * entry page load fired is excluded, the same separation `markVacuous` makes with the baseline. */
+    sinceRequest?: number;
+    /** Pages the flow was on, besides `finalUrl` — a request on one of their hosts, or a subdomain
+     * of it, is the app's own (`onSiteOf`). */
+    pageUrls?: readonly (string | undefined)[];
+  } = {},
+): NetworkRequest | undefined {
+  if (assertions.some((a) => a.kind === "request-status" && a.vacuous !== true)) return undefined;
+  const { benign = [], sinceRequest = 0, pageUrls = [] } = opts;
+  const pages = [evidence.execution.finalUrl, ...pageUrls].filter((u): u is string => Boolean(u));
+  return evidence.logic.requests
+    .slice(sinceRequest)
+    .find(
+      (r) =>
+        isMutation(r.method) &&
+        r.status >= 200 &&
+        r.status < 400 &&
+        !isBenignRequest(r.url, benign) &&
+        pages.some((page) => onSiteOf(page, r.url)) &&
+        !hasStablePath(stableEndpointPrefix(r.url)),
+    );
 }
 
 /** Did discovery observe a request failure that actually counts — neither benign noise

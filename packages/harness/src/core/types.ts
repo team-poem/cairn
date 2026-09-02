@@ -111,6 +111,13 @@ export interface Scenario {
    * is a literal path character and is matched as one — a page whose real path contains one keeps
    * the meaning it was frozen with instead of quietly widening under a newer engine. */
   wildcards?: true;
+  /** `METHOD url` of a request discover saw the flow fire that no check could be frozen for — its
+   * URL has no stable path to check (`POST https://api.shop.co/`, or a run-minted first path
+   * segment), so any check written from it would be satisfied by every request to that host.
+   * Advisory (spec/core/judgment.md): the remaining assertions can be satisfied without the action
+   * ever firing, and the CLI says so at freeze time; replay does not fail on it yet. Absent whenever
+   * a proof was frozen. */
+  unprovenAction?: string;
 }
 
 /** An interactive element the discover loop perceives and acts on. Form state rides along so

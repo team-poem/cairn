@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- A fixed modal rendered in place inside a scrolled container. `position: fixed` escapes that
+     container's overflow clip, so measuring the button against the container's box would call the
+     modal clipped and abstain on the very shape this check is for. -->
+<meta charset="utf-8">
+<title>fixed modal inside a scroll container</title>
+<nav><a href="/home">Continue</a></nav>
+<main style="overflow:auto;height:300px">
+  <div style="height:900px"></div>
+  <div style="position:fixed;inset:0;background:rgba(0,0,0,.4)">
+    <button id="modalbtn" style="position:absolute;top:500px;left:120px">Continue</button>
+  </div>
+</main>

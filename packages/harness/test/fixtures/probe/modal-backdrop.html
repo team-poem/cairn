@@ -1,0 +1,10 @@
+<!doctype html>
+<!-- The shape #176 exists for: a modal's button over a backdrop that covers a same-named nav link.
+     The link is genuinely covered, so the probe must call it occluded and narrow to the button. -->
+<meta charset="utf-8">
+<title>modal over backdrop</title>
+<nav style="position:relative;z-index:1"><a href="/away">Continue</a></nav>
+<div style="position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10"></div>
+<div style="position:fixed;top:40%;left:30%;padding:20px;background:#fff;z-index:20">
+  <button>Continue</button>
+</div>

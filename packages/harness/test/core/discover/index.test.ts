@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
 import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js";
 import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
-import { ScriptedLlm } from "../../support/doubles.js";
+import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { Evidence } from "../../../src/core/types.js";
+import type { Target } from "../../../src/core/types.js";
 
 const evidence: Evidence = {
   execution: { actions: [], navigated: true, finalUrl: "https://shop/cart", blocked: false },
@@ -35,11 +36,13 @@ describe("discover", () => {
       { kind: "click", target: { text: "Add to cart", role: "link", index: 0 }, intent: "add item" },
       { kind: "click", target: { text: "Checkout", role: "button", index: 0 }, intent: "proceed" },
     ]);
-    // assertions are grounded in observed evidence — navigated to the real destination, not the LLM's guess
+    // assertions are grounded in observed evidence — navigated to the real destination, not the
+    // LLM's guess. FakeDriver's evidence is static (baseline == final), so every derived check is
+    // also stamped vacuous (#137) — an artifact of the double, not of real flows.
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
-      { kind: "navigated", to: "shop/cart", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
+      { kind: "navigated", to: "shop/cart", origin: "derived", vacuous: true },
     ]);
     expect(driver.clicked).toHaveLength(2);
   });
@@ -82,8 +85,8 @@ describe("discover", () => {
     const llm = new ScriptedLlm(['{"action":"done","assertions":[{"kind":"navigated"}]}']);
     const scenario = await discover("noop", { driver, llm });
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
     ]);
   });
 
@@ -107,7 +110,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evFavicon, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#79: still freezes no-failed-requests when the only failure recovered (401 → retry → 2xx)", async () => {
@@ -127,7 +130,7 @@ describe("discover", () => {
     });
     // the critic already tolerates recovered failures (#66) — the freeze must not be stricter
     // than the verdict, or a legitimate transient retry costs the flow this assertion.
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#79: does not freeze no-failed-requests when a failure never recovered", async () => {
@@ -161,7 +164,7 @@ describe("discover", () => {
       llm: new ScriptedLlm(['{"action":"done"}']),
       benign: ["/api/flaky-analytics"],
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-failed-requests", origin: "derived", vacuous: true });
   });
 
   it("#16: freezes a proposed request-status only when a real request matches it", async () => {
@@ -183,11 +186,13 @@ describe("discover", () => {
     const scenario = await discover("pay", { driver, llm });
     // #105: the matched proving request is a mutation, so its method is frozen too — a
     // same-prefix GET must not satisfy this check at replay (parity with step-level expects).
+    // #172: the frozen URL is the matching request's stable endpoint (host+path), not the
+    // proposed substring.
     expect(scenario.assertions).toEqual([
-      { kind: "no-failed-requests", origin: "derived" },
-      { kind: "no-console-errors", origin: "derived" },
-      { kind: "navigated", to: "shop/payment", origin: "derived" },
-      { kind: "request-status", urlIncludes: "/api/orders", status: 200, method: "POST", origin: "derived" },
+      { kind: "no-failed-requests", origin: "derived", vacuous: true },
+      { kind: "no-console-errors", origin: "derived", vacuous: true },
+      { kind: "navigated", to: "shop/payment", origin: "derived", vacuous: true },
+      { kind: "request-status", urlIncludes: "shop/api/orders", status: 200, method: "POST", origin: "derived", vacuous: true },
     ]);
   });
 
@@ -208,9 +213,10 @@ describe("discover", () => {
     });
     expect(scenario.assertions).toContainEqual({
       kind: "request-status",
-      urlIncludes: "/api/cart",
+      urlIncludes: "shop/api/cart",
       status: 200,
       origin: "derived",
+      vacuous: true,
     });
   });
 
@@ -219,7 +225,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(clean.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
+    expect(clean.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived", vacuous: true });
 
     const evNoisy: Evidence = {
       ...evidence,
@@ -254,7 +260,7 @@ describe("discover", () => {
       driver: new FakeDriver({ evidence: evWarn, elements: [] }),
       llm: new ScriptedLlm(['{"action":"done"}']),
     });
-    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived" });
+    expect(scenario.assertions).toContainEqual({ kind: "no-console-errors", origin: "derived", vacuous: true });
   });
 
   it("#16: freezes `expect` only when semanticChecks is on (invariant #4)", async () => {
@@ -478,5 +484,132 @@ describe("perception seam (#: perception-gap) — consumer corrects state before
     await discover("select all", { driver, llm });
     expect(prompts[0]).toContain("[checkbox] Select all");
     expect(prompts[0]).not.toContain("(checked)");
+  });
+});
+
+describe("freeze-time vacuity stamping (#137)", () => {
+  it("a do-nothing flow (static evidence) freezes with every assertion flagged", async () => {
+    // FakeDriver's observe() never changes → baseline equals final evidence → everything the
+    // freeze derives was already true at the start.
+    const driver = new FakeDriver({ evidence, elements: [{ role: "link", name: "Go" }] });
+    const llm = new ScriptedLlm(['{"action":"click","text":"Go"}', '{"action":"done"}', "[]"]);
+    const found = await discover("go somewhere", { driver, llm, baseUrl: "https://example.com" });
+    expect(found.assertions.length).toBeGreaterThan(0);
+    expect(found.assertions.every((a) => a.vacuous === true)).toBe(true);
+  });
+
+  it("a flow that actually navigates freezes a discriminating navigated (no flag)", async () => {
+    const driver = new StubDriver("https://app/start");
+    driver.els = [{ role: "link", name: "Checkout" }];
+    driver.navOn["Checkout"] = "https://app/checkout/done";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Checkout"}', '{"action":"done"}', "[]"]);
+    const found = await discover("check out", { driver, llm, baseUrl: "https://app/start" });
+    const nav = found.assertions.find((a) => a.kind === "navigated");
+    expect(nav?.to).toContain("checkout/done");
+    expect(nav?.vacuous).toBeUndefined();
+  });
+});
+
+describe("the product's benign list reaches step expects (spec/core/surgical-heal.md §4)", () => {
+  /** A click that fires one successful POST to a product-marked noisy endpoint and never navigates. */
+  class BeaconStub extends StubDriver {
+    private fired = false;
+
+    override async click(target: Target): Promise<void> {
+      this.clicked.push(target.text ?? "");
+      if (target.text === "Track") this.fired = true;
+    }
+
+    override async observe(): Promise<Evidence> {
+      const requests = this.fired
+        ? [{ method: "POST", url: "https://analytics.x/track/events", status: 200 }]
+        : [];
+      return {
+        execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+        perception: {},
+        logic: { requests, console: [] },
+      };
+    }
+  }
+
+  it("benignListReachesStepExpects: a product-marked endpoint is not frozen as a step expect", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm, benign: ["analytics.x"] });
+    expect(found.steps[0]?.expect).toBeUndefined();
+  });
+
+  it("benignListReachesStepExpects: without the list the same beacon still freezes (control)", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "analytics.x/track/events", status: 200, method: "POST" },
+    });
+  });
+});
+
+describe("discover audit coverage", () => {
+  it("abortSignalStopsDiscover: an already-aborted signal rejects before any LLM call", async () => {
+    const driver = new StubDriver();
+    let calls = 0;
+    const llm = { id: "counting", complete: async () => (calls++, '{"action":"done"}') };
+    const controller = new AbortController();
+    controller.abort();
+    await expect(discover("x", { driver, llm, signal: controller.signal })).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  it("abortSignalStopsDiscover: aborting after a step stops the loop before the next one", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Next" }];
+    const llm = new ScriptedLlm(Array(5).fill('{"action":"click","text":"Next"}'));
+    const controller = new AbortController();
+    await expect(
+      discover("x", { driver, llm, signal: controller.signal, onStep: () => controller.abort() }),
+    ).rejects.toThrow();
+    expect(driver.clicked).toEqual(["Next"]);
+  });
+
+  it("discoverIgnoresEntryBeaconWhenNothingActed: a landing-page root POST is not the flow's unproven action", async () => {
+    const entryEvidence: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "POST", url: "https://shop/", status: 200 }], console: [] },
+    };
+    const driver = new FakeDriver({ evidence: entryEvidence, elements: [] });
+    const found = await discover("look", {
+      driver,
+      llm: new ScriptedLlm(['{"action":"done"}']),
+      baseUrl: "https://shop/",
+    });
+    expect(found.steps).toEqual([{ kind: "goto", url: "https://shop/" }]);
+    expect(found).not.toHaveProperty("unprovenAction");
+  });
+
+  it("wildcardsFlagOnStarDestination: a run-minted segment in a destination sets wildcards: true", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/orders/586738/done";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({ url: "shop/orders/*/done" });
+    expect(found.assertions).toContainEqual(
+      expect.objectContaining({ kind: "navigated", to: "shop/orders/*/done" }),
+    );
+    expect(found.wildcards).toBe(true);
+  });
+
+  it("wildcardsFlagOnStarDestination: a literal destination leaves the flag out entirely", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/checkout";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found).not.toHaveProperty("wildcards");
   });
 });

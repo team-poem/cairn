@@ -4,7 +4,21 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`latest = 2.6.0` (2026-07-23 배포, PR #159 → main `0f8e89c` → release.yml 자동 publish·태그·draft).** breaking 0.
+- 단계: **`latest = 2.8.0` (2026-09-03 배포, PR #194 → main → release.yml 자동 publish·태그, 노트 발행).** breaking 0.
+  - **2.8.0 내용 ("다음 런에도 살아남는 freeze"):** **grounding이 재생 가능한 URL을 얼림**(#172/#178/#183 —
+    stable endpoint prefix·id 형상 컷·쿼리 접두 보존·구분력 잃은 체크 드랍, 반례 코퍼스 동반) ·
+    **목적지 와일드카드**(#182 — `*` 토큰, leaf 규칙, `Scenario.wildcards` 마커, `localePrefixes` 전 경로 배선) ·
+    **검증 안 된 경로는 heal이 아님**(#186/#189 — `finalizeVerdict` 하나로 재생·heal 판정 마무리, truncated/목표
+    미달 재발견은 돌려주지 않음, 가드는 목표가 아님 = `goalFailures`, `maxSteps`가 heal에 도달) ·
+    **항진 단언 도장**(#137/#165) · **증명 못 한 행위 기록**(#184/#190/#191 — `unprovenAction` advisory, 벤치 뒤
+    fail-closed 전환) · **동명 해석 hit-test**(#176/#181/#185 — 양성 폐색만 증거, 실제 크롬 픽스처 CI job) ·
+    **감사 픽스 7 + 커버리지**(#192/#193 — benign→step expect, lazy LLM, crash trace 종결 등) ·
+    CLI(#146/#147/#167/#180) · 레포 위생(#148/#151/#152/#156/#166) · README 랜딩화(#187/#188).
+    review 주기 = PR 하나씩 코멘트→수정→검증→머지(2026-08-28~09-03, 14 PR). 상세 = entries/2026-09-03-2.8.0-release-and-queue.md.
+  - **2.7.0 내용 ("trace 계약 완결"):** **JsonlTraceSink 엔진 편입**(#160/#161 — 러너 모듈 verbatim, browser 엔트리 제외) ·
+    **attachment id 확정**(#160/#163 — id=seq·Tracer 스탬프·bytes→라인 순서·`onStep||acceptsAttachments` 캡처 게이트,
+    계약 1.0→1.1 additive) · **agentic-testing 네이밍**(README 2벌·npm description/keywords — E2E는 검색 키워드로만).
+    러너(cairn-desktop)는 이제 자기 sink 사본을 엔진 import로 교체하면 됨.
   - **2.6.0 내용 ("run is data"):** **TraceSink 7번째 포트**(#143/#155 — lifecycle 이벤트 스트림, gate 4종 1급,
     outcome-heal은 phase: heal, sink 미지정 시 비용 0·throw는 verdict 불변) · **단언 provenance**(#142/#144 —
     `origin: user|derived|unknown`, freeze 시 기록) · **suite 캐시 staleness 픽스 2**(#131/#157 유효 시작 URL 지문 ·
@@ -12,38 +26,26 @@
     docs/loop.svg·"run is just data" 섹션·애니메이션 배너).
   - **2.5.0 (2026-07-13):** explore(#102) · suite(#122) · select a11y-native(#129, 불변식 #7 신설) ·
     중복이름 addressing(#127) · perception(#132). 상세 = entries.
-  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0. 상세 = history + entries.
+  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0 → 2.7.0 → 2.8.0. 상세 = history + entries.
   - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
     릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
     유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
-- **(미배포, 2.7.0 후보) trace 계약 완결 — #160 (#161·#163):** JSONL TraceSink가 엔진 어댑터로 이동
-  (`adapters/sinks/jsonl.ts`, 러너 모듈 verbatim: 무예외·실패 카운트 공개·runId 유래 경로·직렬화 큐,
-  browser 엔트리 제외 = #156 준수) + **attachment id 스킴 확정**(계약의 마지막 열린 항목): id = 이벤트
-  자신의 `seq`(`<seq>-<k>` 유보), Tracer가 스탬프(호출부는 bytes만 전달), bytes→라인 순서라
-  truncation-honest, 캡처는 `captureScreenshots && (onStep || acceptsAttachments)` 게이트로 무관찰 런
-  비용 0. 계약 1.0→1.1 additive. ⚠ #162가 스택 부모 브랜치로 오머지(#107/#109에 이어 2회째)되어
-  #163으로 re-land — 규칙 후보 승격. 러너(cairn-desktop)는 2.7.0 배포 후 자기 sink 사본을 엔진 import로 교체.
-- **다음 사이클(방향 확정 — #125 닫힘, 설계 #138 → 스펙 착지):** 엔진은 그대로 두고 first-party 러너 + 로컬 웹 UI
-  (Playwright 모델 — 엔진이 제품, 러너는 첫 소비자). **trace 계약 draft 머지됨(PR #140 → `spec/core/trace.md`, amazon 주도·리뷰 1라운드).**
-  확정: 얇은 봉투 `{seq,ts,phase?,kind,caseRef?,stepRef?,payload}` · version은 헤더 이벤트(seq 0) 1회 ·
-  **단언 provenance `origin: user|derived|unknown`**(freeze 포맷 additive 변경 필요 — 병합 시 출처 소실이 리뷰에서 발견됨,
-  구 skill은 unknown으로 fail-closed) · `checkedBy: code|model` · **heal 3층 1phase**(locator/step은 `layer` 달린 heal 이벤트,
-  outcome-heal은 `phase: heal` 아래 discover kinds, `judgedBy: original`) · gate 이벤트 1급(policy·ambiguity·grounding·parse-retry) ·
-  per-assertion 라이브 피드 유지 · explore phase는 #7 정신으로 보류. 오픈: attachment id 스킴.
-  **구현 진행(전부 amazon 주도, 리뷰는 메인테이너):** #142 freeze provenance **완료**(PR #144 머지 — `AssertionMeta.origin`
-  additive, deriveAssertions가 derived·suite 병합이 user 스탬프, `hashCase`는 원시 케이스라 캐시 히트 보존) →
-  **#143 TraceSink seam 완료**(PR #155 머지 — `TraceSink` 7번째 포트, sink 미지정 시 이벤트 생성 자체가 단락되어 불변,
-  gate 4종 실구분, outcome-heal은 재판정 assertion까지 `phase: heal`, suite 전체가 트레이서 1개 공유로 seq 단조,
-  throw 삼킴 중앙화. 리뷰에서 core/의 node: 내장 유입(브라우저 엔트리 파손)을 잡아 `version.ts` 분리 +
-  `globalThis.crypto`로 복원 — 재발 방지 CI 가드는 #156). **엔진이 계약을 실제로 방출 — #138 마감 조건 충족, 디스커션 닫음.**
-  trace 트랙 완료: 계약(#140) → provenance(#142/#144, 부산물 #153/#154) → 방출(#143/#155). 다음 = 러너가 이 스트림 소비.
-  리뷰 부산물 버그 **해결**(#153/PR #154 머지): outcome-heal의 healedScenario가 caseHash 소실 → suite 재동결에서
-  무조건 재스탬프(suite 로컬 유지, 엔진은 모름 — 패턴≠데이터). 실 FileSkillStore 왕복 + forbidden-LLM 2차 실행으로 증명.
-  flake 이슈는 amazon이 등록 예정(빨강의 신뢰 축). 신규 good-first 슬레이트 #146–#152 등록됨(CLI help/version ·
-  --semantic 문서 · CONTRIBUTING prefix 동기화 · requests/renderer 테스트 · CI Node24 · 이슈 템플릿). PR 자동 클로즈 가드(#141/#145) 도입.
-  엔진 이슈: **#137** — freeze 시점 항진 단언 경고(시작 상태에서 이미 통과하는 단언 = 검증력 0; 전부 항진이면 fail-closed).
-  후보 seam: `pageContext`(entries/2026-07-10-page-context-seam.md — 소비자 실측 근거, 도그푸딩 효과 측정 후 채택 판단).
-  신뢰 설계의 전체 근거(레퍼런스 글 4층 스택·보장 공식·4분면·토론 정정)는 entry `2026-07-21-trace-contract-trust.md`.
+- **다음 사이클(피벗 — #158 닫음, 디스커션 #168):** first-party 러너 중단(데스크탑 러너 범용화로 뷰어는
+  이길 자리 아님 — 엔진이 제품). 새 방향 3트랙(amazon과의 대화 산물, 고정 스코프 아님 — #168에서 형성 중):
+  ① **레포 재구조화**(CLI/패키지 격리; 분리 패키지 vs 내부 경계+린트가 갈림길, #8이 종료 조건 후보)
+  ② **스토리지 1급화**(#114 위에 caseHash 인덱싱·re-freeze 계보·suite staleness의 거처)
+  ③ **discover/freeze 신뢰성**(#103 측정 선행 → settle·파싱·truncation·flake). #101은 ③ 뒤.
+  러너 트랙 유산 = trace 계약 전체(#140→#155→#160, 상세는 entries)와 JsonlTraceSink.
+  **소비자 승격 슬레이트(#171–#177):** #172(→#178)·#176(→#181) 2.8.0에 종결. 잔여 #171 재앵커·#173 실패분류·#174 비밀값
+  ·#175 settle·#177 스크롤 = **2.9.0**. #173은 #189의 `goalFailures`(가드=환경 / 목표=경로) + `blockedReason`(=대본)으로
+  재료가 갖춰져 "세 신호에 이름 붙이기"로 작아짐. 상세 = entries/2026-08-26-consumer-promotion-candidates.md.
+  **2.9.0 후보(소비자 2차 제보, 2026-09-03):** 신규 이슈 4 — 지각 계층/요소 정체성(Driver 위, 포털·cap·role 없는 위젯),
+  초록의 강도(verdict provability 요약; #173의 반대편), 계약 지문(`hashCase` export / verdict fingerprint), heal 헬퍼
+  export(`goalFailures`·`finalizeVerdict` — 소비자가 `verdict.passed`로 재구현해 틀림). 기존 이슈에 합류 2 — 자격증명
+  origin 스코프→#174, 폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음; 남는 건 substring→key/value
+  파싱 매칭), 환경 박제(=#171), benign→step expect(=#192/#193). #184 advisory→fail-closed 전환은 #169 벤치 뒤.
+  벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.
+  good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
   UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
@@ -243,6 +245,15 @@
   근거 = #56 로케일 스트리핑이 #86·#87 회귀를 낳은 교훈.
 - 휴리스틱 존(URL 매칭·동적 세그먼트 컷 등)을 변경할 땐 반례 코퍼스(테이블 주도) 테스트 동반 —
   픽스 1개+테스트 1개 방식은 이 지대에서 체인을 못 끊는다.
+- **스택 PR은 CI가 0회다(2.8.0 사이클, #179/#182/#183/#184):** `ci.yml`의 `verify`는 main/develop 타겟 PR에만
+  트리거되므로 feature 브랜치를 base로 둔 PR은 typecheck·build·test가 한 번도 안 돈다. 부모 머지 후 리타겟만으로는
+  안 돌고(`edited` 이벤트) 닫았다 열거나 푸시해야 돈다. 스택은 base 머지 → 리타겟 → **verify 초록 확인** → 머지.
+- **리뷰 주장은 상대가 재현 가능한 형태로(2.8.0 사이클):** 함수 이름·입력·출력, 파일:줄. "내가 N개 세어봤다"는
+  상대가 검증 못 한다. 실제 크롬 실측처럼 재현이 비싼 건 HTML 픽스처를 통째로 준다.
+- **heal 판정은 목표 단언으로(#189 설계 장치):** 가드(`no-failed-requests`·`no-console-errors`)는 앱 건강이지 경로가
+  아니다. 재발견을 돌릴지·돌려줄지 둘 다 `goalFailures`로 — 전체 verdict로 판단하면 일시적 500이 올바른 수리를 버린다.
+- **루프 생성 PR은 논리 단위로 쪼갠 뒤 리뷰(#193):** 100커밋·9k줄·루프 산출물(`spec.md`/`failed-test.md`/AGENTS.md
+  블록) 동승은 리뷰 불가. 동작 수정은 각각, 커버리지는 모듈별로 기존 테스트 파일에.
 - **스택 PR 머지 절차(2회 발생 — #107/#109, #162):** 부모 머지·브랜치 삭제 후 자식 PR의 base가
   develop으로 자동 전환되고 diff가 자기 커밋만 남은 것을 **확인한 뒤에만** 머지한다. 연달아 누르면
   커밋이 이미 머지된 부모 브랜치로 들어가 develop에 도달하지 못한다.

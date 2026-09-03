@@ -1,0 +1,40 @@
+name: Bug report
+description: Something in cairn-engine misbehaves — a wrong verdict, a crash, a frozen scenario that doesn't replay.
+labels: ["bug", "area/harness"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks. A pull request must link an issue (`Closes #N` / `Refs #N`), so the trail starts here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What cairn did, and what you expected instead. Paste the report/verdict if you have one.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: The smallest path that shows it — CLI commands, a `*.skill.json`, or the embedding code. Private app? Describe the shape (page, step, assertion) instead.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: cairn-engine version
+      placeholder: "2.7.0"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Driver / LLM backend / Node
+      placeholder: "ChromeDevToolsDriver (chrome-devtools-mcp 1.3.x) · anthropic:claude-sonnet-4-6 · Node 22"
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Trace/JSONL, screenshots, the frozen scenario, links.

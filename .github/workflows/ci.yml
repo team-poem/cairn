@@ -10,12 +10,37 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "20"
           cache: npm
       - run: npm ci
+      # core/ must stay free of node: builtins — that is what keeps the browser entry
+      # (cairn-engine/browser) bundleable; #155 showed a regression stays green otherwise.
+      - name: guard core/ against node builtins
+        run: |
+          if grep -rnE "(from\s+['\"]node:|import\(\s*['\"]node:|require\(\s*['\"]node:)" packages/harness/src/core --include='*.ts' | grep -vE "^[^:]+:[0-9]+:\s*(//|\*)"; then
+            echo "::error::packages/harness/src/core imports a node: builtin — the browser entry must bundle without Node (#156)"
+            exit 1
+          fi
       - run: npm run typecheck
       - run: npm run build
       - run: npm run test
+
+  # The in-page probe (#176) decides what a click resolves to by reading element boxes, hit tests
+  # and computed overflow/position — answers only a layout engine has. jsdom returns zeros for all
+  # of it, so a unit test can pin the script's text and still miss a wrong probe; three such bugs
+  # shipped past a green suite before this job existed. Separate from `verify` so the pure suite
+  # keeps its seconds-long feedback, and run against the runner's installed Chrome, which is the
+  # browser this engine actually drives.
+  probe-fixtures:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run test:browser -w cairn-engine

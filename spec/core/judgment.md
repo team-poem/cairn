@@ -20,7 +20,7 @@ Routing = `AssertionHandler.supports() → judge()` dispatch — no branching in
 
 ## Fail closed — a verdict must not out-run its evidence
 
-Two composition rules keep `verdict.passed` honest for the CI-gate use case:
+Three composition rules keep `verdict.passed` honest for the CI-gate use case:
 
 - **No assertions → fail** (#69): an empty assertion set verifies nothing; `[].every` green is vacuous.
 - **Blocked run → fail** (#90): assertions only prove evidence that was *collected*. If a step
@@ -31,12 +31,56 @@ Two composition rules keep `verdict.passed` honest for the CI-gate use case:
   A *healed* step is recorded ok — self-heal, idempotent skip, and re-discovery are the sanctioned
   paths for "the step diverged but the goal is still reachable", not a passing verdict over a
   partial run.
+- **All assertions vacuous → fail** (#137): at freeze, each derived assertion is evaluated against
+  the *baseline* evidence (right after the entry goto, before any flow action); one the start
+  already satisfies is stamped `vacuous` in the frozen data. A `request-status` hit is the
+  strongest case — the request log only grows, so a check a landing-page request satisfied can
+  never fail at replay. When *every* assertion carries the stamp, replay fails closed: a scenario
+  that cannot go red proves nothing green. One discriminating assertion (including any
+  suite-merged `origin: user` criterion, which is never stamped) keeps the verdict normal; the
+  guards (`no-failed-requests`/`no-console-errors`) carry the stamp on a clean start but are not
+  individually warned on — a flow action can still break them.
+
+- **Unverified re-discovery → not a heal** (#186): outcome-heal's verdict goes through the same
+  finalizer as replay. A re-discovery that ended before `done` (step cap or repeated policy blocks)
+  fails closed, exactly as a truncated first discovery does; and neither that nor a re-discovery
+  that reached `done` with a goal assertion still failing is handed back to re-freeze, so the store
+  only ever holds a path that reached the goal. Guards (`no-failed-requests`, `no-console-errors`)
+  are not goal assertions on either end: a guard tripping during the re-discovery does not discard
+  a repair that reached the goal, and a replay red on guards alone does not trigger a re-discovery
+  at all — nothing a re-discovery does can fix a 500.
+- **Unprovable action → recorded, not yet failed** (#184, #172 follow-up): grounding refuses a
+  `request-status` whose proving request has no stable path to check — the same predicate the
+  freeze asks again here, so the two cannot answer differently and leave the gap between them
+  passing silently. When the *flow* (not the entry page load) fired such a mutation on the app's
+  own site and no proof survived, the freeze carries `Scenario.unprovenAction` (`METHOD url` of
+  that request), the trace emits `gate: unproven-action`, and `cairn discover` warns: the
+  assertions that did survive — a `navigated` above all — hold whether or not the action fired, so
+  a green means "the page was reached", not "the work was done". Replay does **not** fail on the
+  flag yet. Failing closed is the intent, but the gate's false-positive rate is unmeasured until the
+  reliability bench (#169) exists, and a rule that reddens a read-only flow on background traffic
+  costs more trust than the hole it closes; the flag is frozen so that rate can be counted, and the
+  flip to fail-closed is a follow-up. Two limits are deliberate meanwhile. The proof half is coarse:
+  **any** surviving `request-status` disarms it, including one proving a different action. And the
+  site filter is structural, not a list — a request counts when its host is a page the flow visited
+  or a subdomain of one — so third-party background posts (analytics, error reporters) never count,
+  while same-site transport noise (a SockJS session mounted under a run-minted first segment) still
+  arms it — the product clears that by marking the endpoint
+  `benign`, the seam for app-specific noise.
 
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):
 - a proposed `request-status` is kept *only if a captured request matches it* (hallucinations dropped);
-- `navigated` asserts the *right destination* (host+path) — catching "navigated, but to the wrong page."
+- `navigated` asserts the *right destination* (host+path) — catching "navigated, but to the wrong
+  page." A segment the run minted is frozen as `*`, which matches exactly one segment, so an order
+  id in a confirmation URL does not pin the check to that run. Two limits keep the notation from
+  buying that with a check that proves nothing: a destination whose path ends in a wildcard is
+  refused (`/app/*` and `/products/*` are reached by that app's own `/app/login`), and the freeze
+  degrades to a bare `navigated` stamped `vacuousBecause: "no-destination"` — so the verdict says
+  the run navigated somewhere unnameable, not that nothing changed. The notation is declared per
+  file by `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen
+  as, so a page whose real path contains one keeps its meaning under a newer engine.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 

@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -43,6 +43,10 @@ export interface DiscoverOptions {
   /** Gate proposed actions (block destructive controls, cap wandering, stop on a goal). Absent → no
    * gate (every action runs) — behaviour unchanged. */
   policy?: ActionPolicy;
+  /** The consumer's locale prefixes — the same list replay judges with. The freeze must decide a
+   * step's URL expect under the SAME matching rules replay will pre-check it with, or an expect
+   * that looked discriminating at freeze becomes pre-satisfied at replay and the step is skipped. */
+  localePrefixes?: readonly string[];
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
@@ -58,7 +62,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover" } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -68,20 +72,47 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
   // then propose+ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
-    const firstCount = marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? 0;
+    // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
+    // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
+    const firstCount =
+      marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
     const evidence = await observeOutcomes(driver, firstCount);
-    assignStepExpects(steps, marks, evidence);
+    assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
-    const assertions = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
+    const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({
         kind: "gate",
         phase: tracePhase,
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
+    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    // Declare the notation only when this freeze actually used it, so a file without the marker
+    // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
+    const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
+    const wildcards =
+      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      steps.some((step) => wrote(step.expect?.url))
+        ? { wildcards: true as const }
+        : {};
+    // Record an action the freeze could not express a check for — advisory for now (see
+    // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
+    const unprovenRequest = findUnprovenAction(evidence, assertions, {
+      benign,
+      sinceRequest: firstCount,
+      pageUrls: marks.map((m) => m?.url),
+    });
+    const unproven = unprovenRequest ? { unprovenAction: `${unprovenRequest.method} ${unprovenRequest.url}` } : {};
+    if (unprovenRequest) {
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "unproven-action", action: unproven.unprovenAction, reason: "no stable URL to check" },
+      });
+    }
     return truncated
-      ? { name: intent, steps, assertions, truncated: true }
-      : { name: intent, steps, assertions };
+      ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
+      : { name: intent, steps, assertions, ...wildcards, ...unproven };
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,
@@ -94,6 +125,11 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     marks.push(null);
     currentUrl = baseUrl;
   }
+
+  // #137: the starting state, before any flow action — freeze-time vacuity is judged against
+  // this, so a check the landing page already satisfies gets flagged as proving nothing.
+  await driver.settle();
+  const baseline = await driver.observe();
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
   // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).

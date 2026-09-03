@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
-import { assignStepExpects, destinationKey } from "../../../src/core/discover/capture.js";
+import { assignStepExpects, destinationKey, freshMutationExpect } from "../../../src/core/discover/capture.js";
 import type { Step } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import { DESTINATION_CHANGE_CORPUS } from "../../support/url-corpus.js";
 import type { Evidence, NetworkRequest, Target } from "../../../src/core/types.js";
+import { afterEach, vi } from "vitest";
+import { observeOutcomes } from "../../../src/core/discover/capture.js";
 
 /** Completed-run evidence with the given final URL and request log (capture is retroactive, #81). */
 function evidenceAt(finalUrl: string, requests: NetworkRequest[]): Evidence {
@@ -217,5 +219,171 @@ describe("discover captures intent + expect", () => {
     ]);
     const found = await discover("wait then done", { driver, llm });
     expect(found.steps[0]).toMatchObject({ kind: "waitFor", until: { url: "dashboard" } });
+  });
+});
+
+describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () => {
+  // The assertion path drops such a value because any request to that host satisfies it. The step
+  // expect froze it anyway, so a replay could pass its post-condition on an unrelated POST.
+  it("freezes nothing when the id is the whole path", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/586738", status: 201 }])).toBeUndefined();
+  });
+
+  it("freezes nothing for a root mutation", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/", status: 201 }])).toBeUndefined();
+  });
+
+  it("skips past a host-only mutation to the real one behind it", () => {
+    // A pixel or RPC fired at the root must not cost the step its actual proof.
+    const tail: NetworkRequest[] = [
+      { method: "POST", url: "https://api.shop.co/", status: 204 },
+      { method: "POST", url: "https://shop.co/api/orders/586738/confirm", status: 200 },
+    ];
+    expect(freshMutationExpect(tail)).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("still freezes when a path survives the cut", () => {
+    expect(freshMutationExpect([{ method: "POST", url: "https://api.shop.co/orders/586738", status: 201 }])).toEqual({
+      requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
+    });
+  });
+});
+
+describe("a step's URL expect generalizes the run's own ids (#172 on the URL path)", () => {
+  it("freezes a wildcard for the minted segment, while the move itself is judged on the real urls", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
+  });
+
+  it("a query-only move still freezes no URL expect (#96 unchanged)", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next" } }];
+    const marks = [{ url: "https://shop.co/list?page=1", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/list?page=2", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});
+
+describe("a generalized URL expect must not pre-satisfy its own step (#96)", () => {
+  it("freezes no URL expect for a move between two siblings of one template", () => {
+    // /orders/111 → /orders/222 both match shop.co/orders/*, and replay pre-checks a URL expect
+    // before running the step — freezing it would make the step skip itself.
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/222", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("that step still gets its mutation expect when one fired", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Next order" } }];
+    const marks = [{ url: "https://shop.co/orders/111", requestCount: 0 }];
+    assignStepExpects(
+      steps,
+      marks,
+      evidenceAt("https://shop.co/orders/222", [
+        { method: "POST", url: "https://shop.co/api/orders/222/open", status: 200 },
+      ]),
+    );
+    expect(steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
+    });
+  });
+
+  it("list → detail freezes NO url expect: a wildcard leaf names an area, not a page", () => {
+    // The cost of the wildcard-leaf rule, taken deliberately: `/orders/*` is satisfied by
+    // `/orders/login` in an app that routes it there, and one run cannot tell us whether it does.
+    const steps: Step[] = [{ kind: "click", target: { text: "Order 586738" } }];
+    const marks = [{ url: "https://shop.co/orders", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes one when the destination ends in a literal segment", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Place order" } }];
+    const marks = [{ url: "https://shop.co/checkout", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/orders/586738/done", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/orders/*/done" });
+  });
+
+  it("freezes no URL expect when nothing but the host would survive", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Open" } }];
+    const marks = [{ url: "https://shop.co/home", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/586738", []));
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+});
+
+describe("the freeze decides a URL expect under the consumer's matching rules", () => {
+  it("does not freeze an expect the replay-side locale list would pre-satisfy", () => {
+    // A step that redirects /cart → /de/cart: with "de" injected, replay's pre-check finds the
+    // pre-navigation page already reaches shop.co/de/cart and skips the step. Freezing under the
+    // engine defaults while replay runs with the consumer list is exactly that mismatch (#86).
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []), { localePrefixes: ["de"] });
+    expect(steps[0]?.expect).toBeUndefined();
+  });
+
+  it("…and still freezes it when the consumer declares no such locale", () => {
+    const steps: Step[] = [{ kind: "click", target: { text: "Cart" } }];
+    const marks = [{ url: "https://shop.co/cart", requestCount: 0 }];
+    assignStepExpects(steps, marks, evidenceAt("https://shop.co/de/cart", []));
+    expect(steps[0]?.expect).toEqual({ url: "shop.co/de/cart" });
+  });
+});
+
+describe("freshMutationExpect takes the product's benign list", () => {
+  it("benignListReachesFreshMutationExpect: a product-marked mutation is skipped, the real one behind it is kept", () => {
+    const tail = [
+      { method: "POST", url: "https://analytics.x/track/events", status: 200 },
+      { method: "POST", url: "https://api.shop.co/orders", status: 201 },
+    ];
+    expect(freshMutationExpect(tail, ["analytics.x"])).toEqual({
+      requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
+    });
+    expect(freshMutationExpect([tail[0]!], ["analytics.x"])).toBeUndefined();
+  });
+});
+
+describe("observeOutcomes waits for an in-flight mutation only up to its deadline", () => {
+  /** A mutation that never lands: status 0 on every observation. */
+  class StuckStub extends StubDriver {
+    observes = 0;
+
+    override async observe(): Promise<Evidence> {
+      this.observes += 1;
+      return {
+        execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+        perception: {},
+        logic: {
+          requests: [{ method: "POST", url: "https://api.app/orders", status: 0 }],
+          console: [],
+        },
+      };
+    }
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("observeOutcomesDeadline: returns the still-unsettled evidence once the window expires, after polling", async () => {
+    vi.useFakeTimers();
+    const driver = new StuckStub();
+    const done = observeOutcomes(driver, 0);
+    await vi.advanceTimersByTimeAsync(2_500);
+    const outcome = await done;
+    expect(outcome.logic.requests[0]?.status).toBe(0);
+    expect(driver.observes).toBeGreaterThan(1);
+  });
+
+  it("observeOutcomesDeadline: a request before the watermark is not waited on", async () => {
+    vi.useFakeTimers();
+    const driver = new StuckStub();
+    const done = observeOutcomes(driver, 1);
+    await vi.advanceTimersByTimeAsync(0);
+    await done;
+    expect(driver.observes).toBe(1);
   });
 });

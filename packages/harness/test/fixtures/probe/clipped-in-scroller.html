@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- A button scrolled out of its own overflow:auto box. Its centre lands wherever the page shows
+     that coordinate, which is not evidence of covering: puppeteer scrolls the container. -->
+<meta charset="utf-8">
+<title>clipped inside a scroll container</title>
+<nav><a href="/away">Continue</a></nav>
+<div style="height:80px;overflow:auto;border:1px solid #999">
+  <div style="height:400px">filler</div>
+  <button>Continue</button>
+  <div style="height:400px">filler</div>
+</div>

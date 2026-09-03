@@ -199,7 +199,7 @@ describe("runScenario", () => {
     const { result, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
     expect(result.verdict.passed).toBe(false); // reached iana.org, not the-moon → not a green
-    expect(healedScenario?.assertions).toEqual([{ kind: "navigated", to: "the-moon" }]); // original goal kept
+    expect(healedScenario).toBeUndefined(); // …and a path that missed the goal is not handed back to re-freeze (#186)
   });
 
   it("self-heals a broken target and returns a re-frozen scenario", async () => {
@@ -507,3 +507,572 @@ describe("runScenario trace", () => {
     expect(result.verdict.passed).toBe(true);
   });
 });
+
+describe("the wildcard notation is declared by the file, not assumed (#182 review)", () => {
+  const at = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const wildcarded: Scenario = {
+    name: "order → done",
+    steps: [{ kind: "goto", url: "https://shop.co/cart" }],
+    assertions: [{ kind: "navigated", to: "shop.co/orders/*/done" }],
+  };
+
+  it("a freeze that declared it matches any id in that segment", async () => {
+    const driver = new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") });
+    const { result } = await runScenario({ ...wildcarded, wildcards: true }, { driver });
+    expect(result.verdict.passed).toBe(true);
+  });
+
+  it("a file frozen before the notation keeps its * literal", async () => {
+    // Same assertion, no marker: the page's path really contains a star, so a different id is not
+    // that page and the check must fail rather than quietly widen.
+    const driver = new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") });
+    const { result } = await runScenario(wildcarded, { driver });
+    expect(result.verdict.passed).toBe(false);
+
+    const exact = new FakeDriver({ evidence: at("https://shop.co/orders/*/done") });
+    const { result: r2 } = await runScenario(wildcarded, { driver: exact });
+    expect(r2.verdict.passed).toBe(true);
+  });
+});
+
+describe("a scenario whose action nothing can verify is recorded, and its flag travels with its assertions", () => {
+  const unproven: Scenario = { ...scenario, unprovenAction: "DELETE https://api.shop.co/586738" };
+
+  it("still passes at replay — the flag is advisory until its false-positive rate is measured (#169)", async () => {
+    const { result } = await runScenario(unproven, { driver: new FakeDriver({ evidence: evidence() }) });
+    expect(result.verdict.passed).toBe(true);
+    expect(result.verdict.detail).toBeUndefined();
+  });
+
+  it("outcome-heal carries the flag from the ORIGINAL scenario, not the re-discovery", async () => {
+    // The verdict judges the original assertions, so the flag that belongs with them must travel
+    // with them. A re-discovery that saw no unprovable mutation would otherwise drop it for an
+    // assertion set that still has no proof — and the suite freezes that scenario to disk.
+    // The stale click goes nowhere, so the replay fails and outcome-heal runs; the re-discovery
+    // reaches the goal on its first click. Only a heal that reached the goal is handed back (#186),
+    // so that is the only place the provenance rule can be observed.
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
+    const broken: Scenario = {
+      name: "delete the account",
+      steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+      assertions: [{ kind: "navigated", to: "app/payment" }],
+      unprovenAction: "DELETE https://api.shop.co/586738",
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+
+    expect(healedScenario).toBeDefined();
+    expect(healedScenario?.assertions).toEqual(broken.assertions);
+    expect(healedScenario?.unprovenAction).toBe("DELETE https://api.shop.co/586738");
+  });
+
+  it("…and does not pick the flag UP from a re-discovery the original never had", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
+    const broken: Scenario = {
+      name: "reach payment",
+      steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+      assertions: [{ kind: "navigated", to: "app/payment" }],
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+    const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+    expect(healedScenario).toBeDefined(); // a heal that reached the goal, so the absence below is a real check
+    expect(healedScenario?.unprovenAction).toBeUndefined();
+  });
+
+  it("a scenario without the flag is untouched (old frozen skills)", async () => {
+    const { result } = await runScenario(scenario, { driver: new FakeDriver({ evidence: evidence() }) });
+    expect(result.verdict.passed).toBe(true);
+  });
+});
+
+describe("finalizeVerdict on the heal path (#186)", () => {
+  // Outcome-heal re-discovers on a live LLM loop, which ends either at `done` or early (the step
+  // cap, or repeated policy blocks). An early end is an unverified path: the suite already refuses
+  // one at first discovery, but the heal path returned the critic's verdict raw, so the goal
+  // assertions holding on the partial state read as a successful heal, and the capped path was
+  // handed back to re-freeze. The stale skill below never reaches the goal (its click goes
+  // nowhere), so the replay fails and outcome-heal runs; the re-discovery reaches the goal on its
+  // very first click.
+  const stale: Scenario = {
+    name: "reach payment",
+    steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+    assertions: [{ kind: "navigated", to: "app/payment" }],
+  };
+  const driverReachingPaymentOn = (text: string): StubDriver => {
+    const d = new StubDriver();
+    d.els = [{ role: "button", name: text }];
+    d.navOn[text] = "https://app/payment";
+    return d;
+  };
+  const alwaysClick = () => {
+    let calls = 0;
+    const llm = { id: "always-click", async complete() { calls += 1; return '{"action":"click","text":"go","reason":"keep going"}'; } };
+    return { llm, calls: () => calls };
+  };
+
+  it("a re-discovery that ends before `done` is red and hands nothing back, even when the goal held on its partial state", async () => {
+    const driver = driverReachingPaymentOn("go");
+    const { llm } = alwaysClick(); // never says `done`, so discovery runs to its cap
+
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
+
+    expect(truncated).toBe(true);
+    expect(healedScenario).toBeUndefined(); // nothing for cli --freeze, the suite, or a library caller to write
+    expect(result.verdict.results.every((r) => r.passed)).toBe(true); // the goal held on the partial state…
+    expect(result.verdict.passed).toBe(false); // …which is exactly what must not read as green
+    expect(result.verdict.detail).toMatch(/unverified path/);
+  });
+
+  it("a re-discovery that reaches `done` and the goal is still a green heal", async () => {
+    const driver = driverReachingPaymentOn("go");
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
+
+    expect(truncated).toBeUndefined();
+    expect(healedScenario).toBeDefined(); // heal ran and is handed back to re-freeze
+    expect(result.verdict.passed).toBe(true);
+    expect(result.verdict.detail).toBeUndefined();
+  });
+
+  it("a guard tripping during the re-discovery does not discard a repair that reached the goal", async () => {
+    // The re-discovery reaches app/payment but a transient 500 lands in its request log, so the
+    // ORIGINAL set's no-failed-requests fails. The path is still right: hand it back, verdict red.
+    class FlakyShop extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        const e = await super.observe();
+        const flaky = this.clicked.includes("go") ? [{ method: "GET", url: "https://app/api/promo", status: 500 }] : [];
+        return { ...e, logic: { ...e.logic, requests: [...e.logic.requests, ...flaky] } };
+      }
+    }
+    const driver = new FlakyShop();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
+    const guarded: Scenario = { ...stale, assertions: [...stale.assertions, { kind: "no-failed-requests" }] };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario } = await runScenario(guarded, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeDefined(); // the repair reached the goal, so it is handed back…
+    expect(result.verdict.passed).toBe(false); // …and the guard still reds the run, honestly
+    expect(result.verdict.results.find((r) => r.assertion.kind === "navigated")?.passed).toBe(true);
+    expect(result.verdict.results.find((r) => r.assertion.kind === "no-failed-requests")?.passed).toBe(false);
+  });
+
+  it("does not outcome-heal a replay that reached the goal and failed only its guards", async () => {
+    // A 500 during the replay is the app's health, not a broken path. A re-discovery cannot fix it,
+    // so it must not run: zero LLM calls, and the detail says why heal did nothing.
+    class SickShop extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        const e = await super.observe();
+        return { ...e, logic: { ...e.logic, requests: [{ method: "GET", url: "https://app/api/promo", status: 500 }] } };
+      }
+    }
+    const driver = new SickShop();
+    driver.els = [{ role: "button", name: "Checkout" }];
+    driver.navOn["Checkout"] = "https://app/payment"; // the frozen path still works
+    const guarded: Scenario = { ...stale, assertions: [...stale.assertions, { kind: "no-failed-requests" }] };
+    const { llm, calls } = alwaysClick();
+
+    const { result, healedScenario, truncated } = await runScenario(guarded, { driver, llm, heal: true, reporter: silent });
+
+    expect(calls()).toBe(0);
+    expect(healedScenario).toBeUndefined();
+    expect(truncated).toBeUndefined();
+    expect(result.verdict.passed).toBe(false);
+    expect(result.verdict.detail).toMatch(/outcome-heal skipped/);
+  });
+
+  it("a re-discovery that reached `done` but missed the goal is withheld, and the detail says so", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/elsewhere"; // reaches done, not the goal
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeUndefined();
+    expect(truncated).toBeUndefined();
+    expect(result.verdict.passed).toBe(false);
+    expect(result.verdict.detail).toMatch(/did not hold on it — nothing re-frozen/);
+  });
+
+  it("forwards maxSteps to the re-discovery, so a heal is capped where the case says, not at the default", async () => {
+    const driver = driverReachingPaymentOn("go");
+    const { llm, calls } = alwaysClick();
+
+    const { truncated } = await runScenario(stale, { driver, llm, heal: true, maxSteps: 3, reporter: silent });
+
+    expect(truncated).toBe(true);
+    expect(calls()).toBe(4); // three decisions plus one proposeAssertions call, not the default twenty-plus-one
+  });
+
+  it("a blocked step still triggers outcome-heal even when no goal assertion failed", async () => {
+    // The trigger keys on "a re-discovery could fix this": a blocked step qualifies on its own, so
+    // narrowing the trigger to goal failures must not turn heal off for the case it exists for.
+    const driver = driverReachingPaymentOn("go");
+    driver.navOn["Checkout"] = "https://app/payment"; // goal is reached by the stale path…
+    const blocked: Scenario = {
+      ...stale,
+      steps: [...stale.steps, { kind: "waitFor", until: { url: "app/never" }, timeoutMs: 20 }], // …then a step blocks
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario } = await runScenario(blocked, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeDefined(); // heal ran and its path reached the goal
+    expect(result.verdict.passed).toBe(true);
+  });
+});
+
+it("healGreenReplayNeedsNoBackend: heal:true on a green replay never constructs an LLM — an unconfigurable backend is not an error until a heal actually needs one (run.ts: lazily and once)", async () => {
+  const saved = process.env.CAIRN_LLM_BACKEND;
+  process.env.CAIRN_LLM_BACKEND = "no-such-backend";
+  try {
+    const { result, healedScenario } = await runScenario(scenario, {
+      driver: new FakeDriver({ evidence: evidence() }),
+      heal: true,
+      reporter: silent,
+    });
+    expect(result.verdict.passed).toBe(true);
+    expect(result.usage?.llmCalls).toBe(0);
+    expect(healedScenario).toBeUndefined();
+  } finally {
+    if (saved === undefined) delete process.env.CAIRN_LLM_BACKEND;
+    else process.env.CAIRN_LLM_BACKEND = saved;
+  }
+});
+
+it("bareRunAbortClosesTrace: a bare run that throws (abort) still ends its implicit case and run in the trace — one shape with the suite, which records a crashed case", async () => {
+  const events: TraceEvent[] = [];
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    runScenario(scenario, {
+      driver: new FakeDriver({ evidence: evidence() }),
+      reporter: silent,
+      signal: controller.signal,
+      trace: { emit: (event) => events.push(event) },
+    }),
+  ).rejects.toThrow();
+  expect(events.map((event) => event.kind)).toEqual(["trace", "case-start", "case-end", "run-end"]);
+  expect(events[2]!.payload).toMatchObject({ verdict: { passed: false }, heals: 0, discovered: false });
+  expect(events[3]!.payload).toMatchObject({ passed: false });
+});
+
+import { applyStepHeals } from "../src/run.js";
+import type { LlmClient, Critic } from "../src/index.js";
+import type { Heal } from "../src/adapters/drivers/self-heal.js";
+
+// Consolidated audit coverage.
+
+{
+
+  const silent: Reporter = { emit: async () => {} };
+
+  const traceEvidence: Evidence = {
+    execution: { actions: [], navigated: true, finalUrl: "https://iana.org", blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  };
+
+  const traceScenario: Scenario = { name: "t", steps: [{ kind: "goto", url: "https://example.com" }], assertions: [{ kind: "navigated" }] };
+
+  const greenEvidence: Evidence = {
+    execution: { actions: [], navigated: true, finalUrl: "https://iana.org", blocked: false },
+    perception: {},
+    logic: { requests: [{ method: "GET", url: "https://iana.org", status: 200 }], console: [] },
+  };
+
+  const greenScenario: Scenario = {
+    name: "green",
+    steps: [{ kind: "goto", url: "https://example.com" }, { kind: "click", target: { text: "Learn more" } }],
+    assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }],
+  };
+
+  const forbidden: LlmClient = { id: "forbidden", complete: async () => { throw new Error("must not be called"); } };
+
+  // run-apply-step-heals-by-index.test.ts
+  {
+    it("applyStepHealsByIndexNotLabel: two steps sharing a label — only the healed INDEX is replaced", () => {
+      const s: Scenario = {
+        name: "t",
+        steps: [
+          { kind: "goto", url: "https://example.com" },
+          { kind: "click", target: { text: "Next" } },
+          { kind: "click", target: { text: "Next" } }, // same label, a different element
+        ],
+        assertions: [],
+      };
+      const healed = applyStepHeals(s, [
+        { index: 2, step: { kind: "click", target: { text: "Continue", role: "button", index: 0 } } },
+      ]);
+      expect(healed.steps[1]).toEqual({ kind: "click", target: { text: "Next" } }); // untouched
+      expect(healed.steps[2]).toEqual({ kind: "click", target: { text: "Continue", role: "button", index: 0 } });
+      expect(s.steps[2]).toEqual({ kind: "click", target: { text: "Next" } }); // input not mutated
+    });
+  }
+
+  // run-apply-step-heals-identity.test.ts
+  {
+    const s: Scenario = {
+      name: "t",
+      steps: [{ kind: "goto", url: "https://example.com" }, { kind: "click", target: { text: "Go" } }],
+      assertions: [],
+    };
+
+    it("applyStepHealsIdentityWhenNoHeals: no step heals → the very same scenario object comes back", () => {
+      expect(applyStepHeals(s, [])).toBe(s);
+    });
+  }
+
+  // run-expect-role-pre-skip.test.ts
+  {
+    const page = (): StubDriver => {
+      const d = new StubDriver("https://app/cart");
+      d.els = [{ role: "heading", name: "Your cart" }];
+      return d;
+    };
+
+    const withExpect = (expect_: { text: string; role: string }): Scenario => ({
+      name: "t",
+      steps: [{ kind: "click", target: { text: "Open cart" }, expect: expect_ }],
+      assertions: [{ kind: "navigated" }],
+    });
+
+    it("expectRolePreSkip: a role-constrained text expect pre-skips only when the role matches too", async () => {
+      const hit = page();
+      const { result: r1 } = await runScenario(withExpect({ text: "Your cart", role: "heading" }), { driver: hit, reporter: silent, expectTimeoutMs: 50 });
+      expect(hit.clicked).toEqual([]);
+      expect(r1.evidence.execution.actions[0]).toMatchObject({ ok: true, skipped: true });
+
+      const miss = page(); // same text, wrong role → must execute, then diverge
+      const { result: r2 } = await runScenario(withExpect({ text: "Your cart", role: "button" }), { driver: miss, reporter: silent, expectTimeoutMs: 50 });
+      expect(miss.clicked).toEqual(["Open cart"]);
+      expect(r2.evidence.execution.actions[0]).toMatchObject({ ok: false });
+      expect(r2.evidence.execution.actions[0]?.skipped).toBeFalsy();
+    });
+  }
+
+  // run-expect-text-pre-skip.test.ts
+  {
+    it("expectTextPreSkip: a text-shaped expect that already holds skips the step before executing (surgical-heal §3.1)", async () => {
+      const driver = new StubDriver("https://app/cart");
+      driver.els = [{ role: "status", name: "Cart (1 item)" }];
+      const s: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Add to cart" }, expect: { text: "Cart (1" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const { result } = await runScenario(s, { driver, reporter: silent, expectTimeoutMs: 50 });
+      expect(driver.clicked).toEqual([]); // never executed
+      expect(result.evidence.execution.actions[0]).toMatchObject({ ok: true, skipped: true });
+      expect(result.verdict.passed).toBe(true);
+    });
+  }
+
+  // run-heal-green-no-llm.test.ts
+  {
+    it("healOnGreenReplayNoLlm: heal:true on a replay that stays green makes zero LLM calls (invariant #4)", async () => {
+      const { result, heals, stepHeals, healedScenario } = await runScenario(greenScenario, {
+        driver: new FakeDriver({ evidence: greenEvidence }),
+        llm: forbidden,
+        heal: true,
+        reporter: silent,
+      });
+      expect(result.verdict.passed).toBe(true);
+      expect(result.usage?.llmCalls).toBe(0);
+      expect(heals).toEqual([]);
+      expect(stepHeals).toEqual([]);
+      expect(healedScenario).toBeUndefined();
+    });
+  }
+
+  // run-injected-critic-skips-llm.test.ts
+  {
+    const scenario: Scenario = {
+      name: "semantic",
+      steps: [{ kind: "goto", url: "https://example.com" }],
+      assertions: [{ kind: "expect", criterion: "the page looks right" }],
+    };
+
+    it("injectedCriticSkipsLlm: a host-injected Critic wins over the expect→LlmCritic default, so an `expect` scenario can be judged with zero LLM calls", async () => {
+      const critic: Critic = {
+        judge: async (_e, assertions) => ({ passed: true, results: assertions.map((assertion) => ({ assertion, passed: true, detail: "host-judged" })) }),
+      };
+      const { result } = await runScenario(scenario, { driver: new FakeDriver({ evidence: traceEvidence }), critic, llm: forbidden, reporter: silent });
+      expect(result.verdict.passed).toBe(true);
+      expect(result.verdict.results[0]?.detail).toBe("host-judged");
+      expect(result.usage?.llmCalls).toBe(0);
+    });
+  }
+
+  // run-on-heal-fires-per-locator-heal.test.ts
+  {
+    it("onHealFiresPerLocatorHeal: the host onHeal callback receives each locator heal as it happens, matching what runScenario returns", async () => {
+      const driver = new FakeDriver({ evidence: traceEvidence, elements: [{ role: "link", name: "Learn more" }], failOn: ["Read more"] });
+      const broken: Scenario = {
+        name: "t",
+        steps: [{ kind: "goto", url: "https://example.com" }, { kind: "click", target: { text: "Read more" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const seen: Heal[] = [];
+      const { heals } = await runScenario(broken, {
+        driver, llm: new ScriptedLlm(['{"name":"Learn more"}']), heal: true, reporter: silent, onHeal: (h) => seen.push(h),
+      });
+      expect(seen).toEqual(heals);
+      expect(seen).toEqual([{ original: { text: "Read more" }, healed: { text: "Learn more", role: "link", index: 0 } }]);
+    });
+  }
+
+  // run-screenshot-not-judged.test.ts
+  {
+    const scenario: Scenario = {
+      name: "t",
+      steps: [{ kind: "goto", url: "https://example.com" }, { kind: "click", target: { text: "Learn more" } }],
+      assertions: [{ kind: "navigated" }, { kind: "no-failed-requests" }, { kind: "no-console-errors" }],
+    };
+
+    const base: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://iana.org", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "GET", url: "https://iana.org", status: 500 }], console: [] },
+    };
+
+    it("screenshotNotJudged: Evidence.perception.screenshot changes no built-in verdict — present or absent, same results (surgical-heal P6)", async () => {
+      const withShot: Evidence = { ...base, perception: { screenshot: "data:image/png;base64,AAA" } };
+      const { result: a } = await runScenario(scenario, { driver: new FakeDriver({ evidence: base }), reporter: silent });
+      const { result: b } = await runScenario(scenario, {
+        driver: new FakeDriver({ evidence: withShot, screenshot: "data:image/png;base64,AAA" }),
+        reporter: silent, screenshots: true, onStep: () => {},
+      });
+      expect(b.verdict).toEqual(a.verdict);
+      expect(a.verdict.passed).toBe(false); // the 500 is what decides it, in both runs
+    });
+  }
+
+  // run-step-heal-keeps-role-index.test.ts
+  {
+    /** A page whose driver CAN resolve strong locators (like the real driver / FakeDriver.locate). */
+    class LocatingStub extends StubDriver {
+      override async locate(t: Target): Promise<Target> {
+        const el = this.els.find((e) => t.text && e.name.toLowerCase().includes(t.text.toLowerCase()));
+        if (!el) return t;
+        return { ...t, role: el.role, index: this.els.filter((e) => e.role === el.role).indexOf(el) };
+      }
+    }
+
+    it("stepHealKeepsRoleIndex: a surgical step heal re-freezes role + index, not a text-only target (targeting.md P5)", async () => {
+      const driver = new LocatingStub();
+      driver.els = [{ role: "button", name: "Checkout Now" }];
+      driver.navOn["Checkout Now"] = "https://app/payment";
+      const events: TraceEvent[] = [];
+      const s: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Checkout" }, intent: "go to payment", expect: { url: "app/payment" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const { stepHeals, healedScenario } = await runScenario(s, {
+        driver, llm: new ScriptedLlm(['{"action":"click","text":"Checkout Now"}']), heal: true,
+        reporter: silent, expectTimeoutMs: 50, trace: { emit: (e) => events.push(e) },
+      });
+      const want = { text: "Checkout Now", role: "button", index: 0 };
+      expect(stepHeals[0]?.step).toMatchObject({ kind: "click", target: want, intent: "go to payment", expect: { url: "app/payment" } });
+      expect(healedScenario?.steps[0]).toMatchObject({ target: want });
+      const heal = events.find((e) => e.kind === "heal")!;
+      expect(heal.payload).toMatchObject({ layer: "step", became: { target: want } });
+    });
+  }
+
+  // run-wildcards-reach-llm-critic.test.ts
+  {
+    const at = (finalUrl: string): Evidence => ({
+      execution: { actions: [], navigated: true, finalUrl, blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    });
+
+    // An `expect` criterion routes the run through LlmCritic (not AssertionCritic) — the wildcard
+    // flag must reach the mechanical handler on THAT path too.
+    const base: Scenario = {
+      name: "order → done",
+      steps: [{ kind: "goto", url: "https://shop.co/cart" }],
+      assertions: [
+        { kind: "navigated", to: "shop.co/orders/*/done" },
+        { kind: "expect", criterion: "the order confirmation is shown" },
+      ],
+    };
+
+    it("wildcardsReachLlmCritic: scenario.wildcards is honoured on the LlmCritic path, not only AssertionCritic", async () => {
+      const llmYes = () => new ScriptedLlm(['{"passed":true,"detail":"confirmed"}']);
+
+      const { result } = await runScenario(
+        { ...base, wildcards: true },
+        { driver: new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") }), llm: llmYes(), reporter: silent },
+      );
+      expect(result.verdict.results.map((r) => r.passed)).toEqual([true, true]);
+      expect(result.verdict.passed).toBe(true);
+
+      // Control: same file without the marker keeps `*` literal, so only the expect passes.
+      const { result: r2 } = await runScenario(base, {
+        driver: new FakeDriver({ evidence: at("https://shop.co/orders/999001/done") }),
+        llm: llmYes(),
+        reporter: silent,
+      });
+      expect(r2.verdict.results.find((r) => r.assertion.kind === "navigated")?.passed).toBe(false);
+    });
+  }
+
+  // trace-bare-run-lifecycle-envelope.test.ts
+  {
+    it("bareRunLifecycleEnvelope: case-start has no phase; header and run-end have no caseRef; every case event carries it", async () => {
+      const events: TraceEvent[] = [];
+      await runScenario(traceScenario, { driver: new FakeDriver({ evidence: traceEvidence }), reporter: silent, trace: { emit: (e) => events.push(e) } });
+      const caseStart = events.find((e) => e.kind === "case-start")!;
+      expect(caseStart.phase).toBeUndefined();
+      expect(caseStart.stepRef).toBeUndefined();
+      expect(events[0]!.caseRef).toBeUndefined(); // header: run-level
+      expect(events.at(-1)!.kind).toBe("run-end");
+      expect(events.at(-1)!.caseRef).toBeUndefined(); // run-end: run-level
+      for (const e of events.slice(1, -1)) expect(e.caseRef).toBe("t");
+    });
+  }
+
+  // trace-header-version-literal.test.ts
+  {
+    it("traceHeaderVersionLiteral: the header says version 1.2 literally (spec/core/trace.md) and carries a UUID runId", async () => {
+      const events: TraceEvent[] = [];
+      await runScenario(traceScenario, { driver: new FakeDriver({ evidence: traceEvidence }), reporter: silent, trace: { emit: (e) => events.push(e) } });
+      const header = events[0]!;
+      expect(header.kind).toBe("trace");
+      expect(header.seq).toBe(0);
+      if (header.kind !== "trace") throw new Error("unreachable");
+      expect(header.payload.version).toBe("1.2");
+      expect(header.payload.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(header.payload.engine.name).toBe("cairn");
+    });
+  }
+
+  // trace-scope-wins-over-trace.test.ts
+  {
+    it("traceScopeWinsOverTrace: when a suite scope is supplied, a bare `trace` sink gets nothing — one trace, owned by the suite", async () => {
+      const bare: TraceEvent[] = [];
+      const owned: TraceEvent[] = [];
+      const scope = startTrace({ emit: (e) => owned.push(e) }, "0.0.0").scope("case-1");
+      await runScenario(traceScenario, { driver: new FakeDriver({ evidence: traceEvidence }), reporter: silent, trace: { emit: (e) => bare.push(e) }, traceScope: scope });
+      expect(bare).toEqual([]);
+      expect(owned.map((e) => e.kind)).toEqual(["trace", "step", "assertion"]);
+      expect(owned.slice(1).every((e) => e.caseRef === "case-1")).toBe(true);
+    });
+  }
+
+}

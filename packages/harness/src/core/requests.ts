@@ -50,6 +50,27 @@ export function isRecoveredFailure(requests: readonly NetworkRequest[], index: n
     .some((r) => r.status > 0 && r.status < 400 && r.method.toUpperCase() === method && endpointKey(r.url) === key);
 }
 
+/** Is `url` on the site of a page the flow was on — the page's host or a subdomain of it, so with
+ * the page at `shop.co` both `api.shop.co` and `sockjs.shop.co` are the app's own and
+ * `api2.amplitude.com` is not? The line between an app's traffic and third-party background posts
+ * (analytics, error reporters), which fire on their own schedule and never prove the app's action.
+ * A leading `www.` on the page is not a site boundary. No public-suffix list is needed: `shop.co.kr`
+ * and `other.co.kr` are different sites because neither is under the other. The miss is a page on
+ * `app.shop.co` claiming nothing on `api.shop.co` — the quiet direction; callers pass every page the
+ * flow visited to narrow it. Unparseable URLs never match. */
+export function onSiteOf(pageUrl: string, url: string): boolean {
+  const host = (u: string): string | undefined => {
+    try {
+      return new URL(u).hostname;
+    } catch {
+      return undefined;
+    }
+  };
+  const page = host(pageUrl)?.replace(/^www\./, "");
+  const h = host(url);
+  return page !== undefined && h !== undefined && (h === page || h.endsWith("." + page));
+}
+
 /** Whether a request is a state-changing mutation (the kind that proves an action happened, vs a
  * navigation/read) — used to ground a scenario's success assertion on what did the work. */
 export function isMutation(method: string): boolean {

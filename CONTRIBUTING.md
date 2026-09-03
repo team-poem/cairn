@@ -20,7 +20,10 @@ Contributions that respect that contract are the most valuable kind.
    larger than a bug fix, describe your approach and wait for a maintainer to confirm
    the direction *before* you write code (see
    [AI / agent contributions](#ai--agent-contributions)).
-2. **Branch from `develop`.** Name it for the change: `feat/...`, `fix/...`, `docs/...`.
+2. **Branch from `develop`.** Name it with one of the working prefixes — `feat/`, `fix/`,
+   `docs/`, `chore/`, or `codex/` — the exact allowlist the branch-convention guard enforces.
+   A PR opened from any other prefix is **auto-closed** by `cairn-bot` with rename
+   instructions (`git branch -m <old> feat/<old>`), so pick the prefix first.
    `develop` is the integration branch; `main` holds the latest published release.
 3. **Make one focused change.** Hold the [design invariants](#design-invariants); keep
    unrelated edits out.
@@ -65,6 +68,11 @@ npm run build       # compile all workspaces
 npm run typecheck   # type-check without emitting
 npm run test        # run the test suites (vitest)
 ```
+
+One suite is kept out of `npm run test`: `packages/harness/test/browser` drives a headless Chrome
+because the in-page probe reads element boxes and hit tests, which jsdom cannot answer. Run it with
+`npm run test:browser -w cairn-engine` — it uses the Chrome you already have installed, and CI runs
+it as its own job.
 
 The engine lives in `packages/harness` (published as `cairn-engine`); the CLI is a
 thin wrapper over the library. Run it from source with `npm run dev` inside that
@@ -128,6 +136,9 @@ Keep commits small and meaningful — one logical step each.
 Before you request review:
 
 - `npm run typecheck`, `npm run build`, and `npm run test` pass.
+- If you touched the in-page probe (`packages/harness/src/adapters/drivers/chrome.ts`), also
+  `npm run test:browser -w cairn-engine` — and add the layout you were fixing to
+  `test/fixtures/probe/` so the next person inherits the case rather than the bug.
 - When you can, **dogfood** — run cairn against a real flow once to confirm the loop
   still holds.
 - Don't commit generated or frozen outputs: `dist/`, `build/`, and `bench/frozen/`

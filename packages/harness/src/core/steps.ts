@@ -24,6 +24,9 @@ export const DEFAULT_LOCALE_PREFIXES: readonly string[] = ["en", "ko", "ja", "jp
 
 /** URL-matching knobs — consumer-injected, never guessed from the URL itself. */
 export interface UrlMatchOptions {
+  /** Does this scenario's frozen data use `*` for a run-minted segment? Set from
+   * `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen as. */
+  wildcards?: boolean;
   /** First-path-segment prefixes treated as locales in the stripping fallback.
    * Default: `DEFAULT_LOCALE_PREFIXES`. Pass `[]` to disable the fallback. */
   localePrefixes?: readonly string[];
@@ -54,20 +57,37 @@ function splitHostPath(u: string): HostPath {
   return { host, segs: path.split("/").filter(Boolean) };
 }
 
-function hostPathKey({ host, segs }: HostPath): string {
-  const p = segs.join("/");
-  return host ? (p ? `${host}/${p}` : host) : p;
-}
-
 function stripLocale(hp: HostPath, prefixes: readonly string[]): HostPath {
   const first = hp.segs[0];
   const isLocale = first !== undefined && prefixes.some((p) => first === p || first.startsWith(p + "-"));
   return isLocale ? { host: hp.host, segs: hp.segs.slice(1) } : hp;
 }
 
-// Boundary match (never raw substring): equal, or a suffix starting at a path boundary.
-function boundaryMatch(dest: string, want: string): boolean {
-  return want !== "" && (dest === want || dest.endsWith("/" + want));
+// Boundary match (never raw substring): equal, or a suffix starting at a path boundary. Compared
+// segment by segment so a frozen `*` stands for exactly one segment — the freeze writes one where
+// the run minted the value (an order id in a confirmation URL), and matching it literally would
+// fail every later run. A want whose PATH is nothing but wildcards is refused: `shop.co/*` is
+// reached by the app's error page and its login redirect alike, which is the opposite of what a
+// destination check is for. The test skips the host token deliberately — counting it would let
+// `shop.co/*` through, and refusing here rather than only at freeze also covers a hand-written
+// target and a skill already on disk.
+function boundaryMatch(dest: HostPath, want: HostPath, wildcards: boolean): boolean {
+  const wantTokens = tokens(want);
+  const destTokens = tokens(dest);
+  if (wantTokens.length === 0 || wantTokens.length > destTokens.length) return false;
+  if (wildcards) {
+    if (want.segs.length > 0 && want.segs.every((t) => t === WILDCARD)) return false;
+    if (want.segs.length === 0 && want.host === WILDCARD) return false;
+  }
+  const tail = destTokens.slice(destTokens.length - wantTokens.length);
+  return wantTokens.every((t, i) => (wildcards && t === WILDCARD) || t === tail[i]);
+}
+
+/** One segment the run minted, written into a frozen destination in its place. */
+export const WILDCARD = "*";
+
+function tokens({ host, segs }: HostPath): string[] {
+  return host ? [host, ...segs] : segs;
 }
 
 /** Whether `finalUrl` reached `want`, matched at a path boundary (not raw substring) — a parent
@@ -79,12 +99,13 @@ function boundaryMatch(dest: string, want: string): boolean {
 export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions = {}): boolean {
   const dest = splitHostPath(finalUrl);
   const w = splitHostPath(want);
-  if (boundaryMatch(hostPathKey(dest), hostPathKey(w))) return true;
+  const wildcards = opts.wildcards ?? false;
+  if (boundaryMatch(dest, w, wildcards)) return true;
   const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
   const strippedDest = stripLocale(dest, prefixes);
   const strippedWant = stripLocale(w, prefixes);
   if (strippedDest === dest && strippedWant === w) return false; // nothing stripped — stage 1 decided
-  return boundaryMatch(hostPathKey(strippedDest), hostPathKey(strippedWant));
+  return boundaryMatch(strippedDest, strippedWant, wildcards);
 }
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
@@ -212,11 +233,15 @@ export async function conditionMet(
       }
     }
   }
-  if (until.text !== undefined) {
-    const needle = until.text.trim().toLowerCase();
+  if (until.text !== undefined || until.role !== undefined) {
+    // A role without text still names a condition: some element of that role must be present.
+    // Fail closed: a provided field is never vacuously true.
+    const needle = until.text?.trim().toLowerCase();
     const els = await driver.snapshot();
     const hit = els.some(
-      (e) => (!until.role || e.role === until.role) && e.name.toLowerCase().includes(needle),
+      (e) =>
+        (!until.role || e.role === until.role) &&
+        (needle === undefined || e.name.toLowerCase().includes(needle)),
     );
     if (!hit) return false;
   }

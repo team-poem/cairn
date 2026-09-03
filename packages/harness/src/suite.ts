@@ -50,7 +50,8 @@ export type FrozenSuiteScenario = Scenario & { caseHash: string };
 /** Fingerprints exactly the case fields that flow into the freeze: `intent`, the criteria
  * (`expect`/`assertions`), and the START URL — discover freezes `url ?? baseUrl` as the first
  * `goto`, so repointing either one changes what replays and must read as stale (#131). `id` and
- * `maxSteps` stay out: file key and step cap, neither changes what was discovered or judged. */
+ * `maxSteps` stay out: file key and step cap, neither changes what was frozen. (`maxSteps` can decide whether a heal re-discovery
+ * completes, #186, but that is a property of a run, not of the skill's identity.) */
 export function hashCase(c: SuiteCase, baseUrl?: string): string {
   const material = JSON.stringify({
     intent: c.intent,
@@ -108,6 +109,9 @@ export interface SuiteVerdict {
   discovered: boolean;
   /** True when discovery hit its step cap — the case failed closed and nothing was frozen. */
   truncated?: boolean;
+  /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
+   * was reached", not "the work was done". Advisory: the verdict does not fail on it. */
+  unprovenAction?: string;
   /** Locator + surgical step heals the replay needed (0 on a clean replay). */
   heals: number;
   /** Discovery + replay combined. A cached mechanical-only case shows llmCalls: 0. */
@@ -193,6 +197,7 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     caseHash: s.caseHash,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
+    ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
   };
 }
 
@@ -281,7 +286,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     // 3. Replay on a fresh driver (case isolation). The suite constructed it → the suite closes it.
     const driver = ctx.driverFactory();
     try {
-      const { result, heals, stepHeals, healedScenario } = await runScenario(scenario, {
+      const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
         driver,
         heal: ctx.heal,
         llm: ctx.llm,
@@ -295,6 +300,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,
+        // The heal re-discovery gets the case's own cap, as first discovery does — else a skill frozen
+        // from a 28-step discovery under maxSteps 40 could never heal past the default 20.
+        maxSteps: c.maxSteps,
         // Without this a suite could never produce attachments — and a suite is where the traces
         // that get audited come from (#160).
         screenshots: ctx.screenshots,
@@ -305,6 +313,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       // through), but an outcome-heal comes back from discover() without the suite-local field —
       // frozen bare, the next run would mismatch and re-discover a skill that was just repaired
       // (#153). caseHash stays a suite concept; the engine never learns it (pattern ≠ data).
+      // A truncated re-discovery never arrives here: runScenario withholds it (#186).
       if (healedScenario) {
         const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c, ctx.baseUrl) };
         await ctx.store.freeze(ref, restamped);
@@ -313,7 +322,13 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       const usage = addUsage(discoveryUsage, result.usage ?? emptyUsage());
       scope?.emit({
         kind: "case-end",
-        payload: { verdict: result.verdict, usage, discovered, heals: heals.length + stepHeals.length },
+        payload: {
+          verdict: result.verdict,
+          usage,
+          discovered,
+          heals: heals.length + stepHeals.length,
+          ...(truncated ? { truncated: true } : {}),
+        },
       });
       return {
         ...base,
@@ -321,6 +336,12 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         heals: heals.length + stepHeals.length,
         usage,
         verdict: result.verdict,
+        // Structured, like the first-discovery branch above, so the CLI line, the report and a trace
+        // consumer see "truncated" rather than an ordinary assertion failure.
+        ...(truncated ? { truncated: true } : {}),
+        // The flag rides on the frozen skill, so a cached replay reports it too — that is the path
+        // people actually run (#190).
+        ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : {}),
       };
     } finally {
       await driver.close().catch(() => {});

@@ -3,7 +3,7 @@
  * app, or CI all go through here). No LLM is constructed unless an `expect` critic or
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
-import { runHarness } from "./core/pipeline.js";
+import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
@@ -24,7 +24,7 @@ import type { ActionPolicy } from "./core/discover/index.js";
 import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
-import type { Result, RunUsage, Scenario, StepProgress } from "./core/types.js";
+import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 
 export interface RunScenarioOptions {
   driver?: Driver;
@@ -33,6 +33,8 @@ export interface RunScenarioOptions {
   context?: ContextProvider;
   reporter?: Reporter;
   llm?: LlmClient;
+  /** Step cap for the outcome-heal re-discovery. Default: `discover`'s own (20). */
+  maxSteps?: number;
   /**
    * Repair broken replays with the LLM (invariant #4 sanctioned use). Two layers, both only when set:
    * a `SelfHealingDriver` fixes a step whose target no longer resolves, and — if the run still fails
@@ -86,6 +88,9 @@ export interface RunScenarioResult {
   stepHeals: StepHeal[];
   /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals. */
   healedScenario?: Scenario;
+  /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
+   * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
+  truncated?: true;
 }
 
 export function needsLlmCritic(scenario: Scenario): boolean {
@@ -134,12 +139,20 @@ export async function runScenario(
   const getLlm = (): LlmClient =>
     (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
   const usage = (): RunUsage => meter?.snapshot() ?? emptyUsage();
+  // Both heal layers take their client up front but only call it on a break, so hand them one
+  // that defers construction to the first completion. A green replay never builds a backend.
+  const lazyLlm: LlmClient = {
+    get id() {
+      return getLlm().id;
+    },
+    complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
+  };
 
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes)
-      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards));
 
   // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
   // sink opens its own trace — header, then one implicit case so every consumer reads one shape.
@@ -147,6 +160,27 @@ export async function runScenario(
   const scope = opts.traceScope ?? ownTracer?.scope(scenario.name);
   if (ownTracer)
     scope?.emit({ kind: "case-start", payload: { id: scenario.name, intent: scenario.name, cached: true } });
+  // Every exit of a bare run closes the implicit case and run with the same two events. The
+  // optional truncated flag preserves #189's stronger outcome-heal lifecycle payload.
+  const closeOwnTrace = (
+    verdict: Verdict,
+    runUsage: RunUsage | undefined,
+    healCount: number,
+    truncated = false,
+  ): void => {
+    if (!ownTracer) return;
+    scope?.emit({
+      kind: "case-end",
+      payload: {
+        verdict,
+        usage: runUsage,
+        discovered: false,
+        heals: healCount,
+        ...(truncated ? { truncated: true } : {}),
+      },
+    });
+    ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: runUsage } });
+  };
 
   // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
   // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
@@ -162,9 +196,9 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm) : undefined;
 
   try {
     const result = await runHarness(
@@ -196,7 +230,11 @@ export async function runScenario(
     // its assertions — the frozen path no longer reaches the goal, a break surgical-heal couldn't fix.
     // Re-discover from the start (invariant #4 sanctioned use (b)); only on failure. Runs on the SAME
     // live session (no close/reopen), so app state (auth, storage) matches replay conditions.
-    if (opts.heal && !result.verdict.passed) {
+    // Only when a re-discovery could fix it: a blocked step, or a goal assertion that failed. A red
+    // made of guards alone (a 500, a console error) is the app's health, not the path — re-discovering
+    // burns the LLM every run and can never turn it green (#186).
+    const healable = result.evidence.execution.blocked || goalFailures(result.verdict).length > 0;
+    if (opts.heal && !result.verdict.passed && healable) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
       // the failed run's requests must not satisfy a request-status.
       const before = await baseDriver.observe();
@@ -210,6 +248,8 @@ export async function runScenario(
         signal: opts.signal,
         policy: opts.policy,
         perceive: opts.perceive,
+        localePrefixes: opts.localePrefixes,
+        maxSteps: opts.maxSteps,
         // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
         // the kinds say what ran (spec/core/trace.md).
         trace: scope,
@@ -226,42 +266,77 @@ export async function runScenario(
       };
       // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
       // else a path that reaches a different end-state passes as green (P2 false green).
-      const verdict = await critic.judge(evidence, scenario.assertions, ctx);
-      for (const r of verdict.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
-      if (ownTracer) {
-        scope?.emit({
-          kind: "case-end",
-          payload: { verdict, usage: usage(), discovered: false, heals: heals.length + stepHeals.length },
-        });
-        ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: usage() } });
+      const judged = await critic.judge(evidence, scenario.assertions, ctx);
+      for (const r of judged.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
+      // Same finalizer as replay (#186). A re-discovery that ended before `done` is an unverified path,
+      // and the goal assertions holding on its partial state is not a heal. Not "the step cap":
+      // `discover` also truncates after repeated policy blocks, and that path is live here.
+      const truncated = repaired.truncated === true;
+      // Withheld = not a heal: truncated, or it reached `done` but a goal assertion still failed.
+      // Guards (`no-failed-requests`, `no-console-errors`) do not count — a transient 500 during the
+      // re-discovery does not make the path it found wrong, and a persistent one is not something a
+      // re-discovery can fix (see `goalFailures`).
+      const missedGoal = !truncated && goalFailures(judged).length > 0;
+      let verdict = finalizeVerdict(
+        judged,
+        truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
+      );
+      if (missedGoal) {
+        const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
+        verdict = { ...verdict, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
       }
+      // `truncated` rides here too, so a library caller with its own sink reads the same shape as
+      // the suite's case-end (spec/core/trace.md: one implicit case, one shape).
+      closeOwnTrace(verdict, usage(), heals.length + stepHeals.length, truncated);
       return {
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
         heals,
         stepHeals,
-        healedScenario: { ...repaired, assertions: scenario.assertions },
+        // The verdict judged the ORIGINAL assertions, so the flag that belongs with them travels
+        // from the original too: `unprovenAction` is a property of an (evidence, assertions) pair,
+        // and taking it from the re-discovery would arm or disarm the gate for a set it never saw.
+        // An unverified path is not a heal, so it is not handed back at all: neither a truncated
+        // re-discovery nor one that reached `done` with a goal assertion still failing. Every
+        // consumer (cli --freeze, the suite, a library caller's `if (healedScenario) save(...)`)
+        // inherits the rule instead of each remembering to check. Judged on `judged`, the critic's
+        // results alone, before finalizeVerdict adds anything about the run itself — and on the goal
+        // assertions only, so a guard tripping during the re-discovery does not discard a repair
+        // that reached the goal.
+        healedScenario: truncated || missedGoal
+          ? undefined
+          : {
+              ...repaired,
+              assertions: scenario.assertions,
+              ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
+            },
+        ...(truncated ? { truncated: true as const } : {}),
       };
     }
 
-    if (ownTracer) {
-      scope?.emit({
-        kind: "case-end",
-        payload: {
-          verdict: result.verdict,
-          usage: result.usage,
-          discovered: false,
-          heals: heals.length + stepHeals.length,
-        },
-      });
-      ownTracer.emit({ kind: "run-end", payload: { passed: result.verdict.passed, usage: result.usage } });
-    }
+    // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
+    // operator reads "heal did nothing" as "heal found nothing".
+    const skipped = opts.heal && !result.verdict.passed && !healable;
+    const why = "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
+    const final = skipped
+      ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
+      : result;
+    closeOwnTrace(final.verdict, final.usage, heals.length + stepHeals.length);
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     return {
-      result,
+      result: final,
       heals,
       stepHeals,
       healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
     };
+  } catch (err) {
+    // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.
+    // This keeps the bare-run stream in the same lifecycle shape as a suite's crashed case.
+    closeOwnTrace(
+      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}` },
+      usage(),
+      (healer?.heals.length ?? 0) + (stepHealer?.heals.length ?? 0),
+    );
+    throw err;
   } finally {
     if (ownsDriver) await baseDriver.close().catch(() => {});
   }

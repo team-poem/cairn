@@ -5,8 +5,9 @@ import {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
   judgeAssertion,
+  toVerdict,
 } from "../../../src/adapters/critics/assertion.js";
-import type { Evidence } from "../../../src/core/types.js";
+import type { Assertion, Evidence } from "../../../src/core/types.js";
 
 function ev(requests: { method: string; url: string; status: number }[]): Evidence {
   return {
@@ -271,3 +272,79 @@ describe("assertion handler chain — critics differ only by handler set", () =>
     expect(r.detail).toContain("LlmCritic"); // adding ExpectAssertionHandler (as LlmCritic does) overrides this
   });
 });
+
+describe("toVerdict — all-vacuous gate (#137)", () => {
+  it("fails closed when every assertion was already true before the flow ran", () => {
+    const v = toVerdict([
+      { assertion: { kind: "no-failed-requests", vacuous: true }, passed: true },
+      { assertion: { kind: "navigated", to: "app/start", vacuous: true }, passed: true },
+    ]);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toContain("cannot detect a broken flow");
+  });
+
+  it("one discriminating assertion keeps the verdict normal", () => {
+    const v = toVerdict([
+      { assertion: { kind: "no-failed-requests", vacuous: true }, passed: true },
+      { assertion: { kind: "request-status", urlIncludes: "/api/order", status: 201 }, passed: true },
+    ]);
+    expect(v.passed).toBe(true);
+    expect(v.detail).toBeUndefined();
+  });
+
+  it("suite-merged user assertions carry no flag, so the gate can't fire on them", () => {
+    const v = toVerdict([
+      { assertion: { kind: "navigated", to: "app/start", vacuous: true }, passed: true },
+      { assertion: { kind: "expect", criterion: "cart shows the item", origin: "user" }, passed: true },
+    ]);
+    expect(v.passed).toBe(true);
+  });
+});
+
+describe("an all-vacuous verdict says which kind of nothing it is (#182 review)", () => {
+  const held = (assertion: Assertion) => ({ assertion, passed: true });
+
+  it("a freeze that could not name the destination is not 'nothing changed'", () => {
+    const v = toVerdict([
+      held({ kind: "navigated", vacuous: true, vacuousBecause: "no-destination" }),
+      held({ kind: "no-failed-requests", vacuous: true }),
+    ]);
+    expect(v.passed).toBe(false);
+    expect(v.detail).toMatch(/no destination could be frozen/);
+  });
+
+  it("the ordinary case keeps its own wording", () => {
+    const v = toVerdict([held({ kind: "no-failed-requests", vacuous: true })]);
+    expect(v.detail).toMatch(/already satisfied before the flow ran/);
+  });
+});
+
+import { resolveAssertion } from "../../../src/adapters/critics/assertion.js";
+
+// Consolidated audit coverage.
+
+{
+
+  // resolve-assertion-routes-custom-then-mechanical.test.ts
+  {
+    const evidence: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://shop/done", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "GET", url: "https://shop/api", status: 200 }], console: [] },
+    };
+
+    describe("critics/assertion resolveAssertion", () => {
+      it("resolveAssertionRoutesCustomThenMechanical: a registered custom check answers a custom assertion; a mechanical kind is checked built-in; an unregistered custom name fails", async () => {
+        const custom = { cartCount: (params: Record<string, unknown>) => ({ passed: params.n === 2, detail: `n=${params.n}` }) };
+        const hit = await resolveAssertion({ kind: "custom", name: "cartCount", params: { n: 2 } }, evidence, custom);
+        expect(hit).toMatchObject({ passed: true, detail: "n=2" });
+        const nav = await resolveAssertion({ kind: "navigated", to: "/done" }, evidence, custom);
+        expect(nav).toMatchObject({ passed: true, detail: "https://shop/done" });
+        const miss = await resolveAssertion({ kind: "custom", name: "unknown" }, evidence);
+        expect(miss.passed).toBe(false);
+        expect(miss.detail).toMatch(/unknown/);
+      });
+    });
+  }
+
+}

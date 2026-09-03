@@ -1,0 +1,10 @@
+<!doctype html>
+<!-- The control for the one above: same container, button in view. Both candidates are reachable,
+     so there is no single answer and the caller must keep tree order. -->
+<meta charset="utf-8">
+<title>visible inside a scroll container</title>
+<nav><a href="/away">Continue</a></nav>
+<div style="height:80px;overflow:auto;border:1px solid #999">
+  <button>Continue</button>
+  <div style="height:400px">filler</div>
+</div>

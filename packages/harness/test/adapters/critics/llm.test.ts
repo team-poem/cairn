@@ -95,3 +95,99 @@ describe("LlmCritic", () => {
     expect(captured).not.toContain("Task intent:");
   });
 });
+
+import { ExpectAssertionHandler, summarizeEvidence } from "../../../src/adapters/critics/llm.js";
+
+// Consolidated audit coverage.
+
+{
+
+  class ScriptedLlm implements LlmClient {
+    readonly id = "scripted";
+    constructor(private readonly reply: string) {}
+    async complete(): Promise<string> {
+      return this.reply;
+    }
+  }
+
+  const evidence: Evidence = {
+    execution: { actions: [], navigated: true, finalUrl: "https://shop/done", blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  };
+
+  // critic-detail-falls-back-to-judged-by.test.ts
+  {
+    describe("critics/llm parseVerdict", () => {
+      it("criticDetailFallsBackToJudgedBy: a verdict without a string detail reads `judged by <llm.id>`", async () => {
+        const h = new ExpectAssertionHandler(new ScriptedLlm('{"passed":false,"detail":42}'));
+        const r = await h.judge({ kind: "expect", criterion: "c" }, evidence);
+        expect(r).toEqual({ assertion: { kind: "expect", criterion: "c" }, passed: false, detail: "judged by scripted" });
+      });
+    });
+  }
+
+  // critic-expect-handler-rejects-other-kinds.test.ts
+  {
+    describe("critics/llm ExpectAssertionHandler", () => {
+      it("criticExpectHandlerRejectsOtherKinds: supports() is true only for expect, and judge() on another kind throws", async () => {
+        const h = new ExpectAssertionHandler(new ScriptedLlm("{}"));
+        expect(h.supports({ kind: "expect", criterion: "c" })).toBe(true);
+        expect(h.supports({ kind: "no-console-errors" })).toBe(false);
+        await expect(h.judge({ kind: "no-console-errors" }, evidence)).rejects.toThrow('expect handler received "no-console-errors" assertion');
+      });
+    });
+  }
+
+  // critic-summary-caps-requests-at-forty.test.ts
+  {
+    describe("critics/llm summarizeEvidence", () => {
+      it("criticSummaryCapsRequestsAtForty: the header counts every request but only the first 40 are listed — a failing 41st is absent", () => {
+        const requests = Array.from({ length: 41 }, (_, i) => ({
+          method: "GET",
+          url: `https://x/${i}`,
+          status: i === 40 ? 500 : 200,
+        }));
+        const text = summarizeEvidence({ ...evidence, logic: { requests, console: [{ type: "error", text: "boom" }, { type: "log", text: "hi" }] } });
+        expect(text).toContain("requests (41):");
+        expect(text).toContain("200 GET https://x/39");
+        expect(text).not.toContain("https://x/40");
+        expect(text).not.toContain("500");
+        expect(text).toContain("console errors (1):\nboom");
+        expect(text).not.toContain("hi");
+      });
+    });
+  }
+
+  // critic-verdict-requires-json.test.ts
+  {
+    describe("critics/llm parseVerdict", () => {
+      it("criticVerdictRequiresJson: a reply with no JSON object fails the criterion with `no JSON in critic reply`", async () => {
+        const h = new ExpectAssertionHandler(new ScriptedLlm("Yes, it passed."));
+        const r = await h.judge({ kind: "expect", criterion: "order confirmed" }, evidence);
+        expect(r.passed).toBe(false);
+        expect(r.detail).toMatch(/^LLM judgment failed: no JSON in critic reply: Yes, it passed\./);
+      });
+    });
+  }
+
+  // critic-verdict-string-true-is-not-a-pass.test.ts
+  {
+    describe("critics/llm parseVerdict", () => {
+      it("criticVerdictStringTrueIsNotAPass: passed given as the string true judges as failed; only boolean true passes", async () => {
+        const stringy = await new ExpectAssertionHandler(new ScriptedLlm('{"passed":"true","detail":"looks fine"}')).judge(
+          { kind: "expect", criterion: "c" },
+          evidence,
+        );
+        expect(stringy.passed).toBe(false);
+        expect(stringy.detail).toBe("looks fine");
+        const real = await new ExpectAssertionHandler(new ScriptedLlm('Sure:\n{"passed":true,"detail":"ok"}')).judge(
+          { kind: "expect", criterion: "c" },
+          evidence,
+        );
+        expect(real.passed).toBe(true);
+      });
+    });
+  }
+
+}

@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
+import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -117,14 +117,50 @@ async function runStep(
  * rule, #69). `detail` says which step blocked and why, so a CI gate can tell "run didn't finish"
  * apart from "assertions failed". A healed step is recorded ok, so a healed run is not penalized.
  */
-function withStepCompletion(verdict: Verdict, actions: ExecutedAction[], totalSteps: number): Verdict {
+/**
+ * How the run that produced the evidence ended. A replay is a fixed step list, so completion is
+ * "every step ran"; a re-discovery (outcome-heal) is a loop, so completion is "the loop reached
+ * `done`, not the step cap". Both feed one finalizer so a rule added there applies to both paths.
+ */
+export function blockedReason(actions: ExecutedAction[], totalSteps: number): string | undefined {
   const blockedAt = actions.findIndex((a) => !a.ok);
-  if (blockedAt === -1) return verdict;
+  if (blockedAt === -1) return undefined;
   const remaining = totalSteps - actions.length;
-  const why =
+  return (
     `step ${blockedAt + 1}/${totalSteps} blocked: ${actions[blockedAt]?.error ?? "step failed"}` +
-    (remaining > 0 ? ` (${remaining} later step(s) never ran)` : "");
+    (remaining > 0 ? ` (${remaining} later step(s) never ran)` : "")
+  );
+}
+
+/** Fail a verdict for a reason the assertions could not see, keeping any detail the critic left. */
+function failClosed(verdict: Verdict, why: string): Verdict {
   return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
+}
+
+/** App-health guards: derived from the run's own traffic, not from what the flow set out to do. */
+const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-console-errors"]);
+
+/**
+ * The failures a re-discovery could conceivably repair: the goal assertions (`navigated`,
+ * `request-status`, `custom`, `expect`), not the app-health guards. A 500 or a console error is
+ * not a broken path — re-discovering cannot fix it, and a repair that reached the goal is still
+ * the right path when a guard tripped on the way. Used on both ends of outcome-heal (#186): to
+ * decide whether to re-discover at all, and whether to hand the repair back.
+ */
+export function goalFailures(verdict: Verdict): AssertionResult[] {
+  return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));
+}
+
+/**
+ * The last word on a verdict, shared by replay and outcome-heal (#186). The critic judges the
+ * assertions; `incomplete` is what the assertions cannot see about the run itself — a replay that
+ * blocked (`blockedReason`, #90) or a re-discovery that ended before `done` — and either one means
+ * the evidence stopped partway, so assertions satisfied by the prefix must not read as green. A
+ * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
+ * verdict raw and silently skipped every rule the replay path applied.
+ */
+export function finalizeVerdict(judged: Verdict, incomplete?: string): Verdict {
+  return incomplete ? failClosed(judged, incomplete) : judged;
 }
 
 export async function runHarness(
@@ -184,7 +220,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = withStepCompletion(judged, actions, scenario.steps.length);
+  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length));
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

@@ -244,16 +244,18 @@ describe("runSuite", () => {
     try {
       const store = new FileSkillStore(dir);
       const reporter = new JsonReporter(join(dir, "result.json"));
-      // Frozen with an assertion the stub driver can never satisfy (it captures no requests) —
-      // replay fails its verdict, which is exactly what triggers the outcome-heal re-discovery.
-      const failing: FrozenSuiteScenario = {
+      // Frozen with a step that goes nowhere ("Catalog" is not on the page), so replay never reaches
+      // shop/products and fails its verdict — which triggers the outcome-heal re-discovery. That
+      // re-discovery clicks Products and lands on the goal: only a heal that reached the goal is
+      // handed back to re-freeze (#186), so this is the shape a re-freeze can be observed on.
+      const stale: FrozenSuiteScenario = {
         ...frozen,
-        assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+        steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Catalog" } }],
+        assertions: [{ kind: "navigated", to: "shop/products" }],
         caseHash: hashCase(CASE),
       };
-      await store.freeze(REF, failing);
-      // Outcome-heal's re-discovery: done immediately, no proposals.
-      const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+      await store.freeze(REF, stale);
+      const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
 
       const first = await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter });
       expect(first.verdicts[0]!.discovered).toBe(false); // cache hit, then heal — not a fresh discover
@@ -262,9 +264,10 @@ describe("runSuite", () => {
       // must re-stamp it, or the next run mismatches the hash and pays discovery for nothing.
       // Read back through the real store: the stamp survived serialization.
       const refrozen = (await store.load(REF)) as FrozenSuiteScenario;
-      expect(refrozen.caseHash).toBe(hashCase(CASE));
+      expect(refrozen.steps).toContainEqual(expect.objectContaining({ target: { text: "Products" } })); // the store really was rewritten…
+      expect(refrozen.caseHash).toBe(hashCase(CASE)); // …and the stamp survived the round-trip
 
-      // And the next run really does replay the (still-failing) skill instead of re-discovering:
+      // And the next run replays the healed skill instead of re-discovering, and passes on it:
       // a judged replay has assertion results; the crashed/re-discover paths don't.
       const second = await runSuite([CASE], {
         store,
@@ -275,13 +278,14 @@ describe("runSuite", () => {
       });
       expect(second.verdicts[0]!.discovered).toBe(false);
       expect(second.verdicts[0]!.verdict.results.length).toBeGreaterThan(0);
+      expect(second.verdicts[0]!.verdict.passed).toBe(true);
       expect(second.usage.llmCalls).toBe(0);
 
-      // The real reporter wrote a parseable Result for the failing replay.
+      // The real reporter wrote a parseable Result for the healed replay.
       const reported = JSON.parse(await readFile(join(dir, "result.json"), "utf8")) as {
         verdict: { passed: boolean };
       };
-      expect(reported.verdict.passed).toBe(false);
+      expect(reported.verdict.passed).toBe(true);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
@@ -568,14 +572,16 @@ describe("runSuite trace", () => {
   it("the outcome-heal re-freeze emits a freeze event under phase heal, caseHash re-stamped", async () => {
     const sink = new RecordingSink();
     const store = new MemoryStore();
-    // Frozen with an assertion the stub driver can never satisfy — replay fails, outcome-heal runs.
-    const failing: FrozenSuiteScenario = {
+    // Frozen with a step that goes nowhere — replay fails, outcome-heal runs and reaches the goal,
+    // so the repair is handed back and re-frozen (a heal that missed the goal would not be, #186).
+    const stale: FrozenSuiteScenario = {
       ...frozen,
-      assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+      steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Catalog" } }],
+      assertions: [{ kind: "navigated", to: "shop/products" }],
       caseHash: hashCase(CASE),
     };
-    store.skills.set(REF, failing);
-    const llm = new ScriptedLlm(['{"action":"done"}', "[]"]);
+    store.skills.set(REF, stale);
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
 
     await runSuite([CASE], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
 
@@ -630,5 +636,36 @@ describe("renderSuiteReport", () => {
     expect(md).toContain("| checkout | ✗ fail | discovered + replayed |");
     expect(md).toContain("### ✗ checkout — buy a bag of beans");
     expect(md).toContain("**request-status**: no request matching api/pay");
+  });
+});
+
+describe("a truncated outcome-heal re-discovery is not frozen (#186)", () => {
+  it("leaves the stale skill in the store and reports the truncated verdict", async () => {
+    const store = new MemoryStore();
+    // The stale click goes nowhere, so replay misses shop/products and outcome-heal runs. The
+    // re-discovery's very first click DOES reach shop/products — so the only thing withholding the
+    // repair below is that the loop never said `done` and ran to the cap (truncation alone).
+    const stale: FrozenSuiteScenario = {
+      name: "checkout",
+      steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Catalog" } }],
+      assertions: [{ kind: "navigated", to: "shop/products" }],
+      caseHash: hashCase(CASE),
+    };
+    store.skills.set(REF, stale);
+    let calls = 0;
+    const llm: LlmClient = { id: "always-click", async complete() { calls += 1; return '{"action":"click","text":"Products"}'; } };
+    const events: TraceEvent[] = [];
+    const sink = { emit: (e: TraceEvent) => { events.push(e); } };
+
+    const suite = await runSuite([{ ...CASE, id: "catalog", maxSteps: 4 }], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
+
+    const v = suite.verdicts[0]!;
+    expect(v.verdict.results.find((r) => r.assertion.kind === "navigated")?.passed).toBe(true); // goal held on the partial state
+    expect(v.verdict.passed).toBe(false);
+    expect(v.truncated).toBe(true); // structured, like a truncated first discovery…
+    expect(events.find((e) => e.kind === "case-end")?.payload).toMatchObject({ truncated: true }); // …on the trace too
+    expect(v.verdict.detail).toMatch(/unverified path/);
+    expect(store.skills.get(REF)).toBe(stale); // not re-frozen: the next run must not replay a capped path
+    expect(calls).toBeLessThan(8); // the case's maxSteps (4) reached the heal, not the default 20
   });
 });

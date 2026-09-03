@@ -41,6 +41,14 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   guards (`no-failed-requests`/`no-console-errors`) carry the stamp on a clean start but are not
   individually warned on — a flow action can still break them.
 
+- **Unverified re-discovery → not a heal** (#186): outcome-heal's verdict goes through the same
+  finalizer as replay. A re-discovery that ended before `done` (step cap or repeated policy blocks)
+  fails closed, exactly as a truncated first discovery does; and neither that nor a re-discovery
+  that reached `done` with a goal assertion still failing is handed back to re-freeze, so the store
+  only ever holds a path that reached the goal. Guards (`no-failed-requests`, `no-console-errors`)
+  are not goal assertions on either end: a guard tripping during the re-discovery does not discard
+  a repair that reached the goal, and a replay red on guards alone does not trigger a re-discovery
+  at all — nothing a re-discovery does can fix a 500.
 - **Unprovable action → recorded, not yet failed** (#184, #172 follow-up): grounding refuses a
   `request-status` whose proving request has no stable path to check — the same predicate the
   freeze asks again here, so the two cannot answer differently and leave the gap between them

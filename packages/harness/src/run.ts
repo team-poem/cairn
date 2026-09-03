@@ -139,6 +139,14 @@ export async function runScenario(
   const getLlm = (): LlmClient =>
     (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
   const usage = (): RunUsage => meter?.snapshot() ?? emptyUsage();
+  // Both heal layers take their client up front but only call it on a break, so hand them one
+  // that defers construction to the first completion. A green replay never builds a backend.
+  const lazyLlm: LlmClient = {
+    get id() {
+      return getLlm().id;
+    },
+    complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
+  };
 
   const critic =
     opts.critic ??
@@ -167,9 +175,9 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm) : undefined;
 
   try {
     const result = await runHarness(

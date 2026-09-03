@@ -733,3 +733,21 @@ describe("finalizeVerdict on the heal path (#186)", () => {
     expect(result.verdict.passed).toBe(true);
   });
 });
+
+it("healGreenReplayNeedsNoBackend: heal:true on a green replay never constructs an LLM — an unconfigurable backend is not an error until a heal actually needs one (run.ts: lazily and once)", async () => {
+  const saved = process.env.CAIRN_LLM_BACKEND;
+  process.env.CAIRN_LLM_BACKEND = "no-such-backend";
+  try {
+    const { result, healedScenario } = await runScenario(scenario, {
+      driver: new FakeDriver({ evidence: evidence() }),
+      heal: true,
+      reporter: silent,
+    });
+    expect(result.verdict.passed).toBe(true);
+    expect(result.usage?.llmCalls).toBe(0);
+    expect(healedScenario).toBeUndefined();
+  } finally {
+    if (saved === undefined) delete process.env.CAIRN_LLM_BACKEND;
+    else process.env.CAIRN_LLM_BACKEND = saved;
+  }
+});

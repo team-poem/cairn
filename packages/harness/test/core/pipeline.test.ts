@@ -10,6 +10,7 @@ import type { TraceAttachment } from "../../src/core/ports.js";
 import type { TraceEvent } from "../../src/core/trace.js";
 import { startTrace } from "../../src/core/trace.js";
 import { ENGINE_VERSION } from "../../src/version.js";
+import { StubDriver } from "../support/doubles.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;
@@ -360,4 +361,25 @@ describe("pipeline — trace attachments (#160)", () => {
     expect(progress[0]?.screenshot).toBe("data:image/png;base64,QUJD");
     expect(attachments).toHaveLength(1);
   });
+});
+
+it("pipelineEmptyExpectDoesNotSkipStep: a step whose expect is an empty object is executed like a step with no expect, never pre-check-skipped as already satisfied", async () => {
+  const driver = new StubDriver();
+  const emptyExpectScenario: Scenario = {
+    name: "t",
+    steps: [{ kind: "click", target: { text: "Go" }, expect: {} }],
+    assertions: [{ kind: "navigated" }],
+  };
+  const result = await runHarness(
+    {
+      context: new InlineContextProvider(),
+      planner: new StaticPlanner(emptyExpectScenario),
+      driver,
+      critic: new AssertionCritic(),
+      reporter: { emit: async () => {} },
+    },
+    "t",
+  );
+  expect(driver.clicked).toEqual(["Go"]);
+  expect(result.evidence.execution.actions[0]).toEqual({ step: emptyExpectScenario.steps[0], ok: true });
 });

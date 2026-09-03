@@ -230,3 +230,20 @@ describe("explore", () => {
     expect(seen).toEqual(["finding:agent-note", "step:note", "step:click:ran", "step:done"]);
   });
 });
+
+describe("a policy that throws is the harness's problem, not the app's", () => {
+  it("exploreThrowingVetIsNotAFinding: a vet exception is a recorded rejection but never an action-error finding", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Delete" }];
+    const policy: ActionPolicy = {
+      vet: () => {
+        throw new Error("policy exploded");
+      },
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"Delete"}', '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START, policy });
+    expect(driver.clicked).toEqual([]);
+    // The page never refused anything. The gate did. Reporting it as a UX finding blames the app.
+    expect(report.findings).toEqual([]);
+  });
+});

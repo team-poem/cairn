@@ -14,7 +14,7 @@ import type { Driver, LlmClient } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
 import { applyDecision, describeAction, parseDecision } from "../discover/decision.js";
-import type { ActionPolicy, Decision } from "../discover/decision.js";
+import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { renderRankedElements } from "../discover/prompt.js";
 import { destinationKey } from "../discover/capture.js";
 import { EXPLORE_SYSTEM, buildExplorePrompt } from "./prompt.js";
@@ -201,17 +201,26 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       continue;
     }
 
+    // Policy gate — same semantics as discover: a rejected action never executes. A throwing vet
+    // is a recorded rejection, not a lost survey — and not a finding either: the gate refused,
+    // the page did not, so it must not be reported as a UX problem with the app.
+    let verdict: PolicyVerdict;
     try {
-      // Policy gate — same placement and semantics as discover: a rejected action never executes,
-      // a throwing vet is a recorded rejection, not a lost survey.
-      const verdict = policy?.vet(decision, { elements, url: currentUrl }) ?? { ok: true as const };
-      if (!verdict.ok) {
-        pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
-        onStep?.(decision);
-        if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) break; // report what exists, truncated
-        continue;
-      }
-      consecutiveBlocks = 0;
+      verdict = policy?.vet(decision, { elements, url: currentUrl }) ?? { ok: true as const };
+    } catch (err) {
+      pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
+      onStep?.(decision);
+      continue;
+    }
+    if (!verdict.ok) {
+      pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
+      onStep?.(decision);
+      if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) break; // report what exists, truncated
+      continue;
+    }
+    consecutiveBlocks = 0;
+
+    try {
       const mark: ActionMark = {
         url: observation.execution.finalUrl,
         requestCount: observation.logic.requests.length,

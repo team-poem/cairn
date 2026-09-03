@@ -8,6 +8,7 @@ import {
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import { URL_REACHED_CORPUS, URL_REACHED_WILDCARD_CORPUS } from "../support/url-corpus.js";
 import type { Evidence, Step } from "../../src/core/types.js";
+import { conditionMet } from "../../src/core/steps.js";
 
 describe("urlReached", () => {
   it("matches an exact host+path and ignores scheme/query/hash/trailing slash", () => {
@@ -180,4 +181,17 @@ describe("waitFor step", () => {
       handler.execute({ kind: "waitFor", until: { url: "/cart" }, timeoutMs: 30 }, d),
     ).rejects.toThrow(/waitFor timed out/);
   });
+});
+
+it("conditionMetRoleOnlyRequiresElementOfRole: an until with role but no text is not vacuously true — it requires an element of that role to be present (fail closed)", async () => {
+  const driver = new FakeDriver({
+    evidence: {
+      execution: { actions: [], navigated: false, blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    },
+    elements: [{ role: "link", name: "Cart" }],
+  });
+  await expect(conditionMet(driver, { role: "button" })).resolves.toBe(false);
+  await expect(conditionMet(driver, { role: "link" })).resolves.toBe(true);
 });

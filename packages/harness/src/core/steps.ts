@@ -233,11 +233,15 @@ export async function conditionMet(
       }
     }
   }
-  if (until.text !== undefined) {
-    const needle = until.text.trim().toLowerCase();
+  if (until.text !== undefined || until.role !== undefined) {
+    // A role without text still names a condition: some element of that role must be present.
+    // Fail closed: a provided field is never vacuously true.
+    const needle = until.text?.trim().toLowerCase();
     const els = await driver.snapshot();
     const hit = els.some(
-      (e) => (!until.role || e.role === until.role) && e.name.toLowerCase().includes(needle),
+      (e) =>
+        (!until.role || e.role === until.role) &&
+        (needle === undefined || e.name.toLowerCase().includes(needle)),
     );
     if (!hit) return false;
   }

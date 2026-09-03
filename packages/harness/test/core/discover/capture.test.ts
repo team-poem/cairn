@@ -5,6 +5,8 @@ import type { Step } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import { DESTINATION_CHANGE_CORPUS } from "../../support/url-corpus.js";
 import type { Evidence, NetworkRequest, Target } from "../../../src/core/types.js";
+import { afterEach, vi } from "vitest";
+import { observeOutcomes } from "../../../src/core/discover/capture.js";
 
 /** Completed-run evidence with the given final URL and request log (capture is retroactive, #81). */
 function evidenceAt(finalUrl: string, requests: NetworkRequest[]): Evidence {
@@ -343,5 +345,45 @@ describe("freshMutationExpect takes the product's benign list", () => {
       requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
     });
     expect(freshMutationExpect([tail[0]!], ["analytics.x"])).toBeUndefined();
+  });
+});
+
+describe("observeOutcomes waits for an in-flight mutation only up to its deadline", () => {
+  /** A mutation that never lands: status 0 on every observation. */
+  class StuckStub extends StubDriver {
+    observes = 0;
+
+    override async observe(): Promise<Evidence> {
+      this.observes += 1;
+      return {
+        execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+        perception: {},
+        logic: {
+          requests: [{ method: "POST", url: "https://api.app/orders", status: 0 }],
+          console: [],
+        },
+      };
+    }
+  }
+
+  afterEach(() => vi.useRealTimers());
+
+  it("observeOutcomesDeadline: returns the still-unsettled evidence once the window expires, after polling", async () => {
+    vi.useFakeTimers();
+    const driver = new StuckStub();
+    const done = observeOutcomes(driver, 0);
+    await vi.advanceTimersByTimeAsync(2_500);
+    const outcome = await done;
+    expect(outcome.logic.requests[0]?.status).toBe(0);
+    expect(driver.observes).toBeGreaterThan(1);
+  });
+
+  it("observeOutcomesDeadline: a request before the watermark is not waited on", async () => {
+    vi.useFakeTimers();
+    const driver = new StuckStub();
+    const done = observeOutcomes(driver, 1);
+    await vi.advanceTimersByTimeAsync(0);
+    await done;
+    expect(driver.observes).toBe(1);
   });
 });

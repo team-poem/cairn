@@ -554,3 +554,62 @@ describe("the product's benign list reaches step expects (spec/core/surgical-hea
     });
   });
 });
+
+describe("discover audit coverage", () => {
+  it("abortSignalStopsDiscover: an already-aborted signal rejects before any LLM call", async () => {
+    const driver = new StubDriver();
+    let calls = 0;
+    const llm = { id: "counting", complete: async () => (calls++, '{"action":"done"}') };
+    const controller = new AbortController();
+    controller.abort();
+    await expect(discover("x", { driver, llm, signal: controller.signal })).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  it("abortSignalStopsDiscover: aborting after a step stops the loop before the next one", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Next" }];
+    const llm = new ScriptedLlm(Array(5).fill('{"action":"click","text":"Next"}'));
+    const controller = new AbortController();
+    await expect(
+      discover("x", { driver, llm, signal: controller.signal, onStep: () => controller.abort() }),
+    ).rejects.toThrow();
+    expect(driver.clicked).toEqual(["Next"]);
+  });
+
+  it("discoverIgnoresEntryBeaconWhenNothingActed: a landing-page root POST is not the flow's unproven action", async () => {
+    const entryEvidence: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "POST", url: "https://shop/", status: 200 }], console: [] },
+    };
+    const driver = new FakeDriver({ evidence: entryEvidence, elements: [] });
+    const found = await discover("look", {
+      driver,
+      llm: new ScriptedLlm(['{"action":"done"}']),
+      baseUrl: "https://shop/",
+    });
+    expect(found.steps).toEqual([{ kind: "goto", url: "https://shop/" }]);
+    expect(found).not.toHaveProperty("unprovenAction");
+  });
+
+  it("wildcardsFlagOnStarDestination: a run-minted segment in a destination sets wildcards: true", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/orders/586738/done";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({ url: "shop/orders/*/done" });
+    expect(found.assertions).toContainEqual(
+      expect.objectContaining({ kind: "navigated", to: "shop/orders/*/done" }),
+    );
+    expect(found.wildcards).toBe(true);
+  });
+
+  it("wildcardsFlagOnStarDestination: a literal destination leaves the flag out entirely", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/checkout";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found).not.toHaveProperty("wildcards");
+  });
+});

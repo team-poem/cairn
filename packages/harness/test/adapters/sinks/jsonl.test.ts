@@ -194,3 +194,25 @@ describe("JsonlTraceSink (TraceSink port)", () => {
     expect(await readdir(sink.attachmentsDir!)).toEqual(["1.svg"]);
   });
 });
+
+describe("JsonlTraceSink extension fallback audit coverage", () => {
+  async function sidecarsFor(name: string, data: string): Promise<string[]> {
+    const sink = new JsonlTraceSink((runId) => join(dir, name, `${runId}.jsonl`));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    sink.attach({ id: "1", data });
+    tracer.emit({ kind: "run-end", payload: { passed: true } });
+    await sink.close();
+    expect(sink.failures).toBe(0);
+    return readdir(sink.attachmentsDir!);
+  }
+
+  it("jsonlSinkSanitizesUnknownSubtype: an unmapped but well-formed type uses its subtype, lower-cased and stripped of punctuation", async () => {
+    expect(await sidecarsFor("sub", "data:application/x-Foo.Bar;base64,AAAA")).toEqual(["1.xfoobar"]);
+  });
+
+  it("jsonlSinkUnmappedTypeFallsBackToBin: a media type with no usable subtype is filed as <id>.bin; a known type keeps its table extension", async () => {
+    expect(await sidecarsFor("bin", "data:binary;base64,AAAA")).toEqual(["1.bin"]);
+    expect(await sidecarsFor("jpg", "data:image/jpeg;base64,AAAA")).toEqual(["1.jpg"]);
+    expect(await sidecarsFor("noType", "data:,hello")).toEqual(["1.txt"]);
+  });
+});

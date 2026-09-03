@@ -108,6 +108,9 @@ export interface SuiteVerdict {
   discovered: boolean;
   /** True when discovery hit its step cap — the case failed closed and nothing was frozen. */
   truncated?: boolean;
+  /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
+   * was reached", not "the work was done". Advisory: the verdict does not fail on it. */
+  unprovenAction?: string;
   /** Locator + surgical step heals the replay needed (0 on a clean replay). */
   heals: number;
   /** Discovery + replay combined. A cached mechanical-only case shows llmCalls: 0. */
@@ -193,6 +196,7 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     caseHash: s.caseHash,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
+    ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
   };
 }
 
@@ -321,6 +325,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         heals: heals.length + stepHeals.length,
         usage,
         verdict: result.verdict,
+        // The flag rides on the frozen skill, so a cached replay reports it too — that is the path
+        // people actually run (#190).
+        ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : {}),
       };
     } finally {
       await driver.close().catch(() => {});

@@ -8,8 +8,9 @@ import type { TraceSink } from "./ports.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
- * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it. */
-export const TRACE_VERSION = "1.1";
+ * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it.
+ * 1.2 — `freeze.payload.unprovenAction` (#190), same rule. */
+export const TRACE_VERSION = "1.2";
 
 export type TracePhase = "discover" | "replay" | "heal";
 
@@ -50,6 +51,8 @@ export type TraceEvent = Envelope &
           caseHash?: string;
           assertions: { user: number; derived: number; unknown: number };
           truncated?: boolean;
+          /** `METHOD url` of a flow action no frozen check can prove (#184) — advisory. */
+          unprovenAction?: string;
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's

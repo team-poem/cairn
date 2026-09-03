@@ -14,10 +14,16 @@
   (PR 184 플래그의 fail-closed 전환)은 여기 한 곳에 들어간다. 잘린 재발견은 `runScenario`가 `healedScenario`를
   **아예 돌려주지 않고** `truncated: true`를 반환한다 — cli `--freeze`, 스위트, 라이브러리 호출자의
   `if (healedScenario) save(...)`가 전부 같은 규칙을 물려받고, 소비자마다 플래그를 기억할 필요가 없다.
+  같은 이유로 **완주했지만 목표에 못 간 재발견도 돌려주지 않는다**(`!judged.passed`) — 일시적 실패로 heal이 한 번
+  돌면 멀쩡한 스킬이 LLM이 헤매다 만든 경로로 덮이고 caseHash가 그대로라 재발견도 안 걸리던 자리. 판정 기준은
+  `verdict`가 아니라 critic만의 `judged`: "목표에 도달했나"만 보고, 나중에 `finalizeVerdict`에 들어올 규칙
+  (이슈 184 게이트)이 목표에 도달한 heal을 붙잡지 않게.
   `RunScenarioOptions.maxSteps`를 heal 재발견에 전달(스위트는 `c.maxSteps`, cli는 `--max-steps`) — 없으면 40스텝
   케이스가 UI 드리프트 후 20에서 잘려 영구 red가 된다. 스위트는 잘린 heal에 `SuiteVerdict.truncated`와 `case-end`
   플래그를 첫 발견과 같은 형태로 싣는다.
-- **리뷰 반영(PR 189, amazon):** 처음 올린 판은 `suite.ts`에만 프리즈 가드를 걸어 cli와 라이브러리 경로가 열려
+- **리뷰 반영(PR 189, amazon, 2회):** 2회차는 완주-미도달 재발견 건. 실패 단언으로 heal을 돌리던 기존 테스트
+  (P2, 이슈 184 출처 테스트 둘, #153 둘)는 재발견이 목표에 도달하는 형태로 다시 짰다 — #153 본체는 재프리즈 없이도
+  통과하던 공허한 상태였다(스토어가 원본을 돌려줘 hash 단언이 맞았음). 1회차는 처음 올린 판은 `suite.ts`에만 프리즈 가드를 걸어 cli와 라이브러리 경로가 열려
   있었고, `maxSteps`를 안 넘겨 이 수정이 그 불일치를 영구 red로 바꿨다. 둘 다 위 형태로 고쳤다. 사유 문구는
   "step cap"을 단정하지 않는다 — `discover`는 policy 차단 반복으로도 truncated를 돌려주고 heal에서 그 경로가
   살아 있다. `Completion` 유니온은 문자열 하나로 줄였다(공유 로직은 "미완 사유를 붙이고 fail"뿐).

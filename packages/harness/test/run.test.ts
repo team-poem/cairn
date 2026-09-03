@@ -199,7 +199,7 @@ describe("runScenario", () => {
     const { result, healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
     expect(result.verdict.passed).toBe(false); // reached iana.org, not the-moon → not a green
-    expect(healedScenario?.assertions).toEqual([{ kind: "navigated", to: "the-moon" }]); // original goal kept
+    expect(healedScenario).toBeUndefined(); // …and a path that missed the goal is not handed back to re-freeze (#186)
   });
 
   it("self-heals a broken target and returns a re-frozen scenario", async () => {
@@ -552,18 +552,19 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
     // The verdict judges the original assertions, so the flag that belongs with them must travel
     // with them. A re-discovery that saw no unprovable mutation would otherwise drop it for an
     // assertion set that still has no proof — and the suite freezes that scenario to disk.
-    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    // The stale click goes nowhere, so the replay fails and outcome-heal runs; the re-discovery
+    // reaches the goal on its first click. Only a heal that reached the goal is handed back (#186),
+    // so that is the only place the provenance rule can be observed.
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
     const broken: Scenario = {
       name: "delete the account",
-      steps: [{ kind: "goto", url: "https://example.com" }],
-      assertions: [{ kind: "navigated", to: "the-moon" }], // always fails → triggers outcome-heal
+      steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+      assertions: [{ kind: "navigated", to: "app/payment" }],
       unprovenAction: "DELETE https://api.shop.co/586738",
     };
-    // The re-discovery completes (`done`): a truncated one is withheld entirely (#186), so the
-    // provenance rule can only be observed on a heal that is actually handed back.
-    let i = 0;
-    const replies = ['{"action":"done"}', "[]"];
-    const llm = { id: "scripted", async complete() { return replies[i++] ?? "[]"; } };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
 
     const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
@@ -573,17 +574,17 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
   });
 
   it("…and does not pick the flag UP from a re-discovery the original never had", async () => {
-    const driver = new FakeDriver({ evidence: evidence(), elements: [] });
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
     const broken: Scenario = {
-      name: "reach the moon",
-      steps: [{ kind: "goto", url: "https://example.com" }],
-      assertions: [{ kind: "navigated", to: "the-moon" }],
+      name: "reach payment",
+      steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
+      assertions: [{ kind: "navigated", to: "app/payment" }],
     };
-    let i = 0;
-    const replies = ['{"action":"done"}', "[]"];
-    const llm = { id: "scripted", async complete() { return replies[i++] ?? "[]"; } };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
     const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
-    expect(healedScenario).toBeDefined(); // a completed heal, so the absence below is a real check
+    expect(healedScenario).toBeDefined(); // a heal that reached the goal, so the absence below is a real check
     expect(healedScenario?.unprovenAction).toBeUndefined();
   });
 

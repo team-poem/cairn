@@ -257,10 +257,13 @@ export async function runScenario(
         // The verdict judged the ORIGINAL assertions, so the flag that belongs with them travels
         // from the original too: `unprovenAction` is a property of an (evidence, assertions) pair,
         // and taking it from the re-discovery would arm or disarm the gate for a set it never saw.
-        // A truncated re-discovery is not handed back at all: every consumer (cli --freeze, the suite,
-        // a library caller's `if (healedScenario) save(...)`) inherits the rule instead of each
-        // remembering to check a flag.
-        healedScenario: truncated
+        // An unverified path is not a heal, so it is not handed back at all: neither a truncated
+        // re-discovery nor one that reached `done` somewhere other than the goal. Every consumer
+        // (cli --freeze, the suite, a library caller's `if (healedScenario) save(...)`) inherits the
+        // rule instead of each remembering to check. `judged`, not `verdict`: the critic's answer to
+        // "did the re-discovery reach the goal", before finalizeVerdict adds anything about the run
+        // itself, so a later rule there cannot hold back a path that did reach it.
+        healedScenario: truncated || !judged.passed
           ? undefined
           : {
               ...repaired,

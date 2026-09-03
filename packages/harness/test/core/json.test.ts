@@ -82,3 +82,28 @@ describe("extractFirstJsonArray", () => {
     expect(extractFirstJsonArray('[bad, "see [1,2,3]"]')).toBeUndefined();
   });
 });
+
+// Consolidated audit coverage.
+
+{
+
+  // json-escaped-quote-inside-string.test.ts
+  {
+    it("jsonEscapedQuoteInsideString: an escaped quote inside a string does not end the string, so a brace after it is still part of the value", () => {
+      expect(extractFirstJsonObject('{"text":"say \\"hi\\" }","n":1}')).toEqual({ text: 'say "hi" }', n: 1 });
+      expect(extractFirstJsonObject('{"path":"C:\\\\dir\\\\"}')).toEqual({ path: "C:\\dir\\" }); // escaped backslash before the closing quote
+    });
+  }
+
+  // json-never-closed-region.test.ts
+  {
+    it("jsonNeverClosedRegionIsUndefined: a truncated reply (brace or string never closed) fails closed to undefined instead of throwing or returning a partial", () => {
+      expect(extractFirstJsonObject('{"action":"click","text":"Go')).toBeUndefined(); // string never closed
+      expect(extractFirstJsonObject('{"action":"click","text":"Go"')).toBeUndefined(); // brace never closed
+      expect(extractFirstJsonObject('{"a":{"b":1}')).toBeUndefined(); // inner closes, outer never does
+      expect(extractFirstJsonArray('[{"kind":"navigated"}')).toBeUndefined();
+      expect(extractFirstJsonObject("")).toBeUndefined();
+    });
+  }
+
+}

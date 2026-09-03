@@ -169,3 +169,23 @@ describe("provesAnAction counts what the freeze can stand behind", () => {
     expect(hasSemanticCriterion(scenario)).toBe(false);
   });
 });
+
+// Consolidated audit coverage.
+
+{
+
+  // freeze-score-target-exact-scores.test.ts
+  {
+    it("freezeScoreTargetExactScores: the score ladder is 1 / 0.7 / 0.6 / 0.3 / 0 for selector, role+index, text+nth, text-only, nothing", () => {
+      expect(scoreTarget({ selector: "#go" }).score).toBe(1);
+      expect(scoreTarget({ role: "button", index: 0 }).score).toBe(0.7);
+      expect(scoreTarget({ text: "Accept", nth: 1 }).score).toBe(0.6);
+      expect(scoreTarget({ text: "Accept", nth: 1 }).weak).toBe(false);
+      expect(scoreTarget({ text: "Accept" }).score).toBe(0.3);
+      expect(scoreTarget({ text: "Accept" }).weak).toBe(true);
+      expect(scoreTarget({}).score).toBe(0);
+      expect(scoreTarget({ text: "Accept", nth: 1, selector: "#go" }).score).toBe(1); // selector wins over everything
+    });
+  }
+
+}

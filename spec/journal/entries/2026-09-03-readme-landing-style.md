@@ -12,7 +12,8 @@
     문체만 손봤다.
   - 두 파일 모두 산문의 em-dash(—)와 세미콜론을 없앴다. TypeScript 스니펫의 문장 끝 세미콜론도
     뺐다. CLI 플래그의 `--`는 그대로다.
-  - npm 페이지용 `packages/harness/README.md`는 별도 파일이라 건드리지 않았다.
+  - npm 페이지용 `packages/harness/README.md`도 리뷰 요청에 따라 같은 랜딩 형식으로 맞췄다. npm에서는
+    상대 링크가 안 되므로 GitHub `main` 절대 URL을 쓴다.
 - **검증:** grep으로 두 파일에 `—`와 `;`가 0개임을 확인했다. README의 상대 링크와 앵커가 모두
   존재하는 파일·헤딩을 가리킨다. 코드 변경이 없어 typecheck·build·test는 N/A.
 - **state 변화:** 없음. 문서 구조만 바뀌었다(README = 랜딩, docs/guide.md = 사용자 가이드).

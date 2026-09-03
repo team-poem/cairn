@@ -1,6 +1,6 @@
 {
   "name": "cairn-engine",
-  "version": "2.7.0",
+  "version": "2.8.0",
   "description": "An agentic-testing engine \u2014 browser tests an AI discovers once, replays deterministically with zero LLM calls, and heals when they break.",
   "keywords": [
     "agentic-testing",

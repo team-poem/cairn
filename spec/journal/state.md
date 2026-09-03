@@ -4,7 +4,7 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`2.8.0` 배포 진행 (2026-09-03, develop→main 릴리즈 PR; `latest = 2.7.0`, 2026-08-20).** breaking 0.
+- 단계: **`latest = 2.8.0` (2026-09-03 배포, PR #194 → main → release.yml 자동 publish·태그, 노트 발행).** breaking 0.
   - **2.8.0 내용 ("다음 런에도 살아남는 freeze"):** **grounding이 재생 가능한 URL을 얼림**(#172/#178/#183 —
     stable endpoint prefix·id 형상 컷·쿼리 접두 보존·구분력 잃은 체크 드랍, 반례 코퍼스 동반) ·
     **목적지 와일드카드**(#182 — `*` 토큰, leaf 규칙, `Scenario.wildcards` 마커, `localePrefixes` 전 경로 배선) ·

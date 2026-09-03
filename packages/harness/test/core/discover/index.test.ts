@@ -4,6 +4,7 @@ import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js
 import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { Evidence } from "../../../src/core/types.js";
+import type { Target } from "../../../src/core/types.js";
 
 const evidence: Evidence = {
   execution: { actions: [], navigated: true, finalUrl: "https://shop/cart", blocked: false },
@@ -506,5 +507,50 @@ describe("freeze-time vacuity stamping (#137)", () => {
     const nav = found.assertions.find((a) => a.kind === "navigated");
     expect(nav?.to).toContain("checkout/done");
     expect(nav?.vacuous).toBeUndefined();
+  });
+});
+
+describe("the product's benign list reaches step expects (spec/core/surgical-heal.md §4)", () => {
+  /** A click that fires one successful POST to a product-marked noisy endpoint and never navigates. */
+  class BeaconStub extends StubDriver {
+    private fired = false;
+
+    override async click(target: Target): Promise<void> {
+      this.clicked.push(target.text ?? "");
+      if (target.text === "Track") this.fired = true;
+    }
+
+    override async observe(): Promise<Evidence> {
+      const requests = this.fired
+        ? [{ method: "POST", url: "https://analytics.x/track/events", status: 200 }]
+        : [];
+      return {
+        execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+        perception: {},
+        logic: { requests, console: [] },
+      };
+    }
+  }
+
+  it("benignListReachesStepExpects: a product-marked endpoint is not frozen as a step expect", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm, benign: ["analytics.x"] });
+    expect(found.steps[0]?.expect).toBeUndefined();
+  });
+
+  it("benignListReachesStepExpects: without the list the same beacon still freezes (control)", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "analytics.x/track/events", status: 200, method: "POST" },
+    });
   });
 });

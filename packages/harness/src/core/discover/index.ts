@@ -77,7 +77,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
     const evidence = await observeOutcomes(driver, firstCount);
-    assignStepExpects(steps, marks, evidence, { localePrefixes });
+    assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({

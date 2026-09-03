@@ -332,3 +332,16 @@ describe("the freeze decides a URL expect under the consumer's matching rules", 
     expect(steps[0]?.expect).toEqual({ url: "shop.co/de/cart" });
   });
 });
+
+describe("freshMutationExpect takes the product's benign list", () => {
+  it("benignListReachesFreshMutationExpect: a product-marked mutation is skipped, the real one behind it is kept", () => {
+    const tail = [
+      { method: "POST", url: "https://analytics.x/track/events", status: 200 },
+      { method: "POST", url: "https://api.shop.co/orders", status: 201 },
+    ];
+    expect(freshMutationExpect(tail, ["analytics.x"])).toEqual({
+      requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
+    });
+    expect(freshMutationExpect([tail[0]!], ["analytics.x"])).toBeUndefined();
+  });
+});

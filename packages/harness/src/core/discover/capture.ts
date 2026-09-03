@@ -68,8 +68,9 @@ export function assignStepExpects(
    * freeze has to ask "is this already satisfied?" under the same ones. Locale stripping only ever
    * makes matching MORE permissive, so freezing under the defaults while replay runs with an
    * injected prefix flips a discriminating expect into a pre-satisfied one, and the step is skipped. */
-  urlMatch: UrlMatchOptions = {},
+  opts: UrlMatchOptions & { benign?: readonly string[] } = {},
 ): void {
+  const { benign = [], ...urlMatch } = opts;
   const requests = evidence.logic.requests;
   for (let i = 0; i < steps.length; i++) {
     const mark = marks[i];
@@ -88,7 +89,7 @@ export function assignStepExpects(
       continue;
     }
     const tail = requests.slice(mark.requestCount, next?.requestCount ?? requests.length);
-    const proven = freshMutationExpect(tail);
+    const proven = freshMutationExpect(tail, benign);
     if (proven) steps[i]!.expect = proven;
   }
 }
@@ -98,7 +99,7 @@ export function assignStepExpects(
  * is frozen for exact matching (a same-path GET must not satisfy a submit), and the frozen path stops
  * before a run-specific id segment (which would never match on a later replay). A repeated identical
  * mutation (a second add-to-cart) still counts — the tail is positional, not a seen-set. */
-export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefined {
+export function freshMutationExpect(tail: NetworkRequest[], benign: readonly string[] = []): WaitUntil | undefined {
   // A host-only endpoint is skipped rather than frozen — it would be satisfied by any request to
   // that host (the same refusal the assertion path makes, #172) — but the search continues past it:
   // a pixel or RPC fired at the root must not cost the step the real mutation behind it.
@@ -107,7 +108,7 @@ export function freshMutationExpect(tail: NetworkRequest[]): WaitUntil | undefin
       isMutation(r.method) &&
       r.status >= 200 &&
       r.status < 400 &&
-      !isBenignRequest(r.url) &&
+      !isBenignRequest(r.url, benign) &&
       hasStablePath(stableEndpointPrefix(r.url)),
   );
   if (!fresh) return undefined;

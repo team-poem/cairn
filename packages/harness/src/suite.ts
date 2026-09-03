@@ -50,7 +50,8 @@ export type FrozenSuiteScenario = Scenario & { caseHash: string };
 /** Fingerprints exactly the case fields that flow into the freeze: `intent`, the criteria
  * (`expect`/`assertions`), and the START URL — discover freezes `url ?? baseUrl` as the first
  * `goto`, so repointing either one changes what replays and must read as stale (#131). `id` and
- * `maxSteps` stay out: file key and step cap, neither changes what was discovered or judged. */
+ * `maxSteps` stay out: file key and step cap, neither changes what was frozen. (`maxSteps` can decide whether a heal re-discovery
+ * completes, #186, but that is a property of a run, not of the skill's identity.) */
 export function hashCase(c: SuiteCase, baseUrl?: string): string {
   const material = JSON.stringify({
     intent: c.intent,

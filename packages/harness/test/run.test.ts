@@ -713,7 +713,7 @@ describe("finalizeVerdict on the heal path (#186)", () => {
     const { truncated } = await runScenario(stale, { driver, llm, heal: true, maxSteps: 3, reporter: silent });
 
     expect(truncated).toBe(true);
-    expect(calls()).toBeLessThan(10); // three decisions plus the freeze, not the default twenty
+    expect(calls()).toBe(4); // three decisions plus one proposeAssertions call, not the default twenty-plus-one
   });
 
   it("a blocked step still triggers outcome-heal even when no goal assertion failed", async () => {

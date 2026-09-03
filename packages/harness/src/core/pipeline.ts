@@ -137,14 +137,6 @@ function failClosed(verdict: Verdict, why: string): Verdict {
   return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
 }
 
-/**
- * The last word on a verdict, shared by replay and outcome-heal (#186). The critic judges the
- * assertions; `incomplete` is what the assertions cannot see about the run itself — a replay that
- * blocked (`blockedReason`, #90) or a re-discovery that ended before `done` — and either one means
- * the evidence stopped partway, so assertions satisfied by the prefix must not read as green. A
- * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
- * verdict raw and silently skipped every rule the replay path applied.
- */
 /** App-health guards: derived from the run's own traffic, not from what the flow set out to do. */
 const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-console-errors"]);
 
@@ -159,6 +151,14 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));
 }
 
+/**
+ * The last word on a verdict, shared by replay and outcome-heal (#186). The critic judges the
+ * assertions; `incomplete` is what the assertions cannot see about the run itself — a replay that
+ * blocked (`blockedReason`, #90) or a re-discovery that ended before `done` — and either one means
+ * the evidence stopped partway, so assertions satisfied by the prefix must not read as green. A
+ * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
+ * verdict raw and silently skipped every rule the replay path applied.
+ */
 export function finalizeVerdict(judged: Verdict, incomplete?: string): Verdict {
   return incomplete ? failClosed(judged, incomplete) : judged;
 }

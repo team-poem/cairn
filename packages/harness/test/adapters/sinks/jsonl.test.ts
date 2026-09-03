@@ -182,4 +182,15 @@ describe("JsonlTraceSink (TraceSink port)", () => {
     expect(sink.failures).toBeGreaterThan(0);
     expect(sink.events).toHaveLength(2);
   });
+
+  it("jsonlSinkSvgAttachmentGetsSvgExtension: an image/svg+xml attachment is filed as <id>.svg, not .xml", async () => {
+    const sink = new JsonlTraceSink(inDir("svg"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    sink.attach({ id: "1", data: "data:image/svg+xml;base64,PHN2Zy8+" });
+    tracer.emit({ kind: "run-end", payload: { passed: true } });
+    await sink.close();
+
+    expect(sink.failures).toBe(0);
+    expect(await readdir(sink.attachmentsDir!)).toEqual(["1.svg"]);
+  });
 });

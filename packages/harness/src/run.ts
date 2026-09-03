@@ -33,6 +33,8 @@ export interface RunScenarioOptions {
   context?: ContextProvider;
   reporter?: Reporter;
   llm?: LlmClient;
+  /** Step cap for the outcome-heal re-discovery. Default: `discover`'s own (20). */
+  maxSteps?: number;
   /**
    * Repair broken replays with the LLM (invariant #4 sanctioned use). Two layers, both only when set:
    * a `SelfHealingDriver` fixes a step whose target no longer resolves, and — if the run still fails
@@ -86,6 +88,9 @@ export interface RunScenarioResult {
   stepHeals: StepHeal[];
   /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals. */
   healedScenario?: Scenario;
+  /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
+   * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
+  truncated?: true;
 }
 
 export function needsLlmCritic(scenario: Scenario): boolean {
@@ -211,6 +216,7 @@ export async function runScenario(
         policy: opts.policy,
         perceive: opts.perceive,
         localePrefixes: opts.localePrefixes,
+        maxSteps: opts.maxSteps,
         // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
         // the kinds say what ran (spec/core/trace.md).
         trace: scope,
@@ -229,9 +235,14 @@ export async function runScenario(
       // else a path that reaches a different end-state passes as green (P2 false green).
       const judged = await critic.judge(evidence, scenario.assertions, ctx);
       for (const r of judged.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
-      // Same finalizer as replay (#186): a re-discovery that hit the step cap is an unverified path,
-      // and the goal assertions holding on its partial state is not a heal.
-      const verdict = finalizeVerdict(judged, { kind: "rediscovery", truncated: repaired.truncated === true });
+      // Same finalizer as replay (#186). A re-discovery that ended before `done` is an unverified path,
+      // and the goal assertions holding on its partial state is not a heal. Not "the step cap":
+      // `discover` also truncates after repeated policy blocks, and that path is live here.
+      const truncated = repaired.truncated === true;
+      const verdict = finalizeVerdict(
+        judged,
+        truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
+      );
       if (ownTracer) {
         scope?.emit({
           kind: "case-end",
@@ -246,11 +257,17 @@ export async function runScenario(
         // The verdict judged the ORIGINAL assertions, so the flag that belongs with them travels
         // from the original too: `unprovenAction` is a property of an (evidence, assertions) pair,
         // and taking it from the re-discovery would arm or disarm the gate for a set it never saw.
-        healedScenario: {
-          ...repaired,
-          assertions: scenario.assertions,
-          ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
-        },
+        // A truncated re-discovery is not handed back at all: every consumer (cli --freeze, the suite,
+        // a library caller's `if (healedScenario) save(...)`) inherits the rule instead of each
+        // remembering to check a flag.
+        healedScenario: truncated
+          ? undefined
+          : {
+              ...repaired,
+              assertions: scenario.assertions,
+              ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
+            },
+        ...(truncated ? { truncated: true as const } : {}),
       };
     }
 

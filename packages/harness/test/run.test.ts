@@ -559,10 +559,15 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
       assertions: [{ kind: "navigated", to: "the-moon" }], // always fails → triggers outcome-heal
       unprovenAction: "DELETE https://api.shop.co/586738",
     };
-    const llm = { id: "scripted", async complete() { return "[]"; } };
+    // The re-discovery completes (`done`): a truncated one is withheld entirely (#186), so the
+    // provenance rule can only be observed on a heal that is actually handed back.
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"];
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? "[]"; } };
 
     const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
 
+    expect(healedScenario).toBeDefined();
     expect(healedScenario?.assertions).toEqual(broken.assertions);
     expect(healedScenario?.unprovenAction).toBe("DELETE https://api.shop.co/586738");
   });
@@ -574,8 +579,11 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
       steps: [{ kind: "goto", url: "https://example.com" }],
       assertions: [{ kind: "navigated", to: "the-moon" }],
     };
-    const llm = { id: "scripted", async complete() { return "[]"; } };
+    let i = 0;
+    const replies = ['{"action":"done"}', "[]"];
+    const llm = { id: "scripted", async complete() { return replies[i++] ?? "[]"; } };
     const { healedScenario } = await runScenario(broken, { driver, llm, heal: true });
+    expect(healedScenario).toBeDefined(); // a completed heal, so the absence below is a real check
     expect(healedScenario?.unprovenAction).toBeUndefined();
   });
 
@@ -586,12 +594,13 @@ describe("a scenario whose action nothing can verify is recorded, and its flag t
 });
 
 describe("finalizeVerdict on the heal path (#186)", () => {
-  // Outcome-heal re-discovers on a live LLM loop, which ends either at `done` or at the step cap.
-  // A capped re-discovery is an unverified path: the suite already refuses one at first discovery
-  // (nothing frozen), but the heal path returned the critic's verdict raw, so the goal assertions
-  // holding on the partial state read as a successful heal. The stale skill below never reaches
-  // the goal (its click goes nowhere), so the replay fails and outcome-heal runs; the re-discovery
-  // reaches the goal on its very first click.
+  // Outcome-heal re-discovers on a live LLM loop, which ends either at `done` or early (the step
+  // cap, or repeated policy blocks). An early end is an unverified path: the suite already refuses
+  // one at first discovery, but the heal path returned the critic's verdict raw, so the goal
+  // assertions holding on the partial state read as a successful heal, and the capped path was
+  // handed back to re-freeze. The stale skill below never reaches the goal (its click goes
+  // nowhere), so the replay fails and outcome-heal runs; the re-discovery reaches the goal on its
+  // very first click.
   const stale: Scenario = {
     name: "reach payment",
     steps: [{ kind: "goto", url: "https://app/start" }, { kind: "click", target: { text: "Checkout" } }],
@@ -603,31 +612,44 @@ describe("finalizeVerdict on the heal path (#186)", () => {
     d.navOn[text] = "https://app/payment";
     return d;
   };
+  const alwaysClick = () => {
+    let calls = 0;
+    const llm = { id: "always-click", async complete() { calls += 1; return '{"action":"click","text":"go","reason":"keep going"}'; } };
+    return { llm, calls: () => calls };
+  };
 
-  it("a re-discovery that hits the step cap is red, even when the goal assertions hold on its partial state", async () => {
+  it("a re-discovery that ends before `done` is red and hands nothing back, even when the goal held on its partial state", async () => {
     const driver = driverReachingPaymentOn("go");
-    // Never says `done`: every reply is another click, so discovery runs to its cap.
-    const llm = { id: "always-click", async complete() { return '{"action":"click","text":"go","reason":"keep going"}'; } };
+    const { llm } = alwaysClick(); // never says `done`, so discovery runs to its cap
 
-    const { result, healedScenario } = await runScenario(stale, { driver, llm, heal: true });
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
 
-    expect(healedScenario?.truncated).toBe(true); // the re-discovery really did cap out
-    expect(result.verdict.results.every((r) => r.passed)).toBe(true); // …and the goal held on that partial state
+    expect(truncated).toBe(true);
+    expect(healedScenario).toBeUndefined(); // nothing for cli --freeze, the suite, or a library caller to write
+    expect(result.verdict.results.every((r) => r.passed)).toBe(true); // the goal held on the partial state…
     expect(result.verdict.passed).toBe(false); // …which is exactly what must not read as green
-    expect(result.verdict.detail).toMatch(/truncated/);
+    expect(result.verdict.detail).toMatch(/unverified path/);
   });
 
   it("a re-discovery that reaches `done` and the goal is still a green heal", async () => {
-    // The finalizer must not kill outcome-heal: a completed re-discovery whose end-state satisfies
-    // the ORIGINAL goal is the heal working as designed.
     const driver = driverReachingPaymentOn("go");
     const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
 
-    const { result, healedScenario } = await runScenario(stale, { driver, llm, heal: true });
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
 
-    expect(healedScenario).toBeDefined(); // heal ran
-    expect(healedScenario?.truncated).toBeUndefined();
+    expect(truncated).toBeUndefined();
+    expect(healedScenario).toBeDefined(); // heal ran and is handed back to re-freeze
     expect(result.verdict.passed).toBe(true);
     expect(result.verdict.detail).toBeUndefined();
+  });
+
+  it("forwards maxSteps to the re-discovery, so a heal is capped where the case says, not at the default", async () => {
+    const driver = driverReachingPaymentOn("go");
+    const { llm, calls } = alwaysClick();
+
+    const { truncated } = await runScenario(stale, { driver, llm, heal: true, maxSteps: 3, reporter: silent });
+
+    expect(truncated).toBe(true);
+    expect(calls()).toBeLessThan(10); // three decisions plus the freeze, not the default twenty
   });
 });

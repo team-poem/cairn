@@ -69,13 +69,14 @@ function reporterFor(flags: Flags): Reporter {
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
-  const { result, heals, healedScenario } = await runScenario(scenario, {
+  const { result, heals, healedScenario, truncated } = await runScenario(scenario, {
     reporter: reporterFor(flags),
     model: flagStr(flags, "model"),
     heal: Boolean(flags.get("heal")),
     // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
     // a slow app (3-5s list loads) needs more than the 2s default (#95).
     expectTimeoutMs: flagNum(flags, "expect-timeout"),
+    maxSteps: flagNum(flags, "max-steps"),
   });
 
   if (heals.length) {
@@ -84,6 +85,9 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   } else if (healedScenario) {
     // outcome-heal: the run failed its assertions, so the whole scenario was re-discovered.
     console.log(`\nrun failed its assertions → re-discovered the scenario (${healedScenario.steps.length} step(s))`);
+  }
+  if (truncated) {
+    console.log("\nrun failed its assertions → re-discovery ended before `done`: unverified path, nothing re-frozen (raise --max-steps if the flow is longer)");
   }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
@@ -109,7 +113,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--json out] [--expect-timeout ms]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
   const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);

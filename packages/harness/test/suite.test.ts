@@ -598,11 +598,12 @@ describe("a truncated outcome-heal re-discovery is not frozen (#186)", () => {
     // …and the LLM never says `done`, so the re-discovery runs to the step cap.
     const llm: LlmClient = { id: "always-click", async complete() { return '{"action":"click","text":"go"}'; } };
 
-    const suite = await runSuite([{ ...CASE, id: "catalog" }], { store, driverFactory, llm, reporter: silent, expectTimeoutMs: 50 });
+    const suite = await runSuite([{ ...CASE, id: "catalog" }], { store, driverFactory, llm, reporter: silent });
 
     const v = suite.verdicts[0]!;
     expect(v.verdict.passed).toBe(false);
-    expect(v.verdict.detail).toMatch(/truncated/);
+    expect(v.truncated).toBe(true); // structured, like a truncated first discovery
+    expect(v.verdict.detail).toMatch(/unverified path/);
     expect(store.skills.get(REF)).toBe(stale); // not re-frozen: the next run must not replay a capped path
   });
 });

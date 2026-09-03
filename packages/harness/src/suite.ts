@@ -281,7 +281,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     // 3. Replay on a fresh driver (case isolation). The suite constructed it → the suite closes it.
     const driver = ctx.driverFactory();
     try {
-      const { result, heals, stepHeals, healedScenario } = await runScenario(scenario, {
+      const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
         driver,
         heal: ctx.heal,
         llm: ctx.llm,
@@ -295,6 +295,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,
+        // The heal re-discovery gets the case's own cap, as first discovery does — else a skill frozen
+        // from a 28-step discovery under maxSteps 40 could never heal past the default 20.
+        maxSteps: c.maxSteps,
         // Without this a suite could never produce attachments — and a suite is where the traces
         // that get audited come from (#160).
         screenshots: ctx.screenshots,
@@ -305,9 +308,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       // through), but an outcome-heal comes back from discover() without the suite-local field —
       // frozen bare, the next run would mismatch and re-discover a skill that was just repaired
       // (#153). caseHash stays a suite concept; the engine never learns it (pattern ≠ data).
-      // A truncated re-discovery is red (finalizeVerdict) and must not be frozen either, or the next
-      // run replays a path that never reached the goal — the same refusal first discovery gets above.
-      if (healedScenario && !healedScenario.truncated) {
+      // A truncated re-discovery never arrives here: runScenario withholds it (#186).
+      if (healedScenario) {
         const restamped: FrozenSuiteScenario = { ...healedScenario, caseHash: hashCase(c, ctx.baseUrl) };
         await ctx.store.freeze(ref, restamped);
         scope?.emit({ kind: "freeze", phase: "heal", payload: freezePayload(ref, restamped) });
@@ -315,7 +317,13 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       const usage = addUsage(discoveryUsage, result.usage ?? emptyUsage());
       scope?.emit({
         kind: "case-end",
-        payload: { verdict: result.verdict, usage, discovered, heals: heals.length + stepHeals.length },
+        payload: {
+          verdict: result.verdict,
+          usage,
+          discovered,
+          heals: heals.length + stepHeals.length,
+          ...(truncated ? { truncated: true } : {}),
+        },
       });
       return {
         ...base,
@@ -323,6 +331,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         heals: heals.length + stepHeals.length,
         usage,
         verdict: result.verdict,
+        // Structured, like the first-discovery branch above, so the CLI line, the report and a trace
+        // consumer see "truncated" rather than an ordinary assertion failure.
+        ...(truncated ? { truncated: true } : {}),
       };
     } finally {
       await driver.close().catch(() => {});

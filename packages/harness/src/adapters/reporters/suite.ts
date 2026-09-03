@@ -11,6 +11,11 @@ function pathLabel(v: SuiteVerdict): string {
   return "replayed (cached)";
 }
 
+/** Same wording as the `cairn suite` line: a green with this note proved the page, not the action. */
+export function unprovenLabel(v: SuiteVerdict): string {
+  return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
+}
+
 export function renderSuiteReport(suite: SuiteResult): string {
   const passed = suite.verdicts.filter((v) => v.verdict.passed).length;
   const failed = suite.verdicts.length - passed;
@@ -29,7 +34,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
   ];
   for (const v of suite.verdicts) {
     lines.push(
-      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
+      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
     );
   }
 

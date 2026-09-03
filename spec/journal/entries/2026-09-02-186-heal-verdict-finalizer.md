@@ -18,16 +18,13 @@
   돌면 멀쩡한 스킬이 LLM이 헤매다 만든 경로로 덮이고 caseHash가 그대로라 재발견도 안 걸리던 자리. 판정 기준은
   `verdict`가 아니라 critic만의 `judged`: "목표에 도달했나"만 보고, 나중에 `finalizeVerdict`에 들어올 규칙
   (이슈 184 게이트)이 목표에 도달한 heal을 붙잡지 않게.
+  "목표"는 가드(`no-failed-requests`·`no-console-errors`)를 뺀 단언이다(`goalFailures`) — 재발견 중 일시적 500이
+  목표에 도달한 수리를 버리게 하지 않는다. 같은 술어를 트리거에도 건다: 가드만 넘어진 재생은 outcome-heal을 돌리지
+  않는다(재발견이 500을 고칠 수는 없고, 매 실행 LLM만 태운다). 막힌 스텝은 여전히 heal한다.
   `RunScenarioOptions.maxSteps`를 heal 재발견에 전달(스위트는 `c.maxSteps`, cli는 `--max-steps`) — 없으면 40스텝
   케이스가 UI 드리프트 후 20에서 잘려 영구 red가 된다. 스위트는 잘린 heal에 `SuiteVerdict.truncated`와 `case-end`
   플래그를 첫 발견과 같은 형태로 싣는다.
-- **리뷰 반영(PR 189, amazon, 2회):** 2회차는 완주-미도달 재발견 건. 실패 단언으로 heal을 돌리던 기존 테스트
-  (P2, 이슈 184 출처 테스트 둘, #153 둘)는 재발견이 목표에 도달하는 형태로 다시 짰다 — #153 본체는 재프리즈 없이도
-  통과하던 공허한 상태였다(스토어가 원본을 돌려줘 hash 단언이 맞았음). 1회차는 처음 올린 판은 `suite.ts`에만 프리즈 가드를 걸어 cli와 라이브러리 경로가 열려
-  있었고, `maxSteps`를 안 넘겨 이 수정이 그 불일치를 영구 red로 바꿨다. 둘 다 위 형태로 고쳤다. 사유 문구는
-  "step cap"을 단정하지 않는다 — `discover`는 policy 차단 반복으로도 truncated를 돌려주고 heal에서 그 경로가
-  살아 있다. `Completion` 유니온은 문자열 하나로 줄였다(공유 로직은 "미완 사유를 붙이고 fail"뿐).
-- **검증:** typecheck·build·테스트(+4). run: 캡에 걸린 재발견은 단언이 전부 통과해도 빨강이고 `healedScenario`가
+- **검증:** typecheck·build·테스트(+9). run: 캡에 걸린 재발견은 단언이 전부 통과해도 빨강이고 `healedScenario`가
   없다; `done`으로 목표에 도달한 재발견은 여전히 초록이고 돌려받는다; `maxSteps: 3`이면 LLM 호출이 기본 20이 아닌
   한 자리에서 끝난다. suite: 잘린 heal은 스토어를 건드리지 않고 `truncated`가 구조화되어 실린다. 테스트 더블은
   클릭에서 던지지 않아 스텝을 "막히게" 할 수 없다 — 원본 실패는 단언으로 만들었다.

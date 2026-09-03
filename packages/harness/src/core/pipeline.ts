@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
+import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -145,6 +145,20 @@ function failClosed(verdict: Verdict, why: string): Verdict {
  * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
  * verdict raw and silently skipped every rule the replay path applied.
  */
+/** App-health guards: derived from the run's own traffic, not from what the flow set out to do. */
+const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-console-errors"]);
+
+/**
+ * The failures a re-discovery could conceivably repair: the goal assertions (`navigated`,
+ * `request-status`, `custom`, `expect`), not the app-health guards. A 500 or a console error is
+ * not a broken path — re-discovering cannot fix it, and a repair that reached the goal is still
+ * the right path when a guard tripped on the way. Used on both ends of outcome-heal (#186): to
+ * decide whether to re-discover at all, and whether to hand the repair back.
+ */
+export function goalFailures(verdict: Verdict): AssertionResult[] {
+  return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));
+}
+
 export function finalizeVerdict(judged: Verdict, incomplete?: string): Verdict {
   return incomplete ? failClosed(judged, incomplete) : judged;
 }

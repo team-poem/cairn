@@ -3,7 +3,7 @@
  * app, or CI all go through here). No LLM is constructed unless an `expect` critic or
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
-import { runHarness, finalizeVerdict } from "./core/pipeline.js";
+import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
@@ -201,7 +201,11 @@ export async function runScenario(
     // its assertions — the frozen path no longer reaches the goal, a break surgical-heal couldn't fix.
     // Re-discover from the start (invariant #4 sanctioned use (b)); only on failure. Runs on the SAME
     // live session (no close/reopen), so app state (auth, storage) matches replay conditions.
-    if (opts.heal && !result.verdict.passed) {
+    // Only when a re-discovery could fix it: a blocked step, or a goal assertion that failed. A red
+    // made of guards alone (a 500, a console error) is the app's health, not the path — re-discovering
+    // burns the LLM every run and can never turn it green (#186).
+    const healable = result.evidence.execution.blocked || goalFailures(result.verdict).length > 0;
+    if (opts.heal && !result.verdict.passed && healable) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
       // the failed run's requests must not satisfy a request-status.
       const before = await baseDriver.observe();
@@ -239,14 +243,31 @@ export async function runScenario(
       // and the goal assertions holding on its partial state is not a heal. Not "the step cap":
       // `discover` also truncates after repeated policy blocks, and that path is live here.
       const truncated = repaired.truncated === true;
-      const verdict = finalizeVerdict(
+      // Withheld = not a heal: truncated, or it reached `done` but a goal assertion still failed.
+      // Guards (`no-failed-requests`, `no-console-errors`) do not count — a transient 500 during the
+      // re-discovery does not make the path it found wrong, and a persistent one is not something a
+      // re-discovery can fix (see `goalFailures`).
+      const missedGoal = !truncated && goalFailures(judged).length > 0;
+      let verdict = finalizeVerdict(
         judged,
         truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
       );
+      if (missedGoal) {
+        const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
+        verdict = { ...verdict, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
+      }
       if (ownTracer) {
         scope?.emit({
           kind: "case-end",
-          payload: { verdict, usage: usage(), discovered: false, heals: heals.length + stepHeals.length },
+          // `truncated` here too, so a library caller with its own sink reads the same shape as the
+          // suite's case-end (spec/core/trace.md: one implicit case, one shape).
+          payload: {
+            verdict,
+            usage: usage(),
+            discovered: false,
+            heals: heals.length + stepHeals.length,
+            ...(truncated ? { truncated: true } : {}),
+          },
         });
         ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: usage() } });
       }
@@ -258,12 +279,13 @@ export async function runScenario(
         // from the original too: `unprovenAction` is a property of an (evidence, assertions) pair,
         // and taking it from the re-discovery would arm or disarm the gate for a set it never saw.
         // An unverified path is not a heal, so it is not handed back at all: neither a truncated
-        // re-discovery nor one that reached `done` somewhere other than the goal. Every consumer
-        // (cli --freeze, the suite, a library caller's `if (healedScenario) save(...)`) inherits the
-        // rule instead of each remembering to check. `judged`, not `verdict`: the critic's answer to
-        // "did the re-discovery reach the goal", before finalizeVerdict adds anything about the run
-        // itself, so a later rule there cannot hold back a path that did reach it.
-        healedScenario: truncated || !judged.passed
+        // re-discovery nor one that reached `done` with a goal assertion still failing. Every
+        // consumer (cli --freeze, the suite, a library caller's `if (healedScenario) save(...)`)
+        // inherits the rule instead of each remembering to check. Judged on `judged`, the critic's
+        // results alone, before finalizeVerdict adds anything about the run itself — and on the goal
+        // assertions only, so a guard tripping during the re-discovery does not discard a repair
+        // that reached the goal.
+        healedScenario: truncated || missedGoal
           ? undefined
           : {
               ...repaired,
@@ -274,21 +296,28 @@ export async function runScenario(
       };
     }
 
+    // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
+    // operator reads "heal did nothing" as "heal found nothing".
+    const skipped = opts.heal && !result.verdict.passed && !healable;
+    const why = "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
+    const final = skipped
+      ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
+      : result;
     if (ownTracer) {
       scope?.emit({
         kind: "case-end",
         payload: {
-          verdict: result.verdict,
-          usage: result.usage,
+          verdict: final.verdict,
+          usage: final.usage,
           discovered: false,
           heals: heals.length + stepHeals.length,
         },
       });
-      ownTracer.emit({ kind: "run-end", payload: { passed: result.verdict.passed, usage: result.usage } });
+      ownTracer.emit({ kind: "run-end", payload: { passed: final.verdict.passed, usage: final.usage } });
     }
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     return {
-      result,
+      result: final,
       heals,
       stepHeals,
       healedScenario: heals.length || stepHeals.length ? rewritten : undefined,

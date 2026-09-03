@@ -642,27 +642,30 @@ describe("renderSuiteReport", () => {
 describe("a truncated outcome-heal re-discovery is not frozen (#186)", () => {
   it("leaves the stale skill in the store and reports the truncated verdict", async () => {
     const store = new MemoryStore();
+    // The stale click goes nowhere, so replay misses shop/products and outcome-heal runs. The
+    // re-discovery's very first click DOES reach shop/products — so the only thing withholding the
+    // repair below is that the loop never said `done` and ran to the cap (truncation alone).
     const stale: FrozenSuiteScenario = {
       name: "checkout",
-      steps: [{ kind: "click", target: { text: "Checkout" }, intent: "go to payment" }],
-      assertions: [{ kind: "navigated", to: "the-moon" }], // never reached → outcome-heal runs
+      steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Catalog" } }],
+      assertions: [{ kind: "navigated", to: "shop/products" }],
       caseHash: hashCase(CASE),
     };
     store.skills.set(REF, stale);
-    const driverFactory = (): StubDriver => {
-      const d = new StubDriver();
-      d.els = [{ role: "button", name: "go" }]; // every re-discovery click succeeds…
-      return d;
-    };
-    // …and the LLM never says `done`, so the re-discovery runs to the step cap.
-    const llm: LlmClient = { id: "always-click", async complete() { return '{"action":"click","text":"go"}'; } };
+    let calls = 0;
+    const llm: LlmClient = { id: "always-click", async complete() { calls += 1; return '{"action":"click","text":"Products"}'; } };
+    const events: TraceEvent[] = [];
+    const sink = { emit: (e: TraceEvent) => { events.push(e); } };
 
-    const suite = await runSuite([{ ...CASE, id: "catalog" }], { store, driverFactory, llm, reporter: silent });
+    const suite = await runSuite([{ ...CASE, id: "catalog", maxSteps: 4 }], { store, driverFactory: shopDriver, llm, reporter: silent, trace: sink });
 
     const v = suite.verdicts[0]!;
+    expect(v.verdict.results.find((r) => r.assertion.kind === "navigated")?.passed).toBe(true); // goal held on the partial state
     expect(v.verdict.passed).toBe(false);
-    expect(v.truncated).toBe(true); // structured, like a truncated first discovery
+    expect(v.truncated).toBe(true); // structured, like a truncated first discovery…
+    expect(events.find((e) => e.kind === "case-end")?.payload).toMatchObject({ truncated: true }); // …on the trace too
     expect(v.verdict.detail).toMatch(/unverified path/);
     expect(store.skills.get(REF)).toBe(stale); // not re-frozen: the next run must not replay a capped path
+    expect(calls).toBeLessThan(8); // the case's maxSteps (4) reached the heal, not the default 20
   });
 });

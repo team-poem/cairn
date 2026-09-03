@@ -644,6 +644,68 @@ describe("finalizeVerdict on the heal path (#186)", () => {
     expect(result.verdict.detail).toBeUndefined();
   });
 
+  it("a guard tripping during the re-discovery does not discard a repair that reached the goal", async () => {
+    // The re-discovery reaches app/payment but a transient 500 lands in its request log, so the
+    // ORIGINAL set's no-failed-requests fails. The path is still right: hand it back, verdict red.
+    class FlakyShop extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        const e = await super.observe();
+        const flaky = this.clicked.includes("go") ? [{ method: "GET", url: "https://app/api/promo", status: 500 }] : [];
+        return { ...e, logic: { ...e.logic, requests: [...e.logic.requests, ...flaky] } };
+      }
+    }
+    const driver = new FlakyShop();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/payment";
+    const guarded: Scenario = { ...stale, assertions: [...stale.assertions, { kind: "no-failed-requests" }] };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario } = await runScenario(guarded, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeDefined(); // the repair reached the goal, so it is handed back…
+    expect(result.verdict.passed).toBe(false); // …and the guard still reds the run, honestly
+    expect(result.verdict.results.find((r) => r.assertion.kind === "navigated")?.passed).toBe(true);
+    expect(result.verdict.results.find((r) => r.assertion.kind === "no-failed-requests")?.passed).toBe(false);
+  });
+
+  it("does not outcome-heal a replay that reached the goal and failed only its guards", async () => {
+    // A 500 during the replay is the app's health, not a broken path. A re-discovery cannot fix it,
+    // so it must not run: zero LLM calls, and the detail says why heal did nothing.
+    class SickShop extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        const e = await super.observe();
+        return { ...e, logic: { ...e.logic, requests: [{ method: "GET", url: "https://app/api/promo", status: 500 }] } };
+      }
+    }
+    const driver = new SickShop();
+    driver.els = [{ role: "button", name: "Checkout" }];
+    driver.navOn["Checkout"] = "https://app/payment"; // the frozen path still works
+    const guarded: Scenario = { ...stale, assertions: [...stale.assertions, { kind: "no-failed-requests" }] };
+    const { llm, calls } = alwaysClick();
+
+    const { result, healedScenario, truncated } = await runScenario(guarded, { driver, llm, heal: true, reporter: silent });
+
+    expect(calls()).toBe(0);
+    expect(healedScenario).toBeUndefined();
+    expect(truncated).toBeUndefined();
+    expect(result.verdict.passed).toBe(false);
+    expect(result.verdict.detail).toMatch(/outcome-heal skipped/);
+  });
+
+  it("a re-discovery that reached `done` but missed the goal is withheld, and the detail says so", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "go" }];
+    driver.navOn["go"] = "https://app/elsewhere"; // reaches done, not the goal
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario, truncated } = await runScenario(stale, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeUndefined();
+    expect(truncated).toBeUndefined();
+    expect(result.verdict.passed).toBe(false);
+    expect(result.verdict.detail).toMatch(/did not hold on it — nothing re-frozen/);
+  });
+
   it("forwards maxSteps to the re-discovery, so a heal is capped where the case says, not at the default", async () => {
     const driver = driverReachingPaymentOn("go");
     const { llm, calls } = alwaysClick();
@@ -652,5 +714,22 @@ describe("finalizeVerdict on the heal path (#186)", () => {
 
     expect(truncated).toBe(true);
     expect(calls()).toBeLessThan(10); // three decisions plus the freeze, not the default twenty
+  });
+
+  it("a blocked step still triggers outcome-heal even when no goal assertion failed", async () => {
+    // The trigger keys on "a re-discovery could fix this": a blocked step qualifies on its own, so
+    // narrowing the trigger to goal failures must not turn heal off for the case it exists for.
+    const driver = driverReachingPaymentOn("go");
+    driver.navOn["Checkout"] = "https://app/payment"; // goal is reached by the stale path…
+    const blocked: Scenario = {
+      ...stale,
+      steps: [...stale.steps, { kind: "waitFor", until: { url: "app/never" }, timeoutMs: 20 }], // …then a step blocks
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"go"}', '{"action":"done"}', "[]"]);
+
+    const { result, healedScenario } = await runScenario(blocked, { driver, llm, heal: true, reporter: silent });
+
+    expect(healedScenario).toBeDefined(); // heal ran and its path reached the goal
+    expect(result.verdict.passed).toBe(true);
   });
 });

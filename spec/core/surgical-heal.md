@@ -34,7 +34,7 @@ Judgment happens **once, at the end** of a scenario (the single `runHarness` ver
 - **P7** hardcoded defaults (`maxSteps=8` is short for real funnels, timeouts, benign-request list not injectable).
 - **P8** `rankElements` tokenization is English-biased (`split(/\W+/)` can't token-match Korean intents).
 - **P9** `applyHeals` keys by `text` → two steps with the same label collide (fixed: key by target identity).
-- **P10** a scenario truncated at the safety cap is frozen as if complete (no truncation signal).
+- **P10** a scenario truncated at the safety cap is frozen as if complete (no truncation signal) (fixed: `Scenario.truncated` is the signal; the suite refuses to freeze a truncated first discovery, and since #186 `runScenario` withholds a truncated outcome-heal re-discovery and fails its verdict closed).
 
 ## 2. The keystone — detection (`expect`) and repair (`intent`) are a *pair*
 

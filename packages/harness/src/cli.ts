@@ -5,7 +5,7 @@
  *   cairn run --dogfood                       built-in example.com → first link → network
  *   cairn run --scenario s.json [--json out]  run a scenario file (deterministic)
  *   cairn replay <skill.json> [--json out] [--expect-timeout ms]   replay a frozen skill (deterministic, no LLM)
- *   cairn replay <skill.json> --heal [--freeze f]   repair broken steps via LLM, re-freeze
+ *   cairn replay <skill.json> --heal [--freeze f] [--max-steps n]   repair broken steps via LLM, re-freeze
  *   cairn discover "<intent>" --url <u>        LLM discover a scenario [--freeze f] [--model m] [--max-steps n]
  *   cairn explore "<charter>" --url <u>        LLM survey the app for UX problems (freeze-less, #102)
  *                                              [--model m] [--max-steps n] [--report out.md] [--json out.json]
@@ -88,6 +88,11 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   }
   if (truncated) {
     console.log("\nrun failed its assertions → re-discovery ended before `done`: unverified path, nothing re-frozen (raise --max-steps if the flow is longer)");
+  }
+  // The reporter printed the replay's own verdict before the heal ran; when the heal was withheld
+  // or skipped, its reason lives only in the detail — print it, or exit 1 looks like a plain miss.
+  if (!truncated && !healedScenario && !result.verdict.passed && Boolean(flags.get("heal")) && result.verdict.detail) {
+    console.log(`\n${result.verdict.detail}`);
   }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
@@ -335,7 +340,7 @@ const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 usage: cairn <command> [options]
 
   run --dogfood | --scenario <file.json> [--json out]
-  replay <skill.json> [--heal] [--freeze f] [--json out] [--expect-timeout ms]
+  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]
   discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]
   explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
   suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]

@@ -4,6 +4,7 @@ import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js
 import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { Evidence } from "../../../src/core/types.js";
+import type { Target } from "../../../src/core/types.js";
 
 const evidence: Evidence = {
   execution: { actions: [], navigated: true, finalUrl: "https://shop/cart", blocked: false },
@@ -506,5 +507,109 @@ describe("freeze-time vacuity stamping (#137)", () => {
     const nav = found.assertions.find((a) => a.kind === "navigated");
     expect(nav?.to).toContain("checkout/done");
     expect(nav?.vacuous).toBeUndefined();
+  });
+});
+
+describe("the product's benign list reaches step expects (spec/core/surgical-heal.md §4)", () => {
+  /** A click that fires one successful POST to a product-marked noisy endpoint and never navigates. */
+  class BeaconStub extends StubDriver {
+    private fired = false;
+
+    override async click(target: Target): Promise<void> {
+      this.clicked.push(target.text ?? "");
+      if (target.text === "Track") this.fired = true;
+    }
+
+    override async observe(): Promise<Evidence> {
+      const requests = this.fired
+        ? [{ method: "POST", url: "https://analytics.x/track/events", status: 200 }]
+        : [];
+      return {
+        execution: { actions: [], navigated: false, finalUrl: this.url, blocked: false },
+        perception: {},
+        logic: { requests, console: [] },
+      };
+    }
+  }
+
+  it("benignListReachesStepExpects: a product-marked endpoint is not frozen as a step expect", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm, benign: ["analytics.x"] });
+    expect(found.steps[0]?.expect).toBeUndefined();
+  });
+
+  it("benignListReachesStepExpects: without the list the same beacon still freezes (control)", async () => {
+    const driver = new BeaconStub();
+    const llm = new ScriptedLlm([
+      '{"action":"click","text":"Track","reason":"go"}',
+      '{"action":"done"}',
+    ]);
+    const found = await discover("browse", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({
+      requestStatus: { urlIncludes: "analytics.x/track/events", status: 200, method: "POST" },
+    });
+  });
+});
+
+describe("discover audit coverage", () => {
+  it("abortSignalStopsDiscover: an already-aborted signal rejects before any LLM call", async () => {
+    const driver = new StubDriver();
+    let calls = 0;
+    const llm = { id: "counting", complete: async () => (calls++, '{"action":"done"}') };
+    const controller = new AbortController();
+    controller.abort();
+    await expect(discover("x", { driver, llm, signal: controller.signal })).rejects.toThrow();
+    expect(calls).toBe(0);
+  });
+
+  it("abortSignalStopsDiscover: aborting after a step stops the loop before the next one", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Next" }];
+    const llm = new ScriptedLlm(Array(5).fill('{"action":"click","text":"Next"}'));
+    const controller = new AbortController();
+    await expect(
+      discover("x", { driver, llm, signal: controller.signal, onStep: () => controller.abort() }),
+    ).rejects.toThrow();
+    expect(driver.clicked).toEqual(["Next"]);
+  });
+
+  it("discoverIgnoresEntryBeaconWhenNothingActed: a landing-page root POST is not the flow's unproven action", async () => {
+    const entryEvidence: Evidence = {
+      execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "POST", url: "https://shop/", status: 200 }], console: [] },
+    };
+    const driver = new FakeDriver({ evidence: entryEvidence, elements: [] });
+    const found = await discover("look", {
+      driver,
+      llm: new ScriptedLlm(['{"action":"done"}']),
+      baseUrl: "https://shop/",
+    });
+    expect(found.steps).toEqual([{ kind: "goto", url: "https://shop/" }]);
+    expect(found).not.toHaveProperty("unprovenAction");
+  });
+
+  it("wildcardsFlagOnStarDestination: a run-minted segment in a destination sets wildcards: true", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/orders/586738/done";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found.steps[0]?.expect).toEqual({ url: "shop/orders/*/done" });
+    expect(found.assertions).toContainEqual(
+      expect.objectContaining({ kind: "navigated", to: "shop/orders/*/done" }),
+    );
+    expect(found.wildcards).toBe(true);
+  });
+
+  it("wildcardsFlagOnStarDestination: a literal destination leaves the flag out entirely", async () => {
+    const driver = new StubDriver("https://shop/cart");
+    driver.navOn["Pay"] = "https://shop/checkout";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
+    const found = await discover("pay", { driver, llm });
+    expect(found).not.toHaveProperty("wildcards");
   });
 });

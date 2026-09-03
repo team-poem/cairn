@@ -75,3 +75,38 @@ describe("describeAmbiguity role message (#127)", () => {
     expect(msg).toContain("if that role still repeats");
   });
 });
+
+import type { Decision } from "../../../src/core/discover/decision.js";
+
+// Consolidated audit coverage.
+
+{
+
+  // decision-rejects.test.ts
+  {
+    describe("parseDecision rejects what it cannot act on", () => {
+      it("parseDecisionRejectsMalformed: no JSON object, and an object without action, both throw with the reply quoted", () => {
+        expect(() => parseDecision("I would click the button")).toThrow(/no JSON object in model reply: I would click/);
+        expect(() => parseDecision('{"text":"Buy"}')).toThrow(/decision missing "action": \{"text":"Buy"\}/);
+      });
+    });
+
+    describe("decisionToStep refuses an incomplete decision before the driver sees it", () => {
+      const driver = new StubDriver();
+      const cases: [Decision, RegExp][] = [
+        [{ action: "click" }, /click decision missing "text"/],
+        [{ action: "type", value: "x" }, /type decision missing "text"/],
+        [{ action: "pressKey" }, /pressKey decision missing "key"/],
+        [{ action: "goto" }, /goto decision missing "url"/],
+        [{ action: "waitFor" }, /waitFor decision missing "until"/],
+        [{ action: "note", text: "confusing" }, /"note" is not an executable action/],
+      ];
+      for (const [decision, message] of cases) {
+        it(`decisionToStepRejectsIncomplete: ${decision.action} → ${message.source}`, async () => {
+          await expect(decisionToStep(driver, decision)).rejects.toThrow(message);
+        });
+      }
+    });
+  }
+
+}

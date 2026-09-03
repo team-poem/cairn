@@ -81,3 +81,25 @@ describe("isMutation — the methods that prove an action happened", () => {
     for (const m of ["GET", "head", "OPTIONS"]) expect(isMutation(m)).toBe(false);
   });
 });
+
+import { onSiteOf } from "../../src/core/requests.js";
+
+// Consolidated audit coverage.
+
+{
+
+  // requests-on-site-of-host-boundaries.test.ts
+  {
+    it("onSiteOfHostBoundaries: same host or a subdomain is on-site, www. on the page is not a boundary, and an unparseable URL on either side never matches", () => {
+      expect(onSiteOf("https://shop.co/cart", "https://api.shop.co/orders")).toBe(true);
+      expect(onSiteOf("https://www.shop.co/cart", "https://shop.co/orders")).toBe(true);
+      expect(onSiteOf("https://shop.co/cart", "https://api2.amplitude.com/x")).toBe(false);
+      expect(onSiteOf("https://shop.co.kr/", "https://other.co.kr/")).toBe(false); // not under each other
+      expect(onSiteOf("https://shop.co/", "https://evilshop.co/")).toBe(false); // suffix without a dot boundary
+      expect(onSiteOf("not a url", "https://shop.co/")).toBe(false);
+      expect(onSiteOf("https://shop.co/", "/relative/path")).toBe(false);
+      expect(onSiteOf("", "")).toBe(false);
+    });
+  }
+
+}

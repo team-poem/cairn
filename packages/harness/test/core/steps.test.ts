@@ -8,6 +8,10 @@ import {
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import { URL_REACHED_CORPUS, URL_REACHED_WILDCARD_CORPUS } from "../support/url-corpus.js";
 import type { Evidence, Step } from "../../src/core/types.js";
+import { conditionMet } from "../../src/core/steps.js";
+import { vi } from "vitest";
+import { StubDriver } from "../support/doubles.js";
+import type { PageElement } from "../../src/core/types.js";
 
 describe("urlReached", () => {
   it("matches an exact host+path and ignores scheme/query/hash/trailing slash", () => {
@@ -178,6 +182,115 @@ describe("waitFor step", () => {
     });
     await expect(
       handler.execute({ kind: "waitFor", until: { url: "/cart" }, timeoutMs: 30 }, d),
+    ).rejects.toThrow(/waitFor timed out/);
+  });
+});
+
+it("conditionMetRoleOnlyRequiresElementOfRole: an until with role but no text is not vacuously true — it requires an element of that role to be present (fail closed)", async () => {
+  const driver = new FakeDriver({
+    evidence: {
+      execution: { actions: [], navigated: false, blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    },
+    elements: [{ role: "link", name: "Cart" }],
+  });
+  await expect(conditionMet(driver, { role: "button" })).resolves.toBe(false);
+  await expect(conditionMet(driver, { role: "link" })).resolves.toBe(true);
+});
+
+describe("conditionMet audit coverage", () => {
+  it("conditionMetEmptyUntilHoldsWithoutObserving: an empty condition is vacuously true and touches neither observe() nor snapshot()", async () => {
+    const driver = new StubDriver();
+    const observe = vi.spyOn(driver, "observe");
+    const snapshot = vi.spyOn(driver, "snapshot");
+    await expect(conditionMet(driver, {})).resolves.toBe(true);
+    expect(observe).not.toHaveBeenCalled();
+    expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it("conditionMetRequestWatermarkAndMethod: sinceRequestIndex slices the cumulative log before matching, and method scopes the match", async () => {
+    class LoggedRequests extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        return {
+          execution: { actions: [], navigated: true, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: {
+            requests: [
+              { method: "GET", url: "https://api.app/cart", status: 200 },
+              { method: "POST", url: "https://api.app/cart", status: 201 },
+            ],
+            console: [],
+          },
+        };
+      }
+    }
+    const driver = new LoggedRequests();
+    const post = { urlIncludes: "/cart", status: 201, method: "post" };
+    await expect(conditionMet(driver, { requestStatus: post }, 0)).resolves.toBe(true);
+    await expect(conditionMet(driver, { requestStatus: post }, 1)).resolves.toBe(true);
+    await expect(conditionMet(driver, { requestStatus: post }, 2)).resolves.toBe(false);
+    await expect(
+      conditionMet(driver, { requestStatus: { urlIncludes: "/cart", status: 200, method: "POST" } }),
+    ).resolves.toBe(false);
+  });
+
+  it("conditionMetRoleFilter: until.role constrains the text match to elements of that role", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "link", name: "Cart" }];
+    await expect(conditionMet(driver, { text: "Cart", role: "button" })).resolves.toBe(false);
+    await expect(conditionMet(driver, { text: "Cart", role: "link" })).resolves.toBe(true);
+    await expect(conditionMet(driver, { text: "Cart" })).resolves.toBe(true);
+  });
+
+  it("conditionMetTextSplitAcrossNodesNoMatch: a phrase whose words live in two separate elements is not a match (#95 counter-example) — only a single accessible name containing it is", async () => {
+    const driver = new StubDriver();
+    driver.els = [
+      { role: "StaticText", name: "Order" },
+      { role: "StaticText", name: "confirmed" },
+    ];
+    await expect(conditionMet(driver, { text: "Order confirmed" })).resolves.toBe(false);
+    driver.els = [{ role: "heading", name: "Your order confirmed!" }];
+    await expect(conditionMet(driver, { text: "Order confirmed" })).resolves.toBe(true);
+  });
+
+  it("conditionMetTextTrimAndCaseInsensitive: the text needle is trimmed and matched case-insensitively as a substring of the accessible name", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "link", name: "Shopping Cart (2)" }];
+    await expect(conditionMet(driver, { text: "  cart " })).resolves.toBe(true);
+    await expect(conditionMet(driver, { text: "SHOPPING CART" })).resolves.toBe(true);
+    await expect(conditionMet(driver, { text: "Checkout" })).resolves.toBe(false);
+  });
+
+  it("waitForAllThreeRejectsWhenAnyMissing: a url+request+element waitFor is an AND — dropping any one of the three times out", async () => {
+    const handler = new BuiltinStepHandler();
+    const until = { url: "/cart", requestStatus: { urlIncludes: "/api/me", status: 200 }, text: "Cart" };
+    const step = (): Step => ({ kind: "waitFor", until, timeoutMs: 30 });
+    const driver = (
+      finalUrl: string,
+      requests: Evidence["logic"]["requests"],
+      elements: PageElement[],
+    ): FakeDriver =>
+      new FakeDriver({
+        evidence: {
+          execution: { actions: [], navigated: true, finalUrl, blocked: false },
+          perception: {},
+          logic: { requests, console: [] },
+        },
+        elements,
+      });
+    const me = [{ method: "GET", url: "https://x/api/me", status: 200 }];
+    const cart: PageElement[] = [{ role: "link", name: "Cart" }];
+
+    await expect(handler.execute(step(), driver("https://x/en/cart", me, cart))).resolves.toBeUndefined();
+    await expect(handler.execute(step(), driver("https://x/en/home", me, cart))).rejects.toThrow(/waitFor timed out/);
+    await expect(handler.execute(step(), driver("https://x/en/cart", [], cart))).rejects.toThrow(/waitFor timed out/);
+    await expect(handler.execute(step(), driver("https://x/en/cart", me, []))).rejects.toThrow(/waitFor timed out/);
+    await expect(
+      handler.execute(
+        step(),
+        driver("https://x/en/cart", [{ method: "GET", url: "https://x/api/me", status: 401 }], cart),
+      ),
     ).rejects.toThrow(/waitFor timed out/);
   });
 });

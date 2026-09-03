@@ -318,3 +318,33 @@ describe("an all-vacuous verdict says which kind of nothing it is (#182 review)"
     expect(v.detail).toMatch(/already satisfied before the flow ran/);
   });
 });
+
+import { resolveAssertion } from "../../../src/adapters/critics/assertion.js";
+
+// Consolidated audit coverage.
+
+{
+
+  // resolve-assertion-routes-custom-then-mechanical.test.ts
+  {
+    const evidence: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://shop/done", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "GET", url: "https://shop/api", status: 200 }], console: [] },
+    };
+
+    describe("critics/assertion resolveAssertion", () => {
+      it("resolveAssertionRoutesCustomThenMechanical: a registered custom check answers a custom assertion; a mechanical kind is checked built-in; an unregistered custom name fails", async () => {
+        const custom = { cartCount: (params: Record<string, unknown>) => ({ passed: params.n === 2, detail: `n=${params.n}` }) };
+        const hit = await resolveAssertion({ kind: "custom", name: "cartCount", params: { n: 2 } }, evidence, custom);
+        expect(hit).toMatchObject({ passed: true, detail: "n=2" });
+        const nav = await resolveAssertion({ kind: "navigated", to: "/done" }, evidence, custom);
+        expect(nav).toMatchObject({ passed: true, detail: "https://shop/done" });
+        const miss = await resolveAssertion({ kind: "custom", name: "unknown" }, evidence);
+        expect(miss.passed).toBe(false);
+        expect(miss.detail).toMatch(/unknown/);
+      });
+    });
+  }
+
+}

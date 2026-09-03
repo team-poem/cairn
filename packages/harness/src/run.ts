@@ -24,7 +24,7 @@ import type { ActionPolicy } from "./core/discover/index.js";
 import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
-import type { Result, RunUsage, Scenario, StepProgress } from "./core/types.js";
+import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 
 export interface RunScenarioOptions {
   driver?: Driver;
@@ -139,6 +139,14 @@ export async function runScenario(
   const getLlm = (): LlmClient =>
     (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
   const usage = (): RunUsage => meter?.snapshot() ?? emptyUsage();
+  // Both heal layers take their client up front but only call it on a break, so hand them one
+  // that defers construction to the first completion. A green replay never builds a backend.
+  const lazyLlm: LlmClient = {
+    get id() {
+      return getLlm().id;
+    },
+    complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
+  };
 
   const critic =
     opts.critic ??
@@ -152,6 +160,27 @@ export async function runScenario(
   const scope = opts.traceScope ?? ownTracer?.scope(scenario.name);
   if (ownTracer)
     scope?.emit({ kind: "case-start", payload: { id: scenario.name, intent: scenario.name, cached: true } });
+  // Every exit of a bare run closes the implicit case and run with the same two events. The
+  // optional truncated flag preserves #189's stronger outcome-heal lifecycle payload.
+  const closeOwnTrace = (
+    verdict: Verdict,
+    runUsage: RunUsage | undefined,
+    healCount: number,
+    truncated = false,
+  ): void => {
+    if (!ownTracer) return;
+    scope?.emit({
+      kind: "case-end",
+      payload: {
+        verdict,
+        usage: runUsage,
+        discovered: false,
+        heals: healCount,
+        ...(truncated ? { truncated: true } : {}),
+      },
+    });
+    ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: runUsage } });
+  };
 
   // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
   // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
@@ -167,9 +196,9 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, getLlm(), { onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(getLlm()) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm) : undefined;
 
   try {
     const result = await runHarness(
@@ -256,21 +285,9 @@ export async function runScenario(
         const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
         verdict = { ...verdict, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
       }
-      if (ownTracer) {
-        scope?.emit({
-          kind: "case-end",
-          // `truncated` here too, so a library caller with its own sink reads the same shape as the
-          // suite's case-end (spec/core/trace.md: one implicit case, one shape).
-          payload: {
-            verdict,
-            usage: usage(),
-            discovered: false,
-            heals: heals.length + stepHeals.length,
-            ...(truncated ? { truncated: true } : {}),
-          },
-        });
-        ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: usage() } });
-      }
+      // `truncated` rides here too, so a library caller with its own sink reads the same shape as
+      // the suite's case-end (spec/core/trace.md: one implicit case, one shape).
+      closeOwnTrace(verdict, usage(), heals.length + stepHeals.length, truncated);
       return {
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
         heals,
@@ -303,18 +320,7 @@ export async function runScenario(
     const final = skipped
       ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
       : result;
-    if (ownTracer) {
-      scope?.emit({
-        kind: "case-end",
-        payload: {
-          verdict: final.verdict,
-          usage: final.usage,
-          discovered: false,
-          heals: heals.length + stepHeals.length,
-        },
-      });
-      ownTracer.emit({ kind: "run-end", payload: { passed: final.verdict.passed, usage: final.usage } });
-    }
+    closeOwnTrace(final.verdict, final.usage, heals.length + stepHeals.length);
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     return {
       result: final,
@@ -322,6 +328,15 @@ export async function runScenario(
       stepHeals,
       healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
     };
+  } catch (err) {
+    // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.
+    // This keeps the bare-run stream in the same lifecycle shape as a suite's crashed case.
+    closeOwnTrace(
+      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}` },
+      usage(),
+      (healer?.heals.length ?? 0) + (stepHealer?.heals.length ?? 0),
+    );
+    throw err;
   } finally {
     if (ownsDriver) await baseDriver.close().catch(() => {});
   }

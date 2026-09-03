@@ -3,6 +3,7 @@ import { explore } from "../../../src/core/explore/index.js";
 import type { ActionPolicy } from "../../../src/core/discover/decision.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
 import type { ConsoleMessage, Evidence, NetworkRequest, Target } from "../../../src/core/types.js";
+import type { LlmClient } from "../../../src/core/ports.js";
 
 /** A StubDriver whose observation grows as the test scripts it — clicks can navigate (navOn),
  * fire requests (requestOn), or log console errors (consoleOn). */
@@ -228,5 +229,163 @@ describe("explore", () => {
       onFinding: (f) => seen.push(`finding:${f.kind}`),
     });
     expect(seen).toEqual(["finding:agent-note", "step:note", "step:click:ran", "step:done"]);
+  });
+});
+
+describe("a policy that throws is the harness's problem, not the app's", () => {
+  it("exploreThrowingVetIsNotAFinding: a vet exception is a recorded rejection but never an action-error finding", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Delete" }];
+    const policy: ActionPolicy = {
+      vet: () => {
+        throw new Error("policy exploded");
+      },
+    };
+    const llm = new ScriptedLlm(['{"action":"click","text":"Delete"}', '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START, policy });
+    expect(driver.clicked).toEqual([]);
+    // The page never refused anything. The gate did. Reporting it as a UX finding blames the app.
+    expect(report.findings).toEqual([]);
+  });
+});
+
+describe("explore audit coverage", () => {
+  class RecordingLlm implements LlmClient {
+    readonly id = "recording";
+    readonly prompts: string[] = [];
+    private index = 0;
+
+    constructor(private readonly replies: string[]) {}
+
+    async complete(prompt: string): Promise<string> {
+      this.prompts.push(prompt);
+      return this.replies[this.index++] ?? '{"action":"done"}';
+    }
+  }
+
+  it("exploreLastActionJudgedAtCap: a failed request fired by the capped final step is still a finding", async () => {
+    const driver = new ExploreDriver(START);
+    driver.els = [{ role: "button", name: "Buy" }];
+    driver.requestOn["Buy"] = { method: "POST", url: "https://shop/api/pay", status: 500 };
+    const llm = new ScriptedLlm(['{"action":"click","text":"Buy"}', '{"action":"click","text":"Buy"}']);
+    const report = await explore("buy", { driver, llm, baseUrl: START, maxSteps: 1 });
+    expect(report.truncated).toBe(true);
+    expect(report.steps).toHaveLength(2);
+    expect(report.findings).toEqual([
+      expect.objectContaining({ kind: "failed-request", stepIndex: 1, url: START }),
+    ]);
+  });
+
+  it("exploreAbortSignal: an already-aborted signal rejects before any LLM call", async () => {
+    const driver = new StubDriver(START);
+    const llm = new RecordingLlm(['{"action":"done"}']);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(explore("survey", { driver, llm, baseUrl: START, signal: controller.signal })).rejects.toThrow();
+    expect(llm.prompts).toHaveLength(0);
+  });
+
+  it("exploreAbortSignal: aborting from onStep stops the loop before the next action", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Next" }];
+    const llm = new ScriptedLlm(Array(5).fill('{"action":"click","text":"Next"}'));
+    const controller = new AbortController();
+    await expect(
+      explore("survey", {
+        driver,
+        llm,
+        baseUrl: START,
+        signal: controller.signal,
+        onStep: () => controller.abort(),
+      }),
+    ).rejects.toThrow();
+    expect(driver.clicked).toEqual(["Next"]);
+  });
+
+  it("exploreMalformedReplyNudges: a non-JSON reply costs no step and is fed back as a failure line", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "link", name: "Products" }];
+    const llm = new RecordingLlm(["I think I should click Products", '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START });
+    expect(report.steps).toEqual([{ kind: "goto", url: START }]);
+    expect(report.findings).toEqual([]);
+    expect(llm.prompts[1]).toContain("- your previous reply was not a single valid JSON action object");
+    expect(report.usage.llmCalls).toBe(2);
+  });
+
+  it("exploreThrowingVet: a vet that throws is a recorded rejection — the driver never acts, the survey continues", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Delete" }];
+    const policy: ActionPolicy = {
+      vet: () => {
+        throw new Error("policy exploded");
+      },
+    };
+    const llm = new RecordingLlm(['{"action":"click","text":"Delete"}', '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START, policy });
+    expect(driver.clicked).toEqual([]);
+    expect(llm.prompts[1]).toContain('- click "Delete" — policy exploded');
+    expect(report.truncated).toBe(false);
+    expect(report.steps).toEqual([{ kind: "goto", url: START }]);
+  });
+
+  it("noteFallsBackToReason: a note with only a reason records the reason as the problem", async () => {
+    const driver = new StubDriver(START);
+    const llm = new ScriptedLlm([
+      '{"action":"note","severity":"error","reason":"checkout button is unlabeled"}',
+      '{"action":"done"}',
+    ]);
+    const report = await explore("survey", { driver, llm, baseUrl: START });
+    expect(report.findings).toEqual([
+      {
+        kind: "agent-note",
+        severity: "error",
+        detail: "checkout button is unlabeled",
+        key: "agent-note:checkout button is unlabeled",
+        url: START,
+        stepIndex: 0,
+      },
+    ]);
+  });
+
+  it("noteTextWinsOverReason: when both are given the text is the problem, not the rationale", async () => {
+    const driver = new StubDriver(START);
+    const llm = new ScriptedLlm([
+      '{"action":"note","text":"dead end","reason":"survey"}',
+      '{"action":"done"}',
+    ]);
+    const report = await explore("survey", { driver, llm, baseUrl: START });
+    expect(report.findings[0]?.detail).toBe("dead end");
+  });
+
+  class SlowSettleStub extends StubDriver {
+    override async settle(): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    }
+  }
+
+  it("exploreSlowSettleMs: a settle above the option's threshold is a slow-settle finding on the acted step", async () => {
+    const driver = new SlowSettleStub(START);
+    driver.els = [{ role: "link", name: "Products" }];
+    driver.navOn["Products"] = "https://shop/products";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START, slowSettleMs: 5 });
+    expect(report.findings).toEqual([
+      expect.objectContaining({
+        kind: "slow-settle",
+        severity: "warn",
+        stepIndex: 1,
+        url: "https://shop/products",
+      }),
+    ]);
+  });
+
+  it("exploreSlowSettleMs: the same settle is under the default threshold", async () => {
+    const driver = new SlowSettleStub(START);
+    driver.els = [{ role: "link", name: "Products" }];
+    driver.navOn["Products"] = "https://shop/products";
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}']);
+    const report = await explore("survey", { driver, llm, baseUrl: START });
+    expect(report.findings).toEqual([]);
   });
 });

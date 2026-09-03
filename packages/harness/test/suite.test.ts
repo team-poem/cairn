@@ -669,3 +669,223 @@ describe("a truncated outcome-heal re-discovery is not frozen (#186)", () => {
     expect(calls).toBeLessThan(8); // the case's maxSteps (4) reached the heal, not the default 20
   });
 });
+
+import { runScenario } from "../src/run.js";
+import { FakeDriver } from "../src/adapters/drivers/fake.js";
+import type { Evidence } from "../src/index.js";
+
+// Consolidated audit coverage.
+
+{
+
+  class MemoryStore implements SkillStore {
+    readonly skills = new Map<string, Scenario>();
+    async load(ref: string): Promise<Scenario> {
+      const s = this.skills.get(ref);
+      if (!s) throw new Error(`missing skill: ${ref}`);
+      return s;
+    }
+    async freeze(ref: string, scenario: Scenario): Promise<string> {
+      this.skills.set(ref, scenario);
+      return ref;
+    }
+  }
+
+  const forbiddenLlm: LlmClient = { id: "forbidden", complete: async () => { throw new Error("no LLM"); } };
+
+  const silent: Reporter = { emit: async () => {} };
+
+  const frozen: Scenario = {
+    name: "open the catalog",
+    steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Products" } }],
+    assertions: [{ kind: "navigated" }],
+  };
+
+  const CASE: SuiteCase = { id: "catalog", intent: "open the catalog", url: "https://shop/" };
+
+  const shopDriver = (): StubDriver => {
+    const d = new StubDriver("https://shop/");
+    d.els = [{ role: "link", name: "Products" }];
+    d.navOn["Products"] = "https://shop/products";
+    return d;
+  };
+
+  // suite-abort-rethrows.test.ts
+  {
+    it("suiteAbortRethrows: an aborted signal stops the suite with the abort error — later cases are never started, not marked crashed", async () => {
+      const a: SuiteCase = { id: "a", intent: "open the catalog", url: "https://shop/" };
+      const b: SuiteCase = { id: "b", intent: "open the catalog", url: "https://shop/" };
+      const store = new MemoryStore();
+      store.skills.set("skills/a.skill.json", { ...frozen, caseHash: hashCase(a) } as Scenario);
+      store.skills.set("skills/b.skill.json", { ...frozen, caseHash: hashCase(b) } as Scenario);
+      const ac = new AbortController();
+      ac.abort();
+      let built = 0;
+      const seen: string[] = [];
+      const driverFactory = (): StubDriver => (built++, new StubDriver("https://shop/"));
+
+      await expect(
+        runSuite([a, b], { store, driverFactory, llm: forbiddenLlm, reporter: silent, signal: ac.signal, onCase: (v) => seen.push(v.id) }),
+      ).rejects.toThrow();
+      expect(seen).toEqual([]); // no "crashed" verdict was minted for either case
+      expect(built).toBe(1); // case b never even got a driver
+    });
+  }
+
+  // suite-case-end-heals-excludes-outcome-heal.test.ts
+  {
+    it("caseEndHealsExcludesOutcomeHeal: an outcome-heal (re-discovery) is NOT counted in case-end.heals — suite and bare run alike", async () => {
+      // Suite: cached skill whose assertion the stub can never satisfy → outcome-heal runs.
+      const events: TraceEvent[] = [];
+      const store = new MemoryStore();
+      const failing: FrozenSuiteScenario = {
+        name: "open the catalog",
+        steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Products" } }],
+        assertions: [{ kind: "request-status", urlIncludes: "/api/orders", status: 200 }],
+        caseHash: hashCase(CASE),
+      };
+      store.skills.set("skills/catalog.skill.json", failing);
+      const suite = await runSuite([CASE], {
+        store, driverFactory: shopDriver, llm: new ScriptedLlm(['{"action":"done"}', "[]"]),
+        reporter: silent, trace: { emit: (e) => events.push(e) },
+      });
+      expect(events.some((e) => e.phase === "heal" && e.kind === "action")).toBe(true); // the re-discovery ran
+      const caseEnd = events.find((e) => e.kind === "case-end")!;
+      expect(caseEnd.payload).toMatchObject({ heals: 0, discovered: false });
+      expect(suite.verdicts[0]!.heals).toBe(0);
+
+      // Bare run: same rule on run.ts's own outcome-heal return path.
+      const bare: TraceEvent[] = [];
+      const evidence: Evidence = {
+        execution: { actions: [], navigated: true, finalUrl: "https://iana.org", blocked: false },
+        perception: {},
+        logic: { requests: [], console: [] },
+      };
+      await runScenario(
+        { name: "reach the moon", steps: [{ kind: "goto", url: "https://example.com" }], assertions: [{ kind: "navigated", to: "the-moon" }] },
+        { driver: new FakeDriver({ evidence, elements: [] }), llm: new ScriptedLlm(['{"action":"done"}', "[]"]), heal: true, reporter: silent, trace: { emit: (e) => bare.push(e) } },
+      );
+      expect(bare.some((e) => e.phase === "heal")).toBe(true);
+      expect(bare.find((e) => e.kind === "case-end")!.payload).toMatchObject({ heals: 0 });
+    });
+  }
+
+  // suite-crashed-case-ends-trace.test.ts
+  {
+    it("suiteCrashedCaseEndsTrace: a crashed case still emits case-end (failed verdict, heals 0, no phase) and run-end says passed:false", async () => {
+      const boom: SuiteCase = { id: "boom", intent: "open the catalog", url: "https://shop/" };
+      const store = new MemoryStore();
+      store.skills.set("skills/boom.skill.json", { ...frozen, caseHash: hashCase(boom) } as Scenario);
+      const driverFactory = (): StubDriver => {
+        const d = new StubDriver("https://shop/");
+        d.goto = async () => { throw new Error("browser died"); };
+        return d;
+      };
+      const events: TraceEvent[] = [];
+      await runSuite([boom], { store, driverFactory, llm: forbiddenLlm, reporter: silent, trace: { emit: (e) => events.push(e) } });
+      const end = events.find((e) => e.kind === "case-end")!;
+      expect(end.caseRef).toBe("boom");
+      expect(end.phase).toBeUndefined();
+      expect(end.payload).toMatchObject({ heals: 0, discovered: false, verdict: { passed: false } });
+      expect((end.payload as { verdict: { detail?: string } }).verdict.detail).toContain("browser died");
+      expect(events.at(-1)).toMatchObject({ kind: "run-end", payload: { passed: false } });
+    });
+  }
+
+  // suite-freeze-counts-user-criteria.test.ts
+  {
+    it("suiteFreezeCountsUserCriteria: the discover freeze event counts merged user expect + assertions under `user`, derived separately, unknown 0", async () => {
+      const events: TraceEvent[] = [];
+      const llm = new ScriptedLlm([
+        '{"action":"click","text":"Products","reason":"open catalog"}',
+        '{"action":"done"}',
+        "[]",
+        '{"passed":true,"detail":"ok"}', // LlmCritic judging the user's expect at replay
+      ]);
+      await runSuite(
+        [{ id: "catalog", intent: "open the catalog", url: "https://shop/",
+           expect: ["the catalog page lists products"],
+           assertions: [{ kind: "navigated", to: "shop/products" }] }],
+        { store: new MemoryStore(), driverFactory: shopDriver, llm, reporter: silent, trace: { emit: (e) => events.push(e) } },
+      );
+      const freeze = events.find((e) => e.kind === "freeze")!;
+      expect(freeze.phase).toBe("discover");
+      const counts = (freeze.payload as { assertions: { user: number; derived: number; unknown: number } }).assertions;
+      expect(counts.user).toBe(2);
+      expect(counts.unknown).toBe(0);
+      expect(counts.derived).toBeGreaterThan(0);
+    });
+  }
+
+  // suite-hash-case-ignores-id-and-max-steps.test.ts
+  {
+    it("hashCaseIgnoresIdAndMaxSteps: only intent/url/expect/assertions fingerprint a case — id and maxSteps are not what was discovered", () => {
+      const c = { id: "a", intent: "open the catalog", url: "https://shop/", expect: ["lists products"] };
+      expect(hashCase({ ...c, id: "renamed", maxSteps: 12 })).toBe(hashCase(c));
+      expect(hashCase({ ...c, intent: "open the cart" })).not.toBe(hashCase(c));
+      expect(hashCase({ ...c, expect: [] })).not.toBe(hashCase(c));
+      expect(hashCase({ ...c, url: undefined }, "https://shop/")).toBe(hashCase(c)); // baseUrl fallback = same start
+    });
+  }
+
+  // suite-rejects-dot-dot-id.test.ts
+  {
+    const store: SkillStore = {
+      load: async () => { throw new Error("must not load"); },
+      freeze: async () => { throw new Error("must not freeze"); },
+    };
+
+    it("suiteRejectsDotDotId: a case id of `..` (no slash) is still rejected as a path escape, before any spend", async () => {
+      const opts = { store, driverFactory: () => new StubDriver(), llm: forbiddenLlm };
+      await expect(runSuite([{ id: "..", intent: "x", url: "u" }], opts)).rejects.toThrow("path");
+      await expect(runSuite([{ id: "a..b", intent: "x", url: "u" }], opts)).rejects.toThrow("path");
+    });
+  }
+
+  // suite-seq-shared-across-cases.test.ts
+  {
+    it("suiteSeqSharedAcrossCases: one trace, one seq counter — two cases produce one contiguous 0..n-1 sequence, each event tagged with its own caseRef", async () => {
+      const a: SuiteCase = { id: "a", intent: "open the catalog", url: "https://shop/" };
+      const b: SuiteCase = { id: "b", intent: "open the catalog", url: "https://shop/" };
+      const store = new MemoryStore();
+      store.skills.set("skills/a.skill.json", { ...frozen, caseHash: hashCase(a) } as Scenario);
+      store.skills.set("skills/b.skill.json", { ...frozen, caseHash: hashCase(b) } as Scenario);
+      const events: TraceEvent[] = [];
+      const suite = await runSuite([a, b], { store, driverFactory: shopDriver, llm: forbiddenLlm, reporter: silent, trace: { emit: (e) => events.push(e) } });
+
+      expect(events.map((e) => e.seq)).toEqual(events.map((_, i) => i));
+      expect(events.filter((e) => e.kind === "trace")).toHaveLength(1);
+      expect(events.filter((e) => e.kind === "case-start").map((e) => e.caseRef)).toEqual(["a", "b"]);
+      const iA = events.findIndex((e) => e.kind === "case-end" && e.caseRef === "a");
+      const iB = events.findIndex((e) => e.kind === "case-start" && e.caseRef === "b");
+      expect(iA).toBeLessThan(iB); // cases are sequential, not interleaved
+      expect(events.at(-1)!.payload).toMatchObject({ passed: true, usage: suite.usage });
+    });
+  }
+
+  // suite-skill-dir-prefixes-ref.test.ts
+  {
+    const frozen: Scenario = {
+      name: "open the catalog",
+      steps: [{ kind: "goto", url: "https://shop/" }],
+      assertions: [{ kind: "navigated" }],
+    };
+
+    it("suiteSkillDirPrefixesRef: skillDir names the store ref for load and freeze alike, and the same ref rides on skillRef and case-start", async () => {
+      const c: SuiteCase = { id: "catalog", intent: "open the catalog", url: "https://shop/" };
+      const loaded: string[] = [];
+      const store: SkillStore = {
+        load: async (ref) => { loaded.push(ref); return { ...frozen, caseHash: hashCase(c) } as Scenario; },
+        freeze: async () => { throw new Error("cache hit must not freeze"); },
+      };
+      const events: TraceEvent[] = [];
+      const suite = await runSuite([c], {
+        store, skillDir: "qa/frozen", driverFactory: () => new StubDriver("https://shop/"), llm: forbiddenLlm, reporter: silent, trace: { emit: (e) => events.push(e) },
+      });
+      expect(loaded).toEqual(["qa/frozen/catalog.skill.json"]);
+      expect(suite.verdicts[0]!.skillRef).toBe("qa/frozen/catalog.skill.json");
+      expect(events.find((e) => e.kind === "case-start")!.payload).toMatchObject({ skillRef: "qa/frozen/catalog.skill.json", cached: true });
+    });
+  }
+
+}

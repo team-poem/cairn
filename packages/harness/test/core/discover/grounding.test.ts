@@ -747,3 +747,186 @@ describe("vacuity is judged with the consumer's locale list (#182 review)", () =
     expect(marked[0]?.vacuous).toBeUndefined();
   });
 });
+
+import { proposeAssertions } from "../../../src/core/discover/grounding.js";
+import type { LlmClient } from "../../../src/core/ports.js";
+import type { NetworkRequest } from "../../../src/core/types.js";
+
+// Consolidated audit coverage.
+
+{
+
+  // grounding-drop-reasons.test.ts
+  {
+    const clean: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://shop/products", blocked: false },
+      perception: {},
+      logic: { requests: [], console: [] },
+    };
+
+    function drops(proposed: unknown[], evidence: Evidence, semantic: boolean): string[] {
+      const out: string[] = [];
+      deriveAssertions(proposed as Assertion[], evidence, semantic, [], (_a, reason) => out.push(reason));
+      return out;
+    }
+
+    describe("deriveAssertions names why each proposal was dropped", () => {
+      it("groundingDropReasons: expect is dropped as 'semantic checks are off' or 'empty criterion'", () => {
+        expect(drops([{ kind: "expect", criterion: "cart shows the item" }], clean, false)).toEqual([
+          "semantic checks are off — expect needs an LlmCritic at replay",
+        ]);
+        expect(drops([{ kind: "expect", criterion: "   " }], clean, true)).toEqual(["malformed proposal (empty criterion)"]);
+        expect(drops([{ kind: "expect" }], clean, true)).toEqual(["malformed proposal (empty criterion)"]);
+      });
+
+      it("groundingDropReasons: a null entry is skipped silently, a kind-less object is reported", () => {
+        expect(drops([null, undefined, { urlIncludes: "/x" }, { kind: 7 }], clean, false)).toEqual([
+          "malformed proposal (no kind)",
+          "malformed proposal (no kind)",
+        ]);
+      });
+
+      it("groundingDropReasons: an unknown kind is named in the reason", () => {
+        expect(drops([{ kind: "screenshot-matches" }], clean, false)).toEqual(['unknown proposed kind "screenshot-matches"']);
+      });
+
+      it("groundingDropReasons: a default that did not hold is reported with the exact wording", () => {
+        const dirty: Evidence = {
+          execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
+          perception: {},
+          logic: {
+            requests: [{ method: "GET", url: "https://shop/api/x", status: 500 }],
+            console: [{ type: "error", text: "boom" }],
+          },
+        };
+        expect(
+          drops([{ kind: "no-failed-requests" }, { kind: "no-console-errors" }, { kind: "navigated" }], dirty, false),
+        ).toEqual([
+          "no-failed-requests did not hold during discovery",
+          "no-console-errors did not hold during discovery",
+          "the run did not navigate",
+        ]);
+      });
+
+      it("groundingDropReasons: a default that held is not reported at all", () => {
+        expect(drops([{ kind: "no-failed-requests" }, { kind: "no-console-errors" }, { kind: "navigated" }], clean, false)).toEqual([]);
+      });
+    });
+  }
+
+  // grounding-propose-tolerates.test.ts
+  {
+    const evidence: Evidence = {
+      execution: { actions: [], navigated: true, finalUrl: "https://shop/done", blocked: false },
+      perception: {},
+      logic: { requests: [{ method: "POST", url: "https://shop/api/order", status: 201 }], console: [] },
+    };
+
+    class RecordingLlm implements LlmClient {
+      readonly id = "recording";
+      prompt = "";
+      system: string | undefined;
+      constructor(private readonly reply: () => string) {}
+      async complete(prompt: string, opts?: { system?: string }): Promise<string> {
+        this.prompt = prompt;
+        this.system = opts?.system;
+        return this.reply();
+      }
+    }
+
+    describe("proposeAssertions never lets the model break the freeze", () => {
+      it("proposeAssertionsTolerates: an LLM that throws proposes nothing", async () => {
+        const llm = new RecordingLlm(() => {
+          throw new Error("rate limited");
+        });
+        await expect(proposeAssertions(llm, "buy", evidence, false)).resolves.toEqual([]);
+      });
+
+      it("proposeAssertionsTolerates: a reply with no JSON array proposes nothing", async () => {
+        expect(await proposeAssertions(new RecordingLlm(() => '{"kind":"navigated"}'), "buy", evidence, false)).toEqual([]);
+        expect(await proposeAssertions(new RecordingLlm(() => "no assertions needed"), "buy", evidence, false)).toEqual([]);
+      });
+
+      it("proposeAssertionsTolerates: a fenced array still comes through", async () => {
+        const llm = new RecordingLlm(() => '```json\n[{"kind":"navigated","to":"shop/done"}]\n```');
+        expect(await proposeAssertions(llm, "buy", evidence, false)).toEqual([{ kind: "navigated", to: "shop/done" }]);
+      });
+
+      it("proposeAssertionsSemanticSuffix: the system prompt offers `expect` only when semantic checks are on", async () => {
+        const off = new RecordingLlm(() => "[]");
+        await proposeAssertions(off, "buy", evidence, false);
+        expect(off.system).not.toContain('"kind":"expect"');
+        const on = new RecordingLlm(() => "[]");
+        await proposeAssertions(on, "buy", evidence, true);
+        expect(on.system).toContain('"kind":"expect"');
+        expect(on.system!.startsWith(off.system!)).toBe(true);
+      });
+    });
+  }
+
+  // grounding-render-evidence.test.ts
+  {
+    class RecordingLlm implements LlmClient {
+      readonly id = "recording";
+      prompt = "";
+      async complete(prompt: string): Promise<string> {
+        this.prompt = prompt;
+        return "[]";
+      }
+    }
+
+    function withRequests(requests: NetworkRequest[]): Evidence {
+      return {
+        execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
+        perception: {},
+        logic: { requests, console: [{ type: "error", text: "boom" }, { type: "log", text: "fine" }] },
+      };
+    }
+
+    describe("the evidence the assertion prompt shows the model", () => {
+      it("renderEvidenceCapsRequests: the request listing stops at 40 lines but still states the real count", async () => {
+        const requests = Array.from({ length: 45 }, (_, i) => ({ method: "GET", url: `https://shop/asset/${i}`, status: 200 }));
+        const llm = new RecordingLlm();
+        await proposeAssertions(llm, "browse", withRequests(requests), false);
+        expect(llm.prompt).toContain("all requests (45):");
+        expect(llm.prompt).toContain("200 GET https://shop/asset/39");
+        expect(llm.prompt).not.toContain("https://shop/asset/40");
+      });
+
+      it("renderEvidenceMutationsBlock: settled successful mutations are listed apart, in-flight and failed ones are not", async () => {
+        const llm = new RecordingLlm();
+        await proposeAssertions(
+          llm,
+          "buy",
+          withRequests([
+            { method: "GET", url: "https://shop/api/products", status: 200 },
+            { method: "POST", url: "https://shop/api/cart", status: 201 },
+            { method: "POST", url: "https://shop/api/pending", status: 0 },
+            { method: "POST", url: "https://shop/api/failed", status: 500 },
+          ]),
+          false,
+        );
+        const [, mutationsBlock = ""] = llm.prompt.split("state-changing requests that prove an action (prefer one of these): ");
+        const [mutations = ""] = mutationsBlock.split("all requests");
+        expect(mutations.trim().split("\n")).toEqual(["201 POST https://shop/api/cart"]);
+        expect(llm.prompt).toContain("finalUrl: https://shop/ (navigated: false)");
+        expect(llm.prompt).toContain("console errors (1): boom");
+      });
+
+      it("renderEvidenceEmpty: with nothing captured every block says (none)", async () => {
+        const llm = new RecordingLlm();
+        await proposeAssertions(
+          llm,
+          "browse",
+          { execution: { actions: [], navigated: false, blocked: false }, perception: {}, logic: { requests: [], console: [] } },
+          false,
+        );
+        expect(llm.prompt).toContain("finalUrl: (none) (navigated: false)");
+        expect(llm.prompt).toContain("prefer one of these): (none)");
+        expect(llm.prompt).toContain("all requests (0):\n(none)");
+        expect(llm.prompt).toContain("console errors (0): (none)");
+      });
+    });
+  }
+
+}

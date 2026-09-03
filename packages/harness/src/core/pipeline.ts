@@ -78,25 +78,28 @@ async function runStep(
   // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
   // matching request and silently skip this step. Pre-check only state-like conditions, and gate
   // request matching to requests observed after this step started (watermark).
-  if (step.expect && step.expect.requestStatus === undefined && (await conditionMet(driver, step.expect, 0, urlMatch))) {
+  // An `expect` with no field set (`{}`) names no condition: treat it as absent, so it can
+  // neither pre-satisfy the skip nor count as a post-condition (fail closed, #69/#137).
+  const expect = step.expect && Object.values(step.expect).some((v) => v !== undefined) ? step.expect : undefined;
+  if (expect && expect.requestStatus === undefined && (await conditionMet(driver, expect, 0, urlMatch))) {
     // Already satisfied — safe skip, but never a SILENT one: the marker keeps a wrongly
     // pre-satisfied expect (the #56→#86/#87/#96 failure class) observable to hosts (#86).
     return { step, ok: true, skipped: true };
   }
-  const sinceRequestIndex = step.expect?.requestStatus
+  const sinceRequestIndex = expect?.requestStatus
     ? (await driver.observe()).logic.requests.length
     : 0;
   const result = await executeStep(handlers, step, driver);
-  if (!result.ok || !step.expect) return result;
+  if (!result.ok || !expect) return result;
 
   // Wait for the post-condition (readiness), don't check once — an async effect may land after the step.
-  if (await pollCondition(driver, step.expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) return result;
+  if (await pollCondition(driver, expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) return result;
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
   if (healer) {
     const healed = await healer.heal(step, index, driver);
     if (healed) {
-      if (await pollCondition(driver, healed.step.expect ?? step.expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
+      if (await pollCondition(driver, healed.step.expect ?? expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
         trace?.emit({
           kind: "heal",
           phase: "heal",
@@ -107,7 +110,7 @@ async function runStep(
       }
     }
   }
-  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(step.expect)}` };
+  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}` };
 }
 
 /**

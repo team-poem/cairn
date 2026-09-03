@@ -10,6 +10,7 @@ import type { TraceAttachment } from "../../src/core/ports.js";
 import type { TraceEvent } from "../../src/core/trace.js";
 import { startTrace } from "../../src/core/trace.js";
 import { ENGINE_VERSION } from "../../src/version.js";
+import { StubDriver } from "../support/doubles.js";
 
 class CaptureReporter implements Reporter {
   last?: Result;
@@ -360,4 +361,267 @@ describe("pipeline — trace attachments (#160)", () => {
     expect(progress[0]?.screenshot).toBe("data:image/png;base64,QUJD");
     expect(attachments).toHaveLength(1);
   });
+});
+
+it("pipelineEmptyExpectDoesNotSkipStep: a step whose expect is an empty object is executed like a step with no expect, never pre-check-skipped as already satisfied", async () => {
+  const driver = new StubDriver();
+  const emptyExpectScenario: Scenario = {
+    name: "t",
+    steps: [{ kind: "click", target: { text: "Go" }, expect: {} }],
+    assertions: [{ kind: "navigated" }],
+  };
+  const result = await runHarness(
+    {
+      context: new InlineContextProvider(),
+      planner: new StaticPlanner(emptyExpectScenario),
+      driver,
+      critic: new AssertionCritic(),
+      reporter: { emit: async () => {} },
+    },
+    "t",
+  );
+  expect(driver.clicked).toEqual(["Go"]);
+  expect(result.evidence.execution.actions[0]).toEqual({ step: emptyExpectScenario.steps[0], ok: true });
+});
+
+import { afterEach, vi } from "vitest";
+import type { Critic, StepHealer, StepHandler } from "../../src/core/ports.js";
+import type { Step } from "../../src/core/types.js";
+
+// Consolidated audit coverage.
+
+describe("pipeline audit coverage", () => {
+
+  const evidence: Evidence = {
+    execution: { actions: [], navigated: true, finalUrl: "https://x", blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  };
+
+  // pipeline-default-expect-timeout.test.ts
+  {
+    afterEach(() => vi.useRealTimers());
+
+    it("pipelineDefaultExpectTimeoutIs2000ms: with no expectTimeoutMs a diverged step is still polling at 1.8s and has given up by 2.2s", async () => {
+      vi.useFakeTimers();
+      const driver = new StubDriver();
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Checkout" }, expect: { url: "app/payment" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      let done = false;
+      const run = runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+      ).then((r) => {
+        done = true;
+        return r;
+      });
+      await vi.advanceTimersByTimeAsync(1800);
+      expect(done).toBe(false); // still inside the default readiness window
+      await vi.advanceTimersByTimeAsync(400);
+      expect(done).toBe(true); // window closed at 2000ms
+      const result = await run;
+      expect(result.evidence.execution.actions[0]?.error).toContain("post-condition not met");
+    });
+  }
+
+  // pipeline-detail-concatenates.test.ts
+  {
+    it("pipelineDetailConcatenatesCriticDetailAndBlock: a critic's own detail is kept and the block reason appended with '; ', and a passing critic is still overridden to failed", async () => {
+      const driver = new FakeDriver({ evidence, failOn: ["Pay"] });
+      const critic: Critic = { judge: async () => ({ passed: true, results: [], detail: "critic note" }) };
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Pay" } }, { kind: "pressKey", key: "Enter" }],
+        assertions: [],
+      };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic, reporter: { emit: async () => {} } },
+        "t",
+      );
+      expect(result.verdict.passed).toBe(false);
+      expect(result.verdict.detail).toBe("critic note; step 1/2 blocked: element not found: Pay (1 later step(s) never ran)");
+    });
+  }
+
+  // pipeline-divergence-message.test.ts
+  {
+    it("pipelineDivergenceMessageAtPipelineLevel: without a healer a diverged step fails with the exact 'post-condition not met' error carrying the JSON expect, and the verdict detail names it", async () => {
+      const driver = new StubDriver(); // click does not navigate
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Checkout" }, expect: { url: "app/payment", text: "Pay now" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { expectTimeoutMs: 20 },
+      );
+      const action = result.evidence.execution.actions[0];
+      expect(action?.ok).toBe(false);
+      expect(action?.error).toBe('post-condition not met: {"url":"app/payment","text":"Pay now"}');
+      expect(result.verdict.passed).toBe(false);
+      expect(result.verdict.detail).toBe('step 1/1 blocked: post-condition not met: {"url":"app/payment","text":"Pay now"}');
+    });
+  }
+
+  // pipeline-healed-step-expect-still-fails.test.ts
+  {
+    it("pipelineHealedStepExpectStillFailsReportsOriginal: when the healed step's expect still does not hold, the ORIGINAL step is recorded as failed with the original expect in the error", async () => {
+      const driver = new StubDriver(); // nothing navigates → neither original nor healed step reaches app/payment
+      const original: Step = { kind: "click", target: { text: "Checkout" }, expect: { url: "app/payment" } };
+      const healed: Step = { kind: "click", target: { text: "Checkout Now" } }; // healer returns no expect → original's is polled
+      let healCalls = 0;
+      const healer: StepHealer = {
+        async heal(_step, index, d) {
+          healCalls++;
+          await d.click(healed.target);
+          return { index, step: healed };
+        },
+      };
+      const sc: Scenario = { name: "t", steps: [original, { kind: "pressKey", key: "Enter" }], assertions: [{ kind: "navigated" }] };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { stepHealer: healer, expectTimeoutMs: 20 },
+      );
+      expect(healCalls).toBe(1);
+      expect(driver.clicked).toEqual(["Checkout", "Checkout Now"]);
+      const action = result.evidence.execution.actions[0];
+      expect(action?.ok).toBe(false);
+      expect(action?.step).toBe(original); // not the healed step
+      expect(action?.error).toBe('post-condition not met: {"url":"app/payment"}');
+      expect(result.evidence.execution.actions).toHaveLength(1); // run stopped there
+      expect(result.verdict.passed).toBe(false);
+    });
+  }
+
+  // pipeline-healed-step-without-expect.test.ts
+  {
+    it("pipelineHealedStepWithoutExpectPolledAgainstOriginal: a healed step carrying no expect is verified against the original expect and, when it holds, is recorded as the step that ran", async () => {
+      const driver = new StubDriver();
+      driver.navOn["Checkout Now"] = "https://app/payment";
+      const original: Step = { kind: "click", target: { text: "Checkout" }, expect: { url: "app/payment" } };
+      const healed: Step = { kind: "click", target: { text: "Checkout Now" } };
+      const healer: StepHealer = {
+        async heal(_step, index, d) {
+          await d.click(healed.target);
+          return { index, step: healed };
+        },
+      };
+      const sc: Scenario = { name: "t", steps: [original], assertions: [{ kind: "navigated" }] };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { stepHealer: healer, expectTimeoutMs: 20 },
+      );
+      expect(result.evidence.execution.actions[0]).toEqual({ step: healed, ok: true });
+      expect(result.verdict.passed).toBe(true);
+    });
+  }
+
+  // pipeline-healer-skipped-when-step-throws.test.ts
+  {
+    it("pipelineHealerSkippedWhenStepThrows: a step that throws (locator failure) is NOT handed to the step healer — only a ran-but-diverged step is", async () => {
+      const driver = new FakeDriver({ evidence, failOn: ["Pay"] });
+      let healCalls = 0;
+      const healer: StepHealer = {
+        async heal() {
+          healCalls++;
+          return null;
+        },
+      };
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Pay" }, expect: { url: "x/paid" } }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { stepHealer: healer, expectTimeoutMs: 20 },
+      );
+      expect(healCalls).toBe(0);
+      expect(result.evidence.execution.actions[0]).toMatchObject({ ok: false, error: "element not found: Pay" });
+    });
+  }
+
+  // pipeline-no-handler-for-kind.test.ts
+  {
+    it("pipelineNoHandlerForKindFailsStep: an empty handler chain fails the step with a named error and blocks the run instead of throwing out of runHarness", async () => {
+      const driver = new StubDriver();
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Go" } }, { kind: "pressKey", key: "Enter" }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { stepHandlers: [] },
+      );
+      expect(result.evidence.execution.actions).toEqual([
+        { step: sc.steps[0], ok: false, error: 'no step handler for kind "click"' },
+      ]);
+      expect(result.evidence.execution.blocked).toBe(true);
+      expect(result.verdict.passed).toBe(false);
+      expect(result.verdict.detail).toContain('step 1/2 blocked: no step handler for kind "click" (1 later step(s) never ran)');
+    });
+  }
+
+  // pipeline-screenshot-throw.test.ts
+  {
+    class BrokenCamera extends StubDriver {
+      shots = 0;
+      override async screenshot(): Promise<string | undefined> {
+        this.shots++;
+        throw new Error("capture failed");
+      }
+    }
+
+    it("pipelineScreenshotThrowDoesNotFailRun: a throwing driver.screenshot() is swallowed — the step stays ok and onStep gets no screenshot", async () => {
+      const driver = new BrokenCamera();
+      const progress: StepProgress[] = [];
+      const sc: Scenario = { name: "t", steps: [{ kind: "pressKey", key: "Enter" }], assertions: [{ kind: "navigated" }] };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { captureScreenshots: true, onStep: (p) => progress.push(p) },
+      );
+      expect(driver.shots).toBe(1); // capture was attempted
+      expect(progress).toHaveLength(1);
+      expect(progress[0]?.ok).toBe(true);
+      expect(progress[0]?.screenshot).toBeUndefined();
+      expect(result.verdict.passed).toBe(true);
+    });
+  }
+
+  // pipeline-step-handlers-option.test.ts
+  {
+    it("pipelineStepHandlersOptionOverridesDefaults: a supplied stepHandlers chain replaces the built-ins entirely, so the driver never sees the step", async () => {
+      const driver = new StubDriver();
+      const seen: string[] = [];
+      const catchAll: StepHandler = {
+        supports: () => true,
+        execute: async (step) => void seen.push(step.kind),
+      };
+      const sc: Scenario = {
+        name: "t",
+        steps: [{ kind: "click", target: { text: "Go" } }, { kind: "custom", name: "wiggle" }],
+        assertions: [{ kind: "navigated" }],
+      };
+      const result = await runHarness(
+        { context: new InlineContextProvider(), planner: new StaticPlanner(sc), driver, critic: new AssertionCritic(), reporter: { emit: async () => {} } },
+        "t",
+        { stepHandlers: [catchAll], actions: { wiggle: async () => void seen.push("registry-should-not-run") } },
+      );
+      expect(seen).toEqual(["click", "custom"]);
+      expect(driver.clicked).toEqual([]); // built-in dispatch bypassed
+      expect(result.evidence.execution.actions.every((a) => a.ok)).toBe(true);
+    });
+  }
+
 });

@@ -22,6 +22,7 @@ const EXTENSIONS: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/webp": "webp",
   "image/gif": "gif",
+  "image/svg+xml": "svg",
   "text/plain": "txt",
   "text/html": "html",
   "application/json": "json",

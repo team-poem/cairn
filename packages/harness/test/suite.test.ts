@@ -41,6 +41,29 @@ const shopDriver = (): StubDriver => {
   return d;
 };
 
+/** The shop, where clicking Products also fires a DELETE the flow cannot prove (#184): the request
+ * log grows only on the click, so the mutation is the flow's own, and its numeric path gives
+ * grounding nothing stable to check. `requests` is shared so a test can reset it between runs. */
+function unprovenShop(): { driverFactory: () => StubDriver; requests: unknown[] } {
+  const requests: { method: string; url: string; status: number }[] = [];
+  const driverFactory = (): StubDriver => {
+    const d = new (class extends StubDriver {
+      override async click(t: Parameters<StubDriver["click"]>[0]): Promise<void> {
+        await super.click(t);
+        requests.push({ method: "DELETE", url: "https://shop/586738", status: 200 });
+      }
+      override async observe(): Promise<Awaited<ReturnType<StubDriver["observe"]>>> {
+        const e = await super.observe();
+        return { ...e, logic: { ...e.logic, requests: [...requests] } };
+      }
+    })("https://shop/");
+    d.els = [{ role: "link", name: "Products" }];
+    d.navOn["Products"] = "https://shop/products";
+    return d;
+  };
+  return { driverFactory, requests };
+}
+
 const frozen: Scenario = {
   name: "open the catalog",
   steps: [
@@ -156,6 +179,23 @@ describe("runSuite", () => {
     });
     expect(suite.verdicts[0]!.verdict.detail).toContain("truncated");
     expect(store.skills.size).toBe(0);
+  });
+
+  it("carries an unproven action onto the verdict and the report line — on discovery and on the cached replay (#190)", async () => {
+    const store = new MemoryStore();
+    const { driverFactory, requests } = unprovenShop();
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
+    const action = "DELETE https://shop/586738";
+
+    const suite = await runSuite([CASE], { store, driverFactory, llm, reporter: silent });
+    expect(suite.verdicts[0]).toMatchObject({ discovered: true, unprovenAction: action, verdict: { passed: true } });
+    expect(renderSuiteReport(suite)).toContain(`discovered + replayed · ⚠ unproven action: ${action}`);
+
+    // The flag lives on the frozen skill, so the cached replay (LLM 0) still says it.
+    requests.length = 0;
+    const cached = await runSuite([CASE], { store, driverFactory, llm: forbiddenLlm, reporter: silent });
+    expect(cached.verdicts[0]).toMatchObject({ discovered: false, unprovenAction: action });
+    expect(renderSuiteReport(cached)).toContain(`replayed (cached) · ⚠ unproven action: ${action}`);
   });
 
   it("re-freezes a healed scenario so the NEXT run replays clean", async () => {
@@ -510,6 +550,19 @@ describe("runSuite trace", () => {
 
     expect(sink.events[1]!.payload).toMatchObject({ cached: true });
     expect(sink.events.some((e) => e.phase === "discover")).toBe(false);
+  });
+
+  it("the freeze payload names an unproven action next to truncated (#190)", async () => {
+    const sink = new RecordingSink();
+    const store = new MemoryStore();
+    const { driverFactory } = unprovenShop();
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
+
+    await runSuite([CASE], { store, driverFactory, llm, reporter: silent, trace: sink });
+
+    const freeze = sink.events.find((e) => e.kind === "freeze")!;
+    expect(freeze.payload).toMatchObject({ ref: REF, unprovenAction: "DELETE https://shop/586738" });
+    expect((freeze.payload as { truncated?: boolean }).truncated).toBeUndefined();
   });
 
   it("the outcome-heal re-freeze emits a freeze event under phase heal, caseHash re-stamped", async () => {

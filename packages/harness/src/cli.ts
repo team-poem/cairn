@@ -26,7 +26,7 @@ import { describeAction } from "./core/discover/decision.js";
 import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
-import { renderSuiteReport } from "./adapters/reporters/suite.js";
+import { renderSuiteReport, unprovenLabel } from "./adapters/reporters/suite.js";
 import {
   droppedProofReason,
   guessedKeyRuns,
@@ -310,7 +310,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)`,
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}`,
       ),
   });
 

@@ -751,3 +751,20 @@ it("healGreenReplayNeedsNoBackend: heal:true on a green replay never constructs 
     else process.env.CAIRN_LLM_BACKEND = saved;
   }
 });
+
+it("bareRunAbortClosesTrace: a bare run that throws (abort) still ends its implicit case and run in the trace — one shape with the suite, which records a crashed case", async () => {
+  const events: TraceEvent[] = [];
+  const controller = new AbortController();
+  controller.abort();
+  await expect(
+    runScenario(scenario, {
+      driver: new FakeDriver({ evidence: evidence() }),
+      reporter: silent,
+      signal: controller.signal,
+      trace: { emit: (event) => events.push(event) },
+    }),
+  ).rejects.toThrow();
+  expect(events.map((event) => event.kind)).toEqual(["trace", "case-start", "case-end", "run-end"]);
+  expect(events[2]!.payload).toMatchObject({ verdict: { passed: false }, heals: 0, discovered: false });
+  expect(events[3]!.payload).toMatchObject({ passed: false });
+});

@@ -122,10 +122,12 @@ export function freshMutationExpect(tail: NetworkRequest[], benign: readonly str
 }
 
 /** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
- * that still substring-matches the full request URL on a later replay, where a run-specific id
- * would never match again. Query and hash are dropped with the rest of the URL by `destinationKey`.
- * Shared with assertion grounding (#172) so a step expect and a `request-status` assertion freeze
- * the same endpoint identity. */
+ * that a later replay still matches, where a run-specific id would never match again. The path
+ * portion is matched by substring; a query-dispatch endpoint may keep a leading run of its query
+ * (`stableQuerySuffix`), matched as parsed key/value pairs instead (`urlMatchesFrozen`, #200) —
+ * see `groundingMatch`/matcher call sites, not a literal substring of the whole value. Hash is
+ * dropped with the rest of the URL by `destinationKey`. Shared with assertion grounding (#172) so
+ * a step expect and a `request-status` assertion freeze the same endpoint identity. */
 export function stableEndpointPrefix(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
   const stable: string[] = [];
@@ -137,9 +139,12 @@ export function stableEndpointPrefix(url: string): string {
   // A cut path is a prefix of the URL, so nothing that follows the cut can be appended to it.
   if (stable.length < segs.length) return path;
   const withQuery = path + stableQuerySuffix(url);
-  // The frozen value is matched by substring, so it must actually occur in the URL — a trailing
-  // slash or an encoding difference between `destinationKey` and the raw URL would break that.
-  return url.includes(withQuery) ? withQuery : path;
+  // Only the PATH portion is matched by substring — the query is compared as parsed key/value
+  // pairs by `urlMatchesFrozen`, not as literal text — so only the path has to actually occur in
+  // the URL. Checking the whole `path + query` string here (#200) failed on a trailing slash before
+  // the query (`shop.co/rpc/?action=…` vs the frozen `shop.co/rpc?action=…`) and silently dropped
+  // the query, which is exactly the discriminator a query-dispatch endpoint needs.
+  return url.includes(path) ? withQuery : path;
 }
 
 /**
@@ -148,9 +153,12 @@ export function stableEndpointPrefix(url: string): string {
  * where the path alone names no action and any other POST to the endpoint would satisfy the check.
  * Stops at the first run-specific value (`?buyRequestIds=586738`), which is what #172 must drop.
  *
- * Leading run, not a filter: the frozen value is matched by substring, so the kept params have to
- * be contiguous from the start of the query — everything from the first run-specific value on is
- * dropped with it, since a frozen value cannot skip a param it does not know.
+ * Leading run, not a filter: the frozen value used to be matched by substring, so the kept params
+ * had to be contiguous from the start of the query — everything from the first run-specific value
+ * on is dropped with it, since a frozen value cannot skip a param it does not know. The query is
+ * now matched as parsed key/value pairs instead (`urlMatchesFrozen`, #200), which would tolerate a
+ * gap — but this function still stops at the first run-specific value; turning it into a filter
+ * that keeps every stable param is a separate change.
  */
 function stableQuerySuffix(url: string): string {
   const query = url.match(/\?([^#]*)/)?.[1];

@@ -35,7 +35,8 @@ export type Step = StepMeta &
 export interface WaitUntil {
   /** the final URL includes this substring */
   url?: string;
-  /** a captured request whose URL includes `urlIncludes` reached `status` */
+  /** a captured request reached `status`, matched by `urlMatchesFrozen`: the part of `urlIncludes`
+   * before `?` is a URL substring, the part after `?` is a subset of the URL's parsed query */
   requestStatus?: { urlIncludes: string; status: number; method?: string };
   /** an element with this accessible name is present (optionally constrained by `role`) */
   text?: string;
@@ -91,8 +92,9 @@ export type Assertion = AssertionMeta &
   | { kind: "navigated"; to?: string }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  /** `method` (optional) scopes the match, so a same-prefix GET can't satisfy a POST check —
-   * parity with the step-level `expect.requestStatus`. */
+  /** `urlIncludes` matches the same way as `WaitUntil.requestStatus` (`urlMatchesFrozen`): substring
+   * before `?`, parsed-query subset after. `method` (optional) scopes the match, so a same-prefix
+   * GET can't satisfy a POST check — parity with the step-level `expect.requestStatus`. */
   | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */

@@ -709,6 +709,28 @@ describe("query-dispatch endpoints keep their operation", () => {
     ).toBeUndefined();
   });
 
+  it("a same-prefix variant of the op does not ground the check (#200) — grounding, not just replay, must refuse it", () => {
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "shop.co/graphql?op=AddToCart", status: 200 }],
+      {
+        execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+        perception: {},
+        // Only a DIFFERENT operation fired (AddToCartV2) — grounding a substring match here would
+        // silently freeze the check onto the wrong action's request.
+        logic: {
+          requests: [{ method: "POST", url: "https://shop.co/graphql?op=AddToCartV2", status: 200 }],
+          console: [],
+        },
+      },
+      false,
+      [],
+      (_a, r) => drops.push(r),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/no captured request matched/);
+  });
+
   it("still drops the run-specific value that motivated #172", () => {
     const out = deriveAssertions(
       [{ kind: "request-status", urlIncludes: "/cart/add?buyRequestIds=586738", status: 200 }],

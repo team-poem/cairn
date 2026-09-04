@@ -243,7 +243,10 @@ export const STABLE_PREFIX_CORPUS: StablePrefixCase[] = [
   { note: "leading run only: a run-specific first param drops the whole query", url: "https://shop.co/rpc?sid=a1b2c3d4e5&action=checkout", frozen: "shop.co/rpc" },
   { note: "valueless param drops the query", url: "https://shop.co/rpc?debug&action=checkout", frozen: "shop.co/rpc" },
   { note: "a cut path takes no query (it is a prefix, not a suffix)", url: "https://shop.co/api/orders/586738/confirm?op=Confirm", frozen: "shop.co/api/orders" },
-  { note: "trailing slash before the query keeps the path only", url: "https://shop.co/rpc/?action=checkout", frozen: "shop.co/rpc" },
+  // #200: this used to freeze to "shop.co/rpc", dropping the query — the guard checked
+  // `url.includes(path + query)`, and the raw URL's "/rpc/?" is never a substring of "rpc?..."
+  // (the trailing slash), so it fell back to the bare path and silently lost the discriminator.
+  { note: "trailing slash before the query still keeps the query (#200)", url: "https://shop.co/rpc/?action=checkout", frozen: "shop.co/rpc?action=checkout" },
   // hosts
   { note: "port is part of the host", url: "http://localhost:3000/api/cart?x=1", frozen: "localhost:3000/api/cart" },
   // THE CUT ALSO TAKES THE VERB. Everything after the first run-minted segment goes with it, and in

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure } from "../../src/core/requests.js";
+import {
+  findRequestStatus,
+  isBenignRequest,
+  isMutation,
+  isRecoveredFailure,
+  urlMatchesFrozen,
+} from "../../src/core/requests.js";
 import type { NetworkRequest } from "../../src/core/types.js";
 
 const req = (method: string, url: string, status: number): NetworkRequest => ({ method, url, status });
@@ -31,6 +37,54 @@ describe("findRequestStatus — url AND status (AND method when given)", () => {
     const log = [req("GET", "https://app/api/me", 200)];
     expect(findRequestStatus(log, "/api/other", 200)).toBeUndefined();
     expect(findRequestStatus(log, "/api/me", 204)).toBeUndefined();
+  });
+});
+
+describe("urlMatchesFrozen (#200) — the part before '?' is a substring, the part after is a query subset", () => {
+  it("plain substring, no query — same as today", () => {
+    expect(urlMatchesFrozen("https://app/api/me?x=1", "/api/me")).toBe(true);
+    expect(urlMatchesFrozen("https://app/api/other", "/api/me")).toBe(false);
+  });
+
+  it("a longer operation value does NOT satisfy a shorter frozen one (GraphQL op versioning)", () => {
+    expect(urlMatchesFrozen("https://shop.co/graphql?op=AddToCartV2", "shop.co/graphql?op=AddToCart")).toBe(false);
+    expect(urlMatchesFrozen("https://shop.co/graphql?op=AddToCartAsync", "shop.co/graphql?op=AddToCart")).toBe(
+      false,
+    );
+  });
+
+  it("the exact frozen op still matches", () => {
+    expect(urlMatchesFrozen("https://shop.co/graphql?op=AddToCart", "shop.co/graphql?op=AddToCart")).toBe(true);
+  });
+
+  it("extra params on the actual URL are tolerated (a leading trace param)", () => {
+    expect(urlMatchesFrozen("https://shop.co/graphql?trace=xy&op=AddToCart", "shop.co/graphql?op=AddToCart")).toBe(
+      true,
+    );
+  });
+
+  it("param order does not matter", () => {
+    expect(
+      urlMatchesFrozen("https://shop.co/api?mode=express&action=checkout", "shop.co/api?action=checkout&mode=express"),
+    ).toBe(true);
+  });
+
+  it("a missing frozen param fails the match", () => {
+    expect(urlMatchesFrozen("https://shop.co/api?action=checkout", "shop.co/api?action=checkout&mode=express")).toBe(
+      false,
+    );
+  });
+});
+
+describe("findRequestStatus routes query matching through urlMatchesFrozen (#200)", () => {
+  it("a same-prefix operation on the same endpoint does not satisfy the frozen check", () => {
+    const log = [req("POST", "https://shop.co/graphql?op=AddToCartV2", 200)];
+    expect(findRequestStatus(log, "shop.co/graphql?op=AddToCart", 200)).toBeUndefined();
+  });
+
+  it("reordered/extra query params still satisfy a frozen subset", () => {
+    const log = [req("POST", "https://shop.co/api?trace=xy&mode=express&action=checkout", 200)];
+    expect(findRequestStatus(log, "shop.co/api?action=checkout", 200)).toBeDefined();
   });
 });
 

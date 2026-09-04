@@ -1,5 +1,39 @@
 import type { NetworkRequest } from "./types.js";
 
+/** Raw key -> raw value pairs of a query string ("a=1&b=2"), last one wins on a duplicate key.
+ * No decoding — matched as literal text, same as the containment match this replaces. */
+function parseQueryPairs(query: string): Map<string, string> {
+  const pairs = new Map<string, string>();
+  for (const pair of query.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.slice(0, eq);
+    pairs.set(key, eq === -1 ? "" : pair.slice(eq + 1));
+  }
+  return pairs;
+}
+
+/** Does `url` satisfy a frozen `urlIncludes`? The part before the first `?` is a plain substring
+ * match, exactly as `urlIncludes` has always worked. The part after `?`, if any, is compared as a
+ * SUBSET of the URL's own query: every frozen key=value pair must be present with an equal value —
+ * extra params on the URL are tolerated, order doesn't matter. Plain substring on the whole query
+ * let a longer operation name satisfy a shorter frozen one (`?op=AddToCart` matched by a replay
+ * firing `?op=AddToCartV2`, ordinary GraphQL versioning) and made the match order-sensitive
+ * (`?op=AddToCart` failing against `?trace=xy&op=AddToCart`). #200. Shared by every request-status
+ * call site (this predicate, discovery-time grounding, the assertion diagnostic) so a verdict and
+ * its diagnostic can never disagree. */
+export function urlMatchesFrozen(url: string, urlIncludes: string): boolean {
+  const q = urlIncludes.indexOf("?");
+  if (q === -1) return url.includes(urlIncludes);
+  const path = urlIncludes.slice(0, q);
+  if (!url.includes(path)) return false;
+  const actual = parseQueryPairs(url.match(/\?([^#]*)/)?.[1] ?? "");
+  for (const [key, value] of parseQueryPairs(urlIncludes.slice(q + 1))) {
+    if (actual.get(key) !== value) return false;
+  }
+  return true;
+}
+
 /** The one request-status predicate: the first captured request matching url AND status (AND
  * method, when given — so a same-prefix GET can't satisfy a POST check on a status collision).
  * Shared by the deterministic critic (`request-status`) and `conditionMet` (waitFor / step
@@ -13,7 +47,7 @@ export function findRequestStatus(
 ): NetworkRequest | undefined {
   const m = method?.toUpperCase();
   return requests.find(
-    (r) => r.url.includes(urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
+    (r) => urlMatchesFrozen(r.url, urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
   );
 }
 

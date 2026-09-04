@@ -27,7 +27,7 @@
   - `Scenario`의 `urlIncludes`는 여전히 plain string — JSON 스키마 변경 없음.
   - 프롬프트 문구 갱신: `discover/prompt.ts`의 `ACTION_VOCABULARY`(waitFor.requestStatus만,
     `until.url`은 그대로 substring), `discover/grounding.ts`의 assertion-proposal 프롬프트.
-    두 곳 다 `<substring, or add ?key=value pairs to also require those query params>`로.
+    최종 문구는 PR 리뷰 라운드 2에서 한 번 더 갱신됨 — 아래 참고.
 - **테스트:**
   - `test/core/requests.test.ts` — `urlMatchesFrozen`/`findRequestStatus`에 shape 1(더 긴
     op이 만족 못 함)·shape 3(extra param 허용, 순서 무관, 누락 param은 실패) 케이스 추가.
@@ -49,3 +49,37 @@
   애초에 "다른 엔드포인트"로 잡아내지 못하는 기존 한계가 있어(스코프 밖 — `sameEndpointShape`
   변경 금지) 이 지점만 별도 회귀 테스트는 안 붙였다.
 - **state 변화:** 없음(작업 브랜치라 `state.md` 미수정, §5).
+
+## 커밋 후 갱신 1 — types.ts 문서 주석 (PR #201 리뷰)
+
+- `core/types.ts`의 `WaitUntil.requestStatus`, `Assertion`의 `request-status` 분기 doc comment가
+  옛 순수 substring 시맨틱을 그대로 설명하고 있어서, `urlMatchesFrozen`을 가리키는 문장으로
+  갱신(`96acb7a`에 amend). 기존 커밋에 amend — 아직 push 전이었음.
+
+## 커밋 후 갱신 2 — PR #201 리뷰 라운드 2, 세 건
+
+리뷰가 실제 회귀 하나를 잡아냈다(팀리드가 재현 확인 후 전달).
+
+1. **`hasStablePath`가 쿼리 값 안의 `/`로 오탐** — 우리 가드 변경(`stableEndpointPrefix`가
+   이제 쿼리를 붙여 리턴) 이후, `hasStablePath(prefix)`가 여전히 `prefix.includes("/")`라서
+   `"shop.co?next=/dashboard"` 같은 프리픽스가 "path 있음"으로 잘못 판정됨. host-only 체크가
+   프리즈되고, 쿼리만 다른 무관한 요청에도 만족되는 false GREEN(#172가 막으려던 바로 그것).
+   호출부 3곳(`capture.ts:112`, `grounding.ts:181`, `grounding.ts:325` — 이건 #184
+   unproven-action 게이트를 무장해제하는 부작용까지 있었음) 대신 `hasStablePath` 안에서
+   `?` 앞부분만 보도록 고침. 회귀 테스트: `capture.test.ts`(`freshMutationExpect`가
+   `?next=/dashboard`짜리 root POST를 여전히 host-only로 거부), `grounding.test.ts`
+   (`findUnprovenAction`이 같은 요청을 여전히 unproven으로 잡아냄, #184 케이스).
+2. **프롬프트가 "쿼리 값은 정확히 일치해야 함"을 말하지 않음** — 그라운딩은 부분 값
+   (`?op=Add` vs 실제 `?op=AddToCartMutation`)을 이미 올바르게 거부하는데, 문구는 모델에게
+   "pair를 추가할 수 있다"만 알려줬다. `discover/prompt.ts`의 `ACTION_VOCABULARY`와
+   `discover/grounding.ts`의 assertion-proposal 프롬프트를 `<url-path-substring, optionally
+   with ?key=value pairs that must match exactly (no partial values)>`로 갱신. SYSTEM/
+   EXPLORE_SYSTEM 바이트 고정 스냅샷 두 곳도 같이 갱신.
+3. **waitFor/step expect 경로에 #200 테스트가 없었음** — `conditionMet`/`findRequestStatus`
+   (`steps.ts:231`)는 매처 변경과 freeze 가드 변경 두 번 다 영향을 받는데 커버리지가 없었다.
+   `steps.test.ts`에 `conditionMetRequestStatusQuerySubset` 추가 — `?op=AddToCartV2`가
+   프리즈된 `?op=AddToCart`를 만족 못 하고, 정확한 op(extra param 붙어도)는 만족함을 확인.
+   (이 테스트는 추가하자마자 green이었다 — 매처 자체는 첫 커밋에서 이미 고쳐져 있었고, 이번은
+   순수 커버리지 추가.)
+- **검증(라운드 2):** `npm test` 864 passed, `npm run typecheck` 통과, `npm run build` 통과.
+- **커밋:** `96acb7a` 위에 새 커밋(amend 아님, 이미 push되어 리뷰 중이었으므로).

@@ -361,7 +361,7 @@ const ASSERT_SYSTEM =
   "never invent a request or page that is not shown. Given the intent and what the run observed, " +
   "return a JSON array of assertions confirming the intent was achieved. " +
   "Prove the ACTION, not just the destination: prefer a " +
-  '{"kind":"request-status","urlIncludes":"<url-substring, or add ?key=value pairs to also require those query params>","status":200} on the state-changing request ' +
+  '{"kind":"request-status","urlIncludes":"<url-path-substring, optionally with ?key=value pairs that must match exactly (no partial values)>","status":200} on the state-changing request ' +
   "that performed the goal (a POST/PUT/PATCH such as an order/submit/create call) — NOT a page navigation " +
   "or GET, which a mere URL jump could satisfy without doing the work. " +
   'Add {"kind":"navigated","to":"<host+path>"} for the destination too. ' +

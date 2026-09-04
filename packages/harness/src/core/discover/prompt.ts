@@ -23,7 +23,7 @@ export const ACTION_VOCABULARY =
   '{"action":"type","text":"<element>","value":"<text>"} · {"action":"select","text":"<element>","value":"<option>"} · ' +
   '{"action":"pressKey","key":"Enter|Escape|..."} · {"action":"scroll","direction":"down|up"} (load lazy content) · ' +
   '{"action":"goto","url":"<url>"} · ' +
-  '{"action":"waitFor","until":{"url":"<substring>"}|{"requestStatus":{"urlIncludes":"<substring, or add ?key=value pairs to also require those query params>","status":200}}|{"text":"<element>"}} ' +
+  '{"action":"waitFor","until":{"url":"<substring>"}|{"requestStatus":{"urlIncludes":"<url-path-substring, optionally with ?key=value pairs that must match exactly (no partial values)>","status":200}}|{"text":"<element>"}} ' +
   "(block until the app is ready before the next step — e.g. an auth redirect lands or a key request returns — instead of racing it)";
 
 /** How the model must choose targets — shared by every loop prompt (#99). */

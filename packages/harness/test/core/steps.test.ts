@@ -235,6 +235,30 @@ describe("conditionMet audit coverage", () => {
     ).resolves.toBe(false);
   });
 
+  it("conditionMetRequestStatusQuerySubset: waitFor.requestStatus matches the query as a subset, same as the assertion path (#200)", async () => {
+    class LoggedRequests extends StubDriver {
+      override async observe(): Promise<Evidence> {
+        return {
+          execution: { actions: [], navigated: true, finalUrl: this.url, blocked: false },
+          perception: {},
+          logic: {
+            requests: [{ method: "POST", url: "https://shop.co/graphql?trace=xy&op=AddToCartV2", status: 200 }],
+            console: [],
+          },
+        };
+      }
+    }
+    const driver = new LoggedRequests();
+    // A same-prefix operation variant must not satisfy the frozen check.
+    await expect(
+      conditionMet(driver, { requestStatus: { urlIncludes: "shop.co/graphql?op=AddToCart", status: 200 } }),
+    ).resolves.toBe(false);
+    // The exact op, with an extra leading param, still satisfies it.
+    await expect(
+      conditionMet(driver, { requestStatus: { urlIncludes: "shop.co/graphql?op=AddToCartV2", status: 200 } }),
+    ).resolves.toBe(true);
+  });
+
   it("conditionMetRoleFilter: until.role constrains the text match to elements of that role", async () => {
     const driver = new StubDriver();
     driver.els = [{ role: "link", name: "Cart" }];

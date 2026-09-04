@@ -364,6 +364,13 @@ describe("an action no check can express is recorded, not swallowed", () => {
     expect(findUnprovenAction(evWith([rootDelete]), navigated)).toEqual(rootDelete);
   });
 
+  it("a slash inside a kept query value still counts as host-only (#200 follow-up)", () => {
+    // hasStablePath used to see the "/" inside "?next=/dashboard" as a path and wave this through —
+    // silently disarming the unproven-action gate for a request that is really host-only.
+    const rootPostWithQuery = { method: "POST", url: "https://shop.co/?next=/dashboard", status: 200 };
+    expect(findUnprovenAction(evWith([rootPostWithQuery]), navigated)).toEqual(rootPostWithQuery);
+  });
+
   it("stays quiet once a real proof was frozen — the flow is verified either way", () => {
     const assertions: Assertion[] = [
       { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },

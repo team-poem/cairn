@@ -334,7 +334,10 @@ export function namesAPage(destination: string): boolean {
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
- * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
+ * host, so it is refused rather than frozen — by the assertion path and the step expect alike.
+ * Checked on the PATH half only (cut at the first `?`, #200) — a kept query value can itself
+ * contain a `/` (a `?next=/dashboard` redirect param), which is not a path and must not count. */
 export function hasStablePath(prefix: string): boolean {
-  return prefix.includes("/");
+  const path = prefix.split("?")[0] ?? prefix;
+  return path.includes("/");
 }

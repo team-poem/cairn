@@ -143,11 +143,33 @@ describe("JsonlTraceSink (TraceSink port)", () => {
       );
 
     shot(0);
-    await sink.close(); // stands in for "the process got this far"
-    shot(1); // …and this one never flushed: the run died here
+    await sink.close();
 
     expect(await readdir(sink.attachmentsDir!)).toEqual(["1.png"]);
     expect(await readFile(join(sink.attachmentsDir!, "1.png"), "utf8")).toBe("frame-0");
+  });
+
+  it("drops writes offered after close instead of racing to flush them (#199)", async () => {
+    // close() is "the run is over" (its own doc comment). A write offered afterward is a caller
+    // contract violation, not a crash — so it must be a deterministic no-op, not a race between
+    // an unawaited scheduled flush and whoever reads the directory next.
+    const sink = new JsonlTraceSink(inDir("post-close"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    const shot = (n: number) =>
+      tracer.emit(
+        { kind: "step", phase: "replay", stepRef: n, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+        `data:image/png;base64,${Buffer.from(`frame-${n}`).toString("base64")}`,
+      );
+
+    shot(0);
+    await sink.close();
+    const failuresBeforeDrop = sink.failures;
+    shot(1); // offered after close: must be dropped, not scheduled
+    tracer.emit({ kind: "run-end", payload: { passed: true } }); // also offered after close
+
+    expect(await readdir(sink.attachmentsDir!)).toEqual(["1.png"]);
+    // Dropped writes are surfaced, not hidden — same stance as any other lost write (see `failures`).
+    expect(sink.failures).toBe(failuresBeforeDrop + 3); // shot(1): attach + emit, plus the run-end emit
   });
 
   it("counts an attachment it cannot decode without touching the events around it", async () => {

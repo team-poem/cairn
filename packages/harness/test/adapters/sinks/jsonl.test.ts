@@ -1,12 +1,24 @@
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { JsonlTraceSink } from "../../../src/adapters/sinks/jsonl.js";
 import type { TraceSink } from "../../../src/core/ports.js";
 import { ENGINE_VERSION } from "../../../src/version.js";
 import { startTrace } from "../../../src/core/trace.js";
 import type { TraceEvent } from "../../../src/core/trace.js";
+
+// `writeFile`/`appendFile` are `node:fs/promises` exports on a frozen namespace object — `vi.spyOn`
+// can't redefine them directly, so intercepting a real call (see the #199 ordering test below)
+// goes through `vi.mock` instead. Every other test in this file passes straight through to the
+// real implementation; only that one test overrides the implementation for its duration.
+const fsSpies = vi.hoisted(() => ({ writeFile: vi.fn(), appendFile: vi.fn() }));
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  fsSpies.writeFile.mockImplementation(actual.writeFile);
+  fsSpies.appendFile.mockImplementation(actual.appendFile);
+  return { ...actual, writeFile: fsSpies.writeFile, appendFile: fsSpies.appendFile };
+});
 
 let dir: string;
 beforeAll(async () => {
@@ -143,11 +155,86 @@ describe("JsonlTraceSink (TraceSink port)", () => {
       );
 
     shot(0);
-    await sink.close(); // stands in for "the process got this far"
-    shot(1); // …and this one never flushed: the run died here
+    await sink.close();
 
     expect(await readdir(sink.attachmentsDir!)).toEqual(["1.png"]);
     expect(await readFile(join(sink.attachmentsDir!, "1.png"), "utf8")).toBe("frame-0");
+  });
+
+  it("writes attachment bytes before the line that references them (#199)", async () => {
+    // #flush() awaits #flushAttachments(path) before appending pending lines — bytes land before
+    // the ref, so a truncated run never leaves a dangling reference (spec/core/trace.md
+    // §Attachments). A run that completes cleanly can't distinguish the two orderings by reading
+    // the finished file afterward: both writes land before `close()` resolves either way. So this
+    // intercepts the real `appendFile` call and asserts, at the exact moment lines are about to be
+    // written, that every attachment id they reference already has a completed `writeFile` behind
+    // it — deterministic (no race), and it does fail if the two awaits in `#flush()` are ever
+    // swapped (verified by temporarily swapping them and re-running this file: it goes red).
+    const sink = new JsonlTraceSink(inDir("bytes-before-refs"));
+    const written = new Set<string>();
+    const passThroughWriteFile = fsSpies.writeFile.getMockImplementation() as typeof writeFile;
+    const passThroughAppendFile = fsSpies.appendFile.getMockImplementation() as typeof appendFile;
+    fsSpies.writeFile.mockImplementation(async (...args: Parameters<typeof writeFile>) => {
+      const result = await passThroughWriteFile(...args);
+      written.add(String(args[0]));
+      return result;
+    });
+    fsSpies.appendFile.mockImplementation(async (...args: Parameters<typeof appendFile>) => {
+      const [, data] = args;
+      for (const line of String(data).trim().split("\n")) {
+        const event = JSON.parse(line) as TraceEvent;
+        if (event.kind === "step" && event.payload.attachment) {
+          const attachmentPath = join(sink.attachmentsDir!, `${event.payload.attachment}.png`);
+          if (!written.has(attachmentPath)) {
+            throw new Error(`line referencing attachment ${event.payload.attachment} appended before its bytes landed`);
+          }
+        }
+      }
+      return passThroughAppendFile(...args);
+    });
+
+    try {
+      const tracer = startTrace(sink, ENGINE_VERSION);
+      for (let n = 0; n < 5; n += 1) {
+        tracer.emit(
+          { kind: "step", phase: "replay", stepRef: n, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+          `data:image/png;base64,${Buffer.from(`frame-${n}`).toString("base64")}`,
+        );
+      }
+      await sink.close();
+
+      // A thrown ordering violation lands in `#schedule()`'s catch, not as a rejection out of
+      // `close()` — surface it explicitly rather than relying on the downstream ENOENT alone.
+      expect(sink.failures).toBe(0);
+      const lines = await readLines(sink.path!);
+      expect(lines.filter((event) => event.kind === "step")).toHaveLength(5);
+    } finally {
+      fsSpies.writeFile.mockImplementation(passThroughWriteFile);
+      fsSpies.appendFile.mockImplementation(passThroughAppendFile);
+    }
+  });
+
+  it("drops writes offered after close instead of racing to flush them (#199)", async () => {
+    // close() is "the run is over" (its own doc comment). A write offered afterward is a caller
+    // contract violation, not a crash — so it must be a deterministic no-op, not a race between
+    // an unawaited scheduled flush and whoever reads the directory next.
+    const sink = new JsonlTraceSink(inDir("post-close"));
+    const tracer = startTrace(sink, ENGINE_VERSION);
+    const shot = (n: number) =>
+      tracer.emit(
+        { kind: "step", phase: "replay", stepRef: n, payload: { step: { kind: "pressKey", key: "Enter" }, ok: true } },
+        `data:image/png;base64,${Buffer.from(`frame-${n}`).toString("base64")}`,
+      );
+
+    shot(0);
+    await sink.close();
+    const failuresBeforeDrop = sink.failures;
+    shot(1); // offered after close: must be dropped, not scheduled
+    tracer.emit({ kind: "run-end", payload: { passed: true } }); // also offered after close
+
+    expect(await readdir(sink.attachmentsDir!)).toEqual(["1.png"]);
+    // Dropped writes are surfaced, not hidden — same stance as any other lost write (see `failures`).
+    expect(sink.failures).toBe(failuresBeforeDrop + 3); // shot(1): attach + emit, plus the run-end emit
   });
 
   it("counts an attachment it cannot decode without touching the events around it", async () => {

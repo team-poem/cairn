@@ -39,11 +39,13 @@
   **소비자 승격 슬레이트(#171–#177):** #172(→#178)·#176(→#181) 2.8.0에 종결. 잔여 #171 재앵커·#173 실패분류·#174 비밀값
   ·#175 settle·#177 스크롤 = **2.9.0**. #173은 #189의 `goalFailures`(가드=환경 / 목표=경로) + `blockedReason`(=대본)으로
   재료가 갖춰져 "세 신호에 이름 붙이기"로 작아짐. 상세 = entries/2026-08-26-consumer-promotion-candidates.md.
-  **2.9.0 후보(소비자 2차 제보, 2026-09-03):** 신규 이슈 4 — 지각 계층/요소 정체성(Driver 위, 포털·cap·role 없는 위젯),
-  초록의 강도(verdict provability 요약; #173의 반대편), 계약 지문(`hashCase` export / verdict fingerprint), heal 헬퍼
-  export(`goalFailures`·`finalizeVerdict` — 소비자가 `verdict.passed`로 재구현해 틀림). 기존 이슈에 합류 2 — 자격증명
-  origin 스코프→#174, 폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음; 남는 건 substring→key/value
-  파싱 매칭), 환경 박제(=#171), benign→step expect(=#192/#193). #184 advisory→fail-closed 전환은 #169 벤치 뒤.
+  **2.9.0 슬레이트(소비자 2차 제보 → #195–#200 등록, 2026-09-04):** #195 heal 헬퍼 export(소비자가 `verdict.passed`로
+  재구현해 틀림 — #189가 거부한 그 술어) · #196 계약 지문(`hashCase` 미export, 체크가 강해지면 이력이 회귀로 읽힘) ·
+  #197 초록의 강도(verdict provability 요약; #173의 반대편, 같은 신호) · #198 지각 계층/요소 정체성(`ELEMENT_LIMIT=60`
+  랭킹이 포털을 잘라냄, `PageElement`에 핸들 없음 — 논의 선행) · #199 jsonl 플레이크 · #200 요청 매칭 substring
+  (`?op=AddToCart`가 `AddToCartV2`에 매칭 — PR #179 실측분). 기존 이슈 합류 2 — 자격증명 origin 스코프→#174,
+  폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음), 환경 박제(=#171), benign→step expect(=#193).
+  착수 순서 = #195·#199·#200(작고 확실) → #196·#197(설계 붙음) → #198(포트 변경 가능). #184 advisory→fail-closed 전환은 #169 벤치 뒤.
   벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.
   good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·

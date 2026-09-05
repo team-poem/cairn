@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, findUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -86,15 +86,18 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
-    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
     // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
     const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
     const wildcards =
-      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      baselineMarked.some((a) => a.kind === "navigated" && wrote(a.to)) ||
       steps.some((step) => wrote(step.expect?.url))
         ? { wildcards: true as const }
         : {};
+    const assertions = markObservedBeforeLastMutation(baselineMarked, marks, evidence, {
+      localePrefixes, benign, ...wildcards,
+    });
     // Record an action the freeze could not express a check for — advisory for now (see
     // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
     const unprovenRequest = findUnprovenAction(evidence, assertions, {

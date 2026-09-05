@@ -8,6 +8,7 @@ import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../typ
 import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure, onSiteOf } from "../requests.js";
 import { urlReached } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
+import type { OutcomeMark } from "./capture.js";
 import { extractFirstJsonArray } from "../json.js";
 import {
   destinationKey,
@@ -41,6 +42,41 @@ export function markVacuous(
   return assertions.map((a) =>
     isVacuousOn(a, baseline, benign, urlMatch) ? { ...a, vacuous: true as const } : a,
   );
+}
+
+/** Record when a derived destination was already reached before the last mutation-bearing step.
+ * A later scroll/wait must not erase this evidence. Each mark owns only its request-log tail;
+ * final statuses decide whether that tail contains a successful, non-benign, same-site mutation.
+ * This is advisory provenance, not a pending-navigation detector or a claim of causal attribution.
+ * A surviving request proof does not strengthen the separate claim of post-mutation navigation. */
+export function markObservedBeforeLastMutation(
+  assertions: Assertion[],
+  marks: readonly (OutcomeMark | null)[],
+  evidence: Evidence,
+  opts: UrlMatchOptions & { benign?: readonly string[] } = {},
+): Assertion[] {
+  const { benign = [], ...urlMatch } = opts;
+  const pages = [evidence.execution.finalUrl, ...marks.map((mark) => mark?.url)]
+    .filter((url): url is string => Boolean(url));
+  const requests = evidence.logic.requests;
+  let end = requests.length;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const mark = marks[i];
+    if (!mark) continue;
+    const hasMutation = requests.slice(mark.requestCount, end).some((request) =>
+      isMutation(request.method) && request.status >= 200 && request.status < 400 &&
+      !isBenignRequest(request.url, benign) && pages.some((page) => onSiteOf(page, request.url)),
+    );
+    end = mark.requestCount;
+    if (!hasMutation) continue;
+    return assertions.map((assertion) =>
+      assertion.kind === "navigated" && assertion.origin === "derived" &&
+      assertion.to !== undefined && mark.url !== undefined && urlReached(mark.url, assertion.to, urlMatch)
+        ? { ...assertion, observedBeforeLastMutation: true as const }
+        : assertion,
+    );
+  }
+  return assertions;
 }
 
 function isVacuousOn(

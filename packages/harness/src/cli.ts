@@ -218,6 +218,17 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // identical lines reads as many problems instead of one.
     for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
+  // #203: a request proof can establish the mutation while the URL still proves only arrival at
+  // the form. Warn independently of provesAnAction so the stronger claim is never implied.
+  for (const assertion of scenario.assertions) {
+    if (assertion.kind === "navigated" && assertion.observedBeforeLastMutation) {
+      console.log(
+        `\n⚠ ${assertion.to} was already reached before the last mutation — this URL check ` +
+          `does not prove post-mutation navigation. You can refuse this freeze or accept the weaker ` +
+          `claim that the page was reached; add a check of the intended outcome to prove more.`,
+      );
+    }
+  }
   // #184: the flow DID fire a state change, and no check could be written for it — so this is not a
   // read-only flow, and the warning above is not fine to wave through.
   if (scenario.unprovenAction) {

@@ -84,6 +84,21 @@ When discover proposes assertions, it **grounds them in what actually happened**
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 
+### Destination evidence before a mutation (#203)
+
+A derived `navigated` carries `observedBeforeLastMutation: true` when its destination already
+matches the URL observed before the last executed step whose own request-log tail contains a
+successful (200–399), non-benign mutation on a visited page's site. Final observed request statuses
+and the consumer's locale/wildcard matching rules decide the stamp; entry traffic is excluded and
+later steps without a qualifying mutation do not erase it. This records evidence provenance: the
+URL proves arrival at that page, without proving navigation after the mutation. It does **not** say
+that navigation is pending, that the mutation caused a navigation, or that an on-page save failed.
+The stamp survives even when a request assertion proves the mutation, and the CLI warns separately
+so a consumer can refuse the freeze or accept its weaker claim. User assertions are never stamped;
+the destination, baseline `vacuous` flags, step expects, request proofs, and replay verdict semantics
+stay unchanged. A later redirect outside the observed evidence remains unverified; this advisory
+adds neither a navigation wait nor a fail-closed gate.
+
 ## Perception's role (P6)
 
 Three layers are *captured*, but the deterministic verdict rules on **two** — execution + logic.

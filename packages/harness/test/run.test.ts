@@ -1049,14 +1049,14 @@ import type { Heal } from "../src/adapters/drivers/self-heal.js";
 
   // trace-header-version-literal.test.ts
   {
-    it("traceHeaderVersionLiteral: the header says version 1.2 literally (spec/core/trace.md) and carries a UUID runId", async () => {
+    it("traceHeaderVersionLiteral: the header says version 1.3 literally (spec/core/trace.md) and carries a UUID runId", async () => {
       const events: TraceEvent[] = [];
       await runScenario(traceScenario, { driver: new FakeDriver({ evidence: traceEvidence }), reporter: silent, trace: { emit: (e) => events.push(e) } });
       const header = events[0]!;
       expect(header.kind).toBe("trace");
       expect(header.seq).toBe(0);
       if (header.kind !== "trace") throw new Error("unreachable");
-      expect(header.payload.version).toBe("1.2");
+      expect(header.payload.version).toBe("1.3");
       expect(header.payload.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       expect(header.payload.engine.name).toBe("cairn");
     });

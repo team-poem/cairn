@@ -112,6 +112,9 @@ export interface SuiteVerdict {
   /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
    * was reached", not "the work was done". Advisory: the verdict does not fail on it. */
   unprovenAction?: string;
+  /** Destinations already observed before the last qualifying mutation (#203). Advisory only:
+   * correct on-page saves also carry it; it must not alone become a failure gate. */
+  observedBeforeLastMutation?: string[];
   /** Locator + surgical step heals the replay needed (0 on a clean replay). */
   heals: number;
   /** Discovery + replay combined. A cached mechanical-only case shows llmCalls: 0. */
@@ -198,7 +201,19 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
+    ...navigationEvidenceSummary(s),
   };
+}
+
+/** Summarize the assertions actually frozen/judged, including a cached or healed skill. The
+ * assertion owns provenance; a duplicate Scenario field would drift when assertions are merged. */
+function navigationEvidenceSummary(scenario: Scenario): Pick<SuiteVerdict, "observedBeforeLastMutation"> {
+  const destinations = scenario.assertions.flatMap((assertion) =>
+    assertion.kind === "navigated" && assertion.observedBeforeLastMutation && assertion.to !== undefined
+      ? [assertion.to]
+      : [],
+  );
+  return destinations.length ? { observedBeforeLastMutation: [...new Set(destinations)] } : {};
 }
 
 async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
@@ -342,6 +357,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         // The flag rides on the frozen skill, so a cached replay reports it too — that is the path
         // people actually run (#190).
         ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : {}),
+        ...navigationEvidenceSummary(healedScenario ?? scenario),
       };
     } finally {
       await driver.close().catch(() => {});

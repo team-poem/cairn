@@ -16,6 +16,13 @@ export function unprovenLabel(v: SuiteVerdict): string {
   return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
 }
 
+/** Shared by the CLI progress line and report, independently of any surviving request proof. */
+export function navigationEvidenceLabel(v: SuiteVerdict): string {
+  return v.observedBeforeLastMutation?.length
+    ? ` · ⚠ destination observed before last mutation: ${v.observedBeforeLastMutation.join(", ")} (advisory)`
+    : "";
+}
+
 export function renderSuiteReport(suite: SuiteResult): string {
   const passed = suite.verdicts.filter((v) => v.verdict.passed).length;
   const failed = suite.verdicts.length - passed;
@@ -34,7 +41,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
   ];
   for (const v of suite.verdicts) {
     lines.push(
-      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
+      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
     );
   }
 

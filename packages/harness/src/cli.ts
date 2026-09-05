@@ -26,7 +26,7 @@ import { describeAction } from "./core/discover/decision.js";
 import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
-import { renderSuiteReport, unprovenLabel } from "./adapters/reporters/suite.js";
+import { renderSuiteReport, unprovenLabel, navigationEvidenceLabel } from "./adapters/reporters/suite.js";
 import {
   droppedProofReason,
   guessedKeyRuns,
@@ -225,7 +225,8 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
       console.log(
         `\n⚠ ${assertion.to} was already reached before the last mutation — this URL check ` +
           `does not prove post-mutation navigation. You can refuse this freeze or accept the weaker ` +
-          `claim that the page was reached; add a check of the intended outcome to prove more.`,
+          `claim that the page was reached; add a check of the intended outcome to prove more. ` +
+          `Correct on-page saves also carry this advisory: do not fail on it alone without additional evidence.`,
       );
     }
   }
@@ -326,7 +327,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}`,
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}`,
       ),
   });
 

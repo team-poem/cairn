@@ -69,14 +69,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
 
-  // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
-  // then propose+ground assertions. `truncated` marks a step-cap stop.
+  // Emit the freeze: observe pending mutations and short post-response redirects within one
+  // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
     // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
-    const evidence = await observeOutcomes(driver, firstCount);
+    const evidence = await observeOutcomes(driver, firstCount, marks, benign);
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>

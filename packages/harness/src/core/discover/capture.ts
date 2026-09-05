@@ -6,7 +6,7 @@
  */
 import type { Driver } from "../ports.js";
 import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
-import { isBenignRequest, isMutation } from "../requests.js";
+import { isBenignRequest, isMutation, onSiteOf } from "../requests.js";
 import { urlReached, WILDCARD } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 
@@ -30,23 +30,66 @@ export interface OutcomeMark {
   requestCount: number;
 }
 
-// The one bounded wait left (#81): only the FINAL evidence observation may still see the last
-// step's mutation in flight (every earlier step's response resolved while later steps ran).
+// The final evidence shares one budget for pending responses and post-response redirects.
 const OUTCOME_SETTLE_TIMEOUT_MS = 2_000;
 const OUTCOME_SETTLE_POLL_MS = 200;
 
-/** Observe the freeze-time evidence, waiting (bounded) while a mutation fired during the run is
- * still in flight — so retroactive expect/assertion grounding sees resolved statuses, not a race. */
-export async function observeOutcomes(driver: Driver, firstRequestCount: number): Promise<Evidence> {
+/** Find the last executed step whose own request tail contains a successful, non-benign,
+ * same-site mutation. Shared by the bounded wait and the advisory's provenance attribution. */
+export function lastMutationMark(
+  marks: readonly (OutcomeMark | null)[],
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): OutcomeMark | undefined {
+  const pages = [evidence.execution.finalUrl, ...marks.map((mark) => mark?.url)]
+    .filter((url): url is string => Boolean(url));
+  const requests = evidence.logic.requests;
+  let end = requests.length;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const mark = marks[i];
+    if (!mark) continue;
+    const hasMutation = requests.slice(mark.requestCount, end).some((request) =>
+      isMutation(request.method) && request.status >= 200 && request.status < 400 &&
+      !isBenignRequest(request.url, benign) && pages.some((page) => onSiteOf(page, request.url)),
+    );
+    end = mark.requestCount;
+    if (hasMutation) return mark;
+  }
+  return undefined;
+}
+
+/** Observe completed evidence within one budget: first pending flow mutations (#81), and also
+ * a short redirect after the last qualifying mutation (#203). Host+path equality controls waiting;
+ * query/hash progress updates do not count as reaching another destination. The later advisory
+ * uses the frozen destination's locale/wildcard matcher. This is mitigation,
+ * not proof that arbitrary late or multi-hop navigation has completed. */
+export async function observeOutcomes(
+  driver: Driver,
+  firstRequestCount: number,
+  marks: readonly (OutcomeMark | null)[] = [],
+  benign: readonly string[] = [],
+): Promise<Evidence> {
   const deadline = Date.now() + OUTCOME_SETTLE_TIMEOUT_MS;
+  let previous: Evidence | undefined;
   for (;;) {
-    await driver.settle();
+    const remaining = deadline - Date.now();
+    if (remaining > 0) await driver.settle({ timeoutMs: remaining });
     const evidence = await driver.observe();
+    if (Date.now() >= deadline) return evidence;
     const pending = evidence.logic.requests
       .slice(firstRequestCount)
       .some((r) => isMutation(r.method) && r.status === 0);
-    if (!pending || Date.now() >= deadline) return evidence;
-    await sleep(OUTCOME_SETTLE_POLL_MS);
+    const mark = lastMutationMark(marks, evidence, benign);
+    const finalUrl = evidence.execution.finalUrl;
+    const unchanged = mark?.url !== undefined && finalUrl !== undefined &&
+      destinationKey(mark.url) === destinationKey(finalUrl);
+    const moved = previous !== undefined && previous.execution.finalUrl !== evidence.execution.finalUrl;
+    previous = evidence;
+    // Give a newly observed destination a settle/observation with the remaining budget so its
+    // requests join the evidence, without imposing a quiet window on every successful action.
+    if (!pending && !unchanged && !moved) return evidence;
+    const sleepMs = Math.min(OUTCOME_SETTLE_POLL_MS, deadline - Date.now());
+    if (sleepMs > 0) await sleep(sleepMs);
   }
 }
 

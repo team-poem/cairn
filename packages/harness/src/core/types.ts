@@ -94,7 +94,8 @@ export type Assertion = AssertionMeta &
       /** Discovery already observed this destination before the last executed step whose request
        * tail contains a successful, non-benign, same-site mutation (#203). Advisory provenance:
        * reaching this URL does not prove post-mutation navigation, nor that navigation is pending.
-       * Stamped only on derived assertions; replay judgment is unchanged. */
+       * Stamped only on derived assertions; replay judgment is unchanged. Correct on-page saves
+       * also carry this marker: it must not become a failure gate without additional evidence. */
       observedBeforeLastMutation?: true;
     }
   | { kind: "no-console-errors" }

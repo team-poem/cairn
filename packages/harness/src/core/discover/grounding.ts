@@ -13,6 +13,7 @@ import { extractFirstJsonArray } from "../json.js";
 import {
   destinationKey,
   hasStablePath,
+  lastMutationMark,
   namesAPage,
   sameEndpointShape,
   stableDestination,
@@ -56,27 +57,14 @@ export function markObservedBeforeLastMutation(
   opts: UrlMatchOptions & { benign?: readonly string[] } = {},
 ): Assertion[] {
   const { benign = [], ...urlMatch } = opts;
-  const pages = [evidence.execution.finalUrl, ...marks.map((mark) => mark?.url)]
-    .filter((url): url is string => Boolean(url));
-  const requests = evidence.logic.requests;
-  let end = requests.length;
-  for (let i = marks.length - 1; i >= 0; i--) {
-    const mark = marks[i];
-    if (!mark) continue;
-    const hasMutation = requests.slice(mark.requestCount, end).some((request) =>
-      isMutation(request.method) && request.status >= 200 && request.status < 400 &&
-      !isBenignRequest(request.url, benign) && pages.some((page) => onSiteOf(page, request.url)),
-    );
-    end = mark.requestCount;
-    if (!hasMutation) continue;
-    return assertions.map((assertion) =>
-      assertion.kind === "navigated" && assertion.origin === "derived" &&
-      assertion.to !== undefined && mark.url !== undefined && urlReached(mark.url, assertion.to, urlMatch)
-        ? { ...assertion, observedBeforeLastMutation: true as const }
-        : assertion,
-    );
-  }
-  return assertions;
+  const mark = lastMutationMark(marks, evidence, benign);
+  if (!mark) return assertions;
+  return assertions.map((assertion) =>
+    assertion.kind === "navigated" && assertion.origin === "derived" &&
+    assertion.to !== undefined && mark.url !== undefined && urlReached(mark.url, assertion.to, urlMatch)
+      ? { ...assertion, observedBeforeLastMutation: true as const }
+      : assertion,
+  );
 }
 
 function isVacuousOn(

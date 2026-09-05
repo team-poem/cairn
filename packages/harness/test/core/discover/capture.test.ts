@@ -249,6 +249,14 @@ describe("freshMutationExpect refuses a host-only endpoint (#172 parity)", () =>
       requestStatus: { urlIncludes: "api.shop.co/orders", status: 201, method: "POST" },
     });
   });
+
+  it("a slash inside a kept query value does not count as a stable path (#200 follow-up)", () => {
+    // Host-only path, but the query happens to carry a slash (a return/redirect URL). hasStablePath
+    // must look at the PATH half only, or this host-only check freezes and is then satisfied by any
+    // other request to the host that happens to carry the same query — exactly the false GREEN this
+    // refusal exists to prevent.
+    expect(freshMutationExpect([{ method: "POST", url: "https://shop.co/?next=/dashboard", status: 200 }])).toBeUndefined();
+  });
 });
 
 describe("a step's URL expect generalizes the run's own ids (#172 on the URL path)", () => {

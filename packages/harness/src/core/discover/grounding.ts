@@ -5,7 +5,14 @@
  */
 import type { LlmClient } from "../ports.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
-import { findRequestStatus, isBenignRequest, isMutation, isRecoveredFailure, onSiteOf } from "../requests.js";
+import {
+  findRequestStatus,
+  isBenignRequest,
+  isMutation,
+  isRecoveredFailure,
+  onSiteOf,
+  urlMatchesFrozen,
+} from "../requests.js";
 import { urlReached } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 import { extractFirstJsonArray } from "../json.js";
@@ -146,7 +153,7 @@ export function deriveAssertions(
         // Say WHICH way it failed. "Nothing matched" sends a reader looking for a request that was
         // there — it was only set aside as noise, which is a different thing to fix.
         const setAside = evidence.logic.requests.some(
-          (r) => isBenignRequest(r.url, benign) && r.url.includes(a.urlIncludes) && r.status === a.status,
+          (r) => isBenignRequest(r.url, benign) && urlMatchesFrozen(r.url, a.urlIncludes) && r.status === a.status,
         );
         const asked = `${a.urlIncludes} → ${a.status}${a.method ? ` (${a.method.toUpperCase()})` : ""}`;
         onDrop?.(
@@ -189,7 +196,7 @@ export function deriveAssertions(
       // be frozen: a POST-bound check is not spent by a `GET …/status` that could never satisfy it.
       const spent = evidence.logic.requests.find(
         (r) =>
-          r.url.includes(urlIncludes) &&
+          urlMatchesFrozen(r.url, urlIncludes) &&
           r.status === a.status &&
           (!method || r.method.toUpperCase() === method) &&
           !sameEndpointShape(r.url, match.url) &&
@@ -266,7 +273,7 @@ function groundingMatch(
   const candidates = requests.filter((r) => !isBenignRequest(r.url, benign));
   if (a.method) return findRequestStatus(candidates, a.urlIncludes, a.status, a.method);
   const mutation = candidates.find(
-    (r) => isMutation(r.method) && r.url.includes(a.urlIncludes) && r.status === a.status,
+    (r) => isMutation(r.method) && urlMatchesFrozen(r.url, a.urlIncludes) && r.status === a.status,
   );
   return mutation ?? findRequestStatus(candidates, a.urlIncludes, a.status);
 }
@@ -354,7 +361,7 @@ const ASSERT_SYSTEM =
   "never invent a request or page that is not shown. Given the intent and what the run observed, " +
   "return a JSON array of assertions confirming the intent was achieved. " +
   "Prove the ACTION, not just the destination: prefer a " +
-  '{"kind":"request-status","urlIncludes":"<url-substring>","status":200} on the state-changing request ' +
+  '{"kind":"request-status","urlIncludes":"<url-path-substring, optionally with ?key=value pairs that must match exactly (no partial values)>","status":200} on the state-changing request ' +
   "that performed the goal (a POST/PUT/PATCH such as an order/submit/create call) — NOT a page navigation " +
   "or GET, which a mere URL jump could satisfy without doing the work. " +
   'Add {"kind":"navigated","to":"<host+path>"} for the destination too. ' +

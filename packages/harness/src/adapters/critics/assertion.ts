@@ -1,7 +1,7 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
-import { findRequestStatus, isBenignRequest, isRecoveredFailure } from "../../core/requests.js";
+import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFrozen } from "../../core/requests.js";
 import { urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
@@ -59,7 +59,7 @@ export function checkAssertion(
       const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
       if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
       const near = evidence.logic.requests.filter(
-        (r) => r.url.includes(assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
+        (r) => urlMatchesFrozen(r.url, assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
       );
       if (near.length === 0) {
         const scope = method ? `${method} ` : "";

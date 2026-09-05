@@ -179,6 +179,25 @@ describe("request-status — any matching request, not the first (#68)", () => {
   });
 });
 
+describe("request-status — query-aware matching, not naive substring (#200)", () => {
+  it("a longer operation value does not satisfy a shorter frozen one, and the diagnostic doesn't call it near either", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "shop.co/graphql?op=AddToCart", status: 200 },
+      ev([{ method: "POST", url: "https://shop.co/graphql?op=AddToCartV2", status: 200 }]),
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("no request matching");
+  });
+
+  it("extra params and reordering don't break a frozen query match", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "shop.co/api?action=checkout&mode=express", status: 200 },
+      ev([{ method: "POST", url: "https://shop.co/api?mode=express&trace=xy&action=checkout", status: 200 }]),
+    );
+    expect(r.passed).toBe(true);
+  });
+});
+
 describe("request-status — optional method scoping, parity with the step-level expect (#94)", () => {
   // A duplicate-application flow: a GET sharing the URL prefix answers 200, the real POST answers 409.
   const dup = ev([

@@ -84,6 +84,45 @@ When discover proposes assertions, it **grounds them in what actually happened**
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 
+### Destination evidence before a mutation (#203)
+
+Before grounding, final observation uses one **2-second polling budget** for both in-flight flow
+mutations and a short post-response redirect. It keeps observing while the last qualifying
+mutation-bearing step's pre-action URL and the current URL still name the same host+path; a
+query/hash-only progress update is not a new destination. Qualification and request-tail ownership
+are shared with the advisory below, so trailing scroll/wait steps do not erase the boundary.
+Pending mutation polling retains its request watermark. Remaining time is passed to `Driver.settle`
+and caps polling sleeps; a newly observed URL gets another bounded settle/observation to collect
+the destination's evidence. Driver calls themselves can overrun their requested timeout, so this
+is an observation budget, not a strict wall-clock deadline. No-action runs, reads, entry traffic,
+failed responses, and successful benign/third-party traffic do not arm redirect waiting.
+
+A derived `navigated` carries `observedBeforeLastMutation: true` when its destination already
+matches the URL observed before the last executed step whose own request-log tail contains a
+successful (200–399), non-benign mutation on a visited page's site. Final observed request statuses
+and the consumer's locale/wildcard matching rules decide the stamp; entry traffic is excluded and
+later steps without a qualifying mutation do not erase it. This records evidence provenance: the
+URL proves arrival at that page, without proving navigation after the mutation. It does **not** say
+that navigation is pending, that the mutation caused a navigation, or that an on-page save failed.
+The stamp survives even when a request assertion proves the mutation, and the CLI warns separately
+so a consumer can inspect the freeze and add evidence for the intended outcome. **The marker alone
+MUST NOT become a failure gate without additional evidence:** a correct on-page save also consumes
+the bounded observation budget and carries it. User assertions are never stamped.
+The advisory stamp itself does not alter the destination, baseline `vacuous` flags, step expects,
+request proofs, or replay verdict semantics; the completed observation can ground a newly observed
+destination and its step expect. `SuiteVerdict.observedBeforeLastMutation` and the freeze trace payload summarize
+the marked destinations as an optional `string[]`, derived from the scenario's assertions and
+absent when none are marked. Fresh discovery, cached replay, outcome-heal re-freeze, `onCase`,
+the suite CLI and its report carry the same advisory. Outcome-heal retains the original goal
+assertions and their provenance, so its summary describes those preserved checks.
+
+The bounded wait mitigates short response-to-redirect races; it cannot establish navigation
+completion or causation. A redirect beyond the budget, or a later hop after reaching a different
+path, can still escape the observations. Locale/wildcard equivalence applies to the advisory,
+while the wait compares concrete host+path destinations. A different resource path can therefore
+end the wait yet still carry an advisory when the frozen generalized destination also matched
+before the mutation. These limits do not change replay verdict semantics.
+
 ## Perception's role (P6)
 
 Three layers are *captured*, but the deterministic verdict rules on **two** — execution + logic.

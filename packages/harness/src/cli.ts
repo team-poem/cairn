@@ -26,7 +26,7 @@ import { describeAction } from "./core/discover/decision.js";
 import { renderExploreReport } from "./adapters/reporters/markdown.js";
 import { runSuite } from "./suite.js";
 import type { SuiteCase, SuiteResult } from "./suite.js";
-import { renderSuiteReport, unprovenLabel } from "./adapters/reporters/suite.js";
+import { renderSuiteReport, unprovenLabel, navigationEvidenceLabel } from "./adapters/reporters/suite.js";
 import {
   droppedProofReason,
   guessedKeyRuns,
@@ -218,6 +218,18 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // identical lines reads as many problems instead of one.
     for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
+  // #203: a request proof can establish the mutation while the URL still proves only arrival at
+  // the form. Warn independently of provesAnAction so the stronger claim is never implied.
+  for (const assertion of scenario.assertions) {
+    if (assertion.kind === "navigated" && assertion.observedBeforeLastMutation) {
+      console.log(
+        `\n⚠ ${assertion.to} was already reached before the last mutation — this URL check ` +
+          `does not prove post-mutation navigation. You can refuse this freeze or accept the weaker ` +
+          `claim that the page was reached; add a check of the intended outcome to prove more. ` +
+          `Correct on-page saves also carry this advisory: do not fail on it alone without additional evidence.`,
+      );
+    }
+  }
   // #184: the flow DID fire a state change, and no check could be written for it — so this is not a
   // read-only flow, and the warning above is not fine to wave through.
   if (scenario.unprovenAction) {
@@ -315,7 +327,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}`,
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}`,
       ),
   });
 

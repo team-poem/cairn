@@ -9,8 +9,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict } from
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
  * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it.
- * 1.2 — `freeze.payload.unprovenAction` (#190), same rule. */
-export const TRACE_VERSION = "1.2";
+ * 1.2 — `freeze.payload.unprovenAction` (#190), same rule.
+ * 1.3 — `freeze.payload.observedBeforeLastMutation` (#203), destination advisory summary. */
+export const TRACE_VERSION = "1.3";
 
 export type TracePhase = "discover" | "replay" | "heal";
 
@@ -53,6 +54,8 @@ export type TraceEvent = Envelope &
           truncated?: boolean;
           /** `METHOD url` of a flow action no frozen check can prove (#184) — advisory. */
           unprovenAction?: string;
+          /** Destinations observed before the last qualifying mutation (#203); advisory, not failure. */
+          observedBeforeLastMutation?: string[];
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's

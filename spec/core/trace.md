@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.2**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.3**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.2", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.3", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -66,7 +66,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) |
-| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184) | `SkillStore.freeze` |
+| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
 | heal | `heal` | `layer: locator \| step`, `broke` → `became`, `judgedBy: original` | locator `Heal` (`onHeal`) · `StepHeal` |
@@ -179,6 +179,19 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
   `truncated`, so a suite trace names the unproven action at the freeze, not only in the `gate`
   event — and `SuiteVerdict` carries the same field for the reporter line. Header goes to
   **1.2**: an additive optional field, minor rule.
+
+## Decided in review (#203)
+
+- **`freeze.payload.observedBeforeLastMutation`** summarizes destinations whose frozen `navigated`
+  assertions carry the same-named provenance marker. The optional `string[]` is absent when no
+  destination is marked. Both fresh discovery and outcome-heal re-freeze emit it; a heal summarizes
+  the original goal assertions it preserves, not the re-discovery's discarded proposals.
+- **`SuiteVerdict.observedBeforeLastMutation`** carries the same summary on fresh and cached runs,
+  including `onCase` and suite CLI/report output. Individual assertion events/results retain the
+  assertion marker. It is advisory: **do not use the marker alone as a failure gate without
+  additional evidence**, because legitimate on-page saves match it too.
+- Header goes to **1.3**: additive optional freeze payload and assertion metadata fields under the
+  minor rule. No duplicate scenario-level field or new failure/gate event is introduced.
 
 ## Open
 

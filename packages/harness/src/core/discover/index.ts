@@ -14,7 +14,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, findUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -69,14 +69,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
 
-  // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
-  // then propose+ground assertions. `truncated` marks a step-cap stop.
+  // Emit the freeze: observe pending mutations and short post-response redirects within one
+  // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
     // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
-    const evidence = await observeOutcomes(driver, firstCount);
+    const evidence = await observeOutcomes(driver, firstCount, marks, benign);
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
@@ -86,15 +86,18 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
-    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
     // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
     const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
     const wildcards =
-      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      baselineMarked.some((a) => a.kind === "navigated" && wrote(a.to)) ||
       steps.some((step) => wrote(step.expect?.url))
         ? { wildcards: true as const }
         : {};
+    const assertions = markObservedBeforeLastMutation(baselineMarked, marks, evidence, {
+      localePrefixes, benign, ...wildcards,
+    });
     // Record an action the freeze could not express a check for — advisory for now (see
     // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
     const unprovenRequest = findUnprovenAction(evidence, assertions, {

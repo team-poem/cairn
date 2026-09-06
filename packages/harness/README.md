@@ -46,6 +46,7 @@ npm install -g cairn-engine     # as a CLI
 
 - as a [CLI](https://github.com/team-poem/cairn/blob/main/docs/guide.md#try-it-in-60-seconds)
 - as a [library](https://github.com/team-poem/cairn/blob/main/docs/guide.md#embed-it)
+- a standalone [npm/pnpm quickstart](https://github.com/team-poem/cairn/tree/main/examples/quickstart) with discovery, freeze, and zero-LLM replay
 
 ```sh
 cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json

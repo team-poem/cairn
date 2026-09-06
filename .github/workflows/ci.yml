@@ -37,3 +37,22 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:browser -w cairn-engine
+
+  # Prove that the published artifact can be embedded outside this workspace.
+  package-consumer:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package-manager: [npm, pnpm]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm install --global pnpm@10
+        if: matrix.package-manager == 'pnpm'
+      - run: npm ci
+      - run: npm run test:consumer -- ${{ matrix.package-manager }}

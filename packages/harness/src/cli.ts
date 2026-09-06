@@ -18,31 +18,32 @@
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { runScenario, needsLlmCritic } from "./run.js";
-import { discover } from "./core/discover/index.js";
-import { explore } from "./core/explore/index.js";
-import type { ExploreReport } from "./core/explore/index.js";
-import { describeAction } from "./core/discover/decision.js";
-import { renderExploreReport } from "./adapters/reporters/markdown.js";
-import { runSuite } from "./suite.js";
-import type { SuiteCase, SuiteResult } from "./suite.js";
-import { renderSuiteReport, unprovenLabel, navigationEvidenceLabel } from "./adapters/reporters/suite.js";
 import {
+  ChromeDevToolsDriver,
+  ConsoleReporter,
+  ENGINE_VERSION,
+  FileSkillStore,
+  JsonReporter,
+  Tracer,
+  createLlmClient,
+  describeAction,
+  discover,
   droppedProofReason,
+  explore,
   guessedKeyRuns,
   hasSemanticCriterion,
+  navigationEvidenceLabel,
+  needsLlmCritic,
   provesAnAction,
+  renderExploreReport,
+  renderSuiteReport,
+  runScenario,
+  runSuite,
+  unprovenLabel,
   weakTargets,
-} from "./core/freeze.js";
-import { Tracer } from "./core/trace.js";
-import { ConsoleReporter } from "./adapters/reporters/console.js";
-import { JsonReporter } from "./adapters/reporters/json.js";
-import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
-import { FileSkillStore } from "./adapters/skills/file-store.js";
-import { createLlmClient } from "./adapters/llm/factory.js";
+} from "./index.js";
+import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult } from "./index.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
-import { ENGINE_VERSION } from "./version.js";
-import type { Reporter, Scenario } from "./index.js";
 import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */

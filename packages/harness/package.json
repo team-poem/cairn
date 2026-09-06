@@ -56,7 +56,8 @@
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
     "prepublishOnly": "npm run build",
-    "test:browser": "vitest run --config vitest.browser.config.ts"
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "check:boundaries": "node --import tsx scripts/check-boundaries.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

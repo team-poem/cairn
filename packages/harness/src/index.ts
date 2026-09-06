@@ -12,7 +12,7 @@ export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite
 export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
 export { ENGINE_VERSION } from "./version.js";
 export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
-export { renderSuiteReport } from "./adapters/reporters/suite.js";
+export { renderSuiteReport, unprovenLabel, navigationEvidenceLabel } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
@@ -64,3 +64,7 @@ export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { guessedKeyRuns, scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { GuessedKeyRun, TargetScore, ScoredTarget } from "./core/freeze.js";
 export { UsageMeter, emptyUsage } from "./core/usage.js";
+
+/** Shared diagnostics for hosts displaying discovery and freeze evidence (see docs/package-boundaries.md). */
+export { describeAction } from "./core/discover/decision.js";
+export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";

@@ -68,6 +68,33 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   arms it — the product clears that by marking the endpoint
   `benign`, the seam for app-specific noise.
 
+### Naming the red (#173)
+
+A red means one of three next actions, and they are different people's jobs: the app did not do
+what the flow asserts (block the build), the frozen scenario no longer fits the app (re-discover),
+or the run itself was unhealthy (retry, or fix the setup). `Verdict.failure` names which, from
+signals the verdict already holds, and the CLI maps it to distinct exit codes (1 · 3 · 4; 2 stays
+usage). First match wins, in this order:
+
+- a blocked step → `script` (the frozen scenario no longer fits the page: the target went missing,
+  a post-condition never held, a `waitFor` timed out); unless the step's error names the browser or
+  transport, or a handler the host never registered → `environment`. Replay has the step list to
+  read this from; an outcome-heal re-discovery does not (its driver observation carries no
+  actions), so a heal's red is classed from its assertions;
+- failing closed because the freeze proves nothing (#69, #137) → `script`;
+- the judge could not do its job (LLM judgment failed, no handler for a check) → `environment`;
+- a goal assertion failed → `flow`; unless every failed goal is a request the app refused with
+  401/403/429, which is credentials or rate limits, → `environment`;
+- only the app-health guards failed → still `flow`: a 500 is the same 500 whether a goal or a guard
+  saw it, and #186's guard/goal split is about what a re-discovery can fix, not whose fault it is;
+  unless the guard's detail carries a refusal (401/403/429) or a network error → `environment`;
+- otherwise `flow`. A suite's own reds are classed too: a crashed case is `environment`, a
+  discovery cut at the step cap is `script`.
+
+The lean is deliberate: when unsure, a red is a regression until shown otherwise, because a real
+regression filed under "retry" is the one outcome a CI gate exists to prevent. The mirror question
+for a green — how much a pass is worth — is #197.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

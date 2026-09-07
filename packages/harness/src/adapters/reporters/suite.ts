@@ -50,6 +50,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
     for (const v of suite.verdicts.filter((x) => !x.verdict.passed)) {
       lines.push(``, `### ✗ ${v.id} — ${v.intent}`);
       if (v.verdict.detail) lines.push(``, `${v.verdict.detail}`);
+      if (v.verdict.failure) lines.push(``, `failure: ${v.verdict.failure}`);
       for (const r of v.verdict.results.filter((x) => !x.passed)) {
         lines.push(`- **${r.assertion.kind}**${r.detail ? `: ${r.detail}` : ""}`);
       }

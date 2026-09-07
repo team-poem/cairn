@@ -273,6 +273,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           passed: false,
           results: [],
           detail: "discovery truncated at the step cap — unverified path, nothing frozen",
+          failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap
         };
         scope?.emit({
           kind: "case-end",
@@ -370,6 +371,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       passed: false,
       results: [],
       detail: `case crashed: ${err instanceof Error ? err.message : String(err)}`,
+      failure: "environment", // the run's machinery died, not the app (#173): retry
     };
     // A crashed case still ENDED — the trace records it rather than falling silent.
     scope?.emit({

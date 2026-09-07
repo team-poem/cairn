@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
+import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass } from "./types.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -162,8 +162,63 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
  * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
  * verdict raw and silently skipped every rule the replay path applied.
  */
-export function finalizeVerdict(judged: Verdict, incomplete?: string): Verdict {
-  return incomplete ? failClosed(judged, incomplete) : judged;
+export function finalizeVerdict(judged: Verdict, incomplete?: string, actions: readonly ExecutedAction[] = []): Verdict {
+  const verdict = incomplete ? failClosed(judged, incomplete) : judged;
+  if (verdict.passed) return verdict;
+  return { ...verdict, failure: classifyFailure(verdict, actions) };
+}
+
+/** Errors that say the run's machinery failed, not the app or the script: the browser session,
+ * the MCP transport, the network to the page, a browser call that never came back. Matched on the
+ * step error text because that is the only place a driver's failure surfaces on the evidence.
+ * Deliberately narrow: chrome-devtools-mcp wraps "the element did not become interactive" and
+ * puppeteer's "not clickable" in the same `MCP <tool> failed:` envelope as a dead transport, and
+ * those are the app's or the script's, so the envelope alone proves nothing. */
+const ENVIRONMENT_ERROR = /browser session ended|driver closed|failed to start|transport|Target closed|net::|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|navigation (failed|timed out)|MCP \S+ timed out/i;
+
+/** The host wired the run wrong: a step or check names a handler nothing registered. Not the app,
+ * not the script — the same defect whether it surfaces as a step error or an assertion detail. */
+const HOST_CONFIG_ERROR = /no handler registered for custom action|no step handler for kind|needs a registered handler|no custom check registered|no critic handles/;
+
+/** A request that fired and was refused for who the caller is or how often, not for what the flow
+ * did: credentials and rate limits are the environment's, and a retry or a fresh token fixes them. */
+const REFUSED_STATUS = /\b(got|request\(s\):) (401|403|429)\b/;
+
+/**
+ * Name the red (#173): which of three next actions a failed verdict calls for, from signals the
+ * verdict path already holds. First match wins, and the order is the priority a CI gate wants —
+ * a step that could not run outranks what the assertions say about a run that stopped early.
+ *
+ * - a blocked step → `script` (the frozen step no longer fits the page: target missing, post-
+ *   condition never held, waitFor timed out), unless its error names the browser or transport →
+ *   `environment`, or a handler the host never registered → `environment`. Read from `actions`,
+ *   or from a `blocked:` detail when a caller finalized without them;
+ * - failing closed because the freeze proves nothing (no assertions, every check vacuous) → `script`;
+ * - the judge or a critic could not do its job (LLM judgment failed, no handler for a check) →
+ *   `environment`;
+ * - a goal assertion failed → `flow`, unless every failed goal is a request the app refused with
+ *   401/403/429 → `environment`;
+ * - only the app-health guards failed → still `flow` — a 500 is the same 500 whether a goal or a
+ *   guard saw it — unless the guard's detail carries a refusal or a network error → `environment`;
+ * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
+ */
+export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
+  const detail = verdict.detail ?? "";
+  const blockedError = actions.find((a) => !a.ok)?.error ?? detail.match(/step \d+\/\d+ blocked: (.*?)(?: \(\d+ later step\(s\) never ran\))?(?:;|$)/)?.[1];
+  if (blockedError !== undefined) {
+    return ENVIRONMENT_ERROR.test(blockedError) || HOST_CONFIG_ERROR.test(blockedError) ? "environment" : "script";
+  }
+  if (/no assertions to verify|already satisfied before the flow ran|no destination could be frozen/.test(detail)) return "script";
+  const failed = verdict.results.filter((r) => !r.passed);
+  if (/LLM judgment failed/.test(detail) || failed.some((r) => /LLM judgment failed/.test(r.detail ?? "") || HOST_CONFIG_ERROR.test(r.detail ?? ""))) {
+    return "environment";
+  }
+  const goals = goalFailures(verdict);
+  if (goals.length > 0) {
+    return goals.every((r) => r.assertion.kind === "request-status" && REFUSED_STATUS.test(r.detail ?? "")) ? "environment" : "flow";
+  }
+  if (failed.length > 0 && failed.every((r) => REFUSED_STATUS.test(r.detail ?? "") || ENVIRONMENT_ERROR.test(r.detail ?? ""))) return "environment";
+  return "flow";
 }
 
 export async function runHarness(
@@ -223,7 +278,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length));
+  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

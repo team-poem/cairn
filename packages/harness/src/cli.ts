@@ -14,7 +14,7 @@
  *                                              [--report out.md] [--json out.json]
  *
  * All orchestration lives in the library (`runScenario` / `discover` / `explore` / `runSuite`). This file
- * only parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
+ * only parses args, composes reporters, and maps the verdict to an exit code (0 pass · 1 flow broke · 3 script aged · 4 environment failed, see cli-exit.ts → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
 import { readFile, writeFile } from "node:fs/promises";
@@ -42,6 +42,7 @@ import {
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
+import { USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
@@ -108,7 +109,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
     await skills.freeze(freeze, healedScenario);
     console.log(`  re-frozen → ${freeze}`);
   }
-  return result.verdict.passed ? 0 : 1;
+  return exitCodeFor(result.verdict);
 }
 
 async function cmdRun(flags: Flags): Promise<number> {
@@ -336,7 +337,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}`,
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : ""}`,
       ),
   });
 
@@ -353,7 +354,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     await writeFile(jsonPath, JSON.stringify(suite, null, 2), "utf8");
     console.log(`json → ${jsonPath}`);
   }
-  return suite.passed ? 0 : 1;
+  return suiteExitCode(suite.verdicts.map((v) => v.verdict));
 }
 
 const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
@@ -368,6 +369,8 @@ usage: cairn <command> [options]
 
   --help, -h       print this message
   --version, -v    print the engine version
+
+exit codes: 0 pass · 1 flow broke (block) · 2 usage or setup · 3 script aged (re-discover) · 4 environment (retry)
 
 discover once with an LLM → freeze to plain JSON → replay forever with zero LLM calls → heal only when it breaks.
 Docs: https://github.com/team-poem/cairn`;
@@ -413,6 +416,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  // No verdict was reached: a bad argument, a missing file, a driver that never started. That is
+  // setup, not an app regression — 1 now means "the flow broke" (#173), so this must not be 1.
   console.error(err instanceof Error ? err.stack ?? err.message : err);
-  process.exit(1);
+  process.exit(USAGE_EXIT_CODE);
 });

@@ -1,7 +1,7 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
-export { runHarness, blockedReason, finalizeVerdict, goalFailures } from "./core/pipeline.js";
+export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES } from "./core/steps.js";
 export type { UrlMatchOptions } from "./core/steps.js";

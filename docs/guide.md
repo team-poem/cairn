@@ -70,7 +70,7 @@ You need Node 20 or later, Chrome, and a model: an `ANTHROPIC_API_KEY`, `OPENAI_
 npm install -g cairn-engine
 
 cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
-cairn replay cart.skill.json            # deterministic, exit 1 on failure, a ready CI gate
+cairn replay cart.skill.json            # deterministic; exit 1 flow broke · 3 script aged · 4 environment
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 
@@ -148,7 +148,7 @@ Hand cairn your QA cases, natural-language intents plus your own success criteri
 ```
 
 ```sh
-cairn suite cases.json --skills ./skills --report suite.md   # exit 1 if any case fails
+cairn suite cases.json --skills ./skills --report suite.md   # exit 1 · 3 · 4 by the worst failure class
 ```
 
 A healed case is re-frozen so the next run is clean again. A truncated discovery fails closed (nothing frozen, nothing trusted). From the library, `runSuite(cases, opts)` returns per-case verdicts plus whole-suite LLM usage, and `renderSuiteReport(result)` renders the markdown summary.

@@ -207,11 +207,23 @@ export interface AssertionResult {
   detail?: string;
 }
 
+/**
+ * What a red verdict asks the reader to do next (#173). `flow`: the app did not do what the flow
+ * asserts — block the build. `script`: the frozen scenario no longer fits the app (a step could not
+ * run, or the freeze proves nothing) — re-discover. `environment`: the run itself was unhealthy
+ * (guards tripped, the browser or the judge failed, the app refused with 401/403/429) — retry or
+ * fix the setup. Derived from evidence the verdict already holds; leans to `flow` when unsure, so
+ * a real regression is never filed under "retry".
+ */
+export type FailureClass = "flow" | "script" | "environment";
+
 export interface Verdict {
   passed: boolean;
   results: AssertionResult[];
   /** Set when the verdict didn't come from the results alone — e.g. failing closed on an empty assertion set. */
   detail?: string;
+  /** Present only when `passed` is false: which of the three next actions this red calls for. */
+  failure?: FailureClass;
 }
 
 /** What one completion cost, reported by a backend that can measure (HTTP APIs report exact

@@ -367,3 +367,33 @@ import { resolveAssertion } from "../../../src/adapters/critics/assertion.js";
   }
 
 }
+
+describe("navigated: a miss says whether the prefix list explains it (#204)", () => {
+  const landed = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const to: Assertion = { kind: "navigated", to: "shop.co/settings" };
+
+  it("appends the unrecognised leading segment when stripping it would have matched", () => {
+    const r = checkAssertion(to, landed("https://shop.co/de/settings"));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toBe('final url https://shop.co/de/settings did not reach shop.co/settings; leading segment "de" is not in localePrefixes');
+  });
+
+  it("says nothing extra when the app landed somewhere else", () => {
+    const r = checkAssertion(to, landed("https://shop.co/error"));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toBe("final url https://shop.co/error did not reach shop.co/settings");
+  });
+
+  it("says nothing extra when the run bounced to the host root", () => {
+    const r = checkAssertion(to, landed("https://shop.co/"));
+    expect(r.detail).toBe("final url https://shop.co/ did not reach shop.co/settings");
+  });
+
+  it("passes, with no hint, once the prefix is configured", () => {
+    expect(checkAssertion(to, landed("https://shop.co/de/settings"), [], [], ["de"]).passed).toBe(true);
+  });
+});

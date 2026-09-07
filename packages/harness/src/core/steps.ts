@@ -108,6 +108,37 @@ export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions
   return boundaryMatch(strippedDest, strippedWant, wildcards);
 }
 
+/**
+ * Why a destination miss may be configuration rather than the app (#204): the one leading path
+ * segment that, added to `localePrefixes`, would have made `finalUrl` reach `want`. A frozen
+ * `shop.co/settings` against a run landing on `shop.co/de/settings` returns `"de"`; the frozen side
+ * is tried too (`shop.co/fr/settings` against `shop.co/settings` returns `"fr"`), and both are
+ * probed after the configured prefixes are stripped, so a skill frozen under `/en/` and replayed
+ * under `/de/` still names `"de"`. Three refusals keep it off real regressions: the stripped side
+ * must keep a path (a run bounced to the host root is not "missing a prefix"), a wildcard is never
+ * a prefix, and one segment only (a mount plus a locale is not guessed at). Advisory: `urlReached`
+ * alone decides the verdict.
+ */
+export function unrecognizedLeadingSegment(
+  finalUrl: string,
+  want: string,
+  opts: UrlMatchOptions = {},
+): string | undefined {
+  if (urlReached(finalUrl, want, opts)) return undefined;
+  const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
+  const wildcards = opts.wildcards ?? false;
+  const dest = stripLocale(splitHostPath(finalUrl), prefixes);
+  const w = stripLocale(splitHostPath(want), prefixes);
+  const candidate = (side: HostPath, other: HostPath, sideIsWant: boolean): string | undefined => {
+    const first = side.segs[0];
+    if (first === undefined || side.segs.length < 2 || (wildcards && first === WILDCARD)) return undefined;
+    const rest = { host: side.host, segs: side.segs.slice(1) };
+    const hit = sideIsWant ? boundaryMatch(other, rest, wildcards) : boundaryMatch(rest, other, wildcards);
+    return hit ? first : undefined;
+  };
+  return candidate(dest, w, false) ?? candidate(w, dest, true);
+}
+
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
   supports(step: Step): boolean {

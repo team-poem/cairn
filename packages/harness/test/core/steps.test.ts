@@ -8,7 +8,7 @@ import {
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import { URL_REACHED_CORPUS, URL_REACHED_WILDCARD_CORPUS } from "../support/url-corpus.js";
 import type { Evidence, Step } from "../../src/core/types.js";
-import { conditionMet } from "../../src/core/steps.js";
+import { conditionMet, unrecognizedLeadingSegment } from "../../src/core/steps.js";
 import { vi } from "vitest";
 import { StubDriver } from "../support/doubles.js";
 import type { PageElement } from "../../src/core/types.js";
@@ -316,5 +316,52 @@ describe("conditionMet audit coverage", () => {
         driver("https://x/en/cart", [{ method: "GET", url: "https://x/api/me", status: 401 }], cart),
       ),
     ).rejects.toThrow(/waitFor timed out/);
+  });
+});
+
+describe("unrecognizedLeadingSegment: a destination miss the prefix list explains (#204)", () => {
+  it("names the run's leading segment when stripping it would match", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/de/settings", "shop.co/settings")).toBe("de");
+  });
+
+  it("names the frozen side's leading segment when the run has none", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/settings", "shop.co/fr/settings")).toBe("fr");
+  });
+
+  it("probes after the configured prefixes are stripped: frozen under /en/, replayed under /de/", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/de/settings", "shop.co/en/settings")).toBe("de");
+    expect(unrecognizedLeadingSegment("https://shop.co/en/de/settings", "shop.co/settings")).toBe("de");
+  });
+
+  it("stays silent when the app landed somewhere else", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/error", "shop.co/settings")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/de/error", "shop.co/settings")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/fr/settings", "shop.co/de/settings")).toBeUndefined();
+  });
+
+  it("stays silent when the run bounced to the host root, in either direction", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/", "shop.co/settings")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/login", "shop.co")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://x.co/", "x.co/my")).toBeUndefined(); // the #86 route that only looks like a locale
+  });
+
+  it("stays silent when the destination was reached, including through a configured prefix", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/settings", "shop.co/settings")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/en/settings", "shop.co/settings")).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/de/settings", "shop.co/settings", { localePrefixes: ["de"] })).toBeUndefined();
+  });
+
+  it("explains one segment only — a mount plus a locale is not guessed at", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/app/de/settings", "shop.co/settings", { localePrefixes: [] })).toBeUndefined();
+  });
+
+  it("never offers a wildcard as a prefix", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/settings", "shop.co/*/settings", { wildcards: true })).toBeUndefined();
+    expect(unrecognizedLeadingSegment("https://shop.co/", "shop.co/*", { wildcards: true })).toBeUndefined();
+  });
+
+  it("respects the frozen file's wildcard notation", () => {
+    expect(unrecognizedLeadingSegment("https://shop.co/de/orders/7/done", "shop.co/orders/*/done", { wildcards: true })).toBe("de");
+    expect(unrecognizedLeadingSegment("https://shop.co/de/orders/7/done", "shop.co/orders/*/done")).toBeUndefined();
   });
 });

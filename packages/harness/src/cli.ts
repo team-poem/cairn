@@ -32,22 +32,30 @@ import {
   explore,
   guessedKeyRuns,
   hasSemanticCriterion,
-  navigationEvidenceLabel,
   needsLlmCritic,
   provesAnAction,
   renderExploreReport,
   renderSuiteReport,
   runScenario,
   runSuite,
-  unprovenLabel,
   weakTargets,
 } from "./index.js";
-import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult } from "./index.js";
+import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
 import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
 const skills = new FileSkillStore();
+
+function unprovenLabel(v: SuiteVerdict): string {
+  return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
+}
+
+function navigationEvidenceLabel(v: SuiteVerdict): string {
+  return v.observedBeforeLastMutation?.length
+    ? ` · ⚠ destination observed before last mutation: ${v.observedBeforeLastMutation.join(", ")} (advisory)`
+    : "";
+}
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {

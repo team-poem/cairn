@@ -97,3 +97,12 @@ test("packageImportAliases: resolved declarations inside the package keep engine
   expect(analyzeSource(`${sourceRoot}/core/pipeline.ts`, 'import "#run";', sourceRoot, resolveImport))
     .toEqual([expect.objectContaining({ rule: "core-dependencies" })]);
 });
+
+test("publicDiagnosticBoundary: exposes engine diagnostics without presentation-only suite labels", async () => {
+  const engine = await import("../src/index.js");
+  expect(engine).not.toHaveProperty("unprovenLabel");
+  expect(engine).not.toHaveProperty("navigationEvidenceLabel");
+  for (const diagnostic of [engine.describeAction, engine.provesAnAction, engine.hasSemanticCriterion, engine.droppedProofReason]) {
+    expect(diagnostic).toBeTypeOf("function");
+  }
+});

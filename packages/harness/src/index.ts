@@ -12,7 +12,7 @@ export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite
 export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
 export { ENGINE_VERSION } from "./version.js";
 export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
-export { renderSuiteReport, unprovenLabel, navigationEvidenceLabel } from "./adapters/reporters/suite.js";
+export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";

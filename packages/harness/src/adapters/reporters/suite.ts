@@ -12,12 +12,12 @@ function pathLabel(v: SuiteVerdict): string {
 }
 
 /** Same wording as the `cairn suite` line: a green with this note proved the page, not the action. */
-export function unprovenLabel(v: SuiteVerdict): string {
+function unprovenLabel(v: SuiteVerdict): string {
   return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
 }
 
-/** Shared by the CLI progress line and report, independently of any surviving request proof. */
-export function navigationEvidenceLabel(v: SuiteVerdict): string {
+/** Format the recorded destination evidence, independently of any surviving request proof. */
+function navigationEvidenceLabel(v: SuiteVerdict): string {
   return v.observedBeforeLastMutation?.length
     ? ` · ⚠ destination observed before last mutation: ${v.observedBeforeLastMutation.join(", ")} (advisory)`
     : "";

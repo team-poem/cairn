@@ -49,8 +49,15 @@
   mutation은 기다리는데 네비게이션은 안 기다림 — 로그인 흐름이 폼 도착만으로 영구 초록) · #204 목적지 미스가
   앱 탓인지 설정 탓인지 구분 불가(`DEFAULT_LOCALE_PREFIXES` 기본값이 형질, stage 2가 아무것도 못 벗기면 bare
   false; 같은 "고정 선두 세그먼트" 개념이 `namesAPage`에도 절반만 있음).
-  착수 순서 = **#203**(유일하게 조용히 틀린 결과) → #201 진행 중(#200) → #195·#204(작고 확실) →
-  #196·#197(설계 붙음) → #198(포트 변경 가능). #199는 PR #202로 종결. #184 advisory→fail-closed 전환은 #169 벤치 뒤.
+  **진행(2026-09-07):** 종결 = #199(PR #202) · #200(PR #201, `urlMatchesFrozen` 쿼리 부분집합 + `hasStablePath`
+  `?` 앞 절단) · #203(PR #205, 2초 예산 안 리다이렉트 대기 + `observedBeforeLastMutation` 마커, 트레이스 1.3) ·
+  #8(PR #206, 내부 경계 + `check:boundaries` + quickstart/consumer CI) · #195(PR #208, heal 헬퍼 3종 export) ·
+  #204(PR #209, `unrecognizedLeadingSegment` → "is not in localePrefixes" 힌트). 리뷰 중 = #177(PR #210, idle
+  스크롤 prune, `gate: idle-scroll`, 트레이스 1.4). 남은 슬레이트 = #196·#197·#198(설계 논의 선행) ·
+  후보 #171 재앵커(CLI 전제, 가장 큼)·#173 실패분류·#174 비밀값·#175 settle — 전부 미배정.
+  #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
+  벤치가 #184·#203 게이트화의 전제" 답변 후 응답 대기. 후속 이슈 후보(저널 참조): 조합 가능한 `outcomeHeal`(#195
+  저널) · CLI `localePrefixes` 플래그·스텝 expect.url 미스 힌트(#204 저널) · 요소 정체성(#177 한계, =#198).
   벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.
   good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
 - **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·

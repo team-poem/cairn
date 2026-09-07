@@ -168,56 +168,78 @@ export function finalizeVerdict(judged: Verdict, incomplete?: string, actions: r
   return { ...verdict, failure: classifyFailure(verdict, actions) };
 }
 
-/** Errors that say the run's machinery failed, not the app or the script: the browser session,
- * the MCP transport, the network to the page, a browser call that never came back. Matched on the
- * step error text because that is the only place a driver's failure surfaces on the evidence.
- * Deliberately narrow: chrome-devtools-mcp wraps "the element did not become interactive" and
- * puppeteer's "not clickable" in the same `MCP <tool> failed:` envelope as a dead transport, and
- * those are the app's or the script's, so the envelope alone proves nothing. */
-const ENVIRONMENT_ERROR = /browser session ended|driver closed|failed to start|transport|Target closed|net::|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND|navigation (failed|timed out)|MCP \S+ timed out/i;
+/** A step error the driver phrased for a target it could not resolve. It embeds the target's
+ * own text (`no element matching {"text":"Transport options"}`), so it is decided FIRST and never
+ * scanned for environment markers: it is the script's, whatever words the page uses. */
+const RESOLUTION_MISS = /^(?:no element matching|\d+ elements named|self-heal (?:found no match|budget))/;
+
+/** Errors that say the run's machinery failed, not the app or the script. Anchored to the
+ * driver's own phrasing (chrome.ts) or to unambiguous transport tokens, never to bare words: the
+ * `MCP <tool> failed:` envelope carries page text and puppeteer's own messages ("did not become
+ * interactive"), so the envelope proves nothing — only a transport token inside it does. */
+const ENVIRONMENT_ERROR = /^(?:browser session ended|driver closed|failed to start chrome-devtools-mcp|MCP \S+ timed out after \d+ms)|chrome-devtools-mcp transport closed|Target closed|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/;
 
 /** The host wired the run wrong: a step or check names a handler nothing registered. Not the app,
  * not the script — the same defect whether it surfaces as a step error or an assertion detail. */
-const HOST_CONFIG_ERROR = /no handler registered for custom action|no step handler for kind|needs a registered handler|no custom check registered|no critic handles/;
+const HOST_CONFIG_ERROR = /^(?:no handler registered for custom action|no step handler for kind)|needs a registered handler|no custom check registered|no critic handles/;
 
-/** A request that fired and was refused for who the caller is or how often, not for what the flow
- * did: credentials and rate limits are the environment's, and a retry or a fresh token fixes them. */
-const REFUSED_STATUS = /\b(got|request\(s\):) (401|403|429)\b/;
+/** Statuses that say the app refused the caller (credentials, rate) rather than the flow. */
+const REFUSED = new Set([401, 403, 429]);
+
+/** Every status the `request-status` critic saw for the endpoint (`expected 200, got 401, 500 for …`
+ * joins the distinct statuses in arrival order). Refused means ALL of them refused: reading only
+ * the first would make the class depend on which response landed first, which the critic itself
+ * was written not to do. */
+function refusedOnly(detail: string): boolean {
+  const seen = detail.match(/\bgot ((?:\d{3})(?:, \d{3})*)\b/)?.[1];
+  return seen !== undefined && seen.split(", ").every((s) => REFUSED.has(Number(s)));
+}
+
+/** The failed-requests guard names only its FIRST failure (`4 failed request(s): 429 …`), so a
+ * refusal there proves the environment only when it was the only failure. The guard's text is
+ * URLs and app console output — never scanned for environment tokens. */
+function guardRefused(r: AssertionResult): boolean {
+  const m = (r.detail ?? "").match(/^1 failed request\(s\): (\d{3}) /);
+  return r.assertion.kind === "no-failed-requests" && m !== null && REFUSED.has(Number(m[1]));
+}
+
+const judgeFailed = (r: AssertionResult) => /^LLM judgment failed/.test(r.detail ?? "") || HOST_CONFIG_ERROR.test(r.detail ?? "");
 
 /**
  * Name the red (#173): which of three next actions a failed verdict calls for, from signals the
  * verdict path already holds. First match wins, and the order is the priority a CI gate wants —
  * a step that could not run outranks what the assertions say about a run that stopped early.
  *
- * - a blocked step → `script` (the frozen step no longer fits the page: target missing, post-
- *   condition never held, waitFor timed out), unless its error names the browser or transport →
- *   `environment`, or a handler the host never registered → `environment`. Read from `actions`,
- *   or from a `blocked:` detail when a caller finalized without them;
- * - failing closed because the freeze proves nothing (no assertions, every check vacuous) → `script`;
- * - the judge or a critic could not do its job (LLM judgment failed, no handler for a check) →
- *   `environment`;
+ * - a blocked step → `script` (target missing, post-condition never held, waitFor timed out),
+ *   unless its error is the driver's own transport failure or a handler the host never registered
+ *   → `environment`. Read from `actions`, or from a `blocked:` detail when a caller finalized
+ *   without them;
+ * - failing closed because the freeze proves nothing (no assertions, every check vacuous) or the
+ *   re-discovery ended before `done` → `script`;
  * - a goal assertion failed → `flow`, unless every failed goal is a request the app refused with
- *   401/403/429 → `environment`;
- * - only the app-health guards failed → still `flow` — a 500 is the same 500 whether a goal or a
- *   guard saw it — unless the guard's detail carries a refusal or a network error → `environment`;
+ *   401/403/429 (every status it saw, not the first) → `environment`. A judge that could not judge
+ *   (LLM failed, no handler for a check) is set aside here: it is `environment` only when nothing
+ *   else failed, so LLM flakiness next to a real regression still reads as the regression;
+ * - only the app-health guards failed → still `flow` (a 500 is the same 500 whether a goal or a
+ *   guard saw it), unless the single failed request was a refusal → `environment`;
  * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
  */
 export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
   const detail = verdict.detail ?? "";
-  const blockedError = actions.find((a) => !a.ok)?.error ?? detail.match(/step \d+\/\d+ blocked: (.*?)(?: \(\d+ later step\(s\) never ran\))?(?:;|$)/)?.[1];
+  const blockedError = actions.find((a) => !a.ok)?.error
+    ?? detail.match(/step \d+\/\d+ blocked: (.*)$/)?.[1]?.replace(/ \(\d+ later step\(s\) never ran\)$/, "");
   if (blockedError !== undefined) {
+    if (RESOLUTION_MISS.test(blockedError)) return "script";
     return ENVIRONMENT_ERROR.test(blockedError) || HOST_CONFIG_ERROR.test(blockedError) ? "environment" : "script";
   }
-  if (/no assertions to verify|already satisfied before the flow ran|no destination could be frozen/.test(detail)) return "script";
+  if (/no assertions to verify|already satisfied before the flow ran|no destination could be frozen|ended before `done`|unverified path/.test(detail)) return "script";
   const failed = verdict.results.filter((r) => !r.passed);
-  if (/LLM judgment failed/.test(detail) || failed.some((r) => /LLM judgment failed/.test(r.detail ?? "") || HOST_CONFIG_ERROR.test(r.detail ?? ""))) {
-    return "environment";
-  }
-  const goals = goalFailures(verdict);
+  const goals = goalFailures(verdict).filter((r) => !judgeFailed(r));
   if (goals.length > 0) {
-    return goals.every((r) => r.assertion.kind === "request-status" && REFUSED_STATUS.test(r.detail ?? "")) ? "environment" : "flow";
+    return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r.detail ?? "")) ? "environment" : "flow";
   }
-  if (failed.length > 0 && failed.every((r) => REFUSED_STATUS.test(r.detail ?? "") || ENVIRONMENT_ERROR.test(r.detail ?? ""))) return "environment";
+  if (/^LLM judgment failed/.test(detail) || failed.some(judgeFailed)) return "environment";
+  if (failed.length > 0 && failed.every(guardRefused)) return "environment";
   return "flow";
 }
 

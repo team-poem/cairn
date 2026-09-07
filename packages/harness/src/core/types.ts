@@ -210,10 +210,11 @@ export interface AssertionResult {
 /**
  * What a red verdict asks the reader to do next (#173). `flow`: the app did not do what the flow
  * asserts — block the build. `script`: the frozen scenario no longer fits the app (a step could not
- * run, or the freeze proves nothing) — re-discover. `environment`: the run itself was unhealthy
- * (guards tripped, the browser or the judge failed, the app refused with 401/403/429) — retry or
- * fix the setup. Derived from evidence the verdict already holds; leans to `flow` when unsure, so
- * a real regression is never filed under "retry".
+ * run, or the freeze proves nothing) — re-discover. `environment`: neither the app nor the script —
+ * the run's machinery (browser, transport, judge) or the host's setup (a handler nobody registered),
+ * or the app refusing the caller with 401/403/429 — retry, or fix the setup. Derived from evidence
+ * the verdict already holds; leans to `flow` when unsure, so a real regression is never filed
+ * under "retry".
  */
 export type FailureClass = "flow" | "script" | "environment";
 

@@ -42,7 +42,7 @@ import {
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
-import { USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
+import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
@@ -79,15 +79,25 @@ function reporterFor(flags: Flags): Reporter {
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
-  const { result, heals, healedScenario, truncated } = await runScenario(scenario, {
-    reporter: reporterFor(flags),
-    model: flagStr(flags, "model"),
-    heal: Boolean(flags.get("heal")),
-    // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
-    // a slow app (3-5s list loads) needs more than the 2s default (#95).
-    expectTimeoutMs: flagNum(flags, "expect-timeout"),
-    maxSteps: flagNum(flags, "max-steps"),
-  });
+  let run: Awaited<ReturnType<typeof runScenario>>;
+  try {
+    run = await runScenario(scenario, {
+      reporter: reporterFor(flags),
+      model: flagStr(flags, "model"),
+      heal: Boolean(flags.get("heal")),
+      // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
+      // a slow app (3-5s list loads) needs more than the 2s default (#95).
+      expectTimeoutMs: flagNum(flags, "expect-timeout"),
+      maxSteps: flagNum(flags, "max-steps"),
+    });
+  } catch (err) {
+    // The run started and died (browser gone, driver never came up): that is the environment,
+    // the same class the suite stamps on a crashed case and the trace already carries, so the
+    // exit code agrees with both. Errors before the run (bad args, unreadable skill) stay usage.
+    console.error(`run crashed: ${err instanceof Error ? err.message : String(err)}`);
+    return FAIL_EXIT_CODE.environment;
+  }
+  const { result, heals, healedScenario, truncated } = run;
 
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
@@ -370,7 +380,7 @@ usage: cairn <command> [options]
   --help, -h       print this message
   --version, -v    print the engine version
 
-exit codes: 0 pass · 1 flow broke (block) · 2 usage or setup · 3 script aged (re-discover) · 4 environment (retry)
+exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup)
 
 discover once with an LLM → freeze to plain JSON → replay forever with zero LLM calls → heal only when it breaks.
 Docs: https://github.com/team-poem/cairn`;

@@ -24,7 +24,20 @@
   `finalizeVerdict(judged, incomplete)`를 부르면(#195 export 시그니처) `blocked:` detail에서도 script가 안 나왔다 → 폴백.
   (6) 커스텀 스텝 핸들러 없음(script)과 커스텀 단언 핸들러 없음(environment)이 달랐다 → 둘 다 environment.
   (7) suite `onCase` 줄과 `--help`에 등급/종료코드 표시.
-- **검증:** 분류 규칙 단위 13 + 종료코드 2 + 실제 재생 경로 3(failOn→script, 초록엔 없음, 딴 페이지→flow) +
+- **amazon 리뷰(PR #211)에서 고친 것 — 공통 원인은 렌더된 문자열을 자유 텍스트째로 검사한 것:** (1) `transport`·
+  `failed to start` 같은 맨 토큰이 요소 못 찾음 문구(`{"text":"Transport options"}`)와 MCP 페이로드(`Payment failed to
+  start`)에 걸려 대본 노후를 재시도로 보냈다 → 드라이버 문구는 문장 시작에 앵커, 요소 못 찾음(`no element matching`·
+  `N elements named`)은 검사 전에 script 확정, MCP 봉투 안은 `net::ERR_`·`ECONN*`·`transport closed`만. (2) detail
+  폴백이 첫 `;`에서 잘려 뒤의 환경 표식을 못 봤다 → 끝까지. (3) 판정기 고장이 `some`이라 LLM 429 하나가 진짜 목표
+  실패를 덮어 exit 4 → 판정기 고장은 목표 판단에서 제외하고 그것만 남았을 때 environment. (4) `got 401, 500`을 첫
+  상태만 봐서 도착 순서에 따라 등급이 바뀌었다 → 나열 전부가 거절 상태여야 environment. (5) 가드 detail(콘솔 출력·URL)에
+  환경 정규식을 돌려 Socket.IO의 `transport error`, `/transport/quote`가 environment → 가드 텍스트는 안 훑고, 실패
+  요청 가드는 첫 실패만 적으므로 `1 failed request(s): 4xx`일 때만 environment. (6) heal의 잘린 재발견 detail이
+  script 규칙에 없어 suite(script)와 bare run(flow)이 달랐다 → 통일. (7) `run crashed`가 트레이스엔 environment,
+  CLI 종료는 2 → `runScenarioCli`가 런 시작 후 크래시를 잡아 4; 런 전 오류(인자·파일)만 2. (8) "environment =
+  재시도"에 재시도로 안 고쳐지는 것(미등록 핸들러, 커스텀 스텝 버그 크래시)이 들어갔다 → 정의를 "앱도 대본도 아닌 것:
+  실행 기계·호스트 설정·호출자 거절 — 재시도 또는 설정 수정"으로.
+- **검증:** 분류 규칙 단위 19 + 종료코드 2 + 실제 재생 경로 3(failOn→script, 초록엔 없음, 딴 페이지→flow) +
   suite 크래시=environment. `npm run test:consumer -- npm`(실제 Chrome) 통과 — `replay:broken`은 flow → exit 1 그대로,
   인자 없는 `cairn replay`는 2. typecheck·build·check:boundaries·전체 테스트.
 - **상태 변화:** #173 종결. #197(초록의 강도)은 이 분류의 거울 — 같은 신호, 반대 색.

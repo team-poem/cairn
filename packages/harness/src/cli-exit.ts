@@ -2,9 +2,10 @@ import type { FailureClass, Verdict } from "./index.js";
 
 /**
  * Exit codes a CI job can branch on (#173). 0 pass · 1 the flow broke (block) · 3 the script
- * aged (re-discover) · 4 the environment failed (retry). 2 is usage or setup: a bad command, a
- * missing argument, a crash before any verdict. A plain `!= 0` gate keeps working; one that read
- * `1` as "any failure" now sees only regressions.
+ * aged (re-discover) · 4 the environment: neither the app nor the script — the browser or judge
+ * died, the host's setup is wrong, the app refused the caller (retry, or fix the setup). 2 is
+ * usage: a bad command, a missing argument, an unreadable skill file, before any run starts. A
+ * plain `!= 0` gate keeps working; one that read `1` as "any failure" now sees only regressions.
  */
 export const FAIL_EXIT_CODE: Record<FailureClass, number> = { flow: 1, script: 3, environment: 4 };
 export const USAGE_EXIT_CODE = 2;

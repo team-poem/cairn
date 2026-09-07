@@ -57,6 +57,44 @@ describe("classifyFailure names the red (#173)", () => {
     expect(classifyFailure(verdict([red("navigated", "did not reach", { to: "shop.co/done" }), red("no-console-errors", "1 console error(s)")]))).toBe("flow");
   });
 
+  it("never scans a resolution miss or an MCP payload for environment words — page text is not a transport", () => {
+    expect(classifyFailure(verdict([ok("navigated")]), blockedBy('no element matching {"text":"Transport options"}'))).toBe("script");
+    expect(classifyFailure(verdict([ok("navigated")]), blockedBy('no element matching {"text":"Public transportation"}'))).toBe("script");
+    expect(classifyFailure(verdict([ok("navigated")]), blockedBy("MCP click failed: Payment failed to start"))).toBe("script");
+    expect(classifyFailure(verdict([ok("navigated")]), blockedBy("MCP navigate_page failed: net::ERR_CONNECTION_REFUSED"))).toBe("environment");
+    expect(classifyFailure(verdict([ok("navigated")]), blockedBy("browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver"))).toBe("environment");
+  });
+
+  it("reads the whole blocked reason from the detail, past any semicolon in the step's own payload", () => {
+    const detail = 'step 2/2 blocked: post-condition not met: {"url":"shop.co/cart; v2"}; MCP observe failed: net::ERR_ABORTED';
+    expect(finalizeVerdict(verdict([ok("navigated")]), detail).failure).toBe("environment");
+  });
+
+  it("a judge failure beside a real goal failure still reads as the regression", () => {
+    const flaky = red("expect", "LLM judgment failed: Anthropic API 429", { criteria: "x" });
+    expect(classifyFailure(verdict([flaky, red("navigated", "did not reach", { to: "shop.co/done" })]))).toBe("flow");
+    expect(classifyFailure(verdict([flaky]))).toBe("environment");
+    expect(classifyFailure(verdict([red("custom", 'no custom check registered for "stock"', { name: "stock" }), red("request-status", "no POST request matching /api/orders", { urlIncludes: "/api/orders", status: 200 })]))).toBe("flow");
+  });
+
+  it("refused means every status the critic saw, in either arrival order", () => {
+    const rs = (seen: string) => red("request-status", `expected 200, got ${seen} for https://shop.co/api/orders`, { urlIncludes: "/api/orders", status: 200 });
+    expect(classifyFailure(verdict([rs("401, 500")]))).toBe("flow");
+    expect(classifyFailure(verdict([rs("500, 401")]))).toBe("flow");
+    expect(classifyFailure(verdict([rs("401, 403")]))).toBe("environment");
+  });
+
+  it("guard text is never scanned for environment words, and a multi-failure guard hides what it did not print", () => {
+    expect(classifyFailure(verdict([ok("navigated"), red("no-console-errors", "2 console error(s): transport error")]))).toBe("flow");
+    expect(classifyFailure(verdict([ok("navigated"), red("no-failed-requests", "1 failed request(s): 500 https://api.shop.co/transport/quote")]))).toBe("flow");
+    expect(classifyFailure(verdict([ok("navigated"), red("no-failed-requests", "4 failed request(s): 429 https://shop.co/api/me")]))).toBe("flow");
+    expect(classifyFailure(verdict([ok("navigated"), red("no-failed-requests", "1 failed request(s): 429 https://shop.co/api/me")]))).toBe("environment");
+  });
+
+  it("a re-discovery that ended before done is the script, on the bare run as on the suite", () => {
+    expect(finalizeVerdict(verdict([ok("navigated")]), "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path").failure).toBe("script");
+  });
+
   it("an MCP envelope alone is not the environment: an element that never became interactive is the script", () => {
     expect(classifyFailure(verdict([ok("navigated")]), blockedBy("MCP click failed: Failed to interact with the element with uid 12. The element did not become interactive within the configured timeout."))).toBe("script");
     expect(classifyFailure(verdict([ok("navigated")]), blockedBy("MCP navigate_page timed out after 30000ms"))).toBe("environment");

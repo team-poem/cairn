@@ -114,8 +114,9 @@ export interface Scenario {
   name: string;
   steps: Step[];
   assertions: Assertion[];
-  /** Set by discover when it stopped at the step cap without reaching "done" — the path may be
-   * incomplete, so a host can warn before trusting the freeze. Absent on a normal finish. */
+  /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
+   * policy blocks — so the path may be incomplete and a host can warn before trusting the freeze.
+   * Absent on a normal finish. */
   truncated?: boolean;
   /** Set by discover when this freeze wrote a `*` for a segment the run minted, in a `navigated`
    * destination or a step's URL expect. Absent means the file predates the notation, so a `*` in it

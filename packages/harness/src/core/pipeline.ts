@@ -114,16 +114,14 @@ async function runStep(
 }
 
 /**
- * Fold step completion into the verdict: assertions only prove evidence that was *collected*, and a
- * blocked run stopped collecting partway — trailing steps never executed, so assertions satisfied by
- * the executed prefix must not read as a green (#90; same fail-closed stance as the empty-assertion
- * rule, #69). `detail` says which step blocked and why, so a CI gate can tell "run didn't finish"
- * apart from "assertions failed". A healed step is recorded ok, so a healed run is not penalized.
- */
-/**
- * How the run that produced the evidence ended. A replay is a fixed step list, so completion is
- * "every step ran"; a re-discovery (outcome-heal) is a loop, so completion is "the loop reached
- * `done`, not the step cap". Both feed one finalizer so a rule added there applies to both paths.
+ * Why a replay stopped collecting evidence partway, or `undefined` if every step ran. Assertions
+ * only prove evidence that was *collected*: trailing steps never executed, so assertions satisfied
+ * by the executed prefix must not read as a green (#90; same fail-closed stance as the
+ * empty-assertion rule, #69). The string names the step and why, so a CI gate can tell "run didn't
+ * finish" apart from "assertions failed"; a healed step is recorded ok, so a healed run is not
+ * penalized. Pass the result as `finalizeVerdict`'s `incomplete`. A re-discovery is a loop rather
+ * than a step list, so its "incomplete" is `Scenario.truncated` rendered as a reason — both feed
+ * the same finalizer so a rule added there applies to both paths.
  */
 export function blockedReason(actions: ExecutedAction[], totalSteps: number): string | undefined {
   const blockedAt = actions.findIndex((a) => !a.ok);
@@ -148,7 +146,9 @@ const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-cons
  * `request-status`, `custom`, `expect`), not the app-health guards. A 500 or a console error is
  * not a broken path — re-discovering cannot fix it, and a repair that reached the goal is still
  * the right path when a guard tripped on the way. Used on both ends of outcome-heal (#186): to
- * decide whether to re-discover at all, and whether to hand the repair back.
+ * decide whether to re-discover at all, and as one half of whether to hand the repair back — the
+ * other half is that the re-discovery reached `done` (`Scenario.truncated` unset), which this
+ * function does not see: it filters `results` and never reads `passed` or `detail`.
  */
 export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));

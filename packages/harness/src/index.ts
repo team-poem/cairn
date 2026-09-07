@@ -64,3 +64,7 @@ export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { guessedKeyRuns, scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { GuessedKeyRun, TargetScore, ScoredTarget } from "./core/freeze.js";
 export { UsageMeter, emptyUsage } from "./core/usage.js";
+
+/** Shared diagnostics for hosts displaying discovery and freeze evidence (see docs/package-boundaries.md). */
+export { describeAction } from "./core/discover/decision.js";
+export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";

@@ -1,0 +1,55 @@
+{
+  "name": "Enter Cairn in Name and Submit. Prove POST /api/submit returned 200 and reach /success.",
+  "steps": [
+    {
+      "kind": "goto",
+      "url": "http://127.0.0.1:4318"
+    },
+    {
+      "kind": "type",
+      "target": {
+        "text": "Name",
+        "role": "textbox",
+        "index": 0
+      },
+      "text": "Cairn",
+      "intent": "Fill the submission name"
+    },
+    {
+      "kind": "click",
+      "target": {
+        "text": "Submit",
+        "role": "button",
+        "index": 0
+      },
+      "intent": "Save the name and open success",
+      "expect": {
+        "url": "127.0.0.1:4318/success"
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "kind": "no-failed-requests",
+      "origin": "derived",
+      "vacuous": true
+    },
+    {
+      "kind": "no-console-errors",
+      "origin": "derived",
+      "vacuous": true
+    },
+    {
+      "kind": "navigated",
+      "to": "127.0.0.1:4318/success",
+      "origin": "derived"
+    },
+    {
+      "kind": "request-status",
+      "urlIncludes": "127.0.0.1:4318/api/submit",
+      "status": 200,
+      "method": "POST",
+      "origin": "derived"
+    }
+  ]
+}

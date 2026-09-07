@@ -237,9 +237,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       const mark: OutcomeMark = {
         url: beforeObs.execution.finalUrl,
         requestCount: beforeObs.logic.requests.length,
-        // Only a scroll needs its pre-step snapshot kept: the freeze asks whether the next target
-        // was already there (#177). Other steps would carry the list for nothing.
-        ...(decision.action === "scroll" ? { elements: raw } : {}),
+        // Only a scroll needs its pre-step snapshot kept: the freeze asks whether the targets after
+        // it were already there (#177). Raw answers presence (what the driver locates against); the
+        // perceived list, when a hook exists, answers usability (the state it was installed to fix).
+        ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step

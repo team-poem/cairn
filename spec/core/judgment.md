@@ -127,20 +127,29 @@ before the mutation. These limits do not change replay verdict semantics.
 
 Discover scrolls while wandering. Replayed verbatim, a trailing scroll makes the verdict depend on
 network speed and can push the verified content out of view, so the freeze drops a scroll when both
-hold: its own request tail is empty (benign traffic aside), and the step after it names a target
-that was already present, and enabled, in the a11y snapshot taken before the scroll — or there is
-no step after it. A scroll that fired a request (a lazy load) or that revealed the next target (a
-virtualized list, an IntersectionObserver, a control the page enables only once scrolled to) stays:
-zero requests alone is not dead weight. Presence is judged on the raw a11y snapshot by the engine's
-own naming rule, exact name plus role, which is stricter than a driver's locate, so doubt keeps the
-scroll. A run of scrolls is judged from the end against the first surviving non-scroll step.
+hold: its own request tail is empty (benign traffic aside), and every step that follows it on the
+same page names a target that was already present, and usable, before the scroll — or nothing
+follows it. A scroll's viewport and DOM state persist for the rest of the page, so one step is not
+enough to ask: a toolbar button present before the scroll does not prove the list row three steps
+later was. The window ends at a page change or at the next surviving scroll; a step in it with no
+target to judge by (a key press, a wait) is undecidable and keeps the scroll. A scroll that fired a
+request (a lazy load) or that revealed a later target (a virtualized list, an IntersectionObserver,
+a control the page enables only once scrolled to) stays: zero requests alone is not dead weight.
 
-The limit is name identity. A scroll that slides a virtualized window over a *different* element
+Presence follows the driver's own locate, not a looser copy: exact name plus role on the raw a11y
+rows, and when `nth` is absent an exact match that shares a role with another is refused, as the
+resolver refuses it (#127). Usability is read from the perceived rows when a `perceive` hook is
+installed — that hook exists to correct state a page exposes outside the a11y tree, and `disabled`
+is such state — so doubt keeps the scroll. A run of scrolls is judged from the end.
+
+Two limits. Name identity: a scroll that slides a virtualized window over a *different* element
 with the same accessible name (row 3 before, row 12 after) reads as "already present" and is
-dropped; replay then acts on the first one. That ambiguity is already in the frozen target, which
-is name-based, and only element identity (#198) would close it. Each drop is a `gate: idle-scroll`
-whose `stepRef` is the step's original index; the frozen file carries no marker because nothing is
-left to mark.
+dropped; that ambiguity is already in the frozen target, and only element identity (#198) closes
+it. Traffic identity: the driver reports no resource type, so a lazy image below the fold keeps a
+scroll as surely as an API call does; the rule therefore under-fires on the very trailing scroll
+that motivated it, in the safe direction, until `NetworkRequest.resourceType` is populated. Each
+drop is a `gate: idle-scroll` whose `stepRef` is the step's original index; the frozen file carries
+no marker because nothing is left to mark.
 
 ## Perception's role (P6)
 

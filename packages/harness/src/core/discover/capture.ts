@@ -30,38 +30,54 @@ export interface OutcomeMark {
   requestCount: number;
   /** The raw a11y snapshot taken before the step (before any `perceive` hook — what the driver's
    * own locate sees at replay), recorded for a scroll step only, so the freeze can ask whether the
-   * next step's target was already reachable before the scroll (#177). */
+   * targets after the scroll were already reachable before it (#177). */
   elements?: readonly PageElement[];
+  /** The same snapshot after the host's `perceive` hook, when one is installed — the layer that
+   * corrects state a page exposes outside the a11y tree, so `disabled` is read from here. */
+  perceived?: readonly PageElement[];
 }
 
-/** Is `target` already present AND usable in `elements` by the engine's own naming rule (exact
- * accessible name, case-insensitive, plus `role` and `nth` when given)? Stricter than a driver's
- * locate, on purpose: a wrong "present" here prunes a scroll the next step needed. A disabled match
- * does not count — a control the page enables only once scrolled to (a terms-of-service Accept) is
- * in the tree before the scroll but cannot be acted on. `Target.index` is ignored: it is a position
- * among same-role elements, not among name matches, and replay never needs it when the exact name
- * resolves; the Chrome driver stamps it on every frozen target, so honouring it would make the
- * prune fire only for the first element of its role on the page. */
-export function targetPresent(target: Target, elements: readonly PageElement[]): boolean {
+/** Is `target` already present AND usable before a scroll, by the rules the driver's own locate
+ * applies at replay? Presence is read from the raw a11y rows (exact accessible name, `role` when
+ * given): the name must resolve, and when `nth` is absent an exact match that shares a role with
+ * another is refused, as `resolveTargetUid` refuses it (#127) — a presence the driver will not act
+ * on must not cost the scroll. Usability is read from the perceived rows when a `perceive` hook is
+ * installed (the layer that corrects state a page exposes outside the a11y tree), else from raw: a
+ * disabled match does not count, since a control the page enables only once scrolled to is in the
+ * tree before the scroll. `Target.index` is ignored: it is a position among same-role elements, not
+ * among name matches, and the Chrome driver stamps it on every frozen target. */
+export function targetPresent(
+  target: Target,
+  elements: readonly PageElement[],
+  perceived: readonly PageElement[] = elements,
+): boolean {
   if (!target.text) return false;
   const needle = target.text.trim().toLowerCase();
-  const matches = elements.filter(
-    (e) => (!target.role || e.role === target.role) && e.name.trim().toLowerCase() === needle && !e.disabled,
-  );
-  return matches.length > (target.nth ?? 0);
+  const named = (e: PageElement) => (!target.role || e.role === target.role) && e.name.trim().toLowerCase() === needle;
+  const matches = elements.filter(named);
+  const position = target.nth ?? 0;
+  if (matches.length <= position) return false;
+  if (target.nth === undefined && new Set(matches.map((e) => e.role)).size < matches.length) return false;
+  // Usability is positional, like the resolver's pick: the match at `nth` must itself be enabled —
+  // an enabled sibling further down does not make a disabled first one clickable.
+  const chosen = perceived.filter(named)[position];
+  return chosen !== undefined && !chosen.disabled;
 }
 
 const HAS_TARGET = new Set<Step["kind"]>(["click", "doubleClick", "hover", "type", "select"]);
 
 /**
  * Drop scroll steps the frozen flow does not need (#177), in place, keeping `steps`/`marks`
- * aligned. A scroll is idle when its own request tail is empty (benign traffic aside) AND the step
- * after it either does not exist (a trailing scroll: nothing after it needs the position) or names
- * a target that was already present before the scroll. Both are decided from evidence the loop
- * holds. A scroll that fired a request (lazy load) or that revealed the next target (a virtualized
- * list, an IntersectionObserver) is kept — zero requests alone is not dead weight. Walked from the
- * end so a run of scrolls is judged against the first surviving non-scroll step. Returns the
- * pruned steps with their original indices so the caller can name them on the trace.
+ * aligned. A scroll's viewport and DOM state persist for every step after it on the same page, so
+ * a scroll is idle only when its own request tail is empty (benign traffic aside) AND every step
+ * that follows it on that page names a target already present, and usable, before the scroll —
+ * the window ends at a page change (a `goto`, or a mark on another host+path) or at the next
+ * surviving scroll, whose own snapshot then answers for what follows. A step in the window with no
+ * target to judge by (a key press, a wait, a custom action) is undecidable, so the scroll stays. A
+ * scroll that fired a request (a lazy load — and, since the driver reports no resource type, a
+ * lazy image counts) or that revealed a later target (a virtualized list, an IntersectionObserver)
+ * stays: zero requests alone is not dead weight. Walked from the end. Returns the pruned steps
+ * with their original indices so the caller can name them on the trace.
  */
 export function pruneIdleScrolls(
   steps: Step[],
@@ -78,10 +94,17 @@ export function pruneIdleScrolls(
     const nextMark = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
     const tail = requests.slice(mark.requestCount, nextMark?.requestCount ?? requests.length);
     if (tail.some((r) => !isBenignRequest(r.url, benign))) continue;
-    const next = steps[i + 1];
-    const idle =
-      next === undefined ||
-      (HAS_TARGET.has(next.kind) && "target" in next && targetPresent(next.target, mark.elements));
+    let idle = true;
+    for (let k = i + 1; k < steps.length; k++) {
+      const later = steps[k]!;
+      const laterMark = marks[k];
+      const samePage = mark.url !== undefined && laterMark?.url !== undefined && destinationKey(laterMark.url) === destinationKey(mark.url);
+      if (later.kind === "goto" || later.kind === "scroll" || (laterMark && !samePage)) break;
+      if (!HAS_TARGET.has(later.kind) || !("target" in later) || !targetPresent(later.target, mark.elements, mark.perceived)) {
+        idle = false;
+        break;
+      }
+    }
     if (!idle) continue;
     pruned.unshift({ index: i, step });
     steps.splice(i, 1);

@@ -665,6 +665,31 @@ describe("discover drops the scrolls the flow did not need (#177)", () => {
     expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "scroll", "click"]);
   });
 
+  it("keeps the scroll when a perceive hook says the control is really disabled before it", async () => {
+    class Widget extends StubDriver {
+      override async scroll(): Promise<void> {
+        this.els = [{ role: "button", name: "Accept" }];
+      }
+    }
+    const driver = new Widget("https://shop/terms");
+    driver.els = [{ role: "button", name: "Accept" }]; // raw reads enabled: the state lives outside a11y
+    driver.navOn.Accept = "https://shop/home";
+    const perceive = async (els: readonly { role: string; name: string; disabled?: boolean }[]) =>
+      driver.url === "https://shop/terms" && els.length === 1 && !("disabled" in els[0]!) && driverScrolled === false
+        ? els.map((e) => ({ ...e, disabled: true }))
+        : [...els];
+    let driverScrolled = false;
+    const original = driver.scroll.bind(driver);
+    driver.scroll = async () => { driverScrolled = true; await original(); };
+    const scenario = await discover("accept the terms", { driver, baseUrl: "https://shop/terms", perceive, llm: new ScriptedLlm([
+      '{"action":"scroll","direction":"down"}',
+      '{"action":"click","text":"Accept","role":"button"}',
+      '{"action":"done"}',
+      "[]",
+    ]) });
+    expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "scroll", "click"]);
+  });
+
   it("keeps the scroll when it revealed Buy — a virtualized list", async () => {
     class Virtualized extends StubDriver {
       override async scroll(): Promise<void> {

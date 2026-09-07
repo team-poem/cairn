@@ -21,6 +21,14 @@
   안 찍혔다. (4) 뒤에서부터 판단한다는 규칙에 빨간 테스트가 없었다(전부-idle 세 스크롤 케이스 추가).
   (5) judgment.md 문단을 #203처럼 독립 절로, 이름 정체성 한계(가상화 창이 동명 다른 요소 위로 이동) 명시.
   (6) trace.md 버전 규칙에 "기존 enum 필드의 새 값 = minor" 추가.
-- **검증:** 단위 11(제거/지연로드 유지/벤인 무시/가상화 유지/타겟 없음 유지/꼬리 제거/연속/role·nth/스냅샷 없음)
-  + discover end-to-end 4(정적 페이지는 빠지고 stepRef=1로 트레이스 · FakeDriver의 index 스탬프에도 빠짐 · 가상화는 남음 · scroll-to-enable은 남음).
+- **amazon 리뷰(PR #210)에서 고친 것:** (1) 다음 스텝 하나만 봤다 — 스크롤의 DOM 상태는 같은 페이지의 뒤 스텝
+  전부에 남는다(`scroll → click Filter(툴바) → click Message 87(스크롤해야 마운트)`에서 Filter만 보고 지움). 페이지
+  이동이나 다음 살아남은 스크롤까지의 타겟 스텝 전부가 스크롤 전에 있어야 지움; 타겟 없는 스텝이 끼면 유지.
+  (2) 동명·같은 role 중복은 `resolveTargetUid`가 #127로 거부하는데 presence는 true였다 — "드라이버보다 엄격"이
+  이 부류에선 거짓. nth 없으면 같은 role 중복은 false. (3) `disabled`를 raw에서 읽었는데 `perceive` 훅이 바로 그
+  상태를 고치라고 있다 — 존재는 raw, 활성은 perceived(`OutcomeMark.perceived`, 훅 있을 때만). (4) 벤인 필터가
+  lazy 이미지와 API를 못 가르고 `resourceType`은 드라이버가 안 채운다 → 실제 앱의 꼬리 스크롤엔 대부분 안 걸림.
+  안전한 방향이라 spec에 한계로 명시, 드라이버가 `resourceType`을 채우는 것을 후속으로. (5) CLI 줄이 고아 불릿 → 문장.
+- **검증:** 단위 16(제거/지연로드 유지/벤인 무시/가상화 유지/타겟 없음 유지/꼬리 제거/연속/role·nth/스냅샷 없음)
+  + discover end-to-end 5(정적 페이지는 빠지고 stepRef=1로 트레이스 · FakeDriver의 index 스탬프에도 빠짐 · 가상화는 남음 · scroll-to-enable은 남음 · perceive 훅이 disabled라 하면 남음).
 - **상태 변화:** #177 종결. 2.9.0 슬레이트의 "작은 것" 셋(195·204·177) 완료. 남은 건 196·197·198(설계).

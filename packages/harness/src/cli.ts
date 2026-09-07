@@ -153,10 +153,12 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   // `navigated` still passes the scenario. Collect the reasons through the shipped sink seam; what
   // decides the warning is the frozen result, not these.
   const droppedProofs: string[] = [];
+  let prunedScrolls = 0;
   const trace = new Tracer({
     emit: (event) => {
       const reason = droppedProofReason(event);
       if (reason) droppedProofs.push(reason);
+      if (event.kind === "gate" && event.payload.gate === "idle-scroll") prunedScrolls++;
     },
   }).scope("discover");
 
@@ -227,6 +229,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // identical lines reads as many problems instead of one.
     for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
   }
+  if (prunedScrolls) console.log(`  · ${prunedScrolls} idle scroll step(s) dropped — replay does not need them (#177)`);
   // #203: a request proof can establish the mutation while the URL still proves only arrival at
   // the form. Warn independently of provesAnAction so the stronger claim is never implied.
   for (const assertion of scenario.assertions) {

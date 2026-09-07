@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
+import { Tracer } from "../../../src/core/trace.js";
+import type { TraceEvent } from "../../../src/core/trace.js";
 import type { ActionPolicy, Decision } from "../../../src/core/discover/index.js";
 import { FakeDriver } from "../../../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
@@ -611,5 +613,68 @@ describe("discover audit coverage", () => {
     const llm = new ScriptedLlm(['{"action":"click","text":"Pay"}', '{"action":"done"}']);
     const found = await discover("pay", { driver, llm });
     expect(found).not.toHaveProperty("wildcards");
+  });
+});
+
+describe("discover drops the scrolls the flow did not need (#177)", () => {
+  const scripted = () => new ScriptedLlm([
+    '{"action":"scroll","direction":"down"}',
+    '{"action":"click","text":"Buy","role":"button"}',
+    '{"action":"done"}',
+    "[]",
+  ]);
+
+  it("freezes without the scroll when Buy was already on the page, and names it on the trace", async () => {
+    const driver = new StubDriver("https://shop/list");
+    driver.els = [{ role: "button", name: "Buy" }];
+    driver.navOn.Buy = "https://shop/checkout";
+    const events: TraceEvent[] = [];
+    const trace = new Tracer({ emit: (e) => { events.push(e); } }).scope("discover");
+    const scenario = await discover("buy", { driver, llm: scripted(), baseUrl: "https://shop/list", trace });
+    expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "click"]);
+    const gate = events.find((e) => e.kind === "gate" && e.payload.gate === "idle-scroll");
+    expect(gate?.stepRef).toBe(1); // the scroll's index as the action events emitted it
+  });
+
+  it("still prunes when the driver enriches the target with a role index, as Chrome's locate does", async () => {
+    // FakeDriver.locate stamps `index` (position among same-role elements) like the Chrome driver.
+    // Buy is the second button, so a presence rule that read `index` as "nth name match" would
+    // never prune on a real page.
+    const elements = [{ role: "button", name: "Add" }, { role: "button", name: "Buy" }];
+    const driver = new FakeDriver({ evidence: { ...evidence, execution: { ...evidence.execution, finalUrl: "https://shop/list" } }, elements });
+    const scenario = await discover("buy", { driver, llm: scripted(), baseUrl: "https://shop/list" });
+    expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "click"]);
+    expect(scenario.steps[1]).toMatchObject({ target: { text: "Buy", role: "button", index: 1 } });
+  });
+
+  it("keeps the scroll that enables the control — Accept is in the tree but disabled until the bottom", async () => {
+    class Terms extends StubDriver {
+      override async scroll(): Promise<void> {
+        this.els = [{ role: "button", name: "Accept" }];
+      }
+    }
+    const driver = new Terms("https://shop/terms");
+    driver.els = [{ role: "button", name: "Accept", disabled: true }];
+    driver.navOn.Accept = "https://shop/home";
+    const scenario = await discover("accept the terms", { driver, baseUrl: "https://shop/terms", llm: new ScriptedLlm([
+      '{"action":"scroll","direction":"down"}',
+      '{"action":"click","text":"Accept","role":"button"}',
+      '{"action":"done"}',
+      "[]",
+    ]) });
+    expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "scroll", "click"]);
+  });
+
+  it("keeps the scroll when it revealed Buy — a virtualized list", async () => {
+    class Virtualized extends StubDriver {
+      override async scroll(): Promise<void> {
+        this.els = [{ role: "button", name: "Buy" }];
+      }
+    }
+    const driver = new Virtualized("https://shop/list");
+    driver.els = [{ role: "button", name: "Add" }];
+    driver.navOn.Buy = "https://shop/checkout";
+    const scenario = await discover("buy", { driver, llm: scripted(), baseUrl: "https://shop/list" });
+    expect(scenario.steps.map((s) => s.kind)).toEqual(["goto", "scroll", "click"]);
   });
 });

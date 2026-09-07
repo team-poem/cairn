@@ -5,7 +5,7 @@
  * snapshot that races the step's own in-flight request. See spec/core/surgical-heal.md.
  */
 import type { Driver } from "../ports.js";
-import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
+import type { Evidence, NetworkRequest, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { isBenignRequest, isMutation, onSiteOf } from "../requests.js";
 import { urlReached, WILDCARD } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
@@ -28,6 +28,66 @@ export function destinationKey(url: string): string {
 export interface OutcomeMark {
   url: string | undefined;
   requestCount: number;
+  /** The raw a11y snapshot taken before the step (before any `perceive` hook — what the driver's
+   * own locate sees at replay), recorded for a scroll step only, so the freeze can ask whether the
+   * next step's target was already reachable before the scroll (#177). */
+  elements?: readonly PageElement[];
+}
+
+/** Is `target` already present AND usable in `elements` by the engine's own naming rule (exact
+ * accessible name, case-insensitive, plus `role` and `nth` when given)? Stricter than a driver's
+ * locate, on purpose: a wrong "present" here prunes a scroll the next step needed. A disabled match
+ * does not count — a control the page enables only once scrolled to (a terms-of-service Accept) is
+ * in the tree before the scroll but cannot be acted on. `Target.index` is ignored: it is a position
+ * among same-role elements, not among name matches, and replay never needs it when the exact name
+ * resolves; the Chrome driver stamps it on every frozen target, so honouring it would make the
+ * prune fire only for the first element of its role on the page. */
+export function targetPresent(target: Target, elements: readonly PageElement[]): boolean {
+  if (!target.text) return false;
+  const needle = target.text.trim().toLowerCase();
+  const matches = elements.filter(
+    (e) => (!target.role || e.role === target.role) && e.name.trim().toLowerCase() === needle && !e.disabled,
+  );
+  return matches.length > (target.nth ?? 0);
+}
+
+const HAS_TARGET = new Set<Step["kind"]>(["click", "doubleClick", "hover", "type", "select"]);
+
+/**
+ * Drop scroll steps the frozen flow does not need (#177), in place, keeping `steps`/`marks`
+ * aligned. A scroll is idle when its own request tail is empty (benign traffic aside) AND the step
+ * after it either does not exist (a trailing scroll: nothing after it needs the position) or names
+ * a target that was already present before the scroll. Both are decided from evidence the loop
+ * holds. A scroll that fired a request (lazy load) or that revealed the next target (a virtualized
+ * list, an IntersectionObserver) is kept — zero requests alone is not dead weight. Walked from the
+ * end so a run of scrolls is judged against the first surviving non-scroll step. Returns the
+ * pruned steps with their original indices so the caller can name them on the trace.
+ */
+export function pruneIdleScrolls(
+  steps: Step[],
+  marks: (OutcomeMark | null)[],
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): { index: number; step: Step }[] {
+  const requests = evidence.logic.requests;
+  const pruned: { index: number; step: Step }[] = [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    const mark = marks[i];
+    if (step.kind !== "scroll" || !mark?.elements) continue;
+    const nextMark = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
+    const tail = requests.slice(mark.requestCount, nextMark?.requestCount ?? requests.length);
+    if (tail.some((r) => !isBenignRequest(r.url, benign))) continue;
+    const next = steps[i + 1];
+    const idle =
+      next === undefined ||
+      (HAS_TARGET.has(next.kind) && "target" in next && targetPresent(next.target, mark.elements));
+    if (!idle) continue;
+    pruned.unshift({ index: i, step });
+    steps.splice(i, 1);
+    marks.splice(i, 1);
+  }
+  return pruned;
 }
 
 // The final evidence shares one budget for pending responses and post-response redirects.

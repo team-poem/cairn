@@ -1,3 +1,4 @@
+import { pruneIdleScrolls, targetPresent } from "../../../src/core/discover/capture.js";
 import { describe, expect, it } from "vitest";
 import { discover } from "../../../src/core/discover/index.js";
 import { assignStepExpects, destinationKey, freshMutationExpect } from "../../../src/core/discover/capture.js";
@@ -393,5 +394,106 @@ describe("observeOutcomes waits for an in-flight mutation only up to its deadlin
     await vi.advanceTimersByTimeAsync(0);
     await done;
     expect(driver.observes).toBe(1);
+  });
+});
+
+describe("pruneIdleScrolls: a scroll the frozen flow does not need (#177)", () => {
+  const req = (url: string, method = "GET"): NetworkRequest => ({ method, url, status: 200 });
+  const ev = (requests: NetworkRequest[] = []): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl: "https://app/list", blocked: false },
+    perception: {},
+    logic: { requests, console: [] },
+  });
+  const buy = { role: "button", name: "Buy" };
+  const scroll: Step = { kind: "scroll", direction: "down" };
+  const click: Step = { kind: "click", target: { text: "Buy", role: "button" } };
+
+  it("drops a scroll with no requests whose next target was already on the page", () => {
+    const steps = [scroll, click];
+    const marks = [{ url: "https://app/list", requestCount: 0, elements: [buy] }, { url: "https://app/list", requestCount: 0 }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([{ index: 0, step: scroll }]);
+    expect(steps).toEqual([click]);
+    expect(marks).toHaveLength(1);
+  });
+
+  it("keeps a scroll that fired a request — a lazy load is not idle", () => {
+    const steps = [scroll, click];
+    const marks = [{ url: "https://app/list", requestCount: 0, elements: [buy] }, { url: "https://app/list", requestCount: 1 }];
+    expect(pruneIdleScrolls(steps, marks, ev([req("https://app/api/items?page=2")]))).toEqual([]);
+    expect(steps).toHaveLength(2);
+  });
+
+  it("does not count benign traffic as a reason to keep it", () => {
+    const steps = [scroll, click];
+    const marks = [{ url: "https://app/list", requestCount: 0, elements: [buy] }, { url: "https://app/list", requestCount: 1 }];
+    expect(pruneIdleScrolls(steps, marks, ev([req("https://app/analytics/beacon")]), ["/analytics/"])).toHaveLength(1);
+  });
+
+  it("keeps a scroll that revealed the next target — a virtualized list", () => {
+    const steps = [scroll, click];
+    const marks = [{ url: "https://app/list", requestCount: 0, elements: [{ role: "button", name: "Add" }] }, { url: "https://app/list", requestCount: 0 }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([]);
+  });
+
+  it("keeps a scroll when the next step has no target to judge by", () => {
+    const steps: Step[] = [scroll, { kind: "pressKey", key: "Enter" }];
+    const marks = [{ url: "https://app/list", requestCount: 0, elements: [buy] }, { url: "https://app/list", requestCount: 0 }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([]);
+  });
+
+  it("drops a trailing scroll with no requests — nothing after it needs the position", () => {
+    const steps = [click, scroll];
+    const marks = [{ url: "https://app/list", requestCount: 0 }, { url: "https://app/list", requestCount: 0, elements: [buy] }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([{ index: 1, step: scroll }]);
+    expect(steps).toEqual([click]);
+  });
+
+  it("judges a run of scrolls against the first surviving non-scroll step", () => {
+    const steps = [scroll, scroll, click];
+    const marks = [
+      { url: "https://app/list", requestCount: 0, elements: [{ role: "button", name: "Add" }] }, // Buy not yet visible
+      { url: "https://app/list", requestCount: 0, elements: [buy] }, // visible after the first scroll
+      { url: "https://app/list", requestCount: 0 },
+    ];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([{ index: 1, step: scroll }]);
+    expect(steps).toEqual([scroll, click]);
+  });
+
+  it("drops every scroll of an all-idle run — judged from the end against the surviving click", () => {
+    const steps = [scroll, scroll, scroll, click];
+    const marks = [
+      { url: "https://app/list", requestCount: 0, elements: [buy] },
+      { url: "https://app/list", requestCount: 0, elements: [buy] },
+      { url: "https://app/list", requestCount: 0, elements: [buy] },
+      { url: "https://app/list", requestCount: 0 },
+    ];
+    expect(pruneIdleScrolls(steps, marks, ev()).map((p) => p.index)).toEqual([0, 1, 2]);
+    expect(steps).toEqual([click]);
+  });
+
+  it("respects role and nth when deciding presence, and ignores index", () => {
+    expect(targetPresent({ text: "Buy", role: "link" }, [buy])).toBe(false);
+    expect(targetPresent({ text: "buy" }, [buy])).toBe(true);
+    expect(targetPresent({ text: "Buy", nth: 1 }, [buy])).toBe(false);
+    expect(targetPresent({ text: "Buy", nth: 1 }, [buy, buy])).toBe(true);
+    expect(targetPresent({ text: "Bu" }, [buy])).toBe(false); // exact name, not substring
+    // `index` is a position among same-role elements, stamped by the Chrome driver on every target;
+    // it says nothing about whether the name is present.
+    expect(targetPresent({ text: "Buy", role: "button", index: 3 }, [buy])).toBe(true);
+  });
+
+  it("does not count a disabled match — a control the page enables only once scrolled to", () => {
+    const accept = { role: "button", name: "Accept" };
+    expect(targetPresent({ text: "Accept" }, [{ ...accept, disabled: true }])).toBe(false);
+    expect(targetPresent({ text: "Accept" }, [{ ...accept, disabled: true }, accept])).toBe(true);
+    const steps: Step[] = [scroll, { kind: "click", target: { text: "Accept", role: "button" } }];
+    const marks = [{ url: "https://app/terms", requestCount: 0, elements: [{ ...accept, disabled: true }] }, { url: "https://app/terms", requestCount: 0 }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([]);
+  });
+
+  it("leaves a scroll without a recorded snapshot alone", () => {
+    const steps = [scroll, click];
+    const marks = [{ url: "https://app/list", requestCount: 0 }, { url: "https://app/list", requestCount: 0 }];
+    expect(pruneIdleScrolls(steps, marks, ev())).toEqual([]);
   });
 });

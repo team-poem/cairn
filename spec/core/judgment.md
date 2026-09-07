@@ -123,6 +123,25 @@ while the wait compares concrete host+path destinations. A different resource pa
 end the wait yet still carry an advisory when the frozen generalized destination also matched
 before the mutation. These limits do not change replay verdict semantics.
 
+### A scroll the flow did not need (#177)
+
+Discover scrolls while wandering. Replayed verbatim, a trailing scroll makes the verdict depend on
+network speed and can push the verified content out of view, so the freeze drops a scroll when both
+hold: its own request tail is empty (benign traffic aside), and the step after it names a target
+that was already present, and enabled, in the a11y snapshot taken before the scroll — or there is
+no step after it. A scroll that fired a request (a lazy load) or that revealed the next target (a
+virtualized list, an IntersectionObserver, a control the page enables only once scrolled to) stays:
+zero requests alone is not dead weight. Presence is judged on the raw a11y snapshot by the engine's
+own naming rule, exact name plus role, which is stricter than a driver's locate, so doubt keeps the
+scroll. A run of scrolls is judged from the end against the first surviving non-scroll step.
+
+The limit is name identity. A scroll that slides a virtualized window over a *different* element
+with the same accessible name (row 3 before, row 12 after) reads as "already present" and is
+dropped; replay then acts on the first one. That ambiguity is already in the frozen target, which
+is name-based, and only element identity (#198) would close it. Each drop is a `gate: idle-scroll`
+whose `stepRef` is the step's original index; the frozen file carries no marker because nothing is
+left to mark.
+
 ## Perception's role (P6)
 
 Three layers are *captured*, but the deterministic verdict rules on **two** — execution + logic.

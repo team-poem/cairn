@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.3**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.4**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.3", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.4", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -65,7 +65,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-start` | `id`, `intent`, `skillRef`, `cached` (hit vs. discover) | `SuiteCase` + cache check |
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
-| discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) |
+| discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
@@ -130,8 +130,10 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
 
 ## Versioning — header `major.minor`
 
-- **minor** = additive: a new `kind`, a new optional payload field. Viewer rule: skip unknown
-  kinds/fields *but count them* ("3 events this viewer doesn't render") — never silently drop.
+- **minor** = additive: a new `kind`, a new optional payload field, a new value of an existing
+  enumerated field (a `gate` reason). Viewer rule: skip unknown kinds/fields *but count them*
+  ("3 events this viewer doesn't render"), render an unknown enum value generically — never
+  silently drop.
 - **major** = envelope or semantics change. Viewer rule: refuse with a clear message, don't
   guess.
 
@@ -196,3 +198,14 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
 ## Open
 
 - *(none — the attachment id scheme was the last one, closed in #160.)*
+
+## Decided in review (#177)
+
+- **`gate: idle-scroll`** — a scroll step discover took while wandering, dropped at freeze because
+  its request tail was empty and the step after it (or nothing, for a trailing scroll) did not need
+  the position. The event's `stepRef` is the step's index as the `action` events emitted it, so a
+  viewer can reconcile the frozen file's shorter step list with the actions it saw (subtract the
+  `idle-scroll` gates before an `action`'s `stepRef` to find its frozen index). Header goes to
+  **1.4**: a new value in an existing enumerated field, minor rule — a 1.3 viewer renders the gate
+  generically, a typed consumer with an exhaustive switch on `gate` sees a compile-time break, not
+  a runtime one.

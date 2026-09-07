@@ -5,7 +5,7 @@
  * snapshot that races the step's own in-flight request. See spec/core/surgical-heal.md.
  */
 import type { Driver } from "../ports.js";
-import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
+import type { Evidence, NetworkRequest, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { isBenignRequest, isMutation, onSiteOf } from "../requests.js";
 import { urlReached, WILDCARD } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
@@ -28,6 +28,89 @@ export function destinationKey(url: string): string {
 export interface OutcomeMark {
   url: string | undefined;
   requestCount: number;
+  /** The raw a11y snapshot taken before the step (before any `perceive` hook — what the driver's
+   * own locate sees at replay), recorded for a scroll step only, so the freeze can ask whether the
+   * targets after the scroll were already reachable before it (#177). */
+  elements?: readonly PageElement[];
+  /** The same snapshot after the host's `perceive` hook, when one is installed — the layer that
+   * corrects state a page exposes outside the a11y tree, so `disabled` is read from here. */
+  perceived?: readonly PageElement[];
+}
+
+/** Is `target` already present AND usable before a scroll, by the rules the driver's own locate
+ * applies at replay? Presence is read from the raw a11y rows (exact accessible name, `role` when
+ * given): the name must resolve, and when `nth` is absent an exact match that shares a role with
+ * another is refused, as `resolveTargetUid` refuses it (#127) — a presence the driver will not act
+ * on must not cost the scroll. Usability is read from the perceived rows when a `perceive` hook is
+ * installed (the layer that corrects state a page exposes outside the a11y tree), else from raw: a
+ * disabled match does not count, since a control the page enables only once scrolled to is in the
+ * tree before the scroll. `Target.index` is ignored: it is a position among same-role elements, not
+ * among name matches, and the Chrome driver stamps it on every frozen target. */
+export function targetPresent(
+  target: Target,
+  elements: readonly PageElement[],
+  perceived: readonly PageElement[] = elements,
+): boolean {
+  if (!target.text) return false;
+  const needle = target.text.trim().toLowerCase();
+  const named = (e: PageElement) => (!target.role || e.role === target.role) && e.name.trim().toLowerCase() === needle;
+  const matches = elements.filter(named);
+  const position = target.nth ?? 0;
+  if (matches.length <= position) return false;
+  if (target.nth === undefined && new Set(matches.map((e) => e.role)).size < matches.length) return false;
+  // Usability is positional, like the resolver's pick: the match at `nth` must itself be enabled —
+  // an enabled sibling further down does not make a disabled first one clickable.
+  const chosen = perceived.filter(named)[position];
+  return chosen !== undefined && !chosen.disabled;
+}
+
+const HAS_TARGET = new Set<Step["kind"]>(["click", "doubleClick", "hover", "type", "select"]);
+
+/**
+ * Drop scroll steps the frozen flow does not need (#177), in place, keeping `steps`/`marks`
+ * aligned. A scroll's viewport and DOM state persist for every step after it on the same page, so
+ * a scroll is idle only when its own request tail is empty (benign traffic aside) AND every step
+ * that follows it on that page names a target already present, and usable, before the scroll —
+ * the window ends at a page change (a `goto`, or a mark on another host+path) or at the next
+ * surviving scroll, whose own snapshot then answers for what follows. A step in the window with no
+ * target to judge by (a key press, a wait, a custom action) is undecidable, so the scroll stays. A
+ * scroll that fired a request (a lazy load — and, since the driver reports no resource type, a
+ * lazy image counts) or that revealed a later target (a virtualized list, an IntersectionObserver)
+ * stays: zero requests alone is not dead weight. Walked from the end. Returns the pruned steps
+ * with their original indices so the caller can name them on the trace.
+ */
+export function pruneIdleScrolls(
+  steps: Step[],
+  marks: (OutcomeMark | null)[],
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): { index: number; step: Step }[] {
+  const requests = evidence.logic.requests;
+  const pruned: { index: number; step: Step }[] = [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    const mark = marks[i];
+    if (step.kind !== "scroll" || !mark?.elements) continue;
+    const nextMark = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
+    const tail = requests.slice(mark.requestCount, nextMark?.requestCount ?? requests.length);
+    if (tail.some((r) => !isBenignRequest(r.url, benign))) continue;
+    let idle = true;
+    for (let k = i + 1; k < steps.length; k++) {
+      const later = steps[k]!;
+      const laterMark = marks[k];
+      const samePage = mark.url !== undefined && laterMark?.url !== undefined && destinationKey(laterMark.url) === destinationKey(mark.url);
+      if (later.kind === "goto" || later.kind === "scroll" || (laterMark && !samePage)) break;
+      if (!HAS_TARGET.has(later.kind) || !("target" in later) || !targetPresent(later.target, mark.elements, mark.perceived)) {
+        idle = false;
+        break;
+      }
+    }
+    if (!idle) continue;
+    pruned.unshift({ index: i, step });
+    steps.splice(i, 1);
+    marks.splice(i, 1);
+  }
+  return pruned;
 }
 
 // The final evidence shares one budget for pending responses and post-response redirects.

@@ -12,7 +12,7 @@ import type { TracePhase, TraceScope } from "../trace.js";
 import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
-import { assignStepExpects, observeOutcomes } from "./capture.js";
+import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
@@ -77,6 +77,21 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
     const evidence = await observeOutcomes(driver, firstCount, marks, benign);
+    // Before expects are assigned: indices shift, and a pruned scroll's (empty) tail folds into
+    // the step that follows it. Each prune is a gate firing, not silence — the trace names the
+    // original index so a viewer can reconcile it with the `action` events already emitted.
+    for (const { index, step } of pruneIdleScrolls(steps, marks, evidence, benign)) {
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        stepRef: index,
+        payload: {
+          gate: "idle-scroll",
+          action: `scroll ${step.kind === "scroll" ? step.direction ?? "down" : ""}`.trim(),
+          reason: "no requests fired and the next target was already present, so replay does not need it",
+        },
+      });
+    }
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
@@ -222,6 +237,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       const mark: OutcomeMark = {
         url: beforeObs.execution.finalUrl,
         requestCount: beforeObs.logic.requests.length,
+        // Only a scroll needs its pre-step snapshot kept: the freeze asks whether the targets after
+        // it were already there (#177). Raw answers presence (what the driver locates against); the
+        // perceived list, when a hook exists, answers usability (the state it was installed to fix).
+        ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step

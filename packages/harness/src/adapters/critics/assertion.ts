@@ -2,7 +2,7 @@
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
 import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFrozen } from "../../core/requests.js";
-import { urlReached } from "../../core/steps.js";
+import { unrecognizedLeadingSegment, urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
 export type CustomCheck = (
@@ -27,7 +27,11 @@ export function checkAssertion(
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
       if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes, wildcards })) {
-        return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
+        // A miss the matcher's prefix list explains reads differently from the app landing elsewhere
+        // (#204), so the reader knows whether to configure `localePrefixes` or debug the app.
+        const segment = unrecognizedLeadingSegment(finalUrl ?? "", assertion.to, { localePrefixes, wildcards });
+        const hint = segment === undefined ? "" : `; leading segment "${segment}" is not in localePrefixes`;
+        return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}${hint}` };
       }
       return { assertion, passed: true, detail: finalUrl };
     }

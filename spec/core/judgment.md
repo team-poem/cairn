@@ -81,6 +81,15 @@ When discover proposes assertions, it **grounds them in what actually happened**
   the run navigated somewhere unnameable, not that nothing changed. The notation is declared per
   file by `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen
   as, so a page whose real path contains one keeps its meaning under a newer engine.
+- A `navigated` miss says when the matcher, not the app, explains it (#204). Destination matching
+  strips one consumer-declared leading segment (`localePrefixes`, #86) before comparing; an app whose
+  prefix is outside that list gets a miss that reads exactly like landing on `/error`. When
+  stripping one unrecognised leading segment would have matched, the result detail names it
+  (`leading segment "de" is not in localePrefixes`), probing after the configured prefixes are
+  stripped so a skill frozen under `/en/` and replayed under `/de/` is explained too. A miss no
+  single segment explains carries no hint, a run bounced to the host root is not "missing a
+  prefix", and a wildcard is never offered as one, so it does not fire on a real regression.
+  Advisory only: the verdict value is `urlReached`'s, unchanged.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 

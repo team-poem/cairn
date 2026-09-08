@@ -85,14 +85,16 @@ started exits 4 on `replay` and `suite` alike). First match wins, in this order:
 - failing closed because the freeze proves nothing (#69, #137), or a re-discovery ended before
   `done` → `script`, on the bare run and the suite alike;
 - a goal assertion failed → `flow`; unless every failed goal is a request the app refused with
-  401/403/429 — every status the critic saw for it, not the first to arrive → `environment`. A
-  judge that could not judge (LLM failed, no handler for a check) is set aside here and is
-  `environment` only when nothing else failed, so LLM flakiness next to a real regression still
-  reads as the regression;
+  401/403/429 — every status the critic saw for it, a still-pending `0` included, not the first
+  to arrive → `environment`;
 - only the app-health guards failed → still `flow`: a 500 is the same 500 whether a goal or a guard
   saw it, and #186's guard/goal split is about what a re-discovery can fix, not whose fault it is;
   unless the single failed request was a refusal → `environment`. Guard text is URLs and console
-  output and is never scanned for environment words;
+  output and is never scanned for environment or judge words;
+- every failure is the judge's own (an `expect` whose LLM failed, a `custom` check with no handler)
+  → `environment`. Last, not first: the app's own failures, goals and guards alike, are read before
+  a judge that could not judge is allowed to name the class, so LLM flakiness next to a real 500
+  still reads as the 500;
 - otherwise `flow`. A suite's own reds are classed too: a crashed case is `environment`, a
   discovery cut at the step cap is `script`.
 

@@ -37,7 +37,12 @@
   CLI 종료는 2 → `runScenarioCli`가 런 시작 후 크래시를 잡아 4; 런 전 오류(인자·파일)만 2. (8) "environment =
   재시도"에 재시도로 안 고쳐지는 것(미등록 핸들러, 커스텀 스텝 버그 크래시)이 들어갔다 → 정의를 "앱도 대본도 아닌 것:
   실행 기계·호스트 설정·호출자 거절 — 재시도 또는 설정 수정"으로.
-- **검증:** 분류 규칙 단위 19 + 종료코드 2 + 실제 재생 경로 3(failOn→script, 초록엔 없음, 딴 페이지→flow) +
+- **2차 리뷰에서 고친 것 — 같은 모양이 둘 더 남아 있었다:** (9) 판정기 고장 검사(`judgeFailed`)가 가드 결과에도
+  돌아 콘솔 출력 `Widget needs a registered handler`가 environment → 검사를 단언 종류로 묶음(`expect`는 LLM 실패,
+  `custom`은 핸들러 없음, 각 critic의 문구 형식에 앵커). (10) 판정기 고장이 가드보다 먼저라 LLM 429 + 진짜 500이
+  environment → 앱 자체 실패(목표·가드)를 다 읽은 뒤 전부 판정기 고장일 때만 environment. (11) 상태 목록에 대기 중
+  `0`이 끼면(`got 401, 0, 500`) 3자리 정규식이 첫 값에서 멈춤 → 자릿수 무관 전체 파싱, 0은 거절 아님.
+- **검증:** 분류 규칙 단위 22 + 종료코드 2 + 실제 재생 경로 3(failOn→script, 초록엔 없음, 딴 페이지→flow) +
   suite 크래시=environment. `npm run test:consumer -- npm`(실제 Chrome) 통과 — `replay:broken`은 flow → exit 1 그대로,
   인자 없는 `cairn replay`는 2. typecheck·build·check:boundaries·전체 테스트.
 - **상태 변화:** #173 종결. #197(초록의 강도)은 이 분류의 거울 — 같은 신호, 반대 색.

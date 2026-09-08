@@ -70,6 +70,28 @@ describe("classifyFailure names the red (#173)", () => {
     expect(finalizeVerdict(verdict([ok("navigated")]), detail).failure).toBe("environment");
   });
 
+  it("a judge failure beside a real guard failure still reads as the app's failure", () => {
+    const flaky = red("expect", "LLM judgment failed: API 429", { criteria: "x" });
+    const guard = red("no-failed-requests", "1 failed request(s): 500 https://shop.co/api/orders");
+    expect(classifyFailure(verdict([flaky, guard]))).toBe("flow");
+    expect(classifyFailure(verdict([red("custom", 'no custom check registered for "stock"', { name: "stock" }), guard]))).toBe("flow");
+    expect(classifyFailure(verdict([flaky, red("no-failed-requests", "1 failed request(s): 429 https://shop.co/api/me")]))).toBe("environment");
+  });
+
+  it("asks only the kinds that can report a judge failure — a console line with the same words is page output", () => {
+    expect(classifyFailure(verdict([ok("navigated"), red("no-console-errors", "1 console error(s): Widget needs a registered handler")]))).toBe("flow");
+    expect(classifyFailure(verdict([ok("navigated"), red("no-console-errors", "1 console error(s): LLM judgment failed in the page's own chat widget")]))).toBe("flow");
+    expect(classifyFailure(verdict([red("custom", 'custom check "stock" needs a registered handler', { name: "stock" })]))).toBe("environment");
+  });
+
+  it("parses every observed status, pending ones included, in either order", () => {
+    const rs = (seen: string) => red("request-status", `expected 200, got ${seen} for https://shop.co/api/orders`, { urlIncludes: "/api/orders", status: 200 });
+    expect(classifyFailure(verdict([rs("401, 0, 500")]))).toBe("flow");
+    expect(classifyFailure(verdict([rs("500, 0, 401")]))).toBe("flow");
+    expect(classifyFailure(verdict([rs("401, 0")]))).toBe("flow"); // a pending request is not a refusal
+    expect(classifyFailure(verdict([rs("403, 429")]))).toBe("environment");
+  });
+
   it("a judge failure beside a real goal failure still reads as the regression", () => {
     const flaky = red("expect", "LLM judgment failed: Anthropic API 429", { criteria: "x" });
     expect(classifyFailure(verdict([flaky, red("navigated", "did not reach", { to: "shop.co/done" })]))).toBe("flow");

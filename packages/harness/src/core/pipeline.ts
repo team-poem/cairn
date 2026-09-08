@@ -186,12 +186,12 @@ const HOST_CONFIG_ERROR = /^(?:no handler registered for custom action|no step h
 /** Statuses that say the app refused the caller (credentials, rate) rather than the flow. */
 const REFUSED = new Set([401, 403, 429]);
 
-/** Every status the `request-status` critic saw for the endpoint (`expected 200, got 401, 500 for …`
- * joins the distinct statuses in arrival order). Refused means ALL of them refused: reading only
- * the first would make the class depend on which response landed first, which the critic itself
- * was written not to do. */
+/** Every status the `request-status` critic saw for the endpoint (`expected 200, got 401, 0, 500
+ * for …` joins the distinct statuses in arrival order, and a still-pending request is `0`).
+ * Refused means ALL of them refused: reading only the first would make the class depend on which
+ * response landed first, which the critic itself was written not to do. */
 function refusedOnly(detail: string): boolean {
-  const seen = detail.match(/\bgot ((?:\d{3})(?:, \d{3})*)\b/)?.[1];
+  const seen = detail.match(/\bgot (\d+(?:, \d+)*)\b/)?.[1];
   return seen !== undefined && seen.split(", ").every((s) => REFUSED.has(Number(s)));
 }
 
@@ -203,7 +203,16 @@ function guardRefused(r: AssertionResult): boolean {
   return r.assertion.kind === "no-failed-requests" && m !== null && REFUSED.has(Number(m[1]));
 }
 
-const judgeFailed = (r: AssertionResult) => /^LLM judgment failed/.test(r.detail ?? "") || HOST_CONFIG_ERROR.test(r.detail ?? "");
+/** The judge could not judge this result: the LLM behind an `expect` failed, or a `custom` check
+ * has no handler. Scoped to the kinds that can say so, in the critic's own formats (llm.ts,
+ * assertion.ts) — a guard's detail is the app's console output or a URL and may contain the same
+ * words, so it is never asked. */
+function judgeFailed(r: AssertionResult): boolean {
+  const d = r.detail ?? "";
+  if (r.assertion.kind === "expect") return /^LLM judgment failed/.test(d);
+  if (r.assertion.kind === "custom") return /^(?:custom check ".*" needs a registered handler|no custom check registered for ")/.test(d);
+  return /^no critic handles "/.test(d);
+}
 
 /**
  * Name the red (#173): which of three next actions a failed verdict calls for, from signals the
@@ -217,11 +226,12 @@ const judgeFailed = (r: AssertionResult) => /^LLM judgment failed/.test(r.detail
  * - failing closed because the freeze proves nothing (no assertions, every check vacuous) or the
  *   re-discovery ended before `done` → `script`;
  * - a goal assertion failed → `flow`, unless every failed goal is a request the app refused with
- *   401/403/429 (every status it saw, not the first) → `environment`. A judge that could not judge
- *   (LLM failed, no handler for a check) is set aside here: it is `environment` only when nothing
- *   else failed, so LLM flakiness next to a real regression still reads as the regression;
+ *   401/403/429 (every status it saw, pending ones included, not the first) → `environment`;
  * - only the app-health guards failed → still `flow` (a 500 is the same 500 whether a goal or a
  *   guard saw it), unless the single failed request was a refusal → `environment`;
+ * - every failure is the judge's own (LLM failed, no handler for a check) → `environment`. Last,
+ *   not first: a judge that could not judge is set aside until the app's own failures — goals
+ *   AND guards — have been read, so LLM flakiness next to a real 500 still reads as the 500;
  * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
  */
 export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
@@ -234,12 +244,13 @@ export function classifyFailure(verdict: Verdict, actions: readonly ExecutedActi
   }
   if (/no assertions to verify|already satisfied before the flow ran|no destination could be frozen|ended before `done`|unverified path/.test(detail)) return "script";
   const failed = verdict.results.filter((r) => !r.passed);
-  const goals = goalFailures(verdict).filter((r) => !judgeFailed(r));
+  const app = failed.filter((r) => !judgeFailed(r)); // what the app itself did, judge failures set aside
+  const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
   if (goals.length > 0) {
     return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r.detail ?? "")) ? "environment" : "flow";
   }
-  if (/^LLM judgment failed/.test(detail) || failed.some(judgeFailed)) return "environment";
-  if (failed.length > 0 && failed.every(guardRefused)) return "environment";
+  if (app.length > 0) return app.every(guardRefused) ? "environment" : "flow";
+  if (failed.length > 0 || /^LLM judgment failed/.test(detail)) return "environment";
   return "flow";
 }
 

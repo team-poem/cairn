@@ -41,7 +41,7 @@ import {
   weakTargets,
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
-import { flagNum, flagStr, parseArgs } from "./cli-args.js";
+import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
 import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
@@ -77,11 +77,14 @@ function reporterFor(flags: Flags): Reporter {
 
 /** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
+  const replayEnvironment = flagReplayEnvironment(flags);
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
   let run: Awaited<ReturnType<typeof runScenario>>;
   try {
     run = await runScenario(scenario, {
+      replayEnvironment,
       reporter: reporterFor(flags),
       model: flagStr(flags, "model"),
       heal: Boolean(flags.get("heal")),
@@ -338,10 +341,12 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
       "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]",
     );
   }
+  const replayEnvironment = flagReplayEnvironment(flags, "replay-base-url");
   const { cases, baseUrl } = await loadCasesFile(file);
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    replayEnvironment,
     skillDir: flagStr(flags, "skills"),
     baseUrl: flagStr(flags, "base-url") ?? baseUrl,
     heal: !flags.get("no-heal"),

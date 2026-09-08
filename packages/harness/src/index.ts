@@ -1,11 +1,14 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { reanchorScenario, validateReplayEnvironment } from "./core/replay-environment.js";
+export type { ReplayEnvironment } from "./core/replay-environment.js";
+export type { RequestMatchOptions } from "./core/requests.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES } from "./core/steps.js";
-export type { UrlMatchOptions } from "./core/steps.js";
+export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 export { runSuite } from "./suite.js";

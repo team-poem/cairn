@@ -324,3 +324,11 @@ test("discoverStaleReobserves: stale references refresh the listing and a live r
   expect(retry).toContain("turn2:second");
   expect(retry).not.toContain("unchanged from previous step");
 });
+
+test("chromeReferencesUnique: Chrome issues distinct opaque references for same-name elements", async () => {
+  const { driver } = chromeFixture();
+  const rows = await driver.snapshot() as Observed[];
+  expect(rows.map(e => e.ref)).toEqual([expect.any(String), expect.any(String)]);
+  expect(rows[0]?.ref).not.toBe(rows[1]?.ref);
+  expect(await chromeLocate(driver, rows[1]!.ref!)).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
+});

@@ -36,6 +36,7 @@ const RESOLVE_RETRY_MS = 300;
 // A custom dropdown's options render into a portal AFTER it opens — bounded wait for them.
 const OPTION_WAIT_MS = 2_000;
 const OPTION_POLL_MS = 150;
+let nextDriverId = 0;
 
 // A roleless clickable region (a card that's a div + cursor:pointer, not a native/ARIA control) is
 // invisible to a11y-based perception: the model can't target it and gets drawn to a name-matching
@@ -102,6 +103,10 @@ export class ChromeDevToolsDriver implements Driver {
   private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
   private lastRaw?: string; // raw snapshot the clickable probe last ran on — re-probe only on change (#132)
   private lastClickable?: Set<string>; // labels of roleless clickable regions, keyed by that raw
+  private readonly driverId = ++nextDriverId;
+  private observationVersion = 0;
+  private observedRows: SnapshotRow[] = [];
+  private readonly references = new Map<string, SnapshotRow>();
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -358,8 +363,18 @@ export class ChromeDevToolsDriver implements Driver {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.snapshotCache = undefined;
+    this.references.clear();
+    const version = ++this.observationVersion;
     const raw = await this.getSnapshot();
     const els = parseElements(raw);
+    this.observedRows = parseSnapshotRows(raw);
+    const named = this.observedRows.filter((row) => row.name.trim());
+    for (const [i, element] of els.entries()) {
+      const row = named[i]!;
+      const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
+      element.ref = ref;
+      this.references.set(ref, row);
+    }
     if (this.opts.promoteClickables === false) return els;
     // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
     // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
@@ -479,6 +494,20 @@ export class ChromeDevToolsDriver implements Driver {
     const dupes = rows.filter((r) => r.role === row.role && r.name.toLowerCase() === frozenText);
     const nth = dupes.length > 1 ? dupes.findIndex((r) => r.uid === uid) : -1;
     return { ...target, text: target.text ?? row.name, role: row.role, index, ...(nth >= 0 ? { nth } : {}) };
+  }
+
+  async locateRef(ref: string): Promise<Target> {
+    const row = this.referenceRow(ref);
+    const index = this.observedRows.filter((candidate) => candidate.role === row.role).findIndex((candidate) => candidate.uid === row.uid);
+    const dupes = this.observedRows.filter((candidate) => candidate.role === row.role && candidate.name.trim().toLowerCase() === row.name.trim().toLowerCase());
+    const nth = dupes.length > 1 ? dupes.findIndex((candidate) => candidate.uid === row.uid) : undefined;
+    return { text: row.name, role: row.role, index, ...(nth !== undefined ? { nth } : {}) };
+  }
+
+  private referenceRow(ref: string): SnapshotRow {
+    const row = this.references.get(ref);
+    if (!row) throw stepError("resolution", "unknown or expired observation ref — take a fresh snapshot");
+    return row;
   }
 
   private async resolveUid(target: Target): Promise<string> {

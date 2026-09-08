@@ -44,9 +44,10 @@ export function urlMatchesFrozen(url: string, urlIncludes: string, opts: Request
     const suffix = frozen?.[3] ?? "";
     const path = suffix.split(/[?#]/, 1)[0] ?? "";
     if (path.startsWith("/") && path !== "/") {
-      // Match the path against the actual pathname, never a URL carried in a query value.
+      // Dropping the host must keep its endpoint prefix anchored at the pathname start,
+      // never a nested endpoint or a URL carried in a query value.
       // Reuse the original query-subset comparison below without broadening it.
-      if (!actual.pathname.includes(path)) return false;
+      if (!actual.pathname.startsWith(path)) return false;
       return urlMatchesFrozen(actual.pathname + actual.search, suffix);
     }
     // Host-only/root-only checks cannot acquire cross-host meaning from an empty path.

@@ -191,3 +191,17 @@ test("replayEnvironmentSuiteMiss: cache-only environment cannot discover or over
     expect(suite.usage.llmCalls).toBe(0);
   }
 });
+
+test("replayRequestPreservesEndpointAnchor: unrelated nested endpoint cannot make replay green", async () => {
+  for (const host of ["api.stage.test", "localhost:4000"]) {
+    const driver = new EnvDriver();
+    driver.requests.push({ method: "POST", status: 200, url: `http://${host}/proxy/graphql?op=Save` });
+    const s: Scenario = { name: "save", steps: [], assertions: [
+      { kind: "request-status", urlIncludes: "api.stage.test/graphql?op=Save", status: 200, method: "POST" },
+    ] };
+    const { result } = await runScenario(s, { driver, reporter: silent, replayEnvironment: env });
+    expect(result.verdict.passed, host).toBe(false);
+    expect(result.verdict.results[0]?.passed, host).toBe(false);
+    expect(result.usage?.llmCalls).toBe(0);
+  }
+});

@@ -11,7 +11,13 @@ function pathLabel(v: SuiteVerdict): string {
   return "replayed (cached)";
 }
 
-/** Same wording as the `cairn suite` line: a green with this note proved the page, not the action. */
+/** The grade of a green (#197), so a pass column says what it is worth. */
+function proofLabel(v: SuiteVerdict): string {
+  const g = v.verdict.proof?.grade;
+  return g === "work" ? "" : g === "judged" ? " (LLM-judged)" : g === "arrival" ? " (arrival only)" : g === "none" ? " (proves nothing)" : "";
+}
+
+/** Same wording as the cairn suite line: a green with this note proved the page, not the action. */
 function unprovenLabel(v: SuiteVerdict): string {
   return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
 }
@@ -41,7 +47,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
   ];
   for (const v of suite.verdicts) {
     lines.push(
-      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
+      `| ${v.id} | ${v.verdict.passed ? `✓ pass${proofLabel(v)}` : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
     );
   }
 

@@ -50,7 +50,7 @@ npm install -g cairn-engine     # as a CLI
 
 ```sh
 cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
-cairn replay cart.skill.json            # deterministic, exit 1 on failure
+cairn replay cart.skill.json            # deterministic; exit 1 flow broke · 3 script aged · 4 environment (retry, or fix the setup)
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 

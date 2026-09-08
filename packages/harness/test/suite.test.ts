@@ -476,6 +476,7 @@ describe("runSuite", () => {
 
     expect(suite.passed).toBe(false);
     expect(suite.verdicts[0]!.verdict.detail).toContain("browser died");
+    expect(suite.verdicts[0]!.verdict.failure).toBe("environment"); // a crash is the run's machinery (#173)
     expect(suite.verdicts[1]!.verdict.passed).toBe(true); // the suite carried on
   });
 

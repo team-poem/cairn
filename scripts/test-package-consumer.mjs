@@ -45,7 +45,7 @@ try {
   const bin = join(consumer, 'node_modules/.bin/cairn');
   assert.equal(run(bin, ['--version'], consumer).trim(), engine.version);
   run(bin, ['not-a-command'], consumer, 2);
-  run(bin, ['replay'], consumer, 1);
+  run(bin, ['replay'], consumer, 2); // usage, not a verdict (#173)
   const { build } = await import('esbuild');
   await writeFile(join(consumer, 'browser.ts'), 'export * from "cairn-engine/browser";\n');
   await build({ entryPoints: [join(consumer, 'browser.ts')], outfile: join(temp, 'browser.js'), bundle: true, platform: 'browser', format: 'esm' });

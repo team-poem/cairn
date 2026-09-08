@@ -68,6 +68,47 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   arms it — the product clears that by marking the endpoint
   `benign`, the seam for app-specific noise.
 
+### Naming the red (#173)
+
+A red means one of three next actions, and they are different people's jobs: the app did not do
+what the flow asserts (block the build), the frozen scenario no longer fits the app (re-discover),
+or neither — the run's machinery or the host's setup failed, or the app refused the caller (retry,
+or fix the setup). `Verdict.failure` names which, from signals the verdict already holds, and the
+CLI maps it to distinct exit codes (1 · 3 · 4; 2 stays usage, and a run that crashes after it
+started exits 4 on `replay` and `suite` alike). First match wins, in this order:
+
+- a blocked step → `script` (the frozen scenario no longer fits the page: the target went missing,
+  a post-condition never held, a `waitFor` timed out); unless the step's error names the browser or
+  transport, or a handler the host never registered → `environment`. Replay has the step list to
+  read this from; an outcome-heal re-discovery does not (its driver observation carries no
+  actions), so a heal's red is classed from its assertions;
+- failing closed because the freeze proves nothing (#69, #137), or a re-discovery ended before
+  `done` → `script`, on the bare run and the suite alike;
+- a goal assertion failed → `flow`; unless every failed goal is a request the app refused with
+  401/403/429 — every status the critic saw for it, a still-pending `0` included, not the first
+  to arrive → `environment`;
+- only the app-health guards failed → still `flow`: a 500 is the same 500 whether a goal or a guard
+  saw it, and #186's guard/goal split is about what a re-discovery can fix, not whose fault it is;
+  unless the single failed request was a refusal → `environment`. Guard text is URLs and console
+  output and is never scanned for environment or judge words;
+- every failure is the judge's own (an `expect` whose LLM failed, a `custom` check with no handler)
+  → `environment`. Last, not first: the app's own failures, goals and guards alike, are read before
+  a judge that could not judge is allowed to name the class, so LLM flakiness next to a real 500
+  still reads as the 500;
+- otherwise `flow`. A suite's own reds are classed too: a crashed case is `environment`, a
+  discovery cut at the step cap is `script`.
+
+Two things the classifier refuses to read. A step error the driver phrased for a target it could
+not resolve embeds the target's own text, so it is `script` before any other word in it is looked
+at; and the `MCP <tool> failed:` envelope carries page text and puppeteer's own messages, so only
+an unambiguous transport token inside it (`net::ERR_…`, `ECONNREFUSED`, `transport closed`) makes
+it `environment`. Rendered strings are a weak signal; the day `AssertionResult` carries structured
+statuses this reads them instead.
+
+The lean is deliberate: when unsure, a red is a regression until shown otherwise, because a real
+regression filed under "retry" is the one outcome a CI gate exists to prevent. The mirror question
+for a green — how much a pass is worth — is #197.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

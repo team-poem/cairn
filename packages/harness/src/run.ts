@@ -281,6 +281,7 @@ export async function runScenario(
       let verdict = finalizeVerdict(
         judged,
         truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
+        evidence.execution.actions,
       );
       if (missedGoal) {
         const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
@@ -333,7 +334,7 @@ export async function runScenario(
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.
     // This keeps the bare-run stream in the same lifecycle shape as a suite's crashed case.
     closeOwnTrace(
-      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}` },
+      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`, failure: "environment" },
       usage(),
       (healer?.heals.length ?? 0) + (stepHealer?.heals.length ?? 0),
     );

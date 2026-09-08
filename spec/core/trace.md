@@ -137,6 +137,14 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
 - **major** = envelope or semantics change. Viewer rule: refuse with a clear message, don't
   guess.
 
+## Decided in review (#173)
+
+- **`Verdict.failure`** (`flow` · `script` · `environment`) rides wherever a `Verdict` already does:
+  `case-end.payload.verdict` on the bare run and the suite. No header bump — the payload is the
+  verdict object itself, a viewer renders it generically, and the next bump folds the field into
+  the contract text. `run-end` stays `passed` + `usage`; a run-level class is `suiteExitCode`'s
+  business, not the trace's.
+
 ## Out of contract (separate tracks)
 
 - **Ratification / review UX** — runner-side concern.

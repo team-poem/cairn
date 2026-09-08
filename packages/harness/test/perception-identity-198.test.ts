@@ -208,3 +208,9 @@ test("refDuplicateRejected: untrusted reference is rejected before driver intera
   await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, [...observedPair(), observedPair()[1]!])).rejects.toThrow(/ref|reference|snapshot/i);
   expect(driver.events).toEqual([]);
 });
+
+test("refMissingSnapshotRejected: untrusted reference is rejected before driver interaction", async () => {
+  const driver = new RefDriver();
+  await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, undefined)).rejects.toThrow(/ref|reference|snapshot/i);
+  expect(driver.events).toEqual([]);
+});

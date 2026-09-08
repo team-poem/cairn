@@ -165,3 +165,11 @@ test("refDoubleClickExact: reference addresses the selected duplicate for double
   expect(driver.events[1]?.ref).toBe("turn1:second");
   expect(step).toMatchObject({ kind: "doubleClick", target: { text: "Save", role: "button", nth: 1 } });
 });
+
+test("refHoverExact: reference addresses the selected duplicate for hover", async () => {
+  const driver = new RefDriver();
+  const step = await apply(driver, { action: "hover", ref: "turn1:second", text: "Save", value: "chosen" }, observedPair());
+  expect(driver.events.map(e => e.action)).toEqual(["locateRef", "hover"]);
+  expect(driver.events[1]?.ref).toBe("turn1:second");
+  expect(step).toMatchObject({ kind: "hover", target: { text: "Save", role: "button", nth: 1 } });
+});

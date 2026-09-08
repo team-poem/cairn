@@ -18,3 +18,12 @@ test("cliReplayEnvironmentFlags: paired flags preserve suite discovery base and 
     ["--base-url=http://localhost:3000", "--allowed-hosts=stage.test", "--freeze=original.json"],
   ]) expect(() => read(args), args.join(" ")).toThrow(/base-url|allowed-hosts|freeze|baseUrl/);
 });
+
+test("cliReplayEnvironmentHelp: installed CLI documents environment flags", async () => {
+  const run = promisify(execFile);
+  const { stdout } = await run(process.execPath, ["--import", "tsx", "src/cli.ts", "--help"], {
+    cwd: fileURLToPath(new URL("../", import.meta.url)), timeout: 10_000,
+  });
+  expect(stdout).toContain("--allowed-hosts"); expect(stdout).toContain("--replay-base-url");
+  expect(stdout).toMatch(/replay.*--base-url/); expect(stdout).toMatch(/suite.*--base-url/);
+});

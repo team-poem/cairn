@@ -10,7 +10,7 @@
  *   cairn explore "<charter>" --url <u>        LLM survey the app for UX problems (freeze-less, #102)
  *                                              [--model m] [--max-steps n] [--report out.md] [--json out.json]
  *   cairn suite <cases.json>                   run a case list: replay cached skills, discover+freeze misses
- *                                              [--skills dir] [--base-url u] [--no-heal] [--model m]
+ *                                              [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m]
  *                                              [--report out.md] [--json out.json]
  *
  * All orchestration lives in the library (`runScenario` / `discover` / `explore` / `runSuite`). This file
@@ -141,7 +141,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
   const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
@@ -338,7 +338,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) {
     throw new Error(
-      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]",
+      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]",
     );
   }
   const replayEnvironment = flagReplayEnvironment(flags, "replay-base-url");
@@ -379,14 +379,19 @@ const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 
 usage: cairn <command> [options]
 
-  run --dogfood | --scenario <file.json> [--json out]
-  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]
+  run --dogfood | --scenario <file.json> [--base-url u --allowed-hosts hosts] [--json out]
+  replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]
   discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]
   explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
-  suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]
+  suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]
 
   --help, -h       print this message
   --version, -v    print the engine version
+
+replay environment: pair the runtime base flag with --allowed-hosts (comma-separated exact hosts).
+  The base is an HTTP(S) origin; original paths are preserved. Environment heals are temporary;
+  --freeze cannot be combined with a runtime base. Suite --replay-base-url requires a cached skill;
+  suite --base-url remains the canonical discovery URL.
 
 exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup)
 

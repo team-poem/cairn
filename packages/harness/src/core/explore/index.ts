@@ -13,7 +13,7 @@
 import type { Driver, LlmClient } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
-import { applyDecision, describeAction, parseDecision } from "../discover/decision.js";
+import { applyDecision, canonicalizeDecision, describeAction, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { renderRankedElements, withReferenceRules } from "../discover/prompt.js";
 import { destinationKey } from "../discover/capture.js";
@@ -206,6 +206,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     // the page did not, so it must not be reported as a UX problem with the app.
     let verdict: PolicyVerdict;
     try {
+      decision = canonicalizeDecision(decision, elements);
       verdict = policy?.vet(decision, { elements, url: currentUrl }) ?? { ok: true as const };
     } catch (err) {
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);

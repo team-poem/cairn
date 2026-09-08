@@ -295,3 +295,13 @@ test("exploreSharedPerception: explore ranks custom Driver observations before t
   expect(prompt).toContain("popup:1");
   expect(prompt).not.toContain("Hidden");
 });
+
+test("exploreCanonicalPolicy: explore supplies canonical metadata to policy for reference-only decisions", async () => {
+  const driver = new RefDriver(); driver.els = observedPair();
+  const seen: RefDecision[] = [];
+  const policy = { vet: (d: RefDecision) => { seen.push(d); return { ok: false as const, reason: "blocked" }; } };
+  const llm = new ScriptedLlm(['{"action":"click","ref":"turn1:second"}', '{"action":"done"}']);
+  await explore("Save", { driver, llm, policy, baseUrl: driver.url, maxSteps: 2 });
+  expect(seen[0]).toMatchObject({ ref: "turn1:second", text: "Save", role: "button" });
+  expect(driver.events).toEqual([]);
+});

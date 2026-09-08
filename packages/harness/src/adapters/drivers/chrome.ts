@@ -477,7 +477,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.transport = undefined;
     this.closed = true;
     this.seenPages.clear();
-    this.snapshotCache = undefined;
+    this.invalidateObservation();
     this.initialUrl = undefined;
     this.lastRaw = undefined;
     this.lastClickable = undefined;

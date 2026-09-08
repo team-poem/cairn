@@ -386,3 +386,11 @@ test("chromeDetachedDoesNotRetry: a detached observed MCP node fails once withou
   await expect(chromeClick(driver, { text: "Save", nth: 1 }, ref)).rejects.toThrow(/detached/i);
   expect(calls.filter(c => c.name === "click")).toEqual([{ name: "click", args: { uid: "1_2" } }]);
 });
+
+test("chromeCloseExpiresReferences: closing a driver invalidates its observation references", async () => {
+  const { driver, calls } = chromeFixture();
+  const ref = await chromeRef(driver);
+  await driver.close();
+  await expect(chromeClick(driver, { text: "Save", nth: 0 }, ref)).rejects.toThrow(/closed|ref|stale|expired/i);
+  expect(calls.filter(c => c.name === "click")).toEqual([]);
+});

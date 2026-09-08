@@ -244,6 +244,19 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       kind: "case-start",
       payload: { id: c.id, intent: c.intent, skillRef: ref, cached: !!scenario },
     });
+    // Environment replay consumes the canonical freeze only. A miss must be repaired by
+    // discovery in the canonical environment, never persisted from a temporary target.
+    if (!scenario && ctx.replayEnvironment) {
+      const verdict: Verdict = {
+        passed: false,
+        results: [],
+        failure: "script",
+        detail: "replayEnvironment requires a current frozen cache; discover this case in its canonical environment first",
+      };
+      const usage = emptyUsage();
+      scope?.emit({ kind: "case-end", payload: { verdict, usage, discovered: false, heals: 0 } });
+      return { ...base, verdict, usage, discovered: false, heals: 0 };
+    }
     let discovered = false;
     let discoveryUsage = emptyUsage();
 

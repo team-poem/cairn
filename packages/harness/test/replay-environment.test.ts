@@ -178,3 +178,16 @@ test("replayEnvironmentSuiteCache: target origin never changes case identity or 
   expect(fallback.passed).toBe(true); expect(fallback.verdicts[0]?.discovered).toBe(false);
   expect(fallbackDriver.visited).toEqual(["http://localhost:3000/start"]); expect(freeze).not.toHaveBeenCalled();
 });
+
+test("replayEnvironmentSuiteMiss: cache-only environment cannot discover or overwrite canonical skills", async () => {
+  const c = { id: "checkout", intent: "checkout", url: "https://stage.test/start" };
+  for (const stale of [false, true]) {
+    const load = vi.fn(async () => { if (!stale) throw new Error("missing"); return { ...scenario(), caseHash: "old" }; });
+    const freeze = vi.fn(async (ref: string) => ref); const factory = vi.fn(() => new EnvDriver());
+    const complete = vi.fn(async () => '{"action":"done"}');
+    const suite = await runSuite([c], { store: { load, freeze }, driverFactory: factory, reporter: silent, replayEnvironment: env, llm: { id: "forbidden", complete } });
+    expect(suite.passed).toBe(false); expect(suite.verdicts[0]?.verdict.detail).toMatch(/cache|frozen|discover/i);
+    expect(factory).not.toHaveBeenCalled(); expect(complete).not.toHaveBeenCalled(); expect(freeze).not.toHaveBeenCalled();
+    expect(suite.usage.llmCalls).toBe(0);
+  }
+});

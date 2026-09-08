@@ -3,6 +3,8 @@
  * app, or CI all go through here). No LLM is constructed unless an `expect` critic or
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
+import { reanchorScenario } from "./core/replay-environment.js";
+import type { ReplayEnvironment } from "./core/replay-environment.js";
 import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
@@ -27,6 +29,8 @@ import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 
 export interface RunScenarioOptions {
+  /** Replay at a different origin without modifying the frozen scenario. */
+  replayEnvironment?: ReplayEnvironment;
   driver?: Driver;
   /** Default: LlmCritic if the scenario has `expect`, else AssertionCritic. */
   critic?: Critic;
@@ -132,6 +136,7 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  if (opts.replayEnvironment) scenario = reanchorScenario(scenario, opts.replayEnvironment);
   // Build the LLM lazily and once — only if the critic or heal needs it. The meter wraps
   // whichever client is used (host-injected included), so `result.usage` counts every call;
   // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.

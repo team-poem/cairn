@@ -142,6 +142,8 @@ export function unrecognizedLeadingSegment(
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
+  constructor(private readonly urlMatch: UrlMatchOptions = {}) {}
+
   supports(step: Step): boolean {
     return step.kind !== "custom";
   }
@@ -165,7 +167,7 @@ export class BuiltinStepHandler implements StepHandler {
       case "scroll":
         return driver.scroll(step.direction);
       case "waitFor":
-        return waitForCondition(driver, step.until, step.timeoutMs);
+        return waitForCondition(driver, step.until, step.timeoutMs, this.urlMatch);
       case "custom":
         // Owned by CustomStepHandler; reaching here means a handler-ordering bug, not bad input.
         throw new Error(`built-in handler received custom step "${step.name}"`);
@@ -195,8 +197,8 @@ export class CustomStepHandler implements StepHandler {
 }
 
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
-export function defaultStepHandlers(actions: Record<string, CustomAction> = {}): StepHandler[] {
-  return [new BuiltinStepHandler(), new CustomStepHandler(actions)];
+export function defaultStepHandlers(actions: Record<string, CustomAction> = {}, urlMatch: UrlMatchOptions = {}): StepHandler[] {
+  return [new BuiltinStepHandler(urlMatch), new CustomStepHandler(actions)];
 }
 
 /**
@@ -209,8 +211,9 @@ export async function waitForCondition(
   driver: Driver,
   until: WaitUntil,
   timeoutMs = WAIT_TIMEOUT_MS,
+  urlMatch: UrlMatchOptions = {},
 ): Promise<void> {
-  if (!(await pollCondition(driver, until, timeoutMs))) {
+  if (!(await pollCondition(driver, until, timeoutMs, { urlMatch }))) {
     throw stepError("timeout", `waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
   }
 }

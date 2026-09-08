@@ -224,7 +224,6 @@ export async function runHarness(
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
@@ -234,6 +233,7 @@ export async function runHarness(
     localePrefixes: opts.localePrefixes,
     wildcards: scenario.wildcards,
   };
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, urlMatch);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).

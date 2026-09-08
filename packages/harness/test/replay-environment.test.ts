@@ -152,3 +152,29 @@ test("replayEnvironmentHealsTemporarily: all repair layers withhold re-freezable
   expect(outcomeDriver.visited).toEqual(["http://localhost:3000/start", "http://localhost:3000/start"]);
   expect(outcome.healedScenario).toBeUndefined(); expect(source.steps[0]).toEqual(scenario().steps[0]);
 });
+
+test("replayEnvironmentSuiteCache: target origin never changes case identity or stored repair", async () => {
+  const c = { id: "checkout", intent: "checkout", url: "https://stage.test/start" };
+  const frozen = freezeDeep({ ...scenario(), caseHash: hashCase(c) });
+  const load = vi.fn(async () => frozen); const freeze = vi.fn(async (ref: string) => ref);
+  const drivers: EnvDriver[] = [];
+  const suite = await runSuite([c], { store: { load, freeze }, replayEnvironment: env, reporter: silent,
+    driverFactory: () => { const d = new EnvDriver(); drivers.push(d); return d; },
+    llm: { id: "forbidden", complete: async () => { throw new Error("discovery forbidden"); } } });
+  expect(suite.passed).toBe(true); expect(suite.usage.llmCalls).toBe(0);
+  expect(suite.verdicts[0]?.discovered).toBe(false); expect(drivers).toHaveLength(1);
+  expect(drivers[0]?.visited).toEqual(["http://localhost:3000/start"]); expect(freeze).not.toHaveBeenCalled();
+  expect(frozen.caseHash).toBe(hashCase(c)); expect(frozen.steps[0]).toEqual(scenario().steps[0]);
+  const broken: Scenario = { ...frozen, steps: [...frozen.steps, { kind: "click", target: { text: "Old" } }] };
+  const repair = await runSuite([c], { store: { load: async () => broken, freeze }, replayEnvironment: env, reporter: silent,
+    driverFactory: () => new FakeDriver({ evidence: { execution: { actions: [], navigated: true, finalUrl: "http://localhost:3000/start", blocked: false }, perception: {}, logic: { requests: [], console: [] } }, failOn: ["Old"], elements: [{ role: "button", name: "New" }] }),
+    llm: new ScriptedLlm(['{"name":"New"}']) });
+  expect(repair.passed).toBe(true); expect(repair.verdicts[0]?.heals).toBe(1); expect(freeze).not.toHaveBeenCalled();
+  const fallbackCase = { id: c.id, intent: c.intent };
+  expect(hashCase(fallbackCase, c.url)).toBe(frozen.caseHash);
+  const fallbackDriver = new EnvDriver();
+  const fallback = await runSuite([fallbackCase], { baseUrl: c.url, replayEnvironment: env,
+    store: { load, freeze }, driverFactory: () => fallbackDriver, reporter: silent, heal: false });
+  expect(fallback.passed).toBe(true); expect(fallback.verdicts[0]?.discovered).toBe(false);
+  expect(fallbackDriver.visited).toEqual(["http://localhost:3000/start"]); expect(freeze).not.toHaveBeenCalled();
+});

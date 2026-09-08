@@ -9,6 +9,7 @@
  * Assembly layer like `run.ts`: composes core + adapters behind the ports; a host can inject
  * every seam (store, driver factory, llm, policy, reporter).
  */
+import { validateReplayEnvironment } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
 import type { ActionPolicy } from "./core/discover/index.js";
@@ -75,6 +76,7 @@ export interface SuiteOptions
     | "signal"
     | "expectTimeoutMs"
     | "screenshots"
+    | "replayEnvironment"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -155,6 +157,7 @@ function validateCases(cases: SuiteCase[], opts: SuiteOptions): void {
 
 export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Promise<SuiteResult> {
   validateCases(cases, opts);
+  if (opts.replayEnvironment) validateReplayEnvironment(opts.replayEnvironment);
   const {
     store = new FileSkillStore(),
     skillDir = "skills",
@@ -305,6 +308,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     try {
       const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
         driver,
+        replayEnvironment: ctx.replayEnvironment,
         heal: ctx.heal,
         llm: ctx.llm,
         model: ctx.model,

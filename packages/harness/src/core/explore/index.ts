@@ -15,7 +15,7 @@ import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
 import { applyDecision, describeAction, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
-import { renderRankedElements } from "../discover/prompt.js";
+import { renderRankedElements, withReferenceRules } from "../discover/prompt.js";
 import { destinationKey } from "../discover/capture.js";
 import { EXPLORE_SYSTEM, buildExplorePrompt } from "./prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
@@ -138,7 +138,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const elements = await driver.snapshot();
+    const elements = await driver.snapshot({ perception: true });
     const render = renderRankedElements(elements, charter);
 
     if (pending) {
@@ -160,7 +160,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
 
     const reply = await llm.complete(
       buildExplorePrompt(charter, render, prevRender, steps, failures, visited, findings, currentUrl),
-      { system: EXPLORE_SYSTEM },
+      { system: withReferenceRules(EXPLORE_SYSTEM, elements) },
     );
     prevRender = render;
 

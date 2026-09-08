@@ -281,3 +281,17 @@ test("discoverCanonicalPolicy: discover supplies canonical metadata to policy fo
   expect(seen[0]).toMatchObject({ ref: "turn1:second", text: "Save", role: "button" });
   expect(driver.events).toEqual([]);
 });
+
+test("exploreSharedPerception: explore ranks custom Driver observations before the model", async () => {
+  const driver = new StubDriver();
+  driver.els = [...background(), element("Personal", { role: "option", inActivePopup: true, ref: "popup:1" }), element("Hidden", { occluded: true })];
+  const llm = new ScriptedLlm(['{"action":"done"}']);
+  const complete = vi.spyOn(llm, "complete");
+  const snapshot = vi.spyOn(driver, "snapshot");
+  await explore("Choose account", { driver, llm, baseUrl: driver.url, maxSteps: 2 });
+  expect(snapshot).toHaveBeenCalledWith({ perception: true });
+  const prompt = String((complete.mock.calls as unknown[][])[0]?.[0]);
+  expect(prompt).toContain("Personal");
+  expect(prompt).toContain("popup:1");
+  expect(prompt).not.toContain("Hidden");
+});

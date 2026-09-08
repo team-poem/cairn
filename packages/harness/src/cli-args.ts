@@ -1,7 +1,24 @@
 import { validateReplayEnvironment } from "./index.js";
 import type { ReplayEnvironment } from "./index.js";
 
-export type Flags = Map<string, string | boolean>;
+export type Flags = Map<string, string | boolean | string[]>;
+
+/** Flags that may be given more than once; each value is kept, in order. */
+const REPEATABLE: ReadonlySet<string> = new Set(["secret", "secret-origin"]);
+
+function setFlag(flags: Flags, key: string, value: string | boolean): void {
+  if (REPEATABLE.has(key)) {
+    const prev = flags.get(key);
+    if (typeof value !== "string") {
+      // A bare `--secret` must not wipe the values given before it; it is reported as usage later.
+      if (prev === undefined) flags.set(key, true);
+      return;
+    }
+    flags.set(key, Array.isArray(prev) ? [...prev, value] : typeof prev === "string" ? [prev, value] : [value]);
+    return;
+  }
+  flags.set(key, value);
+}
 
 export function parseArgs(argv: string[]): {
   positionals: string[];
@@ -15,17 +32,17 @@ export function parseArgs(argv: string[]): {
     if (arg.startsWith("--")) {
       const equalsIndex = arg.indexOf("=");
       if (equalsIndex >= 0) {
-        flags.set(arg.slice(2, equalsIndex), arg.slice(equalsIndex + 1));
+        setFlag(flags, arg.slice(2, equalsIndex), arg.slice(equalsIndex + 1));
         continue;
       }
 
       const key = arg.slice(2);
       const next = argv[i + 1];
       if (next !== undefined && !next.startsWith("--")) {
-        flags.set(key, next);
+        setFlag(flags, key, next);
         i++;
       } else {
-        flags.set(key, true);
+        setFlag(flags, key, true);
       }
     } else {
       positionals.push(arg);
@@ -66,3 +83,9 @@ export function flagReplayEnvironment(flags: Flags, baseFlag = "base-url"): Repl
     throw new Error(`--${baseFlag} / --allowed-hosts: ${err instanceof Error ? err.message : String(err)}`);
   }
 }
+
+/** Every value of a repeatable flag (`--secret a=1 --secret b=2`), or `[]`. */
+export const flagList = (flags: Flags, key: string): string[] => {
+  const value = flags.get(key);
+  return Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+};

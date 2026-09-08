@@ -9,6 +9,8 @@ import type { Step, WaitUntil } from "./types.js";
 import type { RequestMatchOptions } from "./requests.js";
 import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
+import { assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
+import type { Secrets } from "./secrets.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -148,7 +150,10 @@ export function unrecognizedLeadingSegment(
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
-  constructor(private readonly urlMatch: ConditionMatchOptions = {}) {}
+  constructor(
+    private readonly secrets: Secrets = {},
+    private readonly urlMatch: ConditionMatchOptions = {},
+  ) {}
 
   supports(step: Step): boolean {
     return step.kind !== "custom";
@@ -164,8 +169,19 @@ export class BuiltinStepHandler implements StepHandler {
         return driver.doubleClick(step.target);
       case "hover":
         return driver.hover(step.target);
-      case "type":
-        return driver.type(step.target, step.text);
+      case "type": {
+        // A `{name}` is filled for the driver only; the step (and so the skill, the trace, the
+        // progress event) keeps the placeholder. The page is observed only when there is one to
+        // fill, since a scoped secret is refused off its origin (#174).
+        // The ONE place a placeholder is filled. A text with only `{{escapes}}` still goes through
+        // `fillSecrets` so the literal braces come out; the page is observed only when a real
+        // placeholder needs scoping.
+        if (!mayCarryScopedSecret(step.text, this.secrets)) return driver.type(step.target, fillSecrets(step.text, this.secrets));
+        const pageUrl = (await driver.observe()).execution.finalUrl;
+        const output = fillSecrets(step.text, this.secrets, pageUrl);
+        assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
+        return driver.type(step.target, output);
+      }
       case "select":
         return driver.select(step.target, step.value);
       case "pressKey":
@@ -203,8 +219,12 @@ export class CustomStepHandler implements StepHandler {
 }
 
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
-export function defaultStepHandlers(actions: Record<string, CustomAction> = {}, urlMatch: ConditionMatchOptions = {}): StepHandler[] {
-  return [new BuiltinStepHandler(urlMatch), new CustomStepHandler(actions)];
+export function defaultStepHandlers(
+  actions: Record<string, CustomAction> = {},
+  secrets: Secrets = {},
+  urlMatch: ConditionMatchOptions = {},
+): StepHandler[] {
+  return [new BuiltinStepHandler(secrets, urlMatch), new CustomStepHandler(actions)];
 }
 
 /**

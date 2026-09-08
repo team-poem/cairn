@@ -6,6 +6,7 @@
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
+import type { Secrets } from "./secrets.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { RequestMatchOptions } from "./requests.js";
 import type { ConditionMatchOptions } from "./steps.js";
@@ -30,7 +31,8 @@ export interface RunHarnessOptions {
   captureScreenshots?: boolean;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
-  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`. */
+  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
+   * A custom chain fills `{name}` secrets only if it includes `new BuiltinStepHandler(secrets)` — `secrets` below is not applied to it. */
   stepHandlers?: StepHandler[];
   /** Repair a step whose `expect` fails (surgical self-heal); absent → a diverged step just fails. */
   stepHealer?: StepHealer;
@@ -48,6 +50,9 @@ export interface RunHarnessOptions {
   requestMatch?: RequestMatchOptions;
   /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
   trace?: TraceScope;
+  /** Values for `{name}` placeholders in `type` steps, filled at run time and never frozen (#174).
+   * A scoped secret (`{ value, origin }`) is refused on any page outside its origin. */
+  secrets?: Secrets;
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
@@ -276,7 +281,7 @@ export async function runHarness(
     wildcards: scenario.wildcards,
     requestMatch: opts.requestMatch,
   };
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, urlMatch);
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {}, urlMatch);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).

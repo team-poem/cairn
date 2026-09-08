@@ -5,6 +5,8 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer } from "./ports.js";
 import type { PageElement, Step } from "./types.js";
+import { redactSecrets } from "./secrets.js";
+import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, renderElements, type Decision } from "./discover/index.js";
 
 const MAX_STEP_HEALS = 5;
@@ -20,6 +22,8 @@ export class LlmStepHealer implements StepHealer {
   constructor(
     private readonly llm: LlmClient,
     private readonly maxHeals = MAX_STEP_HEALS,
+    /** Values for `{name}` placeholders (#174): the healer types them and never writes them. */
+    private readonly secrets: Secrets = {},
   ) {}
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
@@ -27,7 +31,7 @@ export class LlmStepHealer implements StepHealer {
     const elements = await driver.snapshot();
     let decision: Decision;
     try {
-      const reply = await this.llm.complete(stepHealPrompt(step, elements), { system: STEP_HEAL_SYSTEM });
+      const reply = await this.llm.complete(stepHealPrompt(step, redactSecrets(elements, this.secrets)), { system: STEP_HEAL_SYSTEM });
       decision = parseDecision(reply);
     } catch {
       return null;
@@ -35,7 +39,7 @@ export class LlmStepHealer implements StepHealer {
     if (decision.action === "done") return null;
     let healed: Step;
     try {
-      healed = await applyDecision(driver, decision);
+      healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself
     } catch {
       return null;
     }

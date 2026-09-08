@@ -13,6 +13,8 @@ import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
+import { missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
+import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
@@ -50,6 +52,9 @@ export interface DiscoverOptions {
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
+  /** Values for `{name}` placeholders the model types (from the intent, e.g. "log in as {user} / {password}"):
+   * the driver gets the value, the freeze keeps the placeholder (#174). */
+  secrets?: Secrets;
   /** Per-event trace scope (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
   /** Phase stamped on this discovery's events: "discover" normally, "heal" when it IS the
@@ -62,7 +67,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -162,7 +167,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     signal?.throwIfAborted();
     await driver.settle();
     const raw = await driver.snapshot();
-    const elements = perceive ? await perceive(raw) : raw;
+    const elements = redactSecrets(perceive ? await perceive(raw) : raw, secrets);
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);
@@ -174,6 +179,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     let decision: Decision;
     try {
       decision = parseDecision(reply);
+      // A literal secret the model echoed becomes its `{name}` here, before the ambiguity and
+      // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
+      // below hands out this object, so it is sanitized once, at the source.
+      if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({
@@ -242,7 +251,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         // perceived list, when a hook exists, answers usability (the state it was installed to fix).
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision);
+      const step = await applyDecision(driver, decision, secrets);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -256,6 +265,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       });
       onStep?.(decision, step);
     } catch (err) {
+      // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
+      // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
+      if (missingSecretOf(err) !== undefined) throw err;
       trace?.emit({
         kind: "action",
         phase: tracePhase,

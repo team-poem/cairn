@@ -71,6 +71,7 @@ export interface SuiteOptions
     | "benign"
     | "benignConsole"
     | "localePrefixes"
+    | "secrets"
     | "custom"
     | "actions"
     | "signal"
@@ -278,6 +279,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           policy: ctx.policy,
           signal: ctx.signal,
           benign: ctx.benign,
+        secrets: ctx.secrets,
           trace: scope,
         });
       } finally {
@@ -335,6 +337,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         benign: ctx.benign,
         benignConsole: ctx.benignConsole,
         localePrefixes: ctx.localePrefixes,
+        secrets: ctx.secrets,
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,

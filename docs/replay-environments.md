@@ -52,6 +52,11 @@ const { result } = await runScenario(scenario, {
 A passing replay with only mechanical assertions makes no LLM calls. The normal
 LLM requirements for natural-language `expect` assertions and healing still apply.
 
+When combining this option with `secrets`, supply credentials scoped to the actual
+target site (for example `origin: "http://localhost:3000"`). Environment mapping
+does not rewrite or widen a secret's origin: a staging-scoped secret is still
+refused on localhost. The frozen `{name}` placeholders stay unchanged.
+
 ## Suite cache reuse
 
 ```sh

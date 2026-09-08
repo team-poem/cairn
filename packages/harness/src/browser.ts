@@ -14,6 +14,8 @@ export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
+export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
+export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
 export type { TraceEvent, TraceEmission, TracePhase } from "./core/trace.js";

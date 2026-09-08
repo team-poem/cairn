@@ -24,6 +24,7 @@ cairn is an engine, not a product. The core (`cairn-engine`) is model- and brows
 - Freeze it to a flat, readable, diffable `*.skill.json` file
 - Replay it deterministically, with zero LLM calls, and print the proof (`llm: 0 call(s)`)
 - Self-heal a broken step from its recorded intent, then re-freeze
+- Fill `{name}` secrets at run time, scoped to your site, never frozen into a skill
 - Multi-locator targets (accessible name, role and index, CSS) that survive redesigns
 - Three-layer judgment: did it act, what it looked like, what the requests and console said
 - Run a whole case list with `cairn suite`, with your own success criteria merged in
@@ -74,6 +75,7 @@ if (!result.verdict.passed) process.exit(1)
 | [`spec/core/targeting.md`](spec/core/targeting.md) | multi-locator targets that survive redesigns |
 | [`spec/core/judgment.md`](spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
 | [`spec/core/trace.md`](spec/core/trace.md) | the versioned trace event contract |
+| [`spec/core/secrets.md`](spec/core/secrets.md) | `{name}` secrets: filled at run time, scoped to a site, never frozen |
 
 ## LLM backends
 

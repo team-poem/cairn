@@ -332,3 +332,11 @@ test("chromeReferencesUnique: Chrome issues distinct opaque references for same-
   expect(rows[0]?.ref).not.toBe(rows[1]?.ref);
   expect(await chromeLocate(driver, rows[1]!.ref!)).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
 });
+
+test("chromeReferencesRotate: new observation invalidates old references even when MCP UIDs are unchanged", async () => {
+  const { driver } = chromeFixture();
+  const first = await chromeRef(driver);
+  const second = await chromeRef(driver);
+  expect(second).not.toBe(first);
+  await expect(chromeLocate(driver, first)).rejects.toThrow(/ref|stale|expired/i);
+});

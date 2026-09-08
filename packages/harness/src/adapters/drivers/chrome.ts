@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
+import { normalizeElements } from "../../core/perception.js";
 import type { Driver, SnapshotOptions } from "../../core/ports.js";
 import type {
   ConsoleMessage,
@@ -46,7 +47,6 @@ let nextDriverId = 0;
 // free (the handler sits on the region root, not the inner text). Handlers attached another way —
 // React delegates onClick at the root, invisible to the DOM — are app/framework knowledge, so a
 // consumer driver's job (invariant #1), not this reference driver's. Capped so a busy page can't flood.
-const MAX_PROMOTED_CLICKABLES = 40;
 const CLICKABLE_HOPS = 6;
 /** For each passed element, the id of its nearest roleless `cursor:pointer` ancestor (a clickable
  * region), or -1 — so the driver keeps one label per region (de-nesting). Framework-agnostic. */
@@ -518,13 +518,12 @@ export class ChromeDevToolsDriver implements Driver {
       });
       const regions = extractFirstJsonArray(reply);
       if (!Array.isArray(regions)) return new Set();
-      const firstPerRegion = new Map<number, string>();
-      regions.forEach((rid, i) => {
-        if (typeof rid === "number" && rid >= 0 && !firstPerRegion.has(rid)) {
-          firstPerRegion.set(rid, candidates[i]!.name.trim());
-        }
+      const labels = candidates.map((row, i) => {
+        const region = regions[i];
+        const clickable = typeof region === "number" && region >= 0;
+        return { role: row.role, name: row.name.trim(), clickable, ...(clickable ? { clickableRegion: String(region) } : {}) };
       });
-      return new Set([...firstPerRegion.values()].slice(0, MAX_PROMOTED_CLICKABLES));
+      return new Set(normalizeElements(labels).filter((row) => row.clickable).map((row) => row.name));
     } catch {
       return new Set();
     }

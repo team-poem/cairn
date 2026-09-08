@@ -38,8 +38,7 @@ export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
 export { discover, parseDecision } from "./core/discover/index.js";
-export { normalizeElements } from "./core/perception.js";
-export { rankElements } from "./core/discover/prompt.js";
+export { normalizeElements, rankElements } from "./core/perception.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
 export { explore } from "./core/explore/index.js";
 export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";

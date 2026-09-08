@@ -133,3 +133,22 @@ test("replayEnvironmentRejectsInvalid: malformed origins and host scopes fail be
     expect(driver.visited).toEqual([]); expect(observe).not.toHaveBeenCalled();
   }
 });
+
+test("replayEnvironmentHealsTemporarily: all repair layers withhold re-freezable scenario", async () => {
+  const source: Scenario = freezeDeep({ ...scenario(), steps: [...scenario().steps, { kind: "click", target: { text: "Old" } }] });
+  const locatorDriver = new FakeDriver({ evidence: { execution: { actions: [], navigated: true, finalUrl: "http://localhost:3000/start", blocked: false }, perception: {}, logic: { requests: [], console: [] } }, failOn: ["Old"], elements: [{ role: "button", name: "New" }] });
+  const locator = await runScenario(source, { driver: locatorDriver, reporter: silent, replayEnvironment: env, heal: true, llm: new ScriptedLlm(['{"name":"New"}']) });
+  expect(locator.result.verdict.passed).toBe(true); expect(locator.heals).toHaveLength(1); expect(locator.healedScenario).toBeUndefined();
+  const surgicalDriver = new EnvDriver(); surgicalDriver.navOn.New = "http://localhost:3000/done";
+  surgicalDriver.els = [{ role: "button", name: "New" }];
+  const surgicalScenario: Scenario = { ...scenario(), steps: [...scenario().steps, { kind: "click", target: { text: "Old" }, intent: "finish", expect: { url: "stage.test/done" } }], assertions: [{ kind: "navigated", to: "stage.test/done" }] };
+  const surgical = await runScenario(surgicalScenario, { driver: surgicalDriver, reporter: silent, replayEnvironment: env, heal: true, expectTimeoutMs: 1, llm: new ScriptedLlm(['{"action":"click","text":"New"}']) });
+  expect(surgical.result.verdict.passed).toBe(true); expect(surgical.stepHeals).toHaveLength(1); expect(surgical.healedScenario).toBeUndefined();
+  const outcomeDriver = new EnvDriver(); outcomeDriver.navOn.Finish = "http://localhost:3000/done";
+  outcomeDriver.els = [{ role: "button", name: "Finish" }];
+  const outcomeScenario: Scenario = { ...scenario(), assertions: [{ kind: "navigated", to: "stage.test/done" }] };
+  const outcome = await runScenario(outcomeScenario, { driver: outcomeDriver, reporter: silent, replayEnvironment: env, heal: true, llm: new ScriptedLlm(['{"action":"click","text":"Finish"}', '{"action":"done"}', '[]']) });
+  expect(outcome.result.verdict.passed).toBe(true);
+  expect(outcomeDriver.visited).toEqual(["http://localhost:3000/start", "http://localhost:3000/start"]);
+  expect(outcome.healedScenario).toBeUndefined(); expect(source.steps[0]).toEqual(scenario().steps[0]);
+});

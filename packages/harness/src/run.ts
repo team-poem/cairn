@@ -90,7 +90,8 @@ export interface RunScenarioResult {
   heals: Heal[];
   /** Surgical step repairs (empty unless `heal` was set and a step's `expect` diverged). */
   stepHeals: StepHeal[];
-  /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals. */
+  /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals
+   * or replayEnvironment is configured: environment repairs are temporary, never canonical. */
   healedScenario?: Scenario;
   /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
    * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
@@ -313,7 +314,7 @@ export async function runScenario(
         // results alone, before finalizeVerdict adds anything about the run itself — and on the goal
         // assertions only, so a guard tripping during the re-discovery does not discard a repair
         // that reached the goal.
-        healedScenario: truncated || missedGoal
+        healedScenario: opts.replayEnvironment || truncated || missedGoal
           ? undefined
           : {
               ...repaired,
@@ -337,7 +338,7 @@ export async function runScenario(
       result: final,
       heals,
       stepHeals,
-      healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
+      healedScenario: !opts.replayEnvironment && (heals.length || stepHeals.length) ? rewritten : undefined,
     };
   } catch (err) {
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.

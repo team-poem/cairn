@@ -164,7 +164,10 @@ export class BuiltinStepHandler implements StepHandler {
         // A `{name}` is filled for the driver only; the step (and so the skill, the trace, the
         // progress event) keeps the placeholder. The page is observed only when there is one to
         // fill, since a scoped secret is refused off its origin (#174).
-        if (!hasSecretPlaceholder(step.text)) return driver.type(step.target, step.text);
+        // The ONE place a placeholder is filled. A text with only `{{escapes}}` still goes through
+        // `fillSecrets` so the literal braces come out; the page is observed only when a real
+        // placeholder needs scoping.
+        if (!hasSecretPlaceholder(step.text)) return driver.type(step.target, fillSecrets(step.text, this.secrets));
         const pageUrl = (await driver.observe()).execution.finalUrl;
         return driver.type(step.target, fillSecrets(step.text, this.secrets, pageUrl));
       }

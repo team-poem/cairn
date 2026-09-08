@@ -15,14 +15,21 @@ closed until the value is supplied or the text is escaped.
 
 **The page the model sees.** A browser masks `<input type="password">` in its own accessibility
 tree, but a username, a token, an OTP, or a password field a site implements as plain text comes
-back verbatim in the next snapshot. Any element name or value equal to a provided secret is
-rendered as its placeholder before the model sees it, in discovery and in the step healer.
+back verbatim in the next snapshot. An element *value* equal to a provided secret is rendered as
+its placeholder before the model sees it, in discovery and in the step healer. Accessible names
+are not masked: a name is the model's handle on the element and the driver's locator, and a page
+that prints a secret in a label shows it to anyone — the engine only refuses to add a second copy
+through the field it typed into.
 
 **Discovery.** The intent says `{password}`; the model echoes it in its `type` decision; the driver
 types the value; the freeze writes the placeholder. Should the model echo the value instead (it
-may have seen it in a plain-text field), the freeze puts the placeholder back: the engine knows
-the exact value, so the substitution is unambiguous. Slotting a literal that was frozen before
-the value was ever provided is the host's job — the engine never guesses which text was a secret.
+may have seen it in a plain-text field), the placeholder is put back at decision time, before the
+step is executed, kept, traced, or shown to the model again — so a literal echo goes through the
+same scope check and never reaches a sink; the engine knows the exact value, so the substitution
+is unambiguous, and it runs only over literal spans, never inside an existing placeholder. Filling
+happens in exactly one place, the built-in `type` handler, so a value that itself contains braces
+is typed as-is. Slotting a literal that was frozen before the value was ever provided is the
+host's job — the engine never guesses which text was a secret.
 
 **Fail closed, twice.** A placeholder with no value is the host's wiring: the step fails with
 `errorKind: "handler"` (`environment`, exit 4), discovery aborts rather than spending its step

@@ -33,13 +33,20 @@ function shownUrl(url: string | undefined): string {
   }
 }
 
+/** The port a URL is actually served on: the explicit one, else the scheme's default. */
+function effectivePort(u: URL): string {
+  return u.port || (u.protocol === "https:" ? "443" : u.protocol === "http:" ? "80" : "");
+}
+
 /** The #184 site check (host or subdomain), plus the port when the origin names one: two apps
- * on one host differ by port, and a credential for `localhost:3000` is not `localhost:4000`'s. */
+ * on one host differ by port, and a credential for `localhost:3000` is not `localhost:4000`'s.
+ * "Names one" is read from the text, since `URL.port` erases an explicit default (`:80`). */
 function onSecretSite(origin: string, pageUrl: string): boolean {
   if (!onSiteOf(origin, pageUrl)) return false;
   try {
-    const o = new URL(/^https?:\/\//i.test(origin) ? origin : `https://${origin}`);
-    return o.port === "" || o.port === new URL(pageUrl).port;
+    const withScheme = /^https?:\/\//i.test(origin) ? origin : `https://${origin}`;
+    const named = /^[a-z]+:\/\/[^/]*:\d+(?:[/?#]|$)/i.test(withScheme);
+    return !named || effectivePort(new URL(withScheme)) === effectivePort(new URL(pageUrl));
   } catch {
     return false;
   }
@@ -80,32 +87,52 @@ export function missingSecretOf(err: unknown): string | undefined {
  * A page rendered for the model must not show a secret the driver just typed: an
  * `<input type="password">` is masked by the browser, but a username, a token, an OTP, or a
  * password field a site implements as plain text comes back in the a11y snapshot verbatim one
- * turn later. Any element name or value equal to a provided secret reads as its placeholder.
+ * turn later. Only `value` is masked. An accessible NAME is the page's own text and the model's
+ * handle on the element: masking "Continue as alice@example.com" to "Continue as {user}" would
+ * send the model a name the driver cannot locate. A page that prints a secret in a label shows
+ * it to anyone; the engine's job is not to add a second copy through the field it typed into.
  */
 export function redactSecrets<T extends PageElement>(elements: readonly T[], secrets: Secrets = {}): T[] {
-  const entries = Object.entries(secrets).map(([name, s]) => [name, valueOf(s)] as const).filter(([, v]) => v.length > 0);
+  const entries = secretEntries(secrets);
   if (entries.length === 0) return [...elements];
-  const mask = (text: string) => entries.reduce((t, [name, value]) => (t.includes(value) ? t.split(value).join(`{${name}}`) : t), text);
   return elements.map((e) => {
-    const name = mask(e.name);
-    const value = e.value === undefined ? undefined : mask(e.value);
-    return name === e.name && value === e.value ? e : { ...e, name, ...(value === undefined ? {} : { value }) };
+    if (e.value === undefined) return e;
+    const value = entries.reduce((t, [name, v]) => (t.includes(v) ? t.split(v).join(`{${name}}`) : t), e.value);
+    return value === e.value ? e : { ...e, value };
   });
 }
 
+/** Provided secrets as `[name, value]`, longest value first so a value that contains another
+ * (`alice@example.com` and `alice`) is slotted whole, never as `{user}@example.com`. */
+function secretEntries(secrets: Secrets): (readonly [string, string])[] {
+  return Object.entries(secrets)
+    .map(([name, s]) => [name, valueOf(s)] as const)
+    .filter(([, v]) => v.length > 0)
+    .sort((a, b) => b[1].length - a[1].length);
+}
+
+/** `text` with every provided secret value replaced by its `{name}`, leaving existing
+ * placeholders and `{{escapes}}` untouched: the replacement runs only over literal spans, so a
+ * value that happens to be a substring of a placeholder's own name (`word` in `{password}`) is
+ * never rewritten. */
+export function slotSecretText(text: string, secrets: Secrets = {}): string {
+  const entries = secretEntries(secrets);
+  if (entries.length === 0) return text;
+  const spans = text.split(/(\{\{[A-Za-z][A-Za-z0-9_-]*\}\}|\{[A-Za-z][A-Za-z0-9_-]*\})/);
+  return spans
+    .map((span, i) => (i % 2 === 1 ? span : entries.reduce((t, [name, value]) => (t.includes(value) ? t.split(value).join(`{${name}}`) : t), span)))
+    .join("");
+}
+
 /**
- * Before a freeze: a `type` step whose text contains a provided secret's value gets the
- * placeholder back. The model may echo a literal it saw in a text field instead of the `{name}`
- * the intent used; the engine knows the exact value, so the substitution is unambiguous and a
- * skill never carries it. In place, on the steps that will be frozen.
+ * A `type` step whose text carries a provided secret's value gets the placeholder back. The model
+ * may echo a literal it saw in a text field instead of the `{name}` the intent used; the engine
+ * knows the exact value, so the substitution is unambiguous. Applied at decision time
+ * (`applyDecision`), before the step is executed, retained, traced, or shown to the model again —
+ * so a literal echo also goes through the scope check and never reaches a sink. In place.
  */
 export function slotSecrets(steps: Step[], secrets: Secrets = {}): void {
-  const entries = Object.entries(secrets).map(([name, s]) => [name, valueOf(s)] as const).filter(([, v]) => v.length > 0);
-  if (entries.length === 0) return;
   for (const step of steps) {
-    if (step.kind !== "type") continue;
-    for (const [name, value] of entries) {
-      if (step.text.includes(value)) step.text = step.text.split(value).join(`{${name}}`);
-    }
+    if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
   }
 }

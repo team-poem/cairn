@@ -5,7 +5,7 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer } from "./ports.js";
 import type { PageElement, Step } from "./types.js";
-import { hasSecretPlaceholder, redactSecrets, slotSecrets } from "./secrets.js";
+import { redactSecrets } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, renderElements, type Decision } from "./discover/index.js";
 
@@ -39,14 +39,10 @@ export class LlmStepHealer implements StepHealer {
     if (decision.action === "done") return null;
     let healed: Step;
     try {
-      const pageUrl = decision.action === "type" && hasSecretPlaceholder(decision.value ?? "")
-        ? (await driver.observe()).execution.finalUrl
-        : undefined;
-      healed = await applyDecision(driver, decision, this.secrets, pageUrl);
+      healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself
     } catch {
       return null;
     }
-    slotSecrets([healed], this.secrets);
     // Keep the original intent + expect on the re-frozen step so it stays verifiable next replay.
     healed.intent = step.intent;
     healed.expect = step.expect;

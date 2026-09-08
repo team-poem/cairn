@@ -13,7 +13,7 @@ import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
-import { missingSecretOf, redactSecrets, slotSecrets } from "../secrets.js";
+import { missingSecretOf, redactSecrets } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
@@ -133,9 +133,6 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "unproven-action", action: unproven.unprovenAction, reason: "no stable URL to check" },
       });
     }
-    // A `type` step that carries a secret's value instead of its placeholder gets the placeholder
-    // back before anything is frozen (#174).
-    slotSecrets(steps, secrets);
     return truncated
       ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
@@ -250,7 +247,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         // perceived list, when a hook exists, answers usability (the state it was installed to fix).
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision, secrets, beforeObs.execution.finalUrl);
+      const step = await applyDecision(driver, decision, secrets);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();

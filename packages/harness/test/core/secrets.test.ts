@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets } from "../../src/core/secrets.js";
+import { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText } from "../../src/core/secrets.js";
 import { errorKindOf } from "../../src/core/errors.js";
 import { runScenario } from "../../src/run.js";
 import { discover } from "../../src/core/discover/index.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "../support/doubles.js";
+import { applyDecision } from "../../src/core/discover/decision.js";
+import { BuiltinStepHandler } from "../../src/core/steps.js";
 import { parseArgs } from "../../src/cli-args.js";
 import { secretsFromFlags } from "../../src/cli-secrets.js";
 import type { Evidence, Scenario, Step, Target } from "../../src/core/types.js";
@@ -23,6 +25,27 @@ describe("fillSecrets (#174)", () => {
     expect(fillSecrets("{{count}}", {})).toBe("{count}");
   });
 
+  it("an explicitly named default port still counts — URL.port erases it, the text does not", () => {
+    const secrets = { password: { value: "hunter2", origin: "http://localhost:80" } };
+    expect(fillSecrets("{password}", secrets, "http://localhost/login")).toBe("hunter2");
+    expect(() => fillSecrets("{password}", secrets, "http://localhost:4000/login")).toThrow(/refused/);
+    expect(fillSecrets("{password}", { password: { value: "hunter2", origin: "https://app.example" } }, "https://app.example:443/x")).toBe("hunter2");
+  });
+
+  it("slotting runs over literal spans only and longest value first", () => {
+    expect(slotSecretText("{password}", { password: "word" })).toBe("{password}");
+    expect(slotSecretText("{user}", { user: "user" })).toBe("{user}");
+    expect(slotSecretText("{{count}} and word", { password: "word" })).toBe("{{count}} and {password}");
+    expect(slotSecretText("alice@example.com", { user: "alice", email: "alice@example.com" })).toBe("{email}");
+  });
+
+  it("redaction masks values, never accessible names — the name is the driver's locator", () => {
+    const els = [{ role: "button", name: "Continue as alice@example.com" }, { role: "textbox", name: "Email", value: "alice@example.com" }];
+    expect(redactSecrets(els, { user: "alice@example.com" })).toEqual([
+      { role: "button", name: "Continue as alice@example.com" }, { role: "textbox", name: "Email", value: "{user}" },
+    ]);
+  });
+
   it("the port counts when the origin names one — localhost:3000 is not localhost:4000", () => {
     const secrets = { password: { value: "hunter2", origin: "http://localhost:3000" } };
     expect(fillSecrets("{password}", secrets, "http://localhost:3000/login")).toBe("hunter2");
@@ -37,8 +60,9 @@ describe("fillSecrets (#174)", () => {
   it("redactSecrets masks a typed value wherever the snapshot shows it back", () => {
     const secrets = { user: "alice", password: "hunter2" };
     const els = [{ role: "textbox", name: "Username", value: "alice" }, { role: "textbox", name: "Password", value: "•••••" }, { role: "textbox", name: "hunter2" }, { role: "button", name: "Sign in" }];
+    // Values are masked; a NAME is the page's own text and the driver's locator, so it stays.
     expect(redactSecrets(els, secrets)).toEqual([
-      { role: "textbox", name: "Username", value: "{user}" }, { role: "textbox", name: "Password", value: "•••••" }, { role: "textbox", name: "{password}" }, { role: "button", name: "Sign in" },
+      { role: "textbox", name: "Username", value: "{user}" }, { role: "textbox", name: "Password", value: "•••••" }, { role: "textbox", name: "hunter2" }, { role: "button", name: "Sign in" },
     ]);
     expect(redactSecrets(els, {})).toEqual(els);
   });
@@ -66,6 +90,33 @@ describe("fillSecrets (#174)", () => {
     let caught: unknown;
     try { fillSecrets("{password}", secrets, "https://pay.provider.com/"); } catch (e) { caught = e; }
     expect(errorKindOf(caught)).toBeUndefined(); // the script's: it would type a secret where it does not belong
+  });
+});
+
+describe("filling happens exactly once, in the built-in handler", () => {
+  class Rec extends StubDriver { typed: string[] = []; constructor(url = "https://app.example/login") { super(url); (this as unknown as { type: (t: Target, text: string) => Promise<void> }).type = async (_t, text) => { this.typed.push(text); }; } }
+
+  it("a value that itself contains braces is typed as-is, and an escape next to a placeholder survives", async () => {
+    const d = new Rec();
+    await new BuiltinStepHandler({ password: "p{word}" }).execute({ kind: "type", target: { text: "Password" }, text: "{password}" }, d);
+    await new BuiltinStepHandler({ password: "hunter2" }).execute({ kind: "type", target: { text: "Note" }, text: "{{count}} items, {password}" }, d);
+    expect(d.typed).toEqual(["p{word}", "{count} items, hunter2"]);
+  });
+
+  it("an escape is decoded on the no-secret path too", async () => {
+    const d = new Rec();
+    await new BuiltinStepHandler().execute({ kind: "type", target: { text: "Note" }, text: "{{count}} items" }, d);
+    expect(d.typed).toEqual(["{count} items"]);
+  });
+
+  it("a literal echo is slotted at decision time and goes through the scope check", async () => {
+    const off = new Rec("https://pay.provider.com/login");
+    await expect(applyDecision(off, { action: "type", text: "Password", value: "hunter2" }, { password: { value: "hunter2", origin: "https://app.example" } })).rejects.toThrow(/refused on https:\/\/pay.provider.com/);
+    expect(off.typed).toEqual([]);
+    const home = new Rec();
+    const step = await applyDecision(home, { action: "type", text: "Password", value: "hunter2" }, { password: "hunter2" });
+    expect(step).toMatchObject({ kind: "type", text: "{password}" });
+    expect(home.typed).toEqual(["hunter2"]);
   });
 });
 
@@ -148,13 +199,20 @@ describe("discovery types the value and freezes the placeholder", () => {
     expect(prompts.some((p) => p.includes("{password}"))).toBe(true);
   });
 
-  it("a model that echoes the literal instead of the placeholder still freezes the placeholder", async () => {
+  it("a model that echoes the literal: the placeholder is back before the trace, onStep, the next prompt, and the freeze", async () => {
+    const { Tracer } = await import("../../src/core/trace.js");
+    const events: unknown[] = []; const progress: unknown[] = []; const prompts: string[] = [];
+    const trace = new Tracer({ emit: (e) => { events.push(e); } }).scope("discover");
     const driver = new Login("https://app.example/login");
     const literal = new ScriptedLlm(['{"action":"type","text":"Password","value":"hunter2"}', '{"action":"click","text":"Sign in"}', '{"action":"done"}', "[]"]);
-    const scenario = await discover("log in", { driver, llm: literal, baseUrl: "https://app.example/login", secrets: { password: "hunter2" } });
+    const inner = literal as unknown as { complete: (p: string, o?: unknown) => Promise<string> };
+    const spy = { id: "spy", complete: async (p: string, o?: unknown) => { prompts.push(p); return inner.complete(p, o); } };
+    const scenario = await discover("log in", { driver, llm: spy, baseUrl: "https://app.example/login", trace, secrets: { password: "hunter2" }, onStep: (...a) => { progress.push(a); } });
     expect(driver.typed).toEqual(["hunter2"]);
     expect(scenario.steps[1]).toMatchObject({ kind: "type", text: "{password}" });
-    expect(JSON.stringify(scenario)).not.toContain("hunter2");
+    for (const sink of [scenario, events, progress.map((a) => (a as unknown[])[1]), prompts.slice(1)]) {
+      expect(JSON.stringify(sink)).not.toContain("hunter2");
+    }
   });
 
   it("a placeholder nobody supplied aborts discovery instead of burning the step budget", async () => {

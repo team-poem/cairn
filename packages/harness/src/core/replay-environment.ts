@@ -32,6 +32,18 @@ export function validateReplayEnvironment(environment: ReplayEnvironment): Repla
   return { baseUrl: base.origin, allowedHosts: [...new Set(allowedHosts)] };
 }
 
+/** Refuse an undeclared entry before browser/LLM work. Later external navigation is unchanged.
+ * Already-target entries require the exact origin; a host match alone must not bypass scope. */
+export function validateReplayEntry(scenario: Scenario, environment: ReplayEnvironment): void {
+  environment = validateReplayEnvironment(environment);
+  const entry = scenario.steps.find((step) => step.kind === "goto");
+  if (!entry) return;
+  const source = parseReplayUrl(entry.url);
+  if (source && hostIsAllowed(source.host, environment.allowedHosts)) return;
+  if (source?.absolute && new URL(entry.url).origin === environment.baseUrl) return;
+  throw new Error("replayEnvironment entry goto must be declared in allowedHosts or already at the baseUrl origin");
+}
+
 /** Return a runtime copy, preserving the frozen input and identity of targets/custom data. */
 export function reanchorScenario(scenario: Scenario, environment: ReplayEnvironment): Scenario {
   environment = validateReplayEnvironment(environment);
@@ -39,9 +51,9 @@ export function reanchorScenario(scenario: Scenario, environment: ReplayEnvironm
   const pageUrl = (value: string, entry = false): string => {
     const source = parseReplayUrl(value);
     if (!source || !hostIsAllowed(source.host, environment.allowedHosts)) return value;
-    // A host-only expectation keeps its original scope; goto still needs the root page.
-    if (!entry && !source.suffix.startsWith("/")) return value;
-    return `${source.absolute ? base.origin : base.host}${source.suffix || "/"}`;
+    // A root page is still a destination. Preserve bare/full expectation notation and any
+    // query/hash; only goto needs an explicit root path when none was frozen.
+    return `${source.absolute ? base.origin : base.host}${source.suffix || (entry ? "/" : "")}`;
   };
   const condition = (until: WaitUntil): WaitUntil => {
     if (until.url === undefined) return until;

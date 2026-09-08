@@ -31,7 +31,9 @@ test("reanchorScenarioPure: only declared URL fields and exact hosts are transfo
   expect(mapped.steps[4]).toEqual({ kind: "waitFor", until: { url: "http://localhost:3000/en/cart", requestStatus, text: "stage.test/cart" } });
   expect(mapped.steps[5]).toBe(s.steps[5]);
   expect(mapped.assertions[0]).toEqual({ ...s.assertions[0], to: "localhost:3000/en/orders/*?a=1#h" });
-  expect(mapped.assertions.slice(1)).toEqual(s.assertions.slice(1));
+  expect(mapped.assertions[1]).toEqual({ ...s.assertions[1], to: "localhost:3000" });
+  expect(mapped.assertions[3]).toEqual({ ...s.assertions[3], to: "http://localhost:3000" });
+  expect([mapped.assertions[2], ...mapped.assertions.slice(4)]).toEqual([s.assertions[2], ...s.assertions.slice(4)]);
   expect(reanchorScenario(mapped, env)).toEqual(mapped); expect(JSON.stringify(s)).toBe(before);
   const root = reanchorScenario({ ...s, steps: [{ kind: "goto", url: "https://stage.test" }] }, env);
   expect(root.steps).toEqual([{ kind: "goto", url: "http://localhost:3000/" }]);

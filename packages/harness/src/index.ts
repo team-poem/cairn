@@ -1,7 +1,7 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
-export { reanchorScenario, validateReplayEnvironment } from "./core/replay-environment.js";
+export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures } from "./core/pipeline.js";

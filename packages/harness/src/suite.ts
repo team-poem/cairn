@@ -9,7 +9,7 @@
  * Assembly layer like `run.ts`: composes core + adapters behind the ports; a host can inject
  * every seam (store, driver factory, llm, policy, reporter).
  */
-import { validateReplayEnvironment } from "./core/replay-environment.js";
+import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
 import type { ActionPolicy } from "./core/discover/index.js";
@@ -107,8 +107,10 @@ export interface SuiteVerdict {
   intent: string;
   verdict: Verdict;
   skillRef: string;
-  /** True when this run had to discover the case (cache miss); false = pure replay. */
+  /** True when the case needed discovery; false for cached replay or a preflight refusal. */
   discovered: boolean;
+  /** Preflight refused this case before any browser/LLM execution. */
+  notRun?: "cache-miss" | "invalid-entry";
   /** True when discovery hit its step cap — the case failed closed and nothing was frozen. */
   truncated?: boolean;
   /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
@@ -223,6 +225,12 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
   const scope = ctx.tracer?.scope(c.id);
+  const notRun = (reason: NonNullable<SuiteVerdict["notRun"]>, detail: string): SuiteVerdict => {
+    const verdict: Verdict = { passed: false, results: [], failure: "script", detail };
+    const usage = emptyUsage();
+    scope?.emit({ kind: "case-end", payload: { verdict, usage, discovered: false, heals: 0 } });
+    return { ...base, verdict, usage, discovered: false, heals: 0, notRun: reason };
+  };
   try {
     // 1. Cache: any load failure (missing, malformed artifact) is a miss — re-discovering IS the
     // repair for a broken skill file.
@@ -247,15 +255,11 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     // Environment replay consumes the canonical freeze only. A miss must be repaired by
     // discovery in the canonical environment, never persisted from a temporary target.
     if (!scenario && ctx.replayEnvironment) {
-      const verdict: Verdict = {
-        passed: false,
-        results: [],
-        failure: "script",
-        detail: "replayEnvironment requires a current frozen cache; discover this case in its canonical environment first",
-      };
-      const usage = emptyUsage();
-      scope?.emit({ kind: "case-end", payload: { verdict, usage, discovered: false, heals: 0 } });
-      return { ...base, verdict, usage, discovered: false, heals: 0 };
+      return notRun("cache-miss", "replayEnvironment requires a current frozen cache; discover this case in its canonical environment first");
+    }
+    if (scenario && ctx.replayEnvironment) {
+      try { validateReplayEntry(scenario, ctx.replayEnvironment); }
+      catch (err) { return notRun("invalid-entry", err instanceof Error ? err.message : String(err)); }
     }
     let discovered = false;
     let discoveryUsage = emptyUsage();

@@ -38,6 +38,7 @@ import {
   renderSuiteReport,
   runScenario,
   runSuite,
+  validateReplayEntry,
   weakTargets,
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
@@ -79,6 +80,7 @@ function reporterFor(flags: Flags): Reporter {
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
   // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
   const replayEnvironment = flagReplayEnvironment(flags);
+  if (replayEnvironment) validateReplayEntry(scenario, replayEnvironment);
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
   let run: Awaited<ReturnType<typeof runScenario>>;
@@ -360,7 +362,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     expectTimeoutMs: flagNum(flags, "expect-timeout"),
     onCase: (v) =>
       console.log(
-        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
+        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.notRun ? `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})` : v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
           `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : ""}`,
       ),
   });

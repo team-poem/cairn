@@ -117,3 +117,19 @@ test("replayRequestChecksAgree: expect waitFor and critic share request matching
   const { result } = await runScenario(s, { driver: stale, reporter: silent, replayEnvironment: env, expectTimeoutMs: 1 });
   expect(result.evidence.execution.blocked).toBe(true);
 });
+
+test("replayEnvironmentRejectsInvalid: malformed origins and host scopes fail before driver use", async () => {
+  const invalid = [
+    { ...env, baseUrl: "localhost:3000" }, { ...env, baseUrl: "file:///tmp/x" },
+    { ...env, baseUrl: "https://user:secret@localhost:3000" },
+    { ...env, baseUrl: "http://localhost:3000/mount" }, { ...env, baseUrl: "http://localhost:3000/?q=x" },
+    { ...env, baseUrl: "http://localhost:3000/#part" }, { ...env, allowedHosts: [] },
+    ...["", "*.test", "https://stage.test", "stage.test/path", "stage.test?x=1", "stage.test#x", "user@stage.test"].map((host) => ({ ...env, allowedHosts: [host] })),
+  ];
+  for (const replayEnvironment of invalid) {
+    const driver = new EnvDriver();
+    const observe = vi.spyOn(driver, "observe");
+    await expect(runScenario(scenario(), { driver, reporter: silent, replayEnvironment })).rejects.toThrow(/baseUrl|allowedHosts|replayEnvironment/);
+    expect(driver.visited).toEqual([]); expect(observe).not.toHaveBeenCalled();
+  }
+});

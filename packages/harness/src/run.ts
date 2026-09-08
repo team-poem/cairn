@@ -154,7 +154,7 @@ export async function runScenario(
   };
 
   const requestMatch = opts.replayEnvironment
-    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
+    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts.map((host) => host.toLowerCase()), new URL(opts.replayEnvironment.baseUrl).host] }
     : undefined;
   const critic =
     opts.critic ??

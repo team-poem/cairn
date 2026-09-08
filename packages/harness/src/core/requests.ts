@@ -32,11 +32,15 @@ export function urlMatchesFrozen(url: string, urlIncludes: string, opts: Request
   // Only an explicitly scoped frozen host enables fallback. Path/suffix checks and external
   // checks keep their existing semantics. Never accept a hostname embedded in an actual query.
   const frozen = /^(https?:\/\/)?([^/?#]+)([/?#].*)?$/i.exec(urlIncludes);
-  const frozenHost = frozen?.[2]?.toLowerCase();
-  if (frozenHost && opts.allowedHosts?.includes(frozenHost)) {
+  let frozenHost = frozen?.[2]?.toLowerCase();
+  if (frozen?.[1]) {
+    try { frozenHost = new URL(urlIncludes).host; } catch { frozenHost = undefined; }
+  }
+  const allowedHosts = opts.allowedHosts?.map((host) => host.toLowerCase());
+  if (frozenHost && allowedHosts?.includes(frozenHost)) {
     let actual: URL;
     try { actual = new URL(url); } catch { return false; }
-    if (!/^https?:$/.test(actual.protocol) || !opts.allowedHosts.includes(actual.host)) return false;
+    if (!/^https?:$/.test(actual.protocol) || !allowedHosts.includes(actual.host)) return false;
     const suffix = frozen?.[3] ?? "";
     const path = suffix.split(/[?#]/, 1)[0] ?? "";
     if (path.startsWith("/") && path !== "/") {

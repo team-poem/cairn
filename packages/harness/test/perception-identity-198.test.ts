@@ -214,3 +214,9 @@ test("refMissingSnapshotRejected: untrusted reference is rejected before driver 
   await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, undefined)).rejects.toThrow(/ref|reference|snapshot/i);
   expect(driver.events).toEqual([]);
 });
+
+test("refLegacyCapabilityRejected: a reference never silently downgrades to a legacy name locator", async () => {
+  const driver = new StubDriver();
+  await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, observedPair())).rejects.toThrow(/ref|support|capab/i);
+  expect(driver.clicked).toEqual([]);
+});

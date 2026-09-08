@@ -97,7 +97,7 @@ export function redactSecrets<T extends PageElement>(elements: readonly T[], sec
   if (entries.length === 0) return [...elements];
   return elements.map((e) => {
     if (e.value === undefined) return e;
-    const value = entries.reduce((t, [name, v]) => (t.includes(v) ? t.split(v).join(`{${name}}`) : t), e.value);
+    const value = slotOnePass(e.value, entries);
     return value === e.value ? e : { ...e, value };
   });
 }
@@ -111,17 +111,32 @@ function secretEntries(secrets: Secrets): (readonly [string, string])[] {
     .sort((a, b) => b[1].length - a[1].length);
 }
 
-/** `text` with every provided secret value replaced by its `{name}`, leaving existing
- * placeholders and `{{escapes}}` untouched: the replacement runs only over literal spans, so a
- * value that happens to be a substring of a placeholder's own name (`word` in `{password}`) is
- * never rewritten. */
-export function slotSecretText(text: string, secrets: Secrets = {}): string {
-  const entries = secretEntries(secrets);
+const escapeRe = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * One left-to-right pass over `text`: at each position the longest provided secret value wins,
+ * else an existing `{{escape}}` or `{name}` is kept verbatim, else one literal character. A
+ * generated `{name}` is emitted, never re-scanned, so a later value cannot rewrite it; a value
+ * that itself contains braces (`abc{xyz}`) is matched whole, before any brace is read as syntax.
+ */
+function slotOnePass(text: string, entries: readonly (readonly [string, string])[]): string {
   if (entries.length === 0) return text;
-  const spans = text.split(/(\{\{[A-Za-z][A-Za-z0-9_-]*\}\}|\{[A-Za-z][A-Za-z0-9_-]*\})/);
-  return spans
-    .map((span, i) => (i % 2 === 1 ? span : entries.reduce((t, [name, value]) => (t.includes(value) ? t.split(value).join(`{${name}}`) : t), span)))
-    .join("");
+  const alternation = [
+    ...entries.map(([, v]) => escapeRe(v)),
+    "\\{\\{[A-Za-z][A-Za-z0-9_-]*\\}\\}",
+    "\\{[A-Za-z][A-Za-z0-9_-]*\\}",
+  ].join("|");
+  const re = new RegExp(alternation, "g");
+  return text.replace(re, (m) => {
+    const hit = entries.find(([, v]) => v === m);
+    return hit ? `{${hit[0]}}` : m;
+  });
+}
+
+/** `text` with every provided secret value replaced by its `{name}`, existing placeholders and
+ * `{{escapes}}` untouched, in a single pass (see `slotOnePass`). */
+export function slotSecretText(text: string, secrets: Secrets = {}): string {
+  return slotOnePass(text, secretEntries(secrets));
 }
 
 /**
@@ -135,4 +150,27 @@ export function slotSecrets(steps: Step[], secrets: Secrets = {}): void {
   for (const step of steps) {
     if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
   }
+}
+
+/**
+ * The scope check on what the driver is about to type, whichever path produced it: a scoped
+ * secret's value that arrived through a placeholder, through `{{escape}}` decoding, or as a
+ * literal the model echoed must equally be refused off its site (#174). Throws the same refusal
+ * as `fillSecrets`; a no-op when no scoped value is present.
+ */
+export function assertSecretScope(output: string, secrets: Secrets = {}, pageUrl?: string): void {
+  for (const [name, secret] of Object.entries(secrets)) {
+    if (typeof secret === "string" || secret.value.length === 0 || !output.includes(secret.value)) continue;
+    if (pageUrl === undefined || !onSecretSite(secret.origin, pageUrl)) {
+      throw new Error(`secret {${name}} belongs to ${secret.origin} and is refused on ${shownUrl(pageUrl)}`);
+    }
+  }
+}
+
+/** Does `secrets` hold any scoped value that `text` could produce once filled? Cheap gate for the
+ * extra page observation the scope check needs. */
+export function mayCarryScopedSecret(text: string, secrets: Secrets = {}): boolean {
+  if (hasSecretPlaceholder(text)) return Object.values(secrets).some((s) => typeof s !== "string");
+  const decoded = fillSecrets(text, secrets);
+  return Object.values(secrets).some((s) => typeof s !== "string" && s.value.length > 0 && decoded.includes(s.value));
 }

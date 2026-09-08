@@ -8,7 +8,7 @@ import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
 import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
-import { fillSecrets, hasSecretPlaceholder } from "./secrets.js";
+import { assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 
 const WAIT_POLL_MS = 200;
@@ -167,9 +167,11 @@ export class BuiltinStepHandler implements StepHandler {
         // The ONE place a placeholder is filled. A text with only `{{escapes}}` still goes through
         // `fillSecrets` so the literal braces come out; the page is observed only when a real
         // placeholder needs scoping.
-        if (!hasSecretPlaceholder(step.text)) return driver.type(step.target, fillSecrets(step.text, this.secrets));
+        if (!mayCarryScopedSecret(step.text, this.secrets)) return driver.type(step.target, fillSecrets(step.text, this.secrets));
         const pageUrl = (await driver.observe()).execution.finalUrl;
-        return driver.type(step.target, fillSecrets(step.text, this.secrets, pageUrl));
+        const output = fillSecrets(step.text, this.secrets, pageUrl);
+        assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
+        return driver.type(step.target, output);
       }
       case "select":
         return driver.select(step.target, step.value);

@@ -13,7 +13,7 @@ import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
-import { missingSecretOf, redactSecrets } from "../secrets.js";
+import { missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
@@ -179,6 +179,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     let decision: Decision;
     try {
       decision = parseDecision(reply);
+      // A literal secret the model echoed becomes its `{name}` here, before the ambiguity and
+      // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
+      // below hands out this object, so it is sanitized once, at the source.
+      if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({

@@ -32,6 +32,25 @@ describe("fillSecrets (#174)", () => {
     expect(fillSecrets("{password}", { password: { value: "hunter2", origin: "https://app.example" } }, "https://app.example:443/x")).toBe("hunter2");
   });
 
+  it("slotting is one pass: a value with braces matches whole, and a generated {name} is never rescanned", () => {
+    expect(slotSecretText("hunter2", { password: "hunter2", other: "word" })).toBe("{password}");
+    expect(slotSecretText("abc{xyz}", { password: "abc{xyz}" })).toBe("{password}");
+    expect(slotSecretText("abc{{xyz}}", { password: "abc{xyz}" })).toBe("abc{{xyz}}"); // an escape is not the value
+    expect(redactSecrets([{ role: "textbox", name: "x", value: "hunter2" }], { password: "hunter2", other: "word" })[0]?.value).toBe("{password}");
+  });
+
+  it("a scoped value reached through an escape or a literal is refused off-site, like a placeholder", async () => {
+    class Rec extends StubDriver { typed: string[] = []; constructor(url: string) { super(url); (this as unknown as { type: (t: Target, text: string) => Promise<void> }).type = async (_t, text) => { this.typed.push(text); }; } }
+    const secrets = { password: { value: "abc{xyz}", origin: "https://app.example" } };
+    const off = new Rec("https://pay.provider.com/login");
+    await expect(applyDecision(off, { action: "type", text: "Password", value: "abc{{xyz}}" }, secrets)).rejects.toThrow(/refused on https:\/\/pay.provider.com/);
+    await expect(applyDecision(off, { action: "type", text: "Password", value: "abc{xyz}" }, secrets)).rejects.toThrow(/refused on https:\/\/pay.provider.com/);
+    expect(off.typed).toEqual([]);
+    const home = new Rec("https://app.example/login");
+    expect(await applyDecision(home, { action: "type", text: "Password", value: "abc{xyz}" }, secrets)).toMatchObject({ text: "{password}" });
+    expect(home.typed).toEqual(["abc{xyz}"]);
+  });
+
   it("slotting runs over literal spans only and longest value first", () => {
     expect(slotSecretText("{password}", { password: "word" })).toBe("{password}");
     expect(slotSecretText("{user}", { user: "user" })).toBe("{user}");
@@ -210,9 +229,11 @@ describe("discovery types the value and freezes the placeholder", () => {
     const scenario = await discover("log in", { driver, llm: spy, baseUrl: "https://app.example/login", trace, secrets: { password: "hunter2" }, onStep: (...a) => { progress.push(a); } });
     expect(driver.typed).toEqual(["hunter2"]);
     expect(scenario.steps[1]).toMatchObject({ kind: "type", text: "{password}" });
-    for (const sink of [scenario, events, progress.map((a) => (a as unknown[])[1]), prompts.slice(1)]) {
+    // The WHOLE onStep payload, decision included: the model's literal is slotted at the source.
+    for (const sink of [scenario, events, progress, prompts.slice(1)]) {
       expect(JSON.stringify(sink)).not.toContain("hunter2");
     }
+    expect(progress.some((a) => JSON.stringify((a as unknown[])[0]).includes("{password}"))).toBe(true);
   });
 
   it("a placeholder nobody supplied aborts discovery instead of burning the step budget", async () => {

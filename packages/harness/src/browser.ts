@@ -11,7 +11,7 @@ export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
-export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText } from "./core/secrets.js";
+export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
 export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";

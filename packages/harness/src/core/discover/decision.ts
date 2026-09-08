@@ -166,7 +166,7 @@ export function canonicalizeDecision(decision: Decision, elements: readonly Page
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 export async function applyDecision(driver: Driver, decision: Decision, elements?: readonly PageElement[]): Promise<Step> {
-  referenceElement(decision, elements);
+  decision = canonicalizeDecision(decision, elements ?? []);
   const step = await decisionToStep(driver, decision);
   await execute.execute(step, driver, decision.ref);
   return step;

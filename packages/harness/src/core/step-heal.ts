@@ -6,6 +6,8 @@
 import type { Driver, LlmClient, StepHeal, StepHealer } from "./ports.js";
 import type { PageElement, Step } from "./types.js";
 import { applyDecision, parseDecision, renderElements, type Decision } from "./discover/index.js";
+import { withReferenceRules } from "./discover/prompt.js";
+import { normalizeElements } from "./perception.js";
 
 const MAX_STEP_HEALS = 5;
 
@@ -24,10 +26,10 @@ export class LlmStepHealer implements StepHealer {
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
     if (this.heals.length >= this.maxHeals) return null;
-    const elements = await driver.snapshot();
+    const elements = normalizeElements(await driver.snapshot({ perception: true }));
     let decision: Decision;
     try {
-      const reply = await this.llm.complete(stepHealPrompt(step, elements), { system: STEP_HEAL_SYSTEM });
+      const reply = await this.llm.complete(stepHealPrompt(step, elements), { system: withReferenceRules(STEP_HEAL_SYSTEM, elements) });
       decision = parseDecision(reply);
     } catch {
       return null;
@@ -35,7 +37,7 @@ export class LlmStepHealer implements StepHealer {
     if (decision.action === "done") return null;
     let healed: Step;
     try {
-      healed = await applyDecision(driver, decision);
+      healed = await applyDecision(driver, decision, elements);
     } catch {
       return null;
     }

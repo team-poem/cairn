@@ -394,3 +394,14 @@ test("chromeCloseExpiresReferences: closing a driver invalidates its observation
   await expect(chromeClick(driver, { text: "Save", nth: 0 }, ref)).rejects.toThrow(/closed|ref|stale|expired/i);
   expect(calls.filter(c => c.name === "click")).toEqual([]);
 });
+
+test("stepHealUsesObservationReference: surgical healing binds its decision to the observed element before freezing", async () => {
+  const driver = new RefDriver(); driver.els = observedPair();
+  const llm = new ScriptedLlm(['{"action":"click","ref":"turn1:second"}']);
+  const complete = vi.spyOn(llm, "complete");
+  const healed = await new LlmStepHealer(llm).heal({ kind: "click", target: { text: "Old" }, intent: "Save", expect: { text: "Saved" } }, 0, driver);
+  expect(healed).toMatchObject({ index: 0, step: { kind: "click", target: { text: "Save", nth: 1 }, intent: "Save", expect: { text: "Saved" } } });
+  expect(driver.events[1]?.ref).toBe("turn1:second");
+  expect(String((complete.mock.calls as unknown[][])[0]?.[0])).toContain("turn1:second");
+  expect(JSON.stringify(healed)).not.toContain("turn1:");
+});

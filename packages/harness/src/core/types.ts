@@ -143,6 +143,8 @@ export interface PageElement {
   inActivePopup?: boolean;
   /** Positive hit-test evidence that another element covers this control; absent means unknown. */
   occluded?: boolean;
+  /** Proven click behavior outside native/ARIA roles; source role is unchanged. */
+  clickable?: boolean;
   checked?: boolean | "mixed";
   disabled?: boolean;
   value?: string;

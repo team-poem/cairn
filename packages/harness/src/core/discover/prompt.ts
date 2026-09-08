@@ -89,7 +89,7 @@ export function rankElements(
   const scored = elements
     .filter((e) => e.occluded !== true)
     .map((e, i) => {
-      const interactive = INTERACTIVE_ROLES.has(e.role);
+      const interactive = INTERACTIVE_ROLES.has(e.role) || e.clickable === true;
       let score = interactive ? 100 : 0;
       const name = e.name.toLowerCase();
       for (const w of words) if (name.includes(w)) score += 10;
@@ -161,6 +161,7 @@ export function renderElements(elements: PageElement[], nthOf?: Map<PageElement,
       const states = [
         e.checked === "mixed" ? "mixed" : e.checked ? "checked" : undefined,
         e.disabled ? "disabled" : undefined,
+        e.clickable ? "clickable" : undefined,
       ].filter(Boolean);
       const state = states.length ? ` (${states.join(", ")})` : "";
       const value = e.value !== undefined ? ` = "${e.value.slice(0, 40)}"` : "";

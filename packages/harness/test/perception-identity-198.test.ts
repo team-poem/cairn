@@ -98,3 +98,10 @@ test("popupKeepsSnapshotNth: popup survivor keeps duplicate ordinal from the ful
   expect(listing).toContain("nth=1");
   expect(listing).toContain("second");
 });
+
+test("clickableRanksWithoutRoleLie: proven clickables rank with controls without inventing an ARIA role", () => {
+  const clickable = element("Open details", { role: "StaticText", clickable: true, ref: "card" });
+  expect(rankElements([element("Open details", { role: "StaticText" }), clickable], "", 1)).toEqual([clickable]);
+  expect(renderRankedElements([clickable], "")).toContain("StaticText");
+  expect(renderRankedElements([clickable], "")).toMatch(/clickable/i);
+});

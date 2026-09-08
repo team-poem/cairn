@@ -189,3 +189,10 @@ test("refSelectExact: reference addresses the selected duplicate for select", as
   expect(driver.events[1]?.ref).toBe("turn1:second");
   expect(step).toMatchObject({ kind: "select", target: { text: "Save", role: "button", nth: 1 } });
 });
+
+test("refOnlyDecision: a reference alone supplies canonical target metadata", async () => {
+  const driver = new RefDriver();
+  const step = await apply(driver, { action: "click", ref: "turn1:second" }, observedPair());
+  expect(step).toMatchObject({ kind: "click", target: { text: "Save", role: "button", nth: 1 } });
+  expect(driver.events[1]?.ref).toBe("turn1:second");
+});

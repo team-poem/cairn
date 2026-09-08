@@ -25,6 +25,7 @@ import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
+import type { Secrets } from "./core/secrets.js";
 
 export interface RunScenarioOptions {
   driver?: Driver;
@@ -66,6 +67,10 @@ export interface RunScenarioOptions {
   actions?: Record<string, CustomAction>;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
   expectTimeoutMs?: number;
+  /** Values for `{name}` placeholders in `type` steps (#174): filled for the driver at run time,
+   * never written to a skill. `{ value, origin }` scopes a secret to one site; it is refused
+   * anywhere else, the same fail-closed stance as an empty assertion set. */
+  secrets?: Secrets;
   /** Gate for the outcome-heal re-discovery — the same ActionPolicy `discover()` takes, so an
    * unattended repair can't run actions the authoring policy would have blocked (#76). */
   policy?: ActionPolicy;
@@ -198,7 +203,7 @@ export async function runScenario(
   const driver = opts.heal
     ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets) : undefined;
 
   try {
     const result = await runHarness(
@@ -218,6 +223,7 @@ export async function runScenario(
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
         localePrefixes: opts.localePrefixes,
+        secrets: opts.secrets,
         usage,
         trace: scope,
       },
@@ -233,7 +239,12 @@ export async function runScenario(
     // Only when a re-discovery could fix it: a blocked step, or a goal assertion that failed. A red
     // made of guards alone (a 500, a console error) is the app's health, not the path — re-discovering
     // burns the LLM every run and can never turn it green (#186).
-    const healable = result.evidence.execution.blocked || goalFailures(result.verdict).length > 0;
+    // And never when the red is the environment's (#173): a missing secret, a dead browser, a
+    // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
+    // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
+    const healable =
+      result.verdict.failure !== "environment" &&
+      (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
     if (opts.heal && !result.verdict.passed && healable) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
       // the failed run's requests must not satisfy a request-status.
@@ -251,6 +262,7 @@ export async function runScenario(
         localePrefixes: opts.localePrefixes,
         benign: opts.benign,
         maxSteps: opts.maxSteps,
+        secrets: opts.secrets,
         // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
         // the kinds say what ran (spec/core/trace.md).
         trace: scope,

@@ -8,6 +8,8 @@ import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
 import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
+import { fillSecrets, hasSecretPlaceholder } from "./secrets.js";
+import type { Secrets } from "./secrets.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -142,6 +144,8 @@ export function unrecognizedLeadingSegment(
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
+  constructor(private readonly secrets: Secrets = {}) {}
+
   supports(step: Step): boolean {
     return step.kind !== "custom";
   }
@@ -156,8 +160,14 @@ export class BuiltinStepHandler implements StepHandler {
         return driver.doubleClick(step.target);
       case "hover":
         return driver.hover(step.target);
-      case "type":
-        return driver.type(step.target, step.text);
+      case "type": {
+        // A `{name}` is filled for the driver only; the step (and so the skill, the trace, the
+        // progress event) keeps the placeholder. The page is observed only when there is one to
+        // fill, since a scoped secret is refused off its origin (#174).
+        if (!hasSecretPlaceholder(step.text)) return driver.type(step.target, step.text);
+        const pageUrl = (await driver.observe()).execution.finalUrl;
+        return driver.type(step.target, fillSecrets(step.text, this.secrets, pageUrl));
+      }
       case "select":
         return driver.select(step.target, step.value);
       case "pressKey":
@@ -195,8 +205,8 @@ export class CustomStepHandler implements StepHandler {
 }
 
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
-export function defaultStepHandlers(actions: Record<string, CustomAction> = {}): StepHandler[] {
-  return [new BuiltinStepHandler(), new CustomStepHandler(actions)];
+export function defaultStepHandlers(actions: Record<string, CustomAction> = {}, secrets: Secrets = {}): StepHandler[] {
+  return [new BuiltinStepHandler(secrets), new CustomStepHandler(actions)];
 }
 
 /**

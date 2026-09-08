@@ -7,6 +7,8 @@
 import type { Driver } from "../ports.js";
 import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
+import { fillSecrets, hasSecretPlaceholder } from "../secrets.js";
+import type { Secrets } from "../secrets.js";
 import { extractFirstJsonObject } from "../json.js";
 
 export interface Decision {
@@ -128,9 +130,14 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 const execute = new BuiltinStepHandler();
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(driver: Driver, decision: Decision, secrets: Secrets = {}, pageUrl?: string): Promise<Step> {
   const step = await decisionToStep(driver, decision);
-  await execute.execute(step, driver);
+  // The model echoes the intent's `{name}`; the driver types the value, the freeze keeps the
+  // placeholder — so a discovered login never commits the credential (#174).
+  const typed = step.kind === "type" && hasSecretPlaceholder(step.text)
+    ? { ...step, text: fillSecrets(step.text, secrets, pageUrl) }
+    : step;
+  await execute.execute(typed, driver);
   return step;
 }
 

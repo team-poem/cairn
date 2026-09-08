@@ -8,7 +8,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
-import type { Driver } from "../../core/ports.js";
+import type { Driver, SnapshotOptions } from "../../core/ports.js";
 import type {
   ConsoleMessage,
   Evidence,
@@ -60,6 +60,72 @@ const CLICKABLE_PROBE =
   " !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY|LABEL|DETAILS|OPTION)$/.test(n.tagName)) {" +
   " if (!seen.has(n)) seen.set(n, next++); return seen.get(n); }" +
   " n = n.parentElement; } return -1; }); }";
+
+/** Facts are keyed by the exact MCP node, never by its accessible name. The DOM supplies
+ * geometry/ARIA/handler facts only; core owns de-nesting, promotion quotas, and ranking.
+ * A clipped, offscreen, zero-size, or shadow-tree hit test is unknown, not positive occlusion. */
+export function perceptionProbeScript(uids: readonly string[], clickables = true): string {
+  return String.raw`(...els) => {
+    const ids = ${JSON.stringify(uids)};
+    const regions = new Map();
+    const active = new Set();
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      return el.getClientRects().length > 0 && style.display !== "none" &&
+        style.visibility !== "hidden" && el.getAttribute("aria-hidden") !== "true";
+    };
+    for (const control of document.querySelectorAll('[aria-expanded="true"]')) {
+      for (const attr of ["aria-controls", "aria-owns"]) {
+        for (const id of (control.getAttribute(attr) || "").split(/\s+/)) {
+          const popup = id && document.getElementById(id);
+          if (popup && visible(popup) && visible(control)) active.add(popup);
+        }
+      }
+    }
+    for (const popup of document.querySelectorAll('dialog[open]')) if (visible(popup)) active.add(popup);
+    try {
+      for (const popup of document.querySelectorAll(':popover-open')) if (visible(popup)) active.add(popup);
+    } catch { /* Older browsers need no popover selector to report ARIA-controlled popups. */ }
+    const clipped = (el, x, y) => {
+      if (getComputedStyle(el).position === "fixed") return false;
+      for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        const style = getComputedStyle(p);
+        if (style.position === "fixed") return false;
+        if (!/(auto|scroll|overlay|hidden|clip)/.test(style.overflowX + " " + style.overflowY)) continue;
+        const box = p.getBoundingClientRect();
+        if (x < box.left || x > box.right || y < box.top || y > box.bottom) return true;
+      }
+      return false;
+    };
+    return Object.fromEntries(els.map((raw, i) => {
+      const el = raw && raw.nodeType === 3 ? raw.parentElement : raw;
+      const facts = {};
+      if (!el || el.nodeType !== 1 || !el.isConnected) return [ids[i], facts];
+      if ([...active].some(root => root === el || root.contains(el))) facts.inActivePopup = true;
+      const box = el.getBoundingClientRect();
+      const x = box.left + box.width / 2, y = box.top + box.height / 2;
+      if (el.getRootNode() === document && box.width && box.height &&
+          x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && !clipped(el, x, y)) {
+        const top = document.elementFromPoint(x, y);
+        if (top) facts.occluded = top !== el && !el.contains(top);
+      }
+      if (${clickables}) {
+        let elAt = el;
+        for (let hops = 0; elAt && hops < ${CLICKABLE_HOPS}; hops++, elAt = elAt.parentElement) {
+          const handler = typeof elAt.onclick === "function" || elAt.hasAttribute("onclick");
+          if (getComputedStyle(elAt).cursor === "pointer" && handler && !elAt.getAttribute("role") &&
+              !/^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY|LABEL|DETAILS|OPTION)$/.test(elAt.tagName)) {
+            if (!regions.has(elAt)) regions.set(elAt, String(regions.size));
+            facts.clickable = true;
+            facts.clickableRegion = regions.get(elAt);
+            break;
+          }
+        }
+      }
+      return [ids[i], facts];
+    }));
+  }`;
+}
 
 export interface ChromeDriverOptions {
   command?: string;
@@ -363,7 +429,7 @@ export class ChromeDevToolsDriver implements Driver {
     return this.snapshotCache;
   }
 
-  async snapshot(): Promise<PageElement[]> {
+  async snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.snapshotCache = undefined;
@@ -380,6 +446,10 @@ export class ChromeDevToolsDriver implements Driver {
       element.ref = ref;
       this.references.set(ref, row);
     }
+    if (options?.perception) {
+      const facts = await this.probePerceptionFacts(named);
+      return els.map((element, i) => ({ ...element, ...facts.get(named[i]!.uid) }));
+    }
     if (this.opts.promoteClickables === false) return els;
     // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
     // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
@@ -395,6 +465,36 @@ export class ChromeDevToolsDriver implements Driver {
       }
     }
     return els;
+  }
+
+  private async probePerceptionFacts(rows: SnapshotRow[]): Promise<Map<string, Partial<PageElement>>> {
+    const facts = new Map<string, Partial<PageElement>>();
+    if (!rows.length) return facts;
+    try {
+      const uids = rows.map((row) => row.uid);
+      const reply = await this.call("evaluate_script", {
+        function: perceptionProbeScript(uids, this.opts.promoteClickables !== false),
+        args: uids,
+      });
+      const reported = extractFirstJsonObject(reply) as Record<string, unknown> | undefined;
+      for (const uid of uids) {
+        const value = reported?.[uid];
+        if (!value || typeof value !== "object") continue;
+        const raw = value as Record<string, unknown>;
+        const row: Partial<PageElement> = {};
+        if (typeof raw.inActivePopup === "boolean") row.inActivePopup = raw.inActivePopup;
+        if (typeof raw.occluded === "boolean") row.occluded = raw.occluded;
+        if (this.opts.promoteClickables !== false) {
+          if (typeof raw.clickable === "boolean") row.clickable = raw.clickable;
+          if (typeof raw.clickableRegion === "string") row.clickableRegion = raw.clickableRegion;
+        }
+        facts.set(uid, row);
+      }
+    } catch {
+      // MCP rejects mixed-frame batches and detached handles. Unmeasured facts stay unknown;
+      // retain the original rows and exact refs rather than infer occlusion or drop controls.
+    }
+    return facts;
   }
 
   /** Labels of roleless `cursor:pointer` regions (#132), one per region (de-nested), capped.

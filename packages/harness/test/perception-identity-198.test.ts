@@ -490,3 +490,36 @@ test("typedConsumerPerceptionIdentity: both public entry declarations expose obs
     expect(diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n"))).toEqual([]);
   }
 });
+
+test("chromeCommonPerceptionFacts: opt-in Chrome observation reports per-node facts for shared engine policy", async () => {
+  const raw = [
+    'uid=1_1 StaticText "Card title"',
+    'uid=1_2 StaticText "Card subtitle"',
+    ...Array.from({ length: 70 }, (_, i) => `uid=2_${i} button "Choose account ${i}"`),
+    'uid=3_1 option "Personal"',
+    'uid=3_2 button "Covered"',
+  ].join("\n");
+  const driver = new ChromeDevToolsDriver();
+  // The opt-in probe returns facts keyed by MCP UID, never by duplicate accessible name.
+  const facts = {
+    "1_1": { clickable: true, clickableRegion: "card" },
+    "1_2": { clickable: true, clickableRegion: "card" },
+    "3_1": { inActivePopup: true, occluded: false },
+    "3_2": { occluded: true },
+  };
+  (driver as unknown as { call: unknown }).call = async (name: string) => {
+    if (name === "take_snapshot") return raw;
+    if (name === "evaluate_script") return JSON.stringify(facts);
+    return "";
+  };
+  const capture = driver.snapshot as (options: { perception: boolean }) => Promise<Observed[]>;
+  const rows = await capture.call(driver, { perception: true });
+  expect(rows.find(e => e.name === "Card title")).toMatchObject({ role: "StaticText", clickable: true, clickableRegion: "card", ref: expect.any(String) });
+  expect(rows.find(e => e.name === "Personal")).toMatchObject({ role: "option", inActivePopup: true, occluded: false, ref: expect.any(String) });
+  expect(rows.find(e => e.name === "Covered")).toMatchObject({ occluded: true });
+  const normalized = normalize(rows);
+  expect(normalized.filter(e => e.clickable)).toHaveLength(1);
+  const ranked = rankElements(normalized, "Choose account", 60);
+  expect(ranked[0]?.name).toBe("Personal");
+  expect(ranked.some(e => e.name === "Covered")).toBe(false);
+});

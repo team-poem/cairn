@@ -365,3 +365,12 @@ test("chromeReferenceNavigationExpiry: navigation invalidates observation refere
   await expect(chromeClick(driver, { text: "Save", nth: 1 }, ref)).rejects.toThrow(/ref|stale|expired/i);
   expect(calls.filter(c => c.name === "click")).toEqual([]);
 });
+
+test("refNamelessDurableSelector: a nameless observed control executes by reference and freezes its durable selector", async () => {
+  const driver = new RefDriver();
+  driver.refs.set("nameless", { selector: "#details" });
+  const rows = [element("", { role: "generic", clickable: true, ref: "nameless" })];
+  const step = await apply(driver, { action: "click", ref: "nameless" }, rows);
+  expect(step).toEqual({ kind: "click", target: { selector: "#details" } });
+  expect(driver.events[1]?.ref).toBe("nameless");
+});

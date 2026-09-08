@@ -340,3 +340,9 @@ test("chromeReferencesRotate: new observation invalidates old references even wh
   expect(second).not.toBe(first);
   await expect(chromeLocate(driver, first)).rejects.toThrow(/ref|stale|expired/i);
 });
+
+test("chromeReferenceInstanceScope: one driver cannot resolve another driver observation reference", async () => {
+  const a = chromeFixture(); const b = chromeFixture();
+  const ref = await chromeRef(a.driver); await chromeRef(b.driver);
+  await expect(chromeLocate(b.driver, ref)).rejects.toThrow(/ref|stale|expired/i);
+});

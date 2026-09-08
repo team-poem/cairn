@@ -228,7 +228,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
         consoleCount: observation.logic.console.length,
         render,
       };
-      const step = await applyDecision(driver, decision);
+      const step = await applyDecision(driver, decision, elements);
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
       pending = { mark, decision, stepIndex: steps.length - 1 };

@@ -243,7 +243,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         // perceived list, when a hook exists, answers usability (the state it was installed to fix).
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision);
+      const step = await applyDecision(driver, decision, elements);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();

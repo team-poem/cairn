@@ -305,3 +305,22 @@ test("exploreCanonicalPolicy: explore supplies canonical metadata to policy for 
   expect(seen[0]).toMatchObject({ ref: "turn1:second", text: "Save", role: "button" });
   expect(driver.events).toEqual([]);
 });
+
+test("discoverStaleReobserves: stale references refresh the listing and a live reference can then act", async () => {
+  const driver = new RefDriver();
+  driver.refs.delete("turn1:second");
+  driver.refs.set("turn2:second", { text: "Save", role: "button", index: 1, nth: 1 });
+  const fresh = [element("Save", { ref: "turn2:first" }), element("Save", { ref: "turn2:second" })];
+  const snapshot = vi.spyOn(driver, "snapshot").mockResolvedValue(fresh).mockResolvedValueOnce(observedPair());
+  const llm = new ScriptedLlm(['{"action":"click","ref":"turn1:second","text":"Save","nth":1}', '{"action":"click","ref":"turn2:second","text":"Save","nth":1}', '{"action":"done"}']);
+  const complete = vi.spyOn(llm, "complete");
+  const scenario = await discover("Save", { driver, llm, maxSteps: 3 });
+  expect(snapshot.mock.calls.length).toBeGreaterThanOrEqual(3);
+  expect(scenario.steps).toEqual([{ kind: "click", target: { text: "Save", role: "button", index: 1, nth: 1 } }]);
+  expect(driver.events.map(e => e.action)).toEqual(["locateRef", "click"]);
+  expect(driver.events[1]?.ref).toBe("turn2:second");
+  const retry = String((complete.mock.calls as unknown[][])[1]?.[0]);
+  expect(retry).toMatch(/stale reference/i);
+  expect(retry).toContain("turn2:second");
+  expect(retry).not.toContain("unchanged from previous step");
+});

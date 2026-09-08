@@ -435,3 +435,15 @@ test("discoverNormalizesBeforePolicy: discover applies shared clickable normaliz
   expect(seen.filter(e => e.clickable)).toHaveLength(1);
   expect((driver.els as Observed[]).filter(e => e.clickable)).toHaveLength(2);
 });
+
+test("exploreNormalizesBeforePolicy: explore applies shared clickable normalization before exposing policy context", async () => {
+  const driver = new StubDriver();
+  driver.els = [element("Title", { role: "StaticText", clickable: true, clickableRegion: "same" }), element("Subtitle", { role: "StaticText", clickable: true, clickableRegion: "same" })];
+  let seen: readonly Observed[] = [];
+  const policy = { vet: () => ({ ok: true as const }), stop: (_steps: readonly Step[], ctx?: { elements: readonly PageElement[] }) => { seen = ctx?.elements ?? []; return true; } };
+  const llm = new ScriptedLlm([]);
+  await explore("Read", { driver, llm, policy, baseUrl: driver.url, maxSteps: 1 });
+  expect(seen.map(e => e.name)).toEqual(["Title", "Subtitle"]);
+  expect(seen.filter(e => e.clickable)).toHaveLength(1);
+  expect((driver.els as Observed[]).filter(e => e.clickable)).toHaveLength(2);
+});

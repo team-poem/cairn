@@ -8,6 +8,7 @@ import type { Driver } from "../ports.js";
 import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { extractFirstJsonObject } from "../json.js";
+import { stepError } from "../errors.js";
 
 export interface Decision {
   action:
@@ -133,8 +134,22 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 
 const execute = new BuiltinStepHandler();
 
+/** A reference is useful only when it identifies exactly one row of this observation. */
+function referenceElement(decision: Decision, elements?: readonly PageElement[]): PageElement | undefined {
+  if (decision.ref === undefined) return undefined;
+  if (typeof decision.ref !== "string" || !decision.ref.trim()) {
+    throw stepError("resolution", "observation ref must be a nonempty string");
+  }
+  const matches = elements?.filter((element) => element.ref === decision.ref) ?? [];
+  if (matches.length !== 1) {
+    throw stepError("resolution", `observation ref is ${matches.length ? "duplicated" : "unknown or missing from the snapshot"}: ${decision.ref}`);
+  }
+  return matches[0];
+}
+
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 export async function applyDecision(driver: Driver, decision: Decision, elements?: readonly PageElement[]): Promise<Step> {
+  referenceElement(decision, elements);
   const step = await decisionToStep(driver, decision);
   await execute.execute(step, driver, decision.ref);
   return step;

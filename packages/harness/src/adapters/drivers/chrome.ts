@@ -106,6 +106,7 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly driverId = ++nextDriverId;
   private observationVersion = 0;
   private observedRows: SnapshotRow[] = [];
+  private observedPage?: number;
   private readonly references = new Map<string, SnapshotRow>();
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
@@ -125,6 +126,7 @@ export class ChromeDevToolsDriver implements Driver {
       const followable = followableTab(entries, this.seenPages);
       entries.forEach((e) => this.seenPages.add(e.id));
       if (followable !== undefined) {
+        this.invalidateObservation();
         await this.call("select_page", { pageId: followable });
         this.snapshotCache = undefined; // different tab → different DOM
       }
@@ -212,6 +214,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async goto(url: string): Promise<void> {
+    this.invalidateObservation();
     if (this.initialUrl === undefined) this.initialUrl = url;
     // accept beforeunload so leaving a dirty form/page doesn't hang on a dialog.
     await this.call("navigate_page", { type: "url", url, handleBeforeUnload: "accept" });
@@ -220,7 +223,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async click(target: Target, ref?: string): Promise<void> {
-    const uid = ref === undefined ? await this.resolveUid(target) : this.referenceRow(ref).uid;
+    const uid = ref === undefined ? await this.resolveUid(target) : (await this.referenceRow(ref)).uid;
     this.invalidateObservation();
     await this.callAccepting("click", { uid });
   }
@@ -366,6 +369,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.snapshotCache = undefined;
     this.references.clear();
     const version = ++this.observationVersion;
+    this.observedPage = await this.selectedPageId();
     const raw = await this.getSnapshot();
     const els = parseElements(raw);
     this.observedRows = parseSnapshotRows(raw);
@@ -498,22 +502,38 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async locateRef(ref: string): Promise<Target> {
-    const row = this.referenceRow(ref);
+    const row = await this.referenceRow(ref);
     const index = this.observedRows.filter((candidate) => candidate.role === row.role).findIndex((candidate) => candidate.uid === row.uid);
     const dupes = this.observedRows.filter((candidate) => candidate.role === row.role && candidate.name.trim().toLowerCase() === row.name.trim().toLowerCase());
     const nth = dupes.length > 1 ? dupes.findIndex((candidate) => candidate.uid === row.uid) : undefined;
     return { text: row.name, role: row.role, index, ...(nth !== undefined ? { nth } : {}) };
   }
 
-  private referenceRow(ref: string): SnapshotRow {
+  private async referenceRow(ref: string): Promise<SnapshotRow> {
     const row = this.references.get(ref);
     if (!row) throw stepError("resolution", "unknown or expired observation ref — take a fresh snapshot");
+    const page = this.observedPage === undefined ? undefined : await this.selectedPageId();
+    if (page !== undefined && page !== this.observedPage) {
+      this.invalidateObservation();
+      throw stepError("resolution", "observation ref expired after the active page changed");
+    }
     return row;
+  }
+
+  private async selectedPageId(): Promise<number | undefined> {
+    try {
+      const match = (await this.call("list_pages")).match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m);
+      return match ? Number(match[1]) : undefined;
+    } catch {
+      // Exact MCP UID input still rejects a node absent from the active page when unmeasured.
+      return undefined;
+    }
   }
 
   private invalidateObservation(): void {
     this.references.clear();
     this.observedRows = [];
+    this.observedPage = undefined;
     this.snapshotCache = undefined;
   }
 

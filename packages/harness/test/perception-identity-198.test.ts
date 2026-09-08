@@ -357,3 +357,11 @@ test("chromeReferenceExactUid: reference clicks the selected MCP node without a 
   expect(calls.filter(c => c.name === "take_snapshot")).toHaveLength(before);
   await expect(chromeLocate(driver, ref)).rejects.toThrow(/ref|stale|expired/i);
 });
+
+test("chromeReferenceNavigationExpiry: navigation invalidates observation references before a same-name replacement can act", async () => {
+  const { driver, calls } = chromeFixture();
+  const ref = await chromeRef(driver, 1);
+  await driver.goto("https://app/next");
+  await expect(chromeClick(driver, { text: "Save", nth: 1 }, ref)).rejects.toThrow(/ref|stale|expired/i);
+  expect(calls.filter(c => c.name === "click")).toEqual([]);
+});

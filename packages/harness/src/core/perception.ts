@@ -59,7 +59,7 @@ export function rankElements(
   for (let i = cut.length - 1; i >= 0 && evicted.size < missed.length; i--) {
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
-  return [...cut.filter((s) => !evicted.has(s)), ...missed]
+  return [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
     .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((s) => s.e);
 }

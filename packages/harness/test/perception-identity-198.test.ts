@@ -405,3 +405,13 @@ test("stepHealUsesObservationReference: surgical healing binds its decision to t
   expect(String((complete.mock.calls as unknown[][])[0]?.[0])).toContain("turn1:second");
   expect(JSON.stringify(healed)).not.toContain("turn1:");
 });
+
+test("selfHealPreservesReferenceCapability: the healing decorator delegates exact reference actions without a model call", async () => {
+  const inner = new RefDriver();
+  const llm = new ScriptedLlm([]); const complete = vi.spyOn(llm, "complete");
+  const driver = new SelfHealingDriver(inner, llm);
+  await apply(driver, { action: "click", text: "Save", ref: "turn1:second" }, observedPair());
+  expect(inner.events.map(e => e.action)).toEqual(["locateRef", "click"]);
+  expect(inner.events[1]?.ref).toBe("turn1:second");
+  expect(complete).not.toHaveBeenCalled();
+});

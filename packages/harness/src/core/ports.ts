@@ -61,7 +61,7 @@ export interface Driver {
   click(target: Target, ref?: string): Promise<void>;
   doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target, ref?: string): Promise<void>;
-  type(target: Target, text: string): Promise<void>;
+  type(target: Target, text: string, ref?: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
   /** Resolve an exact, current observation reference to durable locators for freezing.

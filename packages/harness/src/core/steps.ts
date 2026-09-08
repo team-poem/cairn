@@ -157,7 +157,7 @@ export class BuiltinStepHandler implements StepHandler {
       case "hover":
         return ref === undefined ? driver.hover(step.target) : driver.hover(step.target, ref);
       case "type":
-        return driver.type(step.target, step.text);
+        return ref === undefined ? driver.type(step.target, step.text) : driver.type(step.target, step.text, ref);
       case "select":
         return driver.select(step.target, step.value);
       case "pressKey":

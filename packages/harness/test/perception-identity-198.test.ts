@@ -447,3 +447,18 @@ test("exploreNormalizesBeforePolicy: explore applies shared clickable normalizat
   expect(seen.filter(e => e.clickable)).toHaveLength(1);
   expect((driver.els as Observed[]).filter(e => e.clickable)).toHaveLength(2);
 });
+
+test("loopNormalizationKeepsOriginalNth: both loops retain full snapshot ordinals after positive occlusion filtering", async () => {
+  for (const mode of ["discover", "explore"]) {
+    const driver = new StubDriver();
+    driver.els = [element("Save", { occluded: true, ref: "covered" }), ...background(), element("Save", { inActivePopup: true, ref: "popup" })];
+    const llm = new ScriptedLlm(['{"action":"done"}']); const complete = vi.spyOn(llm, "complete");
+    if (mode === "discover") await discover("Choose account", { driver, llm, maxSteps: 1 });
+    else await explore("Choose account", { driver, llm, baseUrl: driver.url, maxSteps: 1 });
+    const prompt = String((complete.mock.calls as unknown[][])[0]?.[0]);
+    const popupLine = prompt.split("\n").find(line => line.includes("popup"));
+    expect(popupLine).toContain("Save");
+    expect(popupLine).toContain("nth=1");
+    expect(prompt).not.toContain("covered");
+  }
+});

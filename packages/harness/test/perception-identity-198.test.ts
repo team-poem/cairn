@@ -113,3 +113,11 @@ test("normalizeRegionDedup: one clickable marker per proven region preserves eve
   expect(result.map(e => Boolean(e.clickable))).toEqual([true, false]);
   expect(result.map(e => e.role)).toEqual(["StaticText", "StaticText"]);
 });
+
+test("normalizeClickableQuota: supplementary clickable priority caps at forty without deleting evidence", () => {
+  const rows = Array.from({ length: 41 }, (_, i) => element(`Card ${i}`, { role: "StaticText", clickable: true, clickableRegion: `region${i}` }));
+  const result = normalize(rows);
+  expect(result).toHaveLength(41);
+  expect(result.filter(e => e.clickable)).toHaveLength(40);
+  expect(result[40]?.name).toBe("Card 40");
+});

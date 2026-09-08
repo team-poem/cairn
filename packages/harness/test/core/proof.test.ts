@@ -64,6 +64,22 @@ describe("proofOf grades what a set of checks can prove (#197)", () => {
 });
 
 describe("the finalizer stamps proof on a green and never on a red", () => {
+  it("re-finalizing a graded green as incomplete drops its proof — never both fields", () => {
+    const graded = finalizeVerdict(green([nav()]));
+    expect(graded.proof?.grade).toBe("arrival");
+    const cut = finalizeVerdict(graded, { kind: "truncated", reason: "incomplete" });
+    expect(cut).toMatchObject({ passed: false, failure: "script" });
+    expect(cut).not.toHaveProperty("proof");
+    const back = finalizeVerdict({ ...cut, passed: true, failClosed: undefined });
+    expect(back).toHaveProperty("proof");
+    expect(back).not.toHaveProperty("failure");
+  });
+
+  it("an empty destination is a bare navigated, as the critic treats it", () => {
+    expect(proofOf([{ kind: "navigated", to: "" }])).toMatchObject({ grade: "none", arrival: 0 });
+    expect(proofOf([{ kind: "navigated" }])).toMatchObject({ grade: "none", arrival: 0 });
+  });
+
   it("green gets proof, red gets failure, neither gets both", () => {
     const g = finalizeVerdict(green([nav(), req()]), undefined, [], { unprovenAction: "PUT https://shop.co/api/cart" });
     expect(g.proof).toMatchObject({ grade: "work", unprovenAction: "PUT https://shop.co/api/cart" });

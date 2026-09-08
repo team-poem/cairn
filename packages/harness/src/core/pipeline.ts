@@ -175,9 +175,12 @@ export function finalizeVerdict(
   const cut = typeof incomplete === "string" ? { reason: incomplete, kind: "blocked" as const } : incomplete;
   const verdict = cut ? failClosed(judged, cut.reason, cut.kind) : judged;
   // A green says how much it is worth (#197), a red says what to do next (#173): the same
-  // finalizer, so replay and outcome-heal never disagree about either.
-  if (verdict.passed) return { ...verdict, proof: proofOf(verdict.results.map((r) => r.assertion), scenario?.unprovenAction) };
-  return { ...verdict, failure: classifyFailure(verdict, actions) };
+  // finalizer, so replay and outcome-heal never disagree about either. A host may finalize an
+  // already-finalized verdict (a completion check of its own on top of a green), so whichever
+  // colour the verdict ends up, the other colour's field is dropped — never both.
+  const { proof: _proof, failure: _failure, ...bare } = verdict;
+  if (verdict.passed) return { ...bare, proof: proofOf(verdict.results.map((r) => r.assertion), scenario?.unprovenAction) };
+  return { ...bare, failure: classifyFailure(verdict, actions) };
 }
 
 /**
@@ -198,7 +201,9 @@ export function proofOf(assertions: readonly Assertion[], unprovenAction?: strin
   const flow = assertions.filter((a) => !GUARD_KINDS.has(a.kind));
   const live = flow.filter((a) => a.vacuous !== true);
   const work = live.filter((a) => a.kind === "request-status" || a.kind === "custom").length;
-  const arrival = live.filter((a) => a.kind === "navigated" && a.to !== undefined).length;
+  // The critic checks a destination only when `to` is non-empty (`if (assertion.to && …)`), so an
+  // empty string is a bare `navigated`, not an arrival check — the same predicate on both sides.
+  const arrival = live.filter((a) => a.kind === "navigated" && Boolean(a.to)).length;
   const judged = live.some((a) => a.kind === "expect");
   return {
     grade: work > 0 ? "work" : judged ? "judged" : arrival > 0 ? "arrival" : "none",

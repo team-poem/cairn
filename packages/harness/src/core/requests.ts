@@ -1,5 +1,11 @@
 import type { NetworkRequest } from "./types.js";
 
+/** Exact host[:port] scope for comparing frozen API paths across replay environments. */
+export interface RequestMatchOptions {
+  allowedHosts?: readonly string[];
+}
+
+
 /** Raw key -> raw value pairs of a query string ("a=1&b=2"), last one wins on a duplicate key.
  * No decoding — matched as literal text, same as the containment match this replaces. */
 function parseQueryPairs(query: string): Map<string, string> {
@@ -22,7 +28,27 @@ function parseQueryPairs(query: string): Map<string, string> {
  * (`?op=AddToCart` failing against `?trace=xy&op=AddToCart`). #200. Shared by every request-status
  * call site (this predicate, discovery-time grounding, the assertion diagnostic) so a verdict and
  * its diagnostic can never disagree. */
-export function urlMatchesFrozen(url: string, urlIncludes: string): boolean {
+export function urlMatchesFrozen(url: string, urlIncludes: string, opts: RequestMatchOptions = {}): boolean {
+  // Only an explicitly scoped frozen host enables fallback. Path/suffix checks and external
+  // checks keep their existing semantics. Never accept a hostname embedded in an actual query.
+  const frozen = /^(https?:\/\/)?([^/?#]+)([/?#].*)?$/i.exec(urlIncludes);
+  const frozenHost = frozen?.[2]?.toLowerCase();
+  if (frozenHost && opts.allowedHosts?.includes(frozenHost)) {
+    let actual: URL;
+    try { actual = new URL(url); } catch { return false; }
+    if (!/^https?:$/.test(actual.protocol) || !opts.allowedHosts.includes(actual.host)) return false;
+    const suffix = frozen?.[3] ?? "";
+    const path = suffix.split(/[?#]/, 1)[0] ?? "";
+    if (path.startsWith("/") && path !== "/") {
+      // Match the path against the actual pathname, never a URL carried in a query value.
+      // Reuse the original query-subset comparison below without broadening it.
+      if (!actual.pathname.includes(path)) return false;
+      return urlMatchesFrozen(actual.pathname + actual.search, suffix);
+    }
+    // Host-only/root-only checks cannot acquire cross-host meaning from an empty path.
+    if (actual.host !== frozenHost) return false;
+  }
+
   const q = urlIncludes.indexOf("?");
   if (q === -1) return url.includes(urlIncludes);
   const path = urlIncludes.slice(0, q);
@@ -44,10 +70,11 @@ export function findRequestStatus(
   urlIncludes: string,
   status: number,
   method?: string,
+  opts: RequestMatchOptions = {},
 ): NetworkRequest | undefined {
   const m = method?.toUpperCase();
   return requests.find(
-    (r) => urlMatchesFrozen(r.url, urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
+    (r) => urlMatchesFrozen(r.url, urlIncludes, opts) && r.status === status && (!m || r.method.toUpperCase() === m),
   );
 }
 

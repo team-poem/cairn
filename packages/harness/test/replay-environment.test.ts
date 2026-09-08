@@ -59,3 +59,35 @@ test("replayEnvironmentPreservesExtensions: custom code sees real URLs and exter
   expect((await runScenario(scenario(), { driver: originalDriver, reporter: silent })).result.verdict.passed).toBe(true);
   expect(originalDriver.visited).toEqual(["https://stage.test/start"]);
 });
+
+test("replayRequestHostGate: only two allowed hosts may share a stable request path", () => {
+  const opts = { allowedHosts: [...env.allowedHosts, "localhost:3000"] };
+  const rows: [string, string, boolean][] = [
+    ["http://localhost:4000/graphql?trace=x&op=AddToCart", "api.stage.test/graphql?op=AddToCart", true],
+    ["http://localhost:3000/orders/123", "https://api.stage.test/orders", true],
+    ["https://pay.test/graphql?op=AddToCart", "api.stage.test/graphql?op=AddToCart", false],
+    ["http://localhost:4001/graphql?op=AddToCart", "api.stage.test/graphql?op=AddToCart", false],
+    ["https://api.stage.test.evil.test/graphql", "api.stage.test/graphql", false],
+    ["http://localhost:4000/graphql?op=AddToCart", "evil.test/graphql?op=AddToCart", false],
+    ["http://localhost:4000/graphql?op=AddToCartV2", "api.stage.test/graphql?op=AddToCart", false],
+    ["http://localhost:4000/graphql", "api.stage.test/graphql?op=AddToCart", false],
+    ["http://localhost:4000/elsewhere?next=api.stage.test/graphql", "api.stage.test/graphql", false],
+    ["https://evil.test/collect?next=https://api.stage.test/graphql?op=Save", "https://api.stage.test/graphql?op=Save", false],
+    ["http://localhost:4000/other?next=/graphql", "api.stage.test/graphql", false],
+    ["http://localhost:4000/", "api.stage.test", false],
+    ["http://localhost:4000/?op=Save", "api.stage.test/?op=Save", false],
+    ["http://localhost:4000/?op=Save", "api.stage.test?op=Save", false],
+    ["http://localhost:4000/", "api.stage.test/", false],
+    ["https://pay.test/graphql?op=Save", "pay.test/graphql?op=Save", true],
+    ["http://localhost:4000/graphql?op=Save", "/graphql?op=Save", true],
+  ];
+  for (const [actual, frozen, want] of rows) expect(urlMatchesFrozen(actual, frozen, opts), `${actual} / ${frozen}`).toBe(want);
+  expect(urlMatchesFrozen("http://localhost:4000/graphql", "api.stage.test/graphql")).toBe(false);
+  const requests = [
+    { method: "GET", status: 200, url: "http://localhost:4000/graphql?op=Save" },
+    { method: "POST", status: 401, url: "http://localhost:4000/graphql?op=Save" },
+    { method: "POST", status: 200, url: "http://localhost:4000/graphql?trace=1&op=Save" },
+  ];
+  expect(findRequestStatus(requests, "api.stage.test/graphql?op=Save", 200, "post", opts)).toBe(requests[2]);
+  expect(findRequestStatus(requests.slice(0, 2), "api.stage.test/graphql?op=Save", 200, "POST", opts)).toBeUndefined();
+});

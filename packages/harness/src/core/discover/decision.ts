@@ -9,6 +9,7 @@ import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.j
 import { BuiltinStepHandler } from "../steps.js";
 import { extractFirstJsonObject } from "../json.js";
 import { stepError } from "../errors.js";
+import { dupeOrdinals } from "./prompt.js";
 
 export interface Decision {
   action:
@@ -150,6 +151,17 @@ function referenceElement(decision: Decision, elements?: readonly PageElement[])
     throw stepError("resolution", "decision text or role conflicts with the observation ref");
   }
   return element;
+}
+
+/** Supply the selected observation's canonical metadata before an action policy evaluates it. */
+export function canonicalizeDecision(decision: Decision, elements: readonly PageElement[]): Decision {
+  const element = referenceElement(decision, elements);
+  if (!element) return decision;
+  const nth = dupeOrdinals([...elements]).get(element);
+  if (decision.nth !== undefined && decision.nth !== (nth ?? 0)) {
+    throw stepError("resolution", "decision nth conflicts with the observation ref");
+  }
+  return { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */

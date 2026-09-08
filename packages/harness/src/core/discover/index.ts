@@ -10,7 +10,7 @@ import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { SYSTEM, buildPrompt, renderRankedElements, withReferenceRules } from "./prompt.js";
-import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
+import { applyDecision, canonicalizeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
@@ -213,6 +213,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     }
 
     try {
+      decision = canonicalizeDecision(decision, elements);
       const beforeObs = await driver.observe();
       currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing

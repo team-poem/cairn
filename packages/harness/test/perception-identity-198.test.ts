@@ -271,3 +271,13 @@ test("discoverSharedPerception: discover ranks custom Driver observations before
   expect(prompt).toContain("popup:1");
   expect(prompt).not.toContain("Hidden");
 });
+
+test("discoverCanonicalPolicy: discover supplies canonical metadata to policy for reference-only decisions", async () => {
+  const driver = new RefDriver(); driver.els = observedPair();
+  const seen: RefDecision[] = [];
+  const policy = { vet: (d: RefDecision) => { seen.push(d); return { ok: false as const, reason: "blocked" }; } };
+  const llm = new ScriptedLlm(['{"action":"click","ref":"turn1:second"}', '{"action":"done"}']);
+  await discover("Save", { driver, llm, policy, maxSteps: 2 });
+  expect(seen[0]).toMatchObject({ ref: "turn1:second", text: "Save", role: "button" });
+  expect(driver.events).toEqual([]);
+});

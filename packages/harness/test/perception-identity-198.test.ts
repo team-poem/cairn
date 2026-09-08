@@ -220,3 +220,11 @@ test("refLegacyCapabilityRejected: a reference never silently downgrades to a le
   await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, observedPair())).rejects.toThrow(/ref|support|capab/i);
   expect(driver.clicked).toEqual([]);
 });
+
+test("refContradictionRejected: contradictory visible name or role cannot bypass target identity", async () => {
+  for (const metadata of [{ text: "Delete" }, { text: "Save", role: "link" }]) {
+    const driver = new RefDriver();
+    await expect(apply(driver, { action: "click", ref: "turn1:second", ...metadata }, observedPair())).rejects.toThrow(/ref|match|conflict/i);
+    expect(driver.events).toEqual([]);
+  }
+});

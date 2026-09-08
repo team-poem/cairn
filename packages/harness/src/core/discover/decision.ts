@@ -144,7 +144,12 @@ function referenceElement(decision: Decision, elements?: readonly PageElement[])
   if (matches.length !== 1) {
     throw stepError("resolution", `observation ref is ${matches.length ? "duplicated" : "unknown or missing from the snapshot"}: ${decision.ref}`);
   }
-  return matches[0];
+  const element = matches[0]!;
+  if ((decision.text !== undefined && decision.text !== element.name) ||
+      (decision.role !== undefined && decision.role !== element.role)) {
+    throw stepError("resolution", "decision text or role conflicts with the observation ref");
+  }
+  return element;
 }
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */

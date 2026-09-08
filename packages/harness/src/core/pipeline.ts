@@ -6,6 +6,7 @@
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
+import type { Secrets } from "./secrets.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -29,7 +30,8 @@ export interface RunHarnessOptions {
   captureScreenshots?: boolean;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
-  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`. */
+  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
+   * A custom chain fills `{name}` secrets only if it includes `new BuiltinStepHandler(secrets)` — `secrets` below is not applied to it. */
   stepHandlers?: StepHandler[];
   /** Repair a step whose `expect` fails (surgical self-heal); absent → a diverged step just fails. */
   stepHealer?: StepHealer;
@@ -45,6 +47,9 @@ export interface RunHarnessOptions {
   localePrefixes?: readonly string[];
   /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
   trace?: TraceScope;
+  /** Values for `{name}` placeholders in `type` steps, filled at run time and never frozen (#174).
+   * A scoped secret (`{ value, origin }`) is refused on any page outside its origin. */
+  secrets?: Secrets;
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
@@ -263,7 +268,7 @@ export async function runHarness(
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);

@@ -43,6 +43,7 @@ import {
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, parseArgs } from "./cli-args.js";
+import { secretsFromFlags } from "./cli-secrets.js";
 import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
@@ -96,6 +97,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
       // a slow app (3-5s list loads) needs more than the 2s default (#95).
       expectTimeoutMs: flagNum(flags, "expect-timeout"),
       maxSteps: flagNum(flags, "max-steps"),
+      secrets: secretsFromFlags(flags),
     });
   } catch (err) {
     // The run started and died (browser gone, driver never came up): that is the environment,
@@ -190,6 +192,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
       baseUrl: url,
       maxSteps: flagNum(flags, "max-steps"),
       semanticChecks: Boolean(flags.get("semantic")),
+      secrets: secretsFromFlags(flags),
       trace,
     });
   } finally {
@@ -358,6 +361,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     heal: !flags.get("no-heal"),
     model: flagStr(flags, "model"),
     expectTimeoutMs: flagNum(flags, "expect-timeout"),
+    secrets: secretsFromFlags(flags),
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
@@ -386,11 +390,13 @@ const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 usage: cairn <command> [options]
 
   run --dogfood | --scenario <file.json> [--json out]
-  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]
-  discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]
+  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms] [--secret name=value…]
+  discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic] [--secret name=value…]
   explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
   suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]
 
+  --secret name=value        fill {name} in type steps at run time; repeatable; or CAIRN_SECRET_<NAME> in the env
+  --secret-origin name=url   refuse to type {name} on any page outside that origin
   --help, -h       print this message
   --version, -v    print the engine version
 

@@ -7,6 +7,8 @@
 import type { Driver } from "../ports.js";
 import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
+import { slotSecretText } from "../secrets.js";
+import type { Secrets } from "../secrets.js";
 import { extractFirstJsonObject } from "../json.js";
 
 export interface Decision {
@@ -128,9 +130,15 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 const execute = new BuiltinStepHandler();
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(driver: Driver, decision: Decision, secrets: Secrets = {}): Promise<Step> {
   const step = await decisionToStep(driver, decision);
-  await execute.execute(step, driver);
+  // A secret's value is put back behind its `{name}` HERE, before the step is executed or kept:
+  // the model may echo the literal it saw in a text field rather than the intent's placeholder,
+  // and a literal must go through the same scope check and must never reach the trace, the
+  // progress event, the next prompt, or the freeze (#174). The handler then fills it exactly
+  // once, for the driver only.
+  if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
+  await new BuiltinStepHandler(secrets).execute(step, driver);
   return step;
 }
 

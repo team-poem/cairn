@@ -262,6 +262,19 @@ cairn is made to be built on, not scattered across your service as test code. A 
 
 You can call `runScenario` straight from a test file. Nothing stops you. But that is not the point: cairn is not a Jest or Playwright you write service tests in. It is the engine those kinds of tools are built from.
 
+## Secrets
+
+A `type` step's text can carry `{name}` placeholders. The run fills them for the driver and the skill keeps the placeholder, so a discovered login never commits the password:
+
+```sh
+cairn discover "log in as {user} with {password}, then open the cart" --url=https://your.app \
+  --secret user=alice --secret password="$APP_PASSWORD" --freeze=login.skill.json
+cairn replay login.skill.json --secret user=alice --secret password="$APP_PASSWORD"
+CAIRN_SECRET_PASSWORD=… cairn replay login.skill.json --secret user=alice      # the env works too
+```
+
+In the library, `secrets: { user: "alice", password: { value: "…", origin: "https://your.app" } }` on `runScenario`, `runSuite` or `discover`. A scoped secret is refused on any page outside its site (host or subdomain, and the port when you give one), during discovery and replay alike, so a flow that wanders to a payment provider's login form cannot type your app's credentials there (exit 3). A placeholder with no value fails the step and skips healing (exit 4: pass it). To type a literal `{word}`, write `{{word}}`. In CI prefer `CAIRN_SECRET_<NAME>`: a `--secret` on the command line shows in `ps` and in the job log.
+
 ## Extend it
 
 Every stage is a replaceable port. Bring your own `Driver` (for example Playwright), `Critic`, `Reporter`, `ContextProvider` (auth, fixtures), or `LlmClient` (any model).

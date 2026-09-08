@@ -111,6 +111,36 @@ The lean is deliberate: when unsure, a red is a regression until shown otherwise
 regression filed under "retry" is the one outcome a CI gate exists to prevent. The mirror question
 for a green — how much a pass is worth — is #197.
 
+### Grading the green (#197)
+
+A green from a 2xx mutation and a green from "the final URL matched" are not worth the same, and
+a run that derives its checks from what it observed is uniquely exposed here: nobody wrote those
+checks with a failure mode in mind. So a green carries `Verdict.proof`, the mirror of `failure` on
+a red, graded from metadata the freeze already stamped. `work`: a non-vacuous `request-status` or
+`custom` check saw the action happen (the same predicate as `provesAnAction`, which is now
+implemented through it, blind spot included: a `request-status` on a GET counts, because the
+freeze cannot tell a page load from a read the flow needed, and narrowing it here would narrow the
+#184 gate too). `judged`: no mechanical proof, but an LLM `expect` judged the outcome — a claim
+about the work, not a measurement. `arrival`: only a destination held — the page was reached, the
+work is inferred. `none`: nothing speaks to the flow — the health guards still fire on an error,
+but a flow that quietly did nothing passes.
+
+Alongside the grade: how many flow checks could have failed at all, how many were vacuous, and the
+freeze's `unprovenAction` (#184), which until now never reached a replay's verdict. Guards are
+counted by kind and kept out of that arithmetic: #137 stamps them vacuous on a clean start so a
+guards-only scenario fails closed, yet a 500 mid-flow still trips them, so "could not fail" would
+be false for them. Two consequences of grading from stamps: `none` is a red when nothing *can* fail
+(#69, #137) and a green only when something can but nothing speaks to the flow (guards alone, a
+hand-written bare `navigated`); and a skill frozen before #137 carries no stamps, so its checks all
+count as discriminating and a landing-page GET reads as `work` — the freeze's word is taken as
+given.
+
+`proofOf` is pure over assertions, so `cairn discover` prints the grade of a freeze before any
+replay and a green replay carries the same grade after one; the finalizer stamps it, so replay and
+outcome-heal agree, and a heal is graded from the original assertions it was judged against.
+Advisory: `passed` is unchanged. A consumer that wants a stricter gate reads `proof.grade` and
+decides; a host rendering a run reads it and says what the green means.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

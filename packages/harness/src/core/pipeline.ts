@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass } from "./types.js";
+import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
@@ -168,13 +168,47 @@ export function finalizeVerdict(
   judged: Verdict,
   incomplete?: string | { reason: string; kind: "blocked" | "truncated" },
   actions: readonly ExecutedAction[] = [],
+  scenario?: Pick<Scenario, "unprovenAction">,
 ): Verdict {
   // A bare string is what `blockedReason` returns, so it means a blocked replay; a re-discovery
   // that ended before `done` says so with the object form.
   const cut = typeof incomplete === "string" ? { reason: incomplete, kind: "blocked" as const } : incomplete;
   const verdict = cut ? failClosed(judged, cut.reason, cut.kind) : judged;
-  if (verdict.passed) return verdict;
+  // A green says how much it is worth (#197), a red says what to do next (#173): the same
+  // finalizer, so replay and outcome-heal never disagree about either.
+  if (verdict.passed) return { ...verdict, proof: proofOf(verdict.results.map((r) => r.assertion), scenario?.unprovenAction) };
   return { ...verdict, failure: classifyFailure(verdict, actions) };
+}
+
+/**
+ * Grade what a set of checks can prove (#197), from the metadata the freeze already stamped:
+ * `vacuous` (#137) says whether a check could fail at all, the kind says what a check speaks to.
+ * Pure over assertions, so it grades a freeze before any replay (`cairn discover`) and a green
+ * verdict after one with the same rule. `work` needs one non-vacuous `request-status` or `custom`
+ * — the same test as `provesAnAction`, blind spot included: a `request-status` on a GET counts,
+ * because the freeze cannot tell a page load from a read the flow needed, and changing that here
+ * would silently change the #184 gate too. `judged` is an LLM `expect` with nothing mechanical
+ * behind it. `arrival` is a destination alone. `none` is a green that would also be green on a
+ * broken flow.
+ */
+export function proofOf(assertions: readonly Assertion[], unprovenAction?: string): VerdictProof {
+  // Guards are the app's health, not the flow: counted by kind, and kept out of the vacuity
+  // arithmetic — #137 stamps them vacuous on a clean start for its own gate, but a 500 mid-flow
+  // still trips them, so "could not fail" would be false for them.
+  const flow = assertions.filter((a) => !GUARD_KINDS.has(a.kind));
+  const live = flow.filter((a) => a.vacuous !== true);
+  const work = live.filter((a) => a.kind === "request-status" || a.kind === "custom").length;
+  const arrival = live.filter((a) => a.kind === "navigated" && a.to !== undefined).length;
+  const judged = live.some((a) => a.kind === "expect");
+  return {
+    grade: work > 0 ? "work" : judged ? "judged" : arrival > 0 ? "arrival" : "none",
+    discriminating: live.length,
+    vacuous: flow.length - live.length,
+    work,
+    arrival,
+    guards: assertions.length - flow.length,
+    ...(unprovenAction ? { unprovenAction } : {}),
+  };
 }
 
 /** Statuses that say the app refused the caller (credentials, rate) rather than the flow. */
@@ -275,7 +309,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions);
+  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions, scenario);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

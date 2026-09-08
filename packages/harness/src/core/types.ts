@@ -137,6 +137,8 @@ export interface Scenario {
 export interface PageElement {
   role: string;
   name: string;
+  /** Observed membership in the currently open popup, supplied by the Driver. */
+  inActivePopup?: boolean;
   checked?: boolean | "mixed";
   disabled?: boolean;
   value?: string;

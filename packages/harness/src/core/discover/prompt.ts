@@ -94,7 +94,7 @@ export function rankElements(
       for (const w of words) if (name.includes(w)) score += 10;
       return { e, score, i, evidence: !interactive && score > 0 };
     })
-    .sort((a, b) => b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i);
 
   const cut = scored.slice(0, limit);
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
@@ -106,7 +106,7 @@ export function rankElements(
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
   return [...cut.filter((s) => !evicted.has(s)), ...missed]
-    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
     .map((s) => s.e);
 }
 

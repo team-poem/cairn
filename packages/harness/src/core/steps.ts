@@ -146,12 +146,12 @@ export class BuiltinStepHandler implements StepHandler {
     return step.kind !== "custom";
   }
 
-  async execute(step: Step, driver: Driver): Promise<void> {
+  async execute(step: Step, driver: Driver, ref?: string): Promise<void> {
     switch (step.kind) {
       case "goto":
         return driver.goto(step.url);
       case "click":
-        return driver.click(step.target);
+        return ref === undefined ? driver.click(step.target) : driver.click(step.target, ref);
       case "doubleClick":
         return driver.doubleClick(step.target);
       case "hover":

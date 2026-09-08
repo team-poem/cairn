@@ -58,12 +58,15 @@ export interface Planner {
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target): Promise<void>;
+  click(target: Target, ref?: string): Promise<void>;
   doubleClick(target: Target): Promise<void>;
   hover(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
+  /** Resolve an exact, current observation reference to durable locators for freezing.
+   * Unsupported by legacy drivers; stale or detached references must reject, never retarget. */
+  locateRef?(ref: string): Promise<Target>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string): Promise<void>;

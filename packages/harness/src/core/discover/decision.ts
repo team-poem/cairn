@@ -26,6 +26,8 @@ export interface Decision {
     | "note"
     | "done";
   text?: string;
+  /** Exact identity from the current observation; never persisted in the returned Step. */
+  ref?: string;
   /** Disambiguate identically-named elements (#127): the element's role, and the 0-based
    * position among same role+name matches — the `(nth=K)` marker the listing shows. */
   role?: string;
@@ -84,6 +86,10 @@ export function parseDecision(text: string): Decision {
  */
 export async function decisionToStep(driver: Driver, decision: Decision): Promise<Step> {
   const located = (): Promise<Target> => {
+    if (decision.ref !== undefined) {
+      if (!driver.locateRef) throw new Error("driver does not support observation references");
+      return driver.locateRef(decision.ref);
+    }
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
     return driver.locate({
       text: decision.text,
@@ -128,9 +134,9 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 const execute = new BuiltinStepHandler();
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
+export async function applyDecision(driver: Driver, decision: Decision, elements?: readonly PageElement[]): Promise<Step> {
   const step = await decisionToStep(driver, decision);
-  await execute.execute(step, driver);
+  await execute.execute(step, driver, decision.ref);
   return step;
 }
 

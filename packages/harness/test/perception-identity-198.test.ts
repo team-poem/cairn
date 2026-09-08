@@ -149,3 +149,11 @@ test("perceptionPublicBothEntries: Node and browser consumers share the same nor
   expect(node.rankElements).toBe(rankElements);
   expect(browser.rankElements).toBe(rankElements);
 });
+
+test("refClickExact: reference addresses the selected duplicate for click", async () => {
+  const driver = new RefDriver();
+  const step = await apply(driver, { action: "click", ref: "turn1:second", text: "Save", value: "chosen" }, observedPair());
+  expect(driver.events.map(e => e.action)).toEqual(["locateRef", "click"]);
+  expect(driver.events[1]?.ref).toBe("turn1:second");
+  expect(step).toMatchObject({ kind: "click", target: { text: "Save", role: "button", nth: 1 } });
+});

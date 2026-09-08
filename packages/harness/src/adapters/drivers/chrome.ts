@@ -289,14 +289,15 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async click(target: Target, ref?: string): Promise<void> {
-    const uid = ref === undefined ? await this.resolveUid(target) : (await this.referenceRow(ref)).uid;
+    const uid = await this.actionUid(target, ref);
     this.invalidateObservation();
     await this.callAccepting("click", { uid });
   }
 
-  async doubleClick(target: Target): Promise<void> {
-    await this.callAccepting("click", { uid: await this.resolveUid(target), dblClick: true });
-    this.snapshotCache = undefined;
+  async doubleClick(target: Target, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.callAccepting("click", { uid, dblClick: true });
   }
 
   /**
@@ -317,24 +318,27 @@ export class ChromeDevToolsDriver implements Driver {
     await this.followNewTab();
   }
 
-  async hover(target: Target): Promise<void> {
-    await this.call("hover", { uid: await this.resolveUid(target) });
-    this.snapshotCache = undefined;
+  async hover(target: Target, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.call("hover", { uid });
   }
 
-  async type(target: Target, text: string): Promise<void> {
-    await this.callAccepting("fill", { uid: await this.resolveUid(target), value: text });
-    this.snapshotCache = undefined;
+  async type(target: Target, text: string, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.callAccepting("fill", { uid, value: text });
     // Let the app apply the input (controlled inputs, validation) before the next action — otherwise
     // a fast submit races an un-committed field. settle's idle floor gives that beat (readiness, #64).
     await this.settle();
   }
 
-  async select(target: Target, value: string): Promise<void> {
-    const uid = await this.resolveUid(target);
+  async select(target: Target, value: string, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
     // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
     // whose option list can't be clicked), kept as a fast path.
     if (await this.isNativeSelect(uid)) {
+      this.invalidateObservation();
       await this.callAccepting("fill", { uid, value });
       this.snapshotCache = undefined;
       await this.settle();
@@ -345,6 +349,7 @@ export class ChromeDevToolsDriver implements Driver {
     // which used to make discover thrash. One `select` step still freezes as a single stable unit
     // (the control), so replay drives open→pick deterministically (no LLM).
     const before = new Set(parseSnapshotRows(await this.getSnapshot()).map((r) => r.uid));
+    this.invalidateObservation();
     await this.callAccepting("click", { uid }); // activate/open
     this.snapshotCache = undefined;
     const optionUid = await this.awaitNewOption(value, before);
@@ -395,12 +400,14 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async pressKey(key: string): Promise<void> {
+    this.invalidateObservation();
     // a form submit (Enter) can trigger a confirm() — handle it like any other action.
     await this.callAccepting("press_key", { key });
     this.snapshotCache = undefined;
   }
 
   async scroll(direction: "down" | "up" = "down"): Promise<void> {
+    this.invalidateObservation();
     const sign = direction === "up" ? "-" : "";
     await this.call("evaluate_script", {
       function: `() => { window.scrollBy(0, ${sign}window.innerHeight * 0.9); }`,
@@ -617,7 +624,14 @@ export class ChromeDevToolsDriver implements Driver {
       this.invalidateObservation();
       throw stepError("resolution", "observation ref expired after the active page changed");
     }
+    if (this.references.get(ref) !== row) {
+      throw stepError("resolution", "observation ref expired while checking the active page");
+    }
     return row;
+  }
+
+  private async actionUid(target: Target, ref?: string): Promise<string> {
+    return ref === undefined ? this.resolveUid(target) : (await this.referenceRow(ref)).uid;
   }
 
   private async selectedPageId(): Promise<number | undefined> {

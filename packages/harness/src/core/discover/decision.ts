@@ -90,7 +90,17 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
   const located = (): Promise<Target> => {
     if (decision.ref !== undefined) {
       if (!driver.locateRef) throw new Error("driver does not support observation references");
-      return driver.locateRef(decision.ref);
+      return driver.locateRef(decision.ref).then((target) => {
+        // Driver results may carry extra runtime fields despite TypeScript's structural type.
+        // Freeze only the durable Target vocabulary, never a handle/ref copied from observation.
+        const durable: Target = {};
+        if (target.text !== undefined) durable.text = target.text;
+        if (target.role !== undefined) durable.role = target.role;
+        if (target.index !== undefined) durable.index = target.index;
+        if (target.nth !== undefined) durable.nth = target.nth;
+        if (target.selector !== undefined) durable.selector = target.selector;
+        return durable;
+      });
     }
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
     return driver.locate({

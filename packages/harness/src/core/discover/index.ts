@@ -14,6 +14,7 @@ import { applyDecision, canonicalizeDecision, describeAction, describeAmbiguity,
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
+import { normalizeElements } from "../perception.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
@@ -162,7 +163,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     signal?.throwIfAborted();
     await driver.settle();
     const raw = await driver.snapshot({ perception: true });
-    const elements = perceive ? await perceive(raw) : raw;
+    const elements = normalizeElements(perceive ? await perceive(raw) : raw);
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);
@@ -275,7 +276,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // a goal reached by the last action is a trusted finish, not a truncation (#77).
   if (policy?.stop) {
     await driver.settle();
-    if (policy.stop(steps, { elements: await driver.snapshot() })) return finish(false);
+    const raw = await driver.snapshot({ perception: true });
+    const elements = normalizeElements(perceive ? await perceive(raw) : raw);
+    if (policy.stop(steps, { elements })) return finish(false);
   }
   return finish(true);
 }

@@ -13,6 +13,7 @@
 import type { Driver, LlmClient } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
+import { normalizeElements } from "../perception.js";
 import { applyDecision, canonicalizeDecision, describeAction, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { renderRankedElements, withReferenceRules } from "../discover/prompt.js";
@@ -138,7 +139,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const elements = await driver.snapshot({ perception: true });
+    const elements = normalizeElements(await driver.snapshot({ perception: true }));
     const render = renderRankedElements(elements, charter);
 
     if (pending) {
@@ -263,7 +264,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       url: observation.execution.finalUrl,
       requests: observation.logic.requests,
       console: observation.logic.console,
-      render: renderRankedElements(await driver.snapshot(), charter),
+      render: renderRankedElements(normalizeElements(await driver.snapshot({ perception: true })), charter),
       settleMs,
     });
   }

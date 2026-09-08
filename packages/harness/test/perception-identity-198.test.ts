@@ -423,3 +423,15 @@ test("selfHealDoesNotRetargetStaleReference: reference expiry through the healin
   expect(complete).not.toHaveBeenCalled();
   expect(inner.events).toEqual([{ action: "locateRef", ref: "turn1:second" }]);
 });
+
+test("discoverNormalizesBeforePolicy: discover applies shared clickable normalization before exposing policy context", async () => {
+  const driver = new StubDriver();
+  driver.els = [element("Title", { role: "StaticText", clickable: true, clickableRegion: "same" }), element("Subtitle", { role: "StaticText", clickable: true, clickableRegion: "same" })];
+  let seen: readonly Observed[] = [];
+  const policy = { vet: () => ({ ok: true as const }), stop: (_steps: readonly Step[], ctx?: { elements: readonly PageElement[] }) => { seen = ctx?.elements ?? []; return true; } };
+  const llm = new ScriptedLlm([]);
+  await discover("Read", { driver, llm, policy, maxSteps: 1 });
+  expect(seen.map(e => e.name)).toEqual(["Title", "Subtitle"]);
+  expect(seen.filter(e => e.clickable)).toHaveLength(1);
+  expect((driver.els as Observed[]).filter(e => e.clickable)).toHaveLength(2);
+});

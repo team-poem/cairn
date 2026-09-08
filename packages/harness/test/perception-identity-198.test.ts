@@ -415,3 +415,11 @@ test("selfHealPreservesReferenceCapability: the healing decorator delegates exac
   expect(inner.events[1]?.ref).toBe("turn1:second");
   expect(complete).not.toHaveBeenCalled();
 });
+
+test("selfHealDoesNotRetargetStaleReference: reference expiry through the healing decorator never asks the model for a replacement", async () => {
+  const inner = new RefDriver(); inner.afterLocate = () => inner.refs.delete("turn1:second");
+  const llm = new ScriptedLlm(['{"name":"Save"}']); const complete = vi.spyOn(llm, "complete");
+  await expect(apply(new SelfHealingDriver(inner, llm), { action: "click", text: "Save", ref: "turn1:second" }, observedPair())).rejects.toThrow(/stale/i);
+  expect(complete).not.toHaveBeenCalled();
+  expect(inner.events).toEqual([{ action: "locateRef", ref: "turn1:second" }]);
+});

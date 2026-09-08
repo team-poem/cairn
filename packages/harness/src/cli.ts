@@ -117,6 +117,12 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   if (!truncated && !healedScenario && !result.verdict.passed && Boolean(flags.get("heal")) && result.verdict.detail) {
     console.log(`\n${result.verdict.detail}`);
   }
+  if (replayEnvironment && flags.get("heal")) {
+    // Temporary outcome repairs have no artifact; report their final verdict and evidence
+    // independently so both console and JSON agree with the exit code after healing.
+    console.log("\nfinal replay environment result (repairs are temporary):");
+    await reporterFor(flags).emit(result);
+  }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
     await skills.freeze(freeze, healedScenario);

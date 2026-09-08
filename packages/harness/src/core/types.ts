@@ -137,6 +137,8 @@ export interface Scenario {
 export interface PageElement {
   role: string;
   name: string;
+  /** Opaque, transient observation identity; never a locator to persist in a frozen Target. */
+  ref?: string;
   /** Observed membership in the currently open popup, supplied by the Driver. */
   inActivePopup?: boolean;
   /** Positive hit-test evidence that another element covers this control; absent means unknown. */

@@ -89,3 +89,12 @@ test("occludedNotListed: positive occlusion excludes actions while unknown occlu
   const visible = element("Visible", { occluded: false });
   expect(rankElements([hidden, unknown, visible], "Hidden", 60)).toEqual([unknown, visible]);
 });
+
+test("popupKeepsSnapshotNth: popup survivor keeps duplicate ordinal from the full snapshot", () => {
+  const first = element("Save", { ref: "first", occluded: true });
+  const second = element("Save", { ref: "second", inActivePopup: true });
+  const listing = renderRankedElements([first, ...background(), second], "Choose account", 1);
+  expect(listing).toContain("Save");
+  expect(listing).toContain("nth=1");
+  expect(listing).toContain("second");
+});

@@ -166,7 +166,8 @@ export function renderElements(elements: PageElement[], nthOf?: Map<PageElement,
       const value = e.value !== undefined ? ` = "${e.value.slice(0, 40)}"` : "";
       const k = ordinals.get(e);
       const nth = k !== undefined ? ` (nth=${k})` : "";
-      return `- [${e.role}] ${e.name}${state}${value}${nth}`;
+      const ref = e.ref !== undefined ? ` (ref=${JSON.stringify(e.ref)})` : "";
+      return `- [${e.role}] ${e.name}${state}${value}${nth}${ref}`;
     })
     .join("\n");
 }

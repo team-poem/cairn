@@ -374,3 +374,15 @@ test("refNamelessDurableSelector: a nameless observed control executes by refere
   expect(step).toEqual({ kind: "click", target: { selector: "#details" } });
   expect(driver.events[1]?.ref).toBe("nameless");
 });
+
+test("chromeDetachedDoesNotRetry: a detached observed MCP node fails once without name fallback or a second click", async () => {
+  const { driver, calls } = chromeFixture();
+  const ref = await chromeRef(driver, 1);
+  const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+  (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+    if (name === "click") { calls.push({ name, args }); throw new Error("Node is detached from document"); }
+    return original(name, args);
+  };
+  await expect(chromeClick(driver, { text: "Save", nth: 1 }, ref)).rejects.toThrow(/detached/i);
+  expect(calls.filter(c => c.name === "click")).toEqual([{ name: "click", args: { uid: "1_2" } }]);
+});

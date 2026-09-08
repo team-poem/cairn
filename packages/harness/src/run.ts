@@ -29,7 +29,8 @@ import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 
 export interface RunScenarioOptions {
-  /** Replay at a different origin without modifying the frozen scenario. */
+  /** Replay at a different origin without modifying the frozen scenario. Heals repair the live
+   * run only; no healedScenario is returned for re-freezing while this option is configured. */
   replayEnvironment?: ReplayEnvironment;
   driver?: Driver;
   /** Default: LlmCritic if the scenario has `expect`, else AssertionCritic. */
@@ -155,7 +156,7 @@ export async function runScenario(
   };
 
   const requestMatch = opts.replayEnvironment
-    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts.map((host) => host.toLowerCase()), new URL(opts.replayEnvironment.baseUrl).host] }
+    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
     : undefined;
   const critic =
     opts.critic ??

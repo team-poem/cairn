@@ -246,3 +246,38 @@ test("replayEnvironmentCanonicalHostAliases: normalized host aliases always navi
     expect(s.assertions[0]).toEqual({ kind: "navigated", to: `${host}/cart` });
   }
 });
+
+test("replayHostCanonicalMatching: page and request host aliases preserve explicit port scope", async () => {
+  const { reanchorScenario } = await import("../src/core/replay-environment.js");
+  const cases = [
+    { host: "STAGE.TEST:443", origin: "https://stage.test", wrongPort: "https://stage.test:8443", oppositeDefault: "http://stage.test" },
+    { host: "STAGE.TEST:80", origin: "http://stage.test", wrongPort: "http://stage.test:8080", oppositeDefault: "https://stage.test" },
+    { host: "münich.test", origin: "https://xn--mnich-kva.test", wrongPort: "https://xn--mnich-kva.test:8443" },
+    { host: "[0:0:0:0:0:0:0:1]:8080", origin: "http://[::1]:8080", wrongPort: "http://[::1]:8081" },
+  ];
+  for (const { host, origin, wrongPort, oppositeDefault } of cases) {
+    const config = { baseUrl: "http://localhost:3000", allowedHosts: [host] };
+    const s: Scenario = { name: "cart", steps: [{ kind: "goto", url: `${origin}/cart` }],
+      assertions: [{ kind: "navigated", to: `${host}/cart` }] };
+    const mapped = reanchorScenario(s, config);
+    expect(mapped.steps[0], host).toEqual({ kind: "goto", url: "http://localhost:3000/cart" });
+    expect(mapped.assertions[0], host).toEqual({ kind: "navigated", to: "localhost:3000/cart" });
+    const opts = { allowedHosts: [host, "LOCALHOST:3000"] };
+    for (const frozen of [`${host}/graphql?op=Save`, `${origin}/graphql?op=Save`]) {
+      expect(urlMatchesFrozen(`${origin}/graphql?trace=1&op=Save`, frozen, opts), `${host} source ${frozen}`).toBe(true);
+      expect(urlMatchesFrozen("http://localhost:3000/graphql?trace=1&op=Save", frozen, opts), `${host} target ${frozen}`).toBe(true);
+      expect(urlMatchesFrozen(`${wrongPort}/graphql?op=Save`, frozen, opts), `${host} source port ${frozen}`).toBe(false);
+      expect(urlMatchesFrozen("http://localhost:3001/graphql?op=Save", frozen, opts), `${host} target port ${frozen}`).toBe(false);
+      if (oppositeDefault) {
+        expect(urlMatchesFrozen(`${oppositeDefault}/graphql?op=Save`, frozen, opts), `${host} opposite default ${frozen}`).toBe(false);
+      }
+    }
+    const external: Scenario = { name: "external", steps: [{ kind: "goto", url: `${wrongPort}/cart` }], assertions: [] };
+    expect(reanchorScenario(external, config).steps[0], host).toBe(external.steps[0]);
+    if (oppositeDefault) {
+      const opposite: Scenario = { name: "opposite", steps: [{ kind: "goto", url: `${oppositeDefault}/cart` }], assertions: [] };
+      expect(reanchorScenario(opposite, config).steps[0], host).toBe(opposite.steps[0]);
+      expect(urlMatchesFrozen("http://localhost:3000/graphql?op=Save", `${oppositeDefault}/graphql?op=Save`, opts), `${host} unscoped frozen default`).toBe(false);
+    }
+  }
+});

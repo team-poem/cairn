@@ -49,12 +49,17 @@ export function parseReplayUrl(value: string): ReplayUrl | undefined {
 }
 
 /** A declared explicit port matches a full URL's effective port, including its protocol default.
- * An omitted scope port matches omitted ports (HTTP/HTTPS defaults), never a non-default port. */
+ * A bare frozen authority with no port/protocol may have come from either HTTP(S) default.
+ * An omitted scope port matches omitted ports, never a known non-default port. */
 export function hostIsAllowed(host: HostIdentity, allowedHosts: readonly string[]): boolean {
   const effectivePort = host.port ?? (host.protocol === "https:" ? "443" : host.protocol === "http:" ? "80" : undefined);
   return allowedHosts.some((authority) => {
     const scope = parseHostAuthority(authority);
     if (!scope || scope.hostname !== host.hostname) return false;
-    return scope.port === undefined ? host.port === undefined : scope.port === effectivePort;
+    if (scope.port === undefined) return host.port === undefined;
+    // destinationKey drops a URL's default port before freezing its bare host+path. The bare
+    // key retains that default-port identity, but an actual/full URL still has its protocol.
+    if (host.port === undefined && host.protocol === undefined) return scope.port === "80" || scope.port === "443";
+    return scope.port === effectivePort;
   });
 }

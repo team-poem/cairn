@@ -1,7 +1,9 @@
+import { hostAuthority, hostIsAllowed, parseReplayUrl } from "./hosts.js";
 import type { NetworkRequest } from "./types.js";
 
 /** Exact host[:port] scope for comparing frozen API paths across replay environments. */
 export interface RequestMatchOptions {
+  /** Explicit ports match effective HTTP(S) ports; omitted ports scope standard endpoints. */
   allowedHosts?: readonly string[];
 }
 
@@ -31,27 +33,25 @@ function parseQueryPairs(query: string): Map<string, string> {
 export function urlMatchesFrozen(url: string, urlIncludes: string, opts: RequestMatchOptions = {}): boolean {
   // Only an explicitly scoped frozen host enables fallback. Path/suffix checks and external
   // checks keep their existing semantics. Never accept a hostname embedded in an actual query.
-  const frozen = /^(https?:\/\/)?([^/?#]+)([/?#].*)?$/i.exec(urlIncludes);
-  let frozenHost = frozen?.[2]?.toLowerCase();
-  if (frozen?.[1]) {
-    try { frozenHost = new URL(urlIncludes).host; } catch { frozenHost = undefined; }
-  }
-  const allowedHosts = opts.allowedHosts?.map((host) => host.toLowerCase());
-  if (frozenHost && allowedHosts?.includes(frozenHost)) {
-    let actual: URL;
-    try { actual = new URL(url); } catch { return false; }
-    if (!/^https?:$/.test(actual.protocol) || !allowedHosts.includes(actual.host)) return false;
-    const suffix = frozen?.[3] ?? "";
-    const path = suffix.split(/[?#]/, 1)[0] ?? "";
+  const allowedHosts = opts.allowedHosts;
+  const frozen = allowedHosts ? parseReplayUrl(urlIncludes) : undefined;
+  if (frozen && allowedHosts && hostIsAllowed(frozen.host, allowedHosts)) {
+    const actual = parseReplayUrl(url);
+    if (!actual?.absolute || !hostIsAllowed(actual.host, allowedHosts)) return false;
+    const observed = new URL(url);
+    const path = frozen.suffix.split(/[?#]/, 1)[0] ?? "";
     if (path.startsWith("/") && path !== "/") {
       // Dropping the host must keep its endpoint prefix anchored at the pathname start,
       // never a nested endpoint or a URL carried in a query value.
       // Reuse the original query-subset comparison below without broadening it.
-      if (!actual.pathname.startsWith(path)) return false;
-      return urlMatchesFrozen(actual.pathname + actual.search, suffix);
+      if (!observed.pathname.startsWith(path)) return false;
+      return urlMatchesFrozen(observed.pathname + observed.search, frozen.suffix);
     }
-    // Host-only/root-only checks cannot acquire cross-host meaning from an empty path.
-    if (actual.host !== frozenHost) return false;
+    // No path means no cross-host fallback. Keep explicit default ports equivalent to the
+    // source URL's effective port, then require the original literal expectation as before.
+    const sourcePort = frozen.host.port ?? (frozen.host.protocol === "https:" ? "443" : frozen.host.protocol === "http:" ? "80" : undefined);
+    const sourceAuthority = hostAuthority({ ...frozen.host, port: sourcePort });
+    if (!hostIsAllowed(actual.host, [sourceAuthority])) return false;
   }
 
   const q = urlIncludes.indexOf("?");

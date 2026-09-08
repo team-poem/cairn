@@ -42,3 +42,20 @@ test("replayEnvironmentRunsAtTarget: every navigation surface agrees without cha
   expect(complete).not.toHaveBeenCalled();
   expect(JSON.stringify(s)).toBe(original);
 });
+
+test("replayEnvironmentPreservesExtensions: custom code sees real URLs and external navigation stays external", async () => {
+  const params = { url: "https://stage.test/custom-data" };
+  const s: Scenario = { ...scenario(), steps: [...scenario().steps, { kind: "custom", name: "inspect", params },
+    { kind: "goto", url: "https://pay.test/checkout" }], assertions: [
+    { kind: "navigated", to: "pay.test/checkout" }, { kind: "custom", name: "inspect", params }] };
+  const driver = new EnvDriver();
+  const action = vi.fn(async (d: Driver, p: Record<string, unknown>) => { expect(p).toBe(params); expect((await d.observe()).execution.finalUrl).toBe("http://localhost:3000/start"); });
+  const check = vi.fn(async (p: Record<string, unknown>, e: Evidence) => { expect(p).toBe(params); expect(e.execution.finalUrl).toBe("https://pay.test/checkout"); return true; });
+  const { result } = await runScenario(s, { driver, reporter: silent, replayEnvironment: env, actions: { inspect: action }, custom: { inspect: check } });
+  expect(result.verdict.passed).toBe(true);
+  expect(driver.visited).toEqual(["http://localhost:3000/start", "https://pay.test/checkout"]);
+  expect(action).toHaveBeenCalledOnce(); expect(check).toHaveBeenCalledOnce();
+  const originalDriver = new EnvDriver();
+  expect((await runScenario(scenario(), { driver: originalDriver, reporter: silent })).result.verdict.passed).toBe(true);
+  expect(originalDriver.visited).toEqual(["https://stage.test/start"]);
+});

@@ -105,3 +105,11 @@ test("clickableRanksWithoutRoleLie: proven clickables rank with controls without
   expect(renderRankedElements([clickable], "")).toContain("StaticText");
   expect(renderRankedElements([clickable], "")).toMatch(/clickable/i);
 });
+
+test("normalizeRegionDedup: one clickable marker per proven region preserves every text row", () => {
+  const rows = [element("Title", { role: "StaticText", clickable: true, clickableRegion: "card" }), element("Subtitle", { role: "StaticText", clickable: true, clickableRegion: "card" })];
+  const result = normalize(rows);
+  expect(result.map(e => e.name)).toEqual(["Title", "Subtitle"]);
+  expect(result.map(e => Boolean(e.clickable))).toEqual([true, false]);
+  expect(result.map(e => e.role)).toEqual(["StaticText", "StaticText"]);
+});

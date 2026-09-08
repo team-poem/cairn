@@ -228,3 +228,10 @@ test("refContradictionRejected: contradictory visible name or role cannot bypass
     expect(driver.events).toEqual([]);
   }
 });
+
+test("refStaleNoFallback: a detached reference never falls back to an identically named survivor", async () => {
+  const driver = new RefDriver();
+  driver.refs.delete("turn1:second");
+  await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, observedPair())).rejects.toThrow(/stale/i);
+  expect(driver.events).toEqual([]);
+});

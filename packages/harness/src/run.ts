@@ -296,6 +296,7 @@ export async function runScenario(
         judged,
         truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
         evidence.execution.actions,
+        scenario, // the ORIGINAL: its assertions were judged, so its proof is what a green is worth
       );
       if (missedGoal) {
         const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";

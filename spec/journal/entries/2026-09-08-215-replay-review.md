@@ -9,3 +9,5 @@
 - **상태 변화:** #215에서 리뷰 지적을 수정한다. 최종 원격 확인에서 #217의 병합을 확인해 develop 변경을 통합한다. #218은 아직 열려 있으므로 미병합 변경은 포함하지 않는다. feature branch의 state.md는 수정하지 않는다.
 
 - **리뷰 수정 검증:** 1,012개 테스트(51개 파일), typecheck·build·check:boundaries·브라우저 번들·TDD 게이트 통과. 독립 재리뷰에 남은 결함 없음. 실제 Chrome에서 /start→/ 루트 goto·expect·wait·최종 단언 통과, 원본 서버 요청 0회·LLM 0회·원본 객체 불변, 미허용 진입은 driver 호출 전 거부를 확인했다.
+
+- **develop 통합:** #217을 포함한 `460781e`를 병합했다. 공개 export 두 곳과 CLI 경로 표시의 충돌은 양쪽 기능을 모두 보존해 해결했다. 새 suite 테스트의 성공 문구는 #217 계약인 `pass (arrival only)`로 갱신했다. 통합 후 전체 1,027개 테스트(52개 파일)·typecheck·build·check:boundaries 통과, 독립 재리뷰에서 기능 누락 없음.

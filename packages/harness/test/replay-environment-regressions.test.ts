@@ -82,7 +82,7 @@ test("suiteCacheMissNotRun: missing and stale caches are nonexecutions, not free
   expect(report).toContain("1 case(s) replayed with zero LLM calls");
   expect(report).toContain("| missing | ✗ fail | not run (cache miss)");
   expect(report).toContain("| stale | ✗ fail | not run (cache miss)");
-  expect(report).toContain("| cached | ✓ pass | replayed (cached)");
+  expect(report).toContain("| cached | ✓ pass (arrival only) | replayed (cached)");
 });
 
 test("cliCacheMissNotRun: CLI progress report and JSON name the cache refusal", async () => {

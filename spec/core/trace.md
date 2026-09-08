@@ -162,6 +162,12 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
   `results[].statuses`/`reason` and `failClosed` by virtue of being the verdict object; the live
   events now say the same. Header goes to **1.5**: optional payload fields, minor rule.
 
+## Decided in review (#197)
+
+- **`Verdict.proof`** rides wherever a `Verdict` already does (`case-end.payload.verdict`, the JSON
+  reporter, `SuiteVerdict`), the way `Verdict.failure` does since #173. No header bump: the payload
+  is the verdict object itself. `run-end` stays `passed` + `usage`.
+
 ## Out of contract (separate tracks)
 
 - **Ratification / review UX** — runner-side concern.

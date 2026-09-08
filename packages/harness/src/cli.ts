@@ -40,6 +40,7 @@ import {
   runSuite,
   validateReplayEntry,
   weakTargets,
+  proofOf,
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
@@ -48,6 +49,12 @@ import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
 const skills = new FileSkillStore();
+
+/** A green's grade on the per-case line (#197); a red carries its class in the same slot. */
+function proofTag(v: SuiteVerdict): string {
+  const g = v.verdict.proof?.grade;
+  return g && g !== "work" ? ` [${g}]` : "";
+}
 
 function unprovenLabel(v: SuiteVerdict): string {
   return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
@@ -236,6 +243,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     }
   }
 
+  // What the freeze is worth (#197): the same grade a green replay will carry.
+  const proof = proofOf(scenario.assertions, scenario.unprovenAction);
+  console.log(`\nproof: ${proof.grade} — ${proof.discriminating} discriminating check(s), ${proof.vacuous} vacuous`);
+
   // Warn on what the freeze CARRIES: a scenario with a live request check proves its action even if
   // another proposal was dropped along the way, and one with none needs saying so even if nothing
   // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
@@ -363,7 +374,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     onCase: (v) =>
       console.log(
         `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.notRun ? `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})` : v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : ""}`,
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : proofTag(v)}`,
       ),
   });
 

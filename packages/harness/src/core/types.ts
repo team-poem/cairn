@@ -235,6 +235,38 @@ export interface AssertionResult {
  */
 export type FailureClass = "flow" | "script" | "environment";
 
+/**
+ * What a green verdict actually proves (#197), the mirror of `failure` on a red. A green from a
+ * 2xx mutation and a green from "the final URL matched" are not worth the same, and a consumer
+ * rendering a run should be able to say which it got. Advisory: `passed` is unchanged.
+ */
+export interface VerdictProof {
+  /** The strongest thing the checks prove. `work`: a non-vacuous `request-status` or `custom`
+   * check saw the action happen. `judged`: no mechanical proof, but an LLM `expect` judged the
+   * outcome — a claim about the work, not a measurement of it. `arrival`: only a destination
+   * (`navigated` with `to`) held — the page was reached, the work is inferred. `none`: nothing
+   * here speaks to the flow — the health guards still fire on an error, but a flow that quietly
+   * did nothing passes. (Over a freeze, `none` also covers "every check vacuous"; on a green
+   * verdict that case never arrives, because #137 fails it closed.) */
+  grade: "work" | "judged" | "arrival" | "none";
+  /** Flow checks that could have gone red: not stamped `vacuous` at freeze (#137). Guards are
+   * counted apart, under `guards`. */
+  discriminating: number;
+  /** Flow checks the starting state already satisfied — they cannot fail, so they prove nothing. */
+  vacuous: number;
+  /** Non-vacuous flow checks by what they prove: `work` (`request-status`, `custom`), `arrival`
+   * (`navigated` with a destination). */
+  work: number;
+  arrival: number;
+  /** App-health guards present (`no-failed-requests`, `no-console-errors`), counted by kind, not
+   * by stamp: the freeze marks them vacuous on a clean start so a guards-only scenario fails
+   * closed, yet a flow can still trip them, so they are neither discriminating nor vacuous here. */
+  guards: number;
+  /** An action the freeze saw fire that none of these checks can express (#184), carried from
+   * the scenario so a replay's green says it too. */
+  unprovenAction?: string;
+}
+
 export interface Verdict {
   passed: boolean;
   results: AssertionResult[];
@@ -242,6 +274,8 @@ export interface Verdict {
   detail?: string;
   /** Present only when `passed` is false: which of the three next actions this red calls for. */
   failure?: FailureClass;
+  /** Present only when `passed` is true: how much this green is worth (#197). */
+  proof?: VerdictProof;
   /** Why the verdict failed closed regardless of the results: no assertions (#69), every one
    * vacuous (#137), a replay that blocked (#90), a re-discovery that ended before `done` (#186). */
   failClosed?: "no-assertions" | "all-vacuous" | "blocked" | "truncated";

@@ -346,3 +346,14 @@ test("chromeReferenceInstanceScope: one driver cannot resolve another driver obs
   const ref = await chromeRef(a.driver); await chromeRef(b.driver);
   await expect(chromeLocate(b.driver, ref)).rejects.toThrow(/ref|stale|expired/i);
 });
+
+test("chromeReferenceExactUid: reference clicks the selected MCP node without a fresh name search", async () => {
+  const { driver, calls } = chromeFixture();
+  const ref = await chromeRef(driver, 1);
+  const target = await chromeLocate(driver, ref);
+  const before = calls.filter(c => c.name === "take_snapshot").length;
+  await chromeClick(driver, target, ref);
+  expect(calls.filter(c => c.name === "click")).toEqual([{ name: "click", args: { uid: "1_2" } }]);
+  expect(calls.filter(c => c.name === "take_snapshot")).toHaveLength(before);
+  await expect(chromeLocate(driver, ref)).rejects.toThrow(/ref|stale|expired/i);
+});

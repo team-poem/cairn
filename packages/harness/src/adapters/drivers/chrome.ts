@@ -219,9 +219,10 @@ export class ChromeDevToolsDriver implements Driver {
     await this.trackPages();
   }
 
-  async click(target: Target): Promise<void> {
-    await this.callAccepting("click", { uid: await this.resolveUid(target) });
-    this.snapshotCache = undefined;
+  async click(target: Target, ref?: string): Promise<void> {
+    const uid = ref === undefined ? await this.resolveUid(target) : this.referenceRow(ref).uid;
+    this.invalidateObservation();
+    await this.callAccepting("click", { uid });
   }
 
   async doubleClick(target: Target): Promise<void> {
@@ -508,6 +509,12 @@ export class ChromeDevToolsDriver implements Driver {
     const row = this.references.get(ref);
     if (!row) throw stepError("resolution", "unknown or expired observation ref — take a fresh snapshot");
     return row;
+  }
+
+  private invalidateObservation(): void {
+    this.references.clear();
+    this.observedRows = [];
+    this.snapshotCache = undefined;
   }
 
   private async resolveUid(target: Target): Promise<string> {

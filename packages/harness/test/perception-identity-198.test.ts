@@ -74,3 +74,11 @@ test("popupSurvivesHeavyPage: active popup options survive sixty intent matching
   expect(ranked).toHaveLength(60);
   expect(ranked[0]).toBe(option);
 });
+
+test("popupEvidenceBudget: popup priority preserves five result evidence slots", () => {
+  const options = Array.from({ length: 60 }, (_, i) => element(`Option ${i}`, { role: "option", inActivePopup: true }));
+  const evidence = Array.from({ length: 5 }, (_, i) => element(`account saved ${i}`, { role: "StaticText" }));
+  const ranked = rankElements([...background(), ...options, ...evidence], "account saved", 60);
+  expect(ranked.filter(e => (e as Observed).inActivePopup)).toHaveLength(55);
+  expect(ranked.filter(e => e.role === "StaticText")).toEqual(evidence);
+});

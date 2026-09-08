@@ -205,3 +205,22 @@ test("replayRequestPreservesEndpointAnchor: unrelated nested endpoint cannot mak
     expect(result.usage?.llmCalls).toBe(0);
   }
 });
+
+test("replayRequestPathPrefix: scoped endpoint stays anchored at the start of the pathname", () => {
+  const opts = { allowedHosts: ["api.stage.test", "localhost:4000"] };
+  const frozen = "api.stage.test/graphql?op=Save";
+  for (const host of opts.allowedHosts) {
+    for (const [path, want] of [
+      ["/graphql", true], ["/graphql/v2", true],
+      ["/proxy/graphql", false], ["/archive/graphql/v2", false],
+    ] as const) {
+      const actual = `http://${host}${path}?trace=1&op=Save`;
+      expect(urlMatchesFrozen(actual, frozen, opts), actual).toBe(want);
+    }
+  }
+  expect(urlMatchesFrozen("https://api.stage.test/proxy/graphql?op=Save", frozen)).toBe(false);
+  expect(urlMatchesFrozen("https://api.stage.test/graphql/v2?op=Save", frozen)).toBe(true);
+  const nested = "http://localhost:4000/proxy/graphql?op=Save";
+  expect(urlMatchesFrozen(nested, "/graphql?op=Save", opts)).toBe(true);
+  expect(urlMatchesFrozen(nested, "/graphql?op=Save")).toBe(true);
+});

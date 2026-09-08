@@ -9,7 +9,7 @@
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
+import { SYSTEM, buildPrompt, renderRankedElements, withReferenceRules } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -161,13 +161,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const raw = await driver.snapshot();
+    const raw = await driver.snapshot({ perception: true });
     const elements = perceive ? await perceive(raw) : raw;
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);
     const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
-      system: SYSTEM,
+      system: withReferenceRules(SYSTEM, elements),
     });
     prevRender = render;
 

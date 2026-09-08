@@ -33,6 +33,12 @@ export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }
 
+/** Ask for browser-neutral observation facts to apply the engine's common perception policy.
+ * Legacy Drivers may ignore this additive option and keep returning their usual observations. */
+export interface SnapshotOptions {
+  perception?: boolean;
+}
+
 /** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles.
  *
  * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
@@ -76,7 +82,7 @@ export interface Driver {
   scroll(direction?: "down" | "up"): Promise<void>;
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
-  snapshot(): Promise<PageElement[]>;
+  snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
   /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
    * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an

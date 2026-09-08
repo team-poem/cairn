@@ -257,3 +257,17 @@ test("refFrozenStepReplay: frozen steps contain durable locators only and replay
 test("refDisambiguatesDuplicate: a valid unique reference removes the legacy duplicate name ambiguity", () => {
   expect(describeAmbiguity({ action: "click", text: "Save", ref: "turn1:second" } as RefDecision, observedPair())).toBeUndefined();
 });
+
+test("discoverSharedPerception: discover ranks custom Driver observations before the model", async () => {
+  const driver = new StubDriver();
+  driver.els = [...background(), element("Personal", { role: "option", inActivePopup: true, ref: "popup:1" }), element("Hidden", { occluded: true })];
+  const llm = new ScriptedLlm(['{"action":"done"}']);
+  const complete = vi.spyOn(llm, "complete");
+  const snapshot = vi.spyOn(driver, "snapshot");
+  await discover("Choose account", { driver, llm, maxSteps: 2 });
+  expect(snapshot).toHaveBeenCalledWith({ perception: true });
+  const prompt = String((complete.mock.calls as unknown[][])[0]?.[0]);
+  expect(prompt).toContain("Personal");
+  expect(prompt).toContain("popup:1");
+  expect(prompt).not.toContain("Hidden");
+});

@@ -36,6 +36,16 @@ export const ACTION_RULES =
   "duplicate WITHOUT nth is rejected, never guessed. " +
   "Prefer clicking/typing a NAMED element over moving focus with key presses — a blind Tab/key chain lands on the wrong element. ";
 
+/** Add identity instructions only for observations that support them; preserve legacy prompts. */
+export function withReferenceRules(system: string, elements: readonly PageElement[]): string {
+  if (!elements.some((element) => element.ref !== undefined)) return system;
+  return system + "\n" +
+    'For click, doubleClick, hover, type, or select, copy the element\'s "ref" when shown ' +
+    '(e.g. {"action":"click","ref":"<shown ref>"}). A ref alone selects the exact observed element, ' +
+    "so the name, role, and nth rules above apply only to actions without a ref. " +
+    "If a reference expires, choose again from the fresh listing.";
+}
+
 export const SYSTEM =
   "You are a QA agent driving a web browser to satisfy a natural-language intent. " +
   PERCEPTION_RULES +

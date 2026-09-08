@@ -59,7 +59,7 @@ export interface Planner {
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target, ref?: string): Promise<void>;
-  doubleClick(target: Target): Promise<void>;
+  doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target): Promise<void>;
   type(target: Target, text: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */

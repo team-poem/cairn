@@ -153,7 +153,7 @@ export class BuiltinStepHandler implements StepHandler {
       case "click":
         return ref === undefined ? driver.click(step.target) : driver.click(step.target, ref);
       case "doubleClick":
-        return driver.doubleClick(step.target);
+        return ref === undefined ? driver.doubleClick(step.target) : driver.doubleClick(step.target, ref);
       case "hover":
         return driver.hover(step.target);
       case "type":

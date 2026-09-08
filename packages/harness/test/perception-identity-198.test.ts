@@ -140,3 +140,12 @@ test("normalizeDistinctUnknownRegions: same names do not merge distinct or unkno
   const rows = [element("Open", { role: "StaticText", clickable: true, clickableRegion: "a" }), element("Open", { role: "StaticText", clickable: true, clickableRegion: "b" }), element("Open", { role: "StaticText", clickable: true }), element("Open", { role: "StaticText", clickable: true })];
   expect(normalize(rows).filter(e => e.clickable)).toHaveLength(4);
 });
+
+test("perceptionPublicBothEntries: Node and browser consumers share the same normalization and ranking policy", () => {
+  const node = nodeApi as unknown as Record<string, unknown>;
+  const browser = browserApi as unknown as Record<string, unknown>;
+  expect(node.normalizeElements).toBeTypeOf("function");
+  expect(browser.normalizeElements).toBe(node.normalizeElements);
+  expect(node.rankElements).toBe(rankElements);
+  expect(browser.rankElements).toBe(rankElements);
+});

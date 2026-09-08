@@ -69,7 +69,7 @@ export interface Driver {
   locateRef?(ref: string): Promise<Target>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
-  select(target: Target, value: string): Promise<void>;
+  select(target: Target, value: string, ref?: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;
   /** Scroll the page to reveal lazy/below-the-fold content. */

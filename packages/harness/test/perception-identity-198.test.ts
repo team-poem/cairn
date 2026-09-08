@@ -135,3 +135,8 @@ test("normalizeLegacyAndEmpty: legacy observations preserve data and order and e
   expect(normalize(rows)).toEqual(rows);
   expect(normalize([])).toEqual([]);
 });
+
+test("normalizeDistinctUnknownRegions: same names do not merge distinct or unknown clickable regions", () => {
+  const rows = [element("Open", { role: "StaticText", clickable: true, clickableRegion: "a" }), element("Open", { role: "StaticText", clickable: true, clickableRegion: "b" }), element("Open", { role: "StaticText", clickable: true }), element("Open", { role: "StaticText", clickable: true })];
+  expect(normalize(rows).filter(e => e.clickable)).toHaveLength(4);
+});

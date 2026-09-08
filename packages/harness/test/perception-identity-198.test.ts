@@ -242,3 +242,14 @@ test("refInvalidatedBetweenLocateAndAction: reference expiry after durable locat
   await expect(apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, observedPair())).rejects.toThrow(/stale/i);
   expect(driver.events).toEqual([{ action: "locateRef", ref: "turn1:second" }]);
 });
+
+test("refFrozenStepReplay: frozen steps contain durable locators only and replay sends no transient reference", async () => {
+  const driver = new RefDriver();
+  const step = await apply(driver, { action: "click", ref: "turn1:second", text: "Save" }, observedPair());
+  expect(JSON.stringify(step)).not.toContain("turn1:");
+  expect(step).toEqual({ kind: "click", target: { text: "Save", role: "button", index: 1, nth: 1 } });
+  driver.events.length = 0;
+  driver.refs.clear();
+  await new BuiltinStepHandler().execute(step, driver);
+  expect(driver.events).toEqual([{ action: "click", target: { text: "Save", role: "button", index: 1, nth: 1 }, ref: undefined, value: undefined }]);
+});

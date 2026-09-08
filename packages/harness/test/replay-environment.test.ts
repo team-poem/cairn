@@ -224,3 +224,25 @@ test("replayRequestPathPrefix: scoped endpoint stays anchored at the start of th
   expect(urlMatchesFrozen(nested, "/graphql?op=Save", opts)).toBe(true);
   expect(urlMatchesFrozen(nested, "/graphql?op=Save")).toBe(true);
 });
+
+test("replayEnvironmentCanonicalHostAliases: normalized host aliases always navigate at the replay target", async () => {
+  const cases = [
+    { host: "stage.test:443", url: "https://stage.test:443/cart" },
+    { host: "stage.test:80", url: "http://stage.test:80/cart" },
+    { host: "münich.test", url: "https://münich.test/cart" },
+    { host: "[0:0:0:0:0:0:0:1]:8080", url: "http://[0:0:0:0:0:0:0:1]:8080/cart" },
+  ];
+  for (const { host, url } of cases) {
+    const s: Scenario = { name: "cart", steps: [{ kind: "goto", url }],
+      assertions: [{ kind: "navigated", to: `${host}/cart` }] };
+    const driver = new EnvDriver();
+    const { result } = await runScenario(s, { driver, reporter: silent,
+      replayEnvironment: { baseUrl: "http://localhost:3000", allowedHosts: [host] } });
+    expect(driver.visited, host).toEqual(["http://localhost:3000/cart"]);
+    expect(result.verdict.passed, host).toBe(true);
+    expect(result.evidence.execution.finalUrl, host).toBe("http://localhost:3000/cart");
+    expect(result.usage?.llmCalls).toBe(0);
+    expect(s.steps[0]).toEqual({ kind: "goto", url });
+    expect(s.assertions[0]).toEqual({ kind: "navigated", to: `${host}/cart` });
+  }
+});

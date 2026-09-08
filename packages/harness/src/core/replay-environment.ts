@@ -1,8 +1,10 @@
+import { hostAuthority, hostIsAllowed, parseHostAuthority, parseReplayUrl } from "./hosts.js";
 import type { Scenario, Step, WaitUntil } from "./types.js";
 
 /** A runtime origin and the exact source hosts whose frozen page URLs may move there. */
 export interface ReplayEnvironment {
   baseUrl: string;
+  /** Exact hosts; DNS/IDN/IPv6 spellings normalize, while explicit ports stay scoped. */
   allowedHosts: readonly string[];
 }
 
@@ -20,15 +22,12 @@ export function validateReplayEnvironment(environment: ReplayEnvironment): Repla
   if (!Array.isArray(environment.allowedHosts) || !environment.allowedHosts.length) {
     throw new Error("replayEnvironment.allowedHosts must be a nonempty list of exact hosts");
   }
-  const allowedHosts = environment.allowedHosts.map((host: string) => {
-    try {
-      if (typeof host !== "string" || !host || /[\s/\\?#@*]/.test(host)) throw new Error();
-      const url = new URL(`http://${host}`);
-      if (!url.hostname || url.username || url.password || url.pathname !== "/") throw new Error();
-      return host.toLowerCase();
-    } catch {
+  const allowedHosts = environment.allowedHosts.map((authority: string) => {
+    const host = parseHostAuthority(authority);
+    if (!host) {
       throw new Error("replayEnvironment.allowedHosts entries must be exact host[:port] values without schemes, paths, or wildcards");
     }
+    return hostAuthority(host);
   });
   return { baseUrl: base.origin, allowedHosts: [...new Set(allowedHosts)] };
 }
@@ -38,21 +37,11 @@ export function reanchorScenario(scenario: Scenario, environment: ReplayEnvironm
   environment = validateReplayEnvironment(environment);
   const base = new URL(environment.baseUrl);
   const pageUrl = (value: string, entry = false): string => {
-    const match = /^(https?:\/\/)?([^/?#]+)([/?#].*)?$/i.exec(value);
-    if (!match) return value;
-    let host = match[2]!.toLowerCase();
-    if (match[1]) {
-      try {
-        const source = new URL(value);
-        if (source.username || source.password) return value;
-        host = source.host;
-      } catch { return value; }
-    }
-    if (!environment.allowedHosts.includes(host)) return value;
-    const suffix = match[3];
+    const source = parseReplayUrl(value);
+    if (!source || !hostIsAllowed(source.host, environment.allowedHosts)) return value;
     // A host-only expectation keeps its original scope; goto still needs the root page.
-    if (!entry && (!suffix || !suffix.startsWith("/"))) return value;
-    return `${match[1] ? base.origin : base.host}${suffix ?? "/"}`;
+    if (!entry && !source.suffix.startsWith("/")) return value;
+    return `${source.absolute ? base.origin : base.host}${source.suffix || "/"}`;
   };
   const condition = (until: WaitUntil): WaitUntil => {
     if (until.url === undefined) return until;

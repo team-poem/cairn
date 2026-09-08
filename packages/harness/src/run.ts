@@ -153,11 +153,14 @@ export async function runScenario(
     complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
   };
 
+  const requestMatch = opts.replayEnvironment
+    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
+    : undefined;
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards)
-      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch));
 
   // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
   // sink opens its own trace — header, then one implicit case so every consumer reads one shape.
@@ -223,6 +226,7 @@ export async function runScenario(
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
         localePrefixes: opts.localePrefixes,
+        requestMatch,
         usage,
         trace: scope,
       },

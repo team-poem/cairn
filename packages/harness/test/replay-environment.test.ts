@@ -91,3 +91,29 @@ test("replayRequestHostGate: only two allowed hosts may share a stable request p
   expect(findRequestStatus(requests, "api.stage.test/graphql?op=Save", 200, "post", opts)).toBe(requests[2]);
   expect(findRequestStatus(requests.slice(0, 2), "api.stage.test/graphql?op=Save", 200, "POST", opts)).toBeUndefined();
 });
+
+test("replayRequestChecksAgree: expect waitFor and critic share request matching", async () => {
+  for (const host of ["localhost:4000", "localhost:3000", "pay.test"]) {
+    const driver = new (class extends EnvDriver {
+      override async click(t: Target): Promise<void> { await super.click(t); this.requests.push({ method: "POST", status: 200, url: `http://${host}/graphql?trace=x&op=Save` }); }
+    })();
+    const requestStatus = { urlIncludes: "api.stage.test/graphql?op=Save", status: 200, method: "POST" };
+    const s: Scenario = { ...scenario(), steps: [...scenario().steps,
+      { kind: "click", target: { text: "Save" }, expect: { requestStatus } },
+      { kind: "waitFor", until: { requestStatus }, timeoutMs: 1 }], assertions: [{ kind: "request-status", ...requestStatus }] };
+    const { result } = await runScenario(s, { driver, reporter: silent, replayEnvironment: env, expectTimeoutMs: 1 });
+    expect(result.verdict.passed, host).toBe(host !== "pay.test");
+    expect(driver.clicked).toEqual(["Save"]);
+  }
+  const near = new EnvDriver();
+  near.requests.push({ method: "POST", status: 401, url: "http://localhost:4000/graphql?op=Save" });
+  const diagnostic = await runScenario({ ...scenario(), steps: [], assertions: [{ kind: "request-status", urlIncludes: "api.stage.test/graphql?op=Save", status: 200, method: "POST" }] }, { driver: near, reporter: silent, replayEnvironment: env });
+  expect(diagnostic.result.verdict.results[0]?.statuses).toEqual([401]);
+  expect(diagnostic.result.verdict.results[0]?.detail).toContain("401");
+  const stale = new EnvDriver();
+  stale.requests.push({ method: "POST", status: 200, url: "http://localhost:4000/graphql?op=Save" });
+  const s: Scenario = { ...scenario(), steps: [{ kind: "click", target: { text: "Save" }, expect: {
+    requestStatus: { urlIncludes: "api.stage.test/graphql?op=Save", status: 200, method: "POST" } } }] };
+  const { result } = await runScenario(s, { driver: stale, reporter: silent, replayEnvironment: env, expectTimeoutMs: 1 });
+  expect(result.evidence.execution.blocked).toBe(true);
+});

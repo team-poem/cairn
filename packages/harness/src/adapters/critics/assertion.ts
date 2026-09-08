@@ -1,6 +1,7 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
+import type { RequestMatchOptions } from "../../core/requests.js";
 import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFrozen } from "../../core/requests.js";
 import { unrecognizedLeadingSegment, urlReached } from "../../core/steps.js";
 
@@ -21,6 +22,7 @@ export function checkAssertion(
   localePrefixes?: readonly string[],
   /** Does the scenario being judged use `*` for a run-minted segment (`Scenario.wildcards`)? */
   wildcards?: boolean,
+  requestMatch: RequestMatchOptions = {},
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
@@ -65,10 +67,10 @@ export function checkAssertion(
       // verdict must not depend on arrival order when an endpoint responds more than once.
       // An optional `method` scopes both the match and the failure detail (#94).
       const method = assertion.method?.toUpperCase();
-      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method, requestMatch);
       if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}`, statuses: [hit.status] };
       const near = evidence.logic.requests.filter(
-        (r) => urlMatchesFrozen(r.url, assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
+        (r) => urlMatchesFrozen(r.url, assertion.urlIncludes, requestMatch) && (!method || r.method.toUpperCase() === method),
       );
       if (near.length === 0) {
         const scope = method ? `${method} ` : "";
@@ -91,6 +93,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
     private readonly benignConsole: readonly string[] = [],
     private readonly localePrefixes?: readonly string[],
     private readonly wildcards?: boolean,
+    private readonly requestMatch: RequestMatchOptions = {},
   ) {}
 
   supports(assertion: Assertion): boolean {
@@ -98,7 +101,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes, this.wildcards);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes, this.wildcards, this.requestMatch);
   }
 }
 
@@ -184,9 +187,10 @@ export class AssertionCritic implements Critic {
     benignConsole: readonly string[] = [],
     localePrefixes?: readonly string[],
     wildcards?: boolean,
+    requestMatch: RequestMatchOptions = {},
   ) {
     this.handlers = [
-      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards),
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards, requestMatch),
       new CustomAssertionHandler(custom),
     ];
   }

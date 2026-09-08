@@ -7,7 +7,8 @@ import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./p
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
-import type { UrlMatchOptions } from "./steps.js";
+import type { RequestMatchOptions } from "./requests.js";
+import type { ConditionMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
 
@@ -43,6 +44,8 @@ export interface RunHarnessOptions {
    * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
    * or has real routes that look like locales (`/my`, `/tv`). `[]` disables stripping. */
   localePrefixes?: readonly string[];
+  /** API host scope shared by step expects and explicit waits. */
+  requestMatch?: RequestMatchOptions;
   /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
   trace?: TraceScope;
 }
@@ -72,7 +75,7 @@ async function runStep(
   driver: Driver,
   index: number,
   expectTimeoutMs: number,
-  urlMatch: UrlMatchOptions,
+  urlMatch: ConditionMatchOptions,
   healer?: StepHealer,
   trace?: TraceScope,
 ): Promise<ExecutedAction> {
@@ -229,9 +232,10 @@ export async function runHarness(
   const scenario = await planner.plan(ctx);
   // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
   // segment" is a property of the file being replayed, and an older file predates the notation.
-  const urlMatch: UrlMatchOptions = {
+  const urlMatch: ConditionMatchOptions = {
     localePrefixes: opts.localePrefixes,
     wildcards: scenario.wildcards,
+    requestMatch: opts.requestMatch,
   };
   const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, urlMatch);
 

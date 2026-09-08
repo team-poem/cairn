@@ -10,6 +10,7 @@
 export * from "./core/types.js";
 export * from "./core/ports.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures } from "./core/pipeline.js";
+export { stepError, errorKindOf } from "./core/errors.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
 export type { TraceEvent, TraceEmission, TracePhase } from "./core/trace.js";

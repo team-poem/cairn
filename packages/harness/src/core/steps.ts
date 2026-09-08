@@ -7,6 +7,7 @@
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
 import { findRequestStatus } from "./requests.js";
+import { stepError } from "./errors.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -188,7 +189,7 @@ export class CustomStepHandler implements StepHandler {
   async execute(step: Step, driver: Driver): Promise<void> {
     if (step.kind !== "custom") throw new Error(`custom handler received "${step.kind}" step`);
     const action = this.actions[step.name];
-    if (!action) throw new Error(`no handler registered for custom action "${step.name}"`);
+    if (!action) throw stepError("handler", `no handler registered for custom action "${step.name}"`);
     await action(driver, step.params ?? {});
   }
 }
@@ -210,7 +211,7 @@ export async function waitForCondition(
   timeoutMs = WAIT_TIMEOUT_MS,
 ): Promise<void> {
   if (!(await pollCondition(driver, until, timeoutMs))) {
-    throw new Error(`waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
+    throw stepError("timeout", `waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
   }
 }
 

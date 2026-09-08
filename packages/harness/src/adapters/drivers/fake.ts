@@ -1,5 +1,6 @@
 /** In-memory Driver for tests (no browser); also proves the core is driver-agnostic (invariant #5). */
 import type { Driver } from "../../core/ports.js";
+import { stepError } from "../../core/errors.js";
 import type { Evidence, PageElement, Target } from "../../core/types.js";
 
 export interface FakeScript {
@@ -24,7 +25,7 @@ export class FakeDriver implements Driver {
   /** Throws if the target is in `failOn`, simulating an unresolvable element. */
   private resolve(target: Target): void {
     if (target.text && this.script.failOn?.includes(target.text)) {
-      throw new Error(`element not found: ${target.text}`);
+      throw stepError("resolution", `element not found: ${target.text}`);
     }
   }
 

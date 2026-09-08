@@ -280,7 +280,7 @@ export async function runScenario(
       const missedGoal = !truncated && goalFailures(judged).length > 0;
       let verdict = finalizeVerdict(
         judged,
-        truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
+        truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
         evidence.execution.actions,
       );
       if (missedGoal) {

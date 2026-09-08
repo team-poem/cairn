@@ -50,7 +50,12 @@ export interface Planner {
  * exactly as it is to a screen reader*. The engine does not special-case app-specific DOM to work
  * around this (invariant #1). A consumer whose app has such widgets injects corrected perception by
  * wrapping `snapshot()` in its own Driver — the sanctioned seam — while the real fix is the app
- * exposing proper ARIA state. */
+ * exposing proper ARIA state.
+ *
+ * A Driver that throws can say why (#212): `throw stepError("transport", msg)` — or any Error with
+ * a plain `kind` of `resolution` | `post-condition` | `timeout` | `transport` | `handler` — decides
+ * whether the red is the script's (exit 3, re-discover) or the environment's (exit 4, retry). An
+ * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
   click(target: Target): Promise<void>;

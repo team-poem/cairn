@@ -5,6 +5,7 @@
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass } from "./types.js";
+import { errorKindOf, stepError } from "./errors.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { UrlMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
@@ -50,11 +51,12 @@ export interface RunHarnessOptions {
 async function executeStep(handlers: StepHandler[], step: Step, driver: Driver): Promise<ExecutedAction> {
   try {
     const handler = handlers.find((h) => h.supports(step));
-    if (!handler) throw new Error(`no step handler for kind "${step.kind}"`);
+    if (!handler) throw stepError("handler", `no step handler for kind "${step.kind}"`);
     await handler.execute(step, driver);
     return { step, ok: true };
   } catch (err) {
-    return { step, ok: false, error: err instanceof Error ? err.message : String(err) };
+    const errorKind = errorKindOf(err);
+    return { step, ok: false, error: err instanceof Error ? err.message : String(err), ...(errorKind ? { errorKind } : {}) };
   }
 }
 
@@ -110,7 +112,7 @@ async function runStep(
       }
     }
   }
-  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}` };
+  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}`, errorKind: "post-condition" };
 }
 
 /**
@@ -134,8 +136,8 @@ export function blockedReason(actions: ExecutedAction[], totalSteps: number): st
 }
 
 /** Fail a verdict for a reason the assertions could not see, keeping any detail the critic left. */
-function failClosed(verdict: Verdict, why: string): Verdict {
-  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
+function failClosed(verdict: Verdict, why: string, kind: "blocked" | "truncated"): Verdict {
+  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why, failClosed: kind };
 }
 
 /** App-health guards: derived from the run's own traffic, not from what the flow set out to do. */
@@ -162,95 +164,57 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
  * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
  * verdict raw and silently skipped every rule the replay path applied.
  */
-export function finalizeVerdict(judged: Verdict, incomplete?: string, actions: readonly ExecutedAction[] = []): Verdict {
-  const verdict = incomplete ? failClosed(judged, incomplete) : judged;
+export function finalizeVerdict(
+  judged: Verdict,
+  incomplete?: string | { reason: string; kind: "blocked" | "truncated" },
+  actions: readonly ExecutedAction[] = [],
+): Verdict {
+  // A bare string is what `blockedReason` returns, so it means a blocked replay; a re-discovery
+  // that ended before `done` says so with the object form.
+  const cut = typeof incomplete === "string" ? { reason: incomplete, kind: "blocked" as const } : incomplete;
+  const verdict = cut ? failClosed(judged, cut.reason, cut.kind) : judged;
   if (verdict.passed) return verdict;
   return { ...verdict, failure: classifyFailure(verdict, actions) };
 }
 
-/** A step error the driver phrased for a target it could not resolve. It embeds the target's
- * own text (`no element matching {"text":"Transport options"}`), so it is decided FIRST and never
- * scanned for environment markers: it is the script's, whatever words the page uses. */
-const RESOLUTION_MISS = /^(?:no element matching|\d+ elements named|self-heal (?:found no match|budget))/;
-
-/** Errors that say the run's machinery failed, not the app or the script. Anchored to the
- * driver's own phrasing (chrome.ts) or to unambiguous transport tokens, never to bare words: the
- * `MCP <tool> failed:` envelope carries page text and puppeteer's own messages ("did not become
- * interactive"), so the envelope proves nothing — only a transport token inside it does. */
-const ENVIRONMENT_ERROR = /^(?:browser session ended|driver closed|failed to start chrome-devtools-mcp|MCP \S+ timed out after \d+ms)|chrome-devtools-mcp transport closed|Target closed|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/;
-
-/** The host wired the run wrong: a step or check names a handler nothing registered. Not the app,
- * not the script — the same defect whether it surfaces as a step error or an assertion detail. */
-const HOST_CONFIG_ERROR = /^(?:no handler registered for custom action|no step handler for kind)|needs a registered handler|no custom check registered|no critic handles/;
-
 /** Statuses that say the app refused the caller (credentials, rate) rather than the flow. */
-const REFUSED = new Set([401, 403, 429]);
+const REFUSED: ReadonlySet<number> = new Set([401, 403, 429]);
 
-/** Every status the `request-status` critic saw for the endpoint (`expected 200, got 401, 0, 500
- * for …` joins the distinct statuses in arrival order, and a still-pending request is `0`).
- * Refused means ALL of them refused: reading only the first would make the class depend on which
- * response landed first, which the critic itself was written not to do. */
-function refusedOnly(detail: string): boolean {
-  const seen = detail.match(/\bgot (\d+(?:, \d+)*)\b/)?.[1];
-  return seen !== undefined && seen.split(", ").every((s) => REFUSED.has(Number(s)));
-}
-
-/** The failed-requests guard names only its FIRST failure (`4 failed request(s): 429 …`), so a
- * refusal there proves the environment only when it was the only failure. The guard's text is
- * URLs and app console output — never scanned for environment tokens. */
-function guardRefused(r: AssertionResult): boolean {
-  const m = (r.detail ?? "").match(/^1 failed request\(s\): (\d{3}) /);
-  return r.assertion.kind === "no-failed-requests" && m !== null && REFUSED.has(Number(m[1]));
-}
-
-/** The judge could not judge this result: the LLM behind an `expect` failed, or a `custom` check
- * has no handler. Scoped to the kinds that can say so, in the critic's own formats (llm.ts,
- * assertion.ts) — a guard's detail is the app's console output or a URL and may contain the same
- * words, so it is never asked. */
-function judgeFailed(r: AssertionResult): boolean {
-  const d = r.detail ?? "";
-  if (r.assertion.kind === "expect") return /^LLM judgment failed/.test(d);
-  if (r.assertion.kind === "custom") return /^(?:custom check ".*" needs a registered handler|no custom check registered for ")/.test(d);
-  return /^no critic handles "/.test(d);
-}
+/** Every status the critic saw was a refusal — a still-pending `0` or any other status means the
+ * endpoint did something else too, and that is the flow's. */
+const refusedOnly = (r: AssertionResult) => r.statuses !== undefined && r.statuses.length > 0 && r.statuses.every((s) => REFUSED.has(s));
 
 /**
- * Name the red (#173): which of three next actions a failed verdict calls for, from signals the
- * verdict path already holds. First match wins, and the order is the priority a CI gate wants —
- * a step that could not run outranks what the assertions say about a run that stopped early.
+ * Name the red (#173): which of three next actions a failed verdict calls for, read from the
+ * structured signals the verdict carries (#212) — never from `detail`, which is for people. First
+ * match wins, and the order is the priority a CI gate wants: a step that could not run outranks
+ * what the assertions say about a run that stopped early.
  *
- * - a blocked step → `script` (target missing, post-condition never held, waitFor timed out),
- *   unless its error is the driver's own transport failure or a handler the host never registered
- *   → `environment`. Read from `actions`, or from a `blocked:` detail when a caller finalized
- *   without them;
- * - failing closed because the freeze proves nothing (no assertions, every check vacuous) or the
- *   re-discovery ended before `done` → `script`;
- * - a goal assertion failed → `flow`, unless every failed goal is a request the app refused with
- *   401/403/429 (every status it saw, pending ones included, not the first) → `environment`;
+ * - a blocked step → by its `errorKind`: `transport` or `handler` → `environment` (the run's
+ *   machinery, or the host's wiring); `resolution`, `post-condition`, `timeout`, or an untyped
+ *   throw → `script`. Read from `actions`, or from `failClosed: "blocked"` when a caller finalized
+ *   without them (then `script`: nothing says otherwise);
+ * - failing closed because the freeze proves nothing or the re-discovery ended before `done` →
+ *   `script`;
+ * - a goal assertion failed → `flow`, unless every failed goal is a `request-status` whose every
+ *   observed status was a refusal → `environment`;
  * - only the app-health guards failed → still `flow` (a 500 is the same 500 whether a goal or a
- *   guard saw it), unless the single failed request was a refusal → `environment`;
- * - every failure is the judge's own (LLM failed, no handler for a check) → `environment`. Last,
- *   not first: a judge that could not judge is set aside until the app's own failures — goals
- *   AND guards — have been read, so LLM flakiness next to a real 500 still reads as the 500;
+ *   guard saw it), unless every failed request the guard saw was a refusal → `environment`;
+ * - every failure is the judge's own (`reason` set: LLM failed, no handler) → `environment`. Last,
+ *   not first: the app's own failures, goals and guards, are read before a judge that could not
+ *   judge names the class, so LLM flakiness next to a real 500 still reads as the 500;
  * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
  */
 export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
-  const detail = verdict.detail ?? "";
-  const blockedError = actions.find((a) => !a.ok)?.error
-    ?? detail.match(/step \d+\/\d+ blocked: (.*)$/)?.[1]?.replace(/ \(\d+ later step\(s\) never ran\)$/, "");
-  if (blockedError !== undefined) {
-    if (RESOLUTION_MISS.test(blockedError)) return "script";
-    return ENVIRONMENT_ERROR.test(blockedError) || HOST_CONFIG_ERROR.test(blockedError) ? "environment" : "script";
-  }
-  if (/no assertions to verify|already satisfied before the flow ran|no destination could be frozen|ended before `done`|unverified path/.test(detail)) return "script";
+  const blocked = actions.find((a) => !a.ok);
+  if (blocked) return blocked.errorKind === "transport" || blocked.errorKind === "handler" ? "environment" : "script";
+  if (verdict.failClosed !== undefined) return "script";
   const failed = verdict.results.filter((r) => !r.passed);
-  const app = failed.filter((r) => !judgeFailed(r)); // what the app itself did, judge failures set aside
+  const app = failed.filter((r) => r.reason === undefined); // what the app itself did, judge failures set aside
   const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
-  if (goals.length > 0) {
-    return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r.detail ?? "")) ? "environment" : "flow";
-  }
-  if (app.length > 0) return app.every(guardRefused) ? "environment" : "flow";
-  if (failed.length > 0 || /^LLM judgment failed/.test(detail)) return "environment";
+  if (goals.length > 0) return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r)) ? "environment" : "flow";
+  if (app.length > 0) return app.every((r) => r.assertion.kind === "no-failed-requests" && refusedOnly(r)) ? "environment" : "flow";
+  if (failed.length > 0) return "environment";
   return "flow";
 }
 
@@ -289,12 +253,12 @@ export async function runHarness(
         kind: "step",
         phase: "replay",
         stepRef: actions.length - 1,
-        payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error },
+        payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error, ...(result.errorKind ? { errorKind: result.errorKind } : {}) },
       },
       screenshot,
     );
     if (opts.onStep) {
-      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
+      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, errorKind: result.errorKind, skipped: result.skipped, screenshot });
     }
     if (!result.ok) break;
   }

@@ -78,10 +78,10 @@ CLI maps it to distinct exit codes (1 · 3 · 4; 2 stays usage, and a run that c
 started exits 4 on `replay` and `suite` alike). First match wins, in this order:
 
 - a blocked step → `script` (the frozen scenario no longer fits the page: the target went missing,
-  a post-condition never held, a `waitFor` timed out); unless the step's error names the browser or
-  transport, or a handler the host never registered → `environment`. Replay has the step list to
-  read this from; an outcome-heal re-discovery does not (its driver observation carries no
-  actions), so a heal's red is classed from its assertions;
+  a post-condition never held, a `waitFor` timed out, or an untyped throw); unless its `errorKind`
+  is `transport` or `handler` → `environment`. Replay has the step list to read this from; an
+  outcome-heal re-discovery does not (its driver observation carries no actions), so a heal's red
+  is classed from its assertions;
 - failing closed because the freeze proves nothing (#69, #137), or a re-discovery ended before
   `done` → `script`, on the bare run and the suite alike;
 - a goal assertion failed → `flow`; unless every failed goal is a request the app refused with
@@ -89,8 +89,7 @@ started exits 4 on `replay` and `suite` alike). First match wins, in this order:
   to arrive → `environment`;
 - only the app-health guards failed → still `flow`: a 500 is the same 500 whether a goal or a guard
   saw it, and #186's guard/goal split is about what a re-discovery can fix, not whose fault it is;
-  unless the single failed request was a refusal → `environment`. Guard text is URLs and console
-  output and is never scanned for environment or judge words;
+  unless every failed request the guard saw was a refusal → `environment`;
 - every failure is the judge's own (an `expect` whose LLM failed, a `custom` check with no handler)
   → `environment`. Last, not first: the app's own failures, goals and guards alike, are read before
   a judge that could not judge is allowed to name the class, so LLM flakiness next to a real 500
@@ -98,12 +97,15 @@ started exits 4 on `replay` and `suite` alike). First match wins, in this order:
 - otherwise `flow`. A suite's own reds are classed too: a crashed case is `environment`, a
   discovery cut at the step cap is `script`.
 
-Two things the classifier refuses to read. A step error the driver phrased for a target it could
-not resolve embeds the target's own text, so it is `script` before any other word in it is looked
-at; and the `MCP <tool> failed:` envelope carries page text and puppeteer's own messages, so only
-an unambiguous transport token inside it (`net::ERR_…`, `ECONNREFUSED`, `transport closed`) makes
-it `environment`. Rendered strings are a weak signal; the day `AssertionResult` carries structured
-statuses this reads them instead.
+The classifier reads fields, not `detail` (#212). The critics set `AssertionResult.statuses` (every
+status seen for a `request-status` or by the failed-requests guard, a pending request as `0`) and
+`AssertionResult.reason` (`judge-failed`, `no-handler`); `toVerdict` and the finalizer set
+`Verdict.failClosed`; and a step's cause is typed where it is thrown — `stepError(kind, message)`
+puts a plain `kind` on the Error, so a Driver written outside this package can say `transport` or
+`resolution` without importing anything, and `ExecutedAction.errorKind` carries it. The Chrome
+driver decides its own MCP envelope (`net::ERR_…`, `ECONNREFUSED`, `Target closed` → `transport`;
+anything else stays untyped and reads as the page's). An untyped throw is `script`: nothing says
+otherwise, and that is the loud direction.
 
 The lean is deliberate: when unsure, a red is a regression until shown otherwise, because a real
 regression filed under "retry" is the one outcome a CI gate exists to prevent. The mirror question

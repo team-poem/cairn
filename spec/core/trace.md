@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.4**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.5**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.4", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.5", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -144,6 +144,14 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
   verdict object itself, a viewer renders it generically, and the next bump folds the field into
   the contract text. `run-end` stays `passed` + `usage`; a run-level class is `suiteExitCode`'s
   business, not the trace's.
+
+## Decided in review (#212)
+
+- **`step.payload.errorKind`** and **`assertion.payload.statuses` / `reason`** carry the typed
+  signals `classifyFailure` reads (`Verdict.failure`, #173), so a viewer can reproduce the class
+  from the trace without parsing `detail`. `case-end.payload.verdict` already carried
+  `results[].statuses`/`reason` and `failClosed` by virtue of being the verdict object; the live
+  events now say the same. Header goes to **1.5**: optional payload fields, minor rule.
 
 ## Out of contract (separate tracks)
 

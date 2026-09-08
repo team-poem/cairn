@@ -266,6 +266,8 @@ You can call `runScenario` straight from a test file. Nothing stops you. But tha
 
 Every stage is a replaceable port. Bring your own `Driver` (for example Playwright), `Critic`, `Reporter`, `ContextProvider` (auth, fixtures), or `LlmClient` (any model).
 
+A Driver that throws can say why: `throw stepError("transport", msg)`, or any Error carrying a plain `kind` (`resolution`, `post-condition`, `timeout`, `transport`, `handler`), decides whether a red is the script's (exit 3, re-discover) or the environment's (exit 4, retry). An untyped throw counts as the script's.
+
 Discovery itself takes an `ActionPolicy`, a deterministic gate that vets each proposed action before it runs (block destructive controls, cap wandering, stop on a goal). It also takes a `perceive` hook (a `PerceptionAdapter`) to correct the state of widgets that keep it outside the a11y tree, such as a custom checkbox whose selection lives in a styled class rather than `aria-checked`. The model then sees the real state without the engine hacking app-specific DOM.
 
 Compose the ports directly with `runHarness`, or define success inline with `custom`:

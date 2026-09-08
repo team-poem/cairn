@@ -196,3 +196,9 @@ test("refOnlyDecision: a reference alone supplies canonical target metadata", as
   expect(step).toMatchObject({ kind: "click", target: { text: "Save", role: "button", nth: 1 } });
   expect(driver.events[1]?.ref).toBe("turn1:second");
 });
+
+test("refUnknownRejected: untrusted reference is rejected before driver interaction", async () => {
+  const driver = new RefDriver();
+  await expect(apply(driver, { action: "click", ref: "invented", text: "Save" }, observedPair())).rejects.toThrow(/ref|reference|snapshot/i);
+  expect(driver.events).toEqual([]);
+});

@@ -81,6 +81,11 @@ export interface ChromeDriverOptions {
  * stays untyped and reads as the page's, not the machine's.
  */
 export function mcpToolError(name: string, text: string): Error {
+  // A JS dialog blocking the action is the page's doing, not the machine's: the connection is
+  // healthy, and MCP repeats the dialog's own (page-provided) text inside the error line, so it is
+  // recognised BEFORE any transport phrase is looked for. `callAccepting` handles it; a verb that
+  // does not accept dialogs (hover) surfaces it untyped.
+  if (isDialogBlocked(text)) return new Error(`MCP ${name} failed: ${text}`);
   const transport =
     /Protocol error \([^)]*\): (?:Target closed|Session closed)|Session closed\. Most likely|Connection closed\. Most likely|chrome-devtools-mcp transport closed|Failed to launch the browser process|Could not find Chrome|Could not connect to Chrome|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/.test(text);
   const message = `MCP ${name} failed: ${text}`;
@@ -549,10 +554,14 @@ export class ChromeDevToolsDriver implements Driver {
 
 // --- parsers for chrome-devtools-mcp's text output -------------------------------
 
+/** True if MCP's error text says a JS dialog (confirm/alert/prompt) is open and blocking. */
+export function isDialogBlocked(text: string): boolean {
+  return /open dialog/i.test(text) || /handle_dialog/i.test(text);
+}
+
 /** True if an MCP error means a click opened a JS dialog (confirm/alert/prompt) that now blocks. */
 export function isOpenDialog(err: unknown): boolean {
-  const m = err instanceof Error ? err.message : String(err);
-  return /open dialog/i.test(m) || /handle_dialog/i.test(m);
+  return isDialogBlocked(err instanceof Error ? err.message : String(err));
 }
 
 /** `uid=1_3 link "Learn more" …` → {role:"link", name:"Learn more"} for named rows, with form

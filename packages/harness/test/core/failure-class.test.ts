@@ -4,7 +4,7 @@ import { errorKindOf, stepError } from "../../src/core/errors.js";
 import { exitCodeFor, suiteExitCode } from "../../src/cli-exit.js";
 import { checkAssertion, toVerdict } from "../../src/adapters/critics/assertion.js";
 import { LlmCritic } from "../../src/adapters/critics/llm.js";
-import { mcpToolError } from "../../src/adapters/drivers/chrome.js";
+import { ChromeDevToolsDriver, isOpenDialog, mcpToolError } from "../../src/adapters/drivers/chrome.js";
 import { runScenario } from "../../src/run.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import type { AssertionResult, Evidence, ExecutedAction, Scenario, StepErrorKind, Verdict } from "../../src/core/types.js";
@@ -141,6 +141,36 @@ describe("the signals are set where they are known (#212)", () => {
     expect(kind("Node is either not clickable or not an Element")).toBeUndefined();
     expect(kind("Protocol error (Runtime.callFunctionOn): Cannot find context with specified id")).toBeUndefined(); // the app navigated mid-call: not the machine
     expect(kind('# Open dialog\nconfirm: "Target closed — continue?"\n\nError: Element with uid 1_3 no longer exists on the page.')).toBeUndefined();
+  });
+
+  // The one route by which page text reaches the envelope: while a dialog is open, MCP prepends
+  // the dialog block to every error AND repeats the dialog's message in the error line itself, so
+  // no phrase anchoring can help — the dialog shape has to be recognised first.
+  const dialogBlocked =
+    "# Open dialog\nconfirm: Could not find Chrome in your supported browsers. Continue?.\nCall handle_dialog to handle it before continuing.\nError: A dialog is open (confirm: Could not find Chrome in your supported browsers. Continue?).";
+
+  it("a dialog blocking the action is the page's, whatever its message says", () => {
+    const err = mcpToolError("hover", dialogBlocked);
+    expect(errorKindOf(err)).toBeUndefined();
+    expect(isOpenDialog(err)).toBe(true); // callAccepting still recognises it
+  });
+
+  it("through the driver: hover blocked by a dialog reads as the script, not the environment", async () => {
+    const driver = new ChromeDevToolsDriver();
+    const client = {
+      callTool: async ({ name }: { name: string }) =>
+        name === "take_snapshot"
+          ? { content: [{ type: "text", text: 'uid=1_1 link "Help"' }] }
+          : { isError: true, content: [{ type: "text", text: dialogBlocked }] },
+      close: async () => {},
+    };
+    (driver as unknown as { client: unknown }).client = client;
+    let caught: unknown;
+    try { await driver.hover({ text: "Help" }); } catch (e) { caught = e; }
+    expect(caught).toBeInstanceOf(Error);
+    expect(errorKindOf(caught)).toBeUndefined();
+    const action: ExecutedAction = { step: { kind: "hover", target: { text: "Help" } }, ok: false, error: (caught as Error).message, errorKind: errorKindOf(caught) };
+    expect(classifyFailure({ passed: false, results: [] }, [{ step: { kind: "goto", url: "https://shop.co/" }, ok: true }, action])).toBe("script");
   });
 
   it("stepError carries its kind structurally, so a driver outside this package can throw one", () => {

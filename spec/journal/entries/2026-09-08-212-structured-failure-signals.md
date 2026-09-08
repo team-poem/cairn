@@ -12,6 +12,10 @@
   (`net::ERR_`·`ECONN*`·`Target closed` → transport, 나머지는 미분류 = 페이지 쪽). `finalizeVerdict`의 `incomplete`는
   문자열(=blocked) 또는 `{ kind, reason }`. `classifyFailure`에 정규식 0개. 두 엔트리에서 `stepError`·`errorKindOf` export.
 - **미분류 throw = script.** 아무것도 말하지 않으면 시끄러운 쪽.
+- **PR #213 리뷰:** 봉투에 페이지 텍스트가 들어오는 길이 다이얼로그 하나인데, MCP는 `# Open dialog` 블록을 앞에
+  붙일 뿐 아니라 에러 줄 자체에 다이얼로그 메시지를 반복한다(`A dialog is open (confirm: <페이지 텍스트>)`). 문구 앵커로는
+  못 막는다 — 다이얼로그 차단 모양(`isDialogBlocked`)을 전송 검사 **전에** 인식해 미분류로 돌린다. 연결은 멀쩡하고
+  다이얼로그가 동작을 막았을 뿐. `hover`는 `callAccepting`을 안 타서 그대로 표면화되므로 드라이버 통과 회귀 테스트.
 - **2차 검증(throw 자리 전수 + puppeteer/chrome-devtools-mcp 1.3.0 실제 문구 대조)에서 고친 것:** (1) MCP SDK가 전송이
   in-flight 호출 중에 죽으면 봉투 없이 raw reject(`MCP error -32000: Connection closed`, `Not connected`)라 미분류였다
   → `call()`이 잡아 transport(#88의 그 순간). (2) 봉투 판정을 `mcpToolError`로 빼고 puppeteer 실제 문구에 앵커

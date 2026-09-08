@@ -150,6 +150,8 @@ export interface StepProgress {
   error?: string;
   /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
   skipped?: boolean;
+  /** Typed cause of `error`, when the thrower said (#212). */
+  errorKind?: StepErrorKind;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -186,10 +188,18 @@ export interface Evidence {
   };
 }
 
+/** Why a step could not run, typed where the error is thrown so a verdict never has to read the
+ * message (#212). `resolution`: the target did not resolve. `post-condition`: the step ran but its
+ * `expect` never held. `timeout`: a `waitFor` gave up. `transport`: the driver's own machinery
+ * failed (browser gone, a call that never returned). `handler`: the host registered no handler. */
+export type StepErrorKind = "resolution" | "post-condition" | "timeout" | "transport" | "handler";
+
 export interface ExecutedAction {
   step: Step;
   ok: boolean;
   error?: string;
+  /** Typed cause of `error`, when the thrower said (`stepError`); absent for an untyped throw. */
+  errorKind?: StepErrorKind;
   /** True when the step was not executed because its `expect` already held (idempotency pre-check).
    * Surfaced so a skip is always observable — a wrongly pre-satisfied expect must never hide as a
    * plain ok (#86). */
@@ -205,6 +215,13 @@ export interface AssertionResult {
   assertion: Assertion;
   passed: boolean;
   detail?: string;
+  /** Every distinct HTTP status the critic saw: for `request-status` the endpoint's responses (the
+   * matched one when it passed), for `no-failed-requests` each unrecovered failure; arrival order,
+   * `0` for a request still pending. Structured so a reader never parses `detail` (#212). */
+  statuses?: number[];
+  /** The critic could not judge this check at all: the LLM behind an `expect` failed, or no
+   * handler exists for the kind or the `custom` name. Not the app's failure. */
+  reason?: "judge-failed" | "no-handler";
 }
 
 /**
@@ -225,6 +242,9 @@ export interface Verdict {
   detail?: string;
   /** Present only when `passed` is false: which of the three next actions this red calls for. */
   failure?: FailureClass;
+  /** Why the verdict failed closed regardless of the results: no assertions (#69), every one
+   * vacuous (#137), a replay that blocked (#90), a re-discovery that ended before `done` (#186). */
+  failClosed?: "no-assertions" | "all-vacuous" | "blocked" | "truncated";
 }
 
 /** What one completion cost, reported by a backend that can measure (HTTP APIs report exact

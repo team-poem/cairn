@@ -53,7 +53,12 @@ export function checkAssertion(
       );
       return failed.length === 0
         ? { assertion, passed: true }
-        : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };
+        : {
+            assertion,
+            passed: false,
+            detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}`,
+            statuses: [...new Set(failed.map((r) => r.status))],
+          };
     }
     case "request-status": {
       // Any matching request satisfies the assertion (same predicate as conditionMet) — the
@@ -61,7 +66,7 @@ export function checkAssertion(
       // An optional `method` scopes both the match and the failure detail (#94).
       const method = assertion.method?.toUpperCase();
       const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
-      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
+      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}`, statuses: [hit.status] };
       const near = evidence.logic.requests.filter(
         (r) => urlMatchesFrozen(r.url, assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
       );
@@ -69,13 +74,13 @@ export function checkAssertion(
         const scope = method ? `${method} ` : "";
         return { assertion, passed: false, detail: `no ${scope}request matching ${assertion.urlIncludes}` };
       }
-      const seen = [...new Set(near.map((r) => r.status))].join(", ");
-      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };
+      const statuses = [...new Set(near.map((r) => r.status))];
+      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${statuses.join(", ")} for ${near[0]?.url}`, statuses };
     }
     case "expect":
-      return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };
+      return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic", reason: "no-handler" };
     case "custom":
-      return { assertion, passed: false, detail: `custom check "${assertion.name}" needs a registered handler` };
+      return { assertion, passed: false, detail: `custom check "${assertion.name}" needs a registered handler`, reason: "no-handler" };
   }
 }
 
@@ -108,7 +113,7 @@ export class CustomAssertionHandler implements AssertionHandler {
   async judge(assertion: Assertion, evidence: Evidence): Promise<AssertionResult> {
     if (assertion.kind !== "custom") throw new Error(`custom handler received "${assertion.kind}" assertion`);
     const check = this.custom[assertion.name];
-    if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"` };
+    if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"`, reason: "no-handler" };
     const r = await check(assertion.params ?? {}, evidence);
     return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
   }
@@ -118,7 +123,7 @@ export class CustomAssertionHandler implements AssertionHandler {
  * verifies nothing must not look green (#69). Shared by both critics so the semantics can't drift. */
 export function toVerdict(results: AssertionResult[]): Verdict {
   if (results.length === 0) {
-    return { passed: false, results, detail: "scenario has no assertions to verify" };
+    return { passed: false, results, detail: "scenario has no assertions to verify", failClosed: "no-assertions" };
   }
   // #137: every check was already true before the flow ran (stamped at freeze) — the scenario
   // cannot go red, so a green would mean nothing. Same fail-closed stance as the empty set.
@@ -129,6 +134,7 @@ export function toVerdict(results: AssertionResult[]): Verdict {
     return {
       passed: false,
       results,
+      failClosed: "all-vacuous",
       detail: pageless
         ? "the run navigated, but no destination could be frozen for it, and nothing else here can fail — the scenario cannot detect a broken flow"
         : "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
@@ -145,7 +151,7 @@ export async function judgeAssertion(
   ctx?: Context,
 ): Promise<AssertionResult> {
   const handler = handlers.find((h) => h.supports(assertion));
-  if (!handler) return { assertion, passed: false, detail: `no critic handles "${assertion.kind}"` };
+  if (!handler) return { assertion, passed: false, detail: `no critic handles "${assertion.kind}"`, reason: "no-handler" };
   return handler.judge(assertion, evidence, ctx);
 }
 

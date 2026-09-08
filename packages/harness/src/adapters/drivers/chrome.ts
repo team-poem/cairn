@@ -7,6 +7,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
+import { errorKindOf, stepError } from "../../core/errors.js";
 import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
@@ -71,6 +72,21 @@ export interface ChromeDriverOptions {
   promoteClickables?: boolean;
 }
 
+/**
+ * The error a failed MCP tool call becomes. The tool envelope wraps a dead transport and a
+ * disabled button alike, so only this driver's own vocabulary decides `transport` (#212):
+ * puppeteer's closed-target phrasing, the launch failures the first lazy call surfaces, and
+ * network-level tokens — each anchored to its full phrase, because the envelope also carries page
+ * text (an open dialog's message is prepended to every error while it is open). Anything else
+ * stays untyped and reads as the page's, not the machine's.
+ */
+export function mcpToolError(name: string, text: string): Error {
+  const transport =
+    /Protocol error \([^)]*\): (?:Target closed|Session closed)|Session closed\. Most likely|Connection closed\. Most likely|chrome-devtools-mcp transport closed|Failed to launch the browser process|Could not find Chrome|Could not connect to Chrome|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/.test(text);
+  const message = `MCP ${name} failed: ${text}`;
+  return transport ? stepError("transport", message) : new Error(message);
+}
+
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
   private transport?: StdioClientTransport;
@@ -114,7 +130,7 @@ export class ChromeDevToolsDriver implements Driver {
       return await Promise.race([
         p,
         new Promise<never>((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
+          timer = setTimeout(() => reject(stepError("transport", `${label} timed out after ${ms}ms`)), ms);
         }),
       ]);
     } finally {
@@ -124,10 +140,10 @@ export class ChromeDevToolsDriver implements Driver {
 
   private async ensureConnected(): Promise<Client> {
     if (this.closed) {
-      throw new Error("driver closed — construct a new ChromeDevToolsDriver for a new session");
+      throw stepError("transport", "driver closed — construct a new ChromeDevToolsDriver for a new session");
     }
     if (this.crashed) {
-      throw new Error("browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
+      throw stepError("transport", "browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
     }
     if (this.client) return this.client;
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
@@ -152,7 +168,7 @@ export class ChromeDevToolsDriver implements Driver {
       );
     } catch (err) {
       await transport.close().catch(() => {}); // don't orphan the spawned subprocess
-      throw new Error(`failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
+      throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.client = client;
     this.transport = transport;
@@ -161,16 +177,27 @@ export class ChromeDevToolsDriver implements Driver {
 
   private async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
     const client = await this.ensureConnected();
-    const res = (await this.withTimeout(
-      client.callTool({ name, arguments: args }),
-      this.opts.timeoutMs ?? 30_000,
-      `MCP ${name}`,
-    )) as { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    let res: { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    try {
+      res = (await this.withTimeout(
+        client.callTool({ name, arguments: args }),
+        this.opts.timeoutMs ?? 30_000,
+        `MCP ${name}`,
+      )) as typeof res;
+    } catch (err) {
+      // The SDK rejects raw, without an envelope, when the stdio transport dies under an in-flight
+      // call (`MCP error -32000: Connection closed`, `Not connected`) — the very call that saw the
+      // browser go. Type it here; the next call would hit `crashed` and be typed anyway.
+      if (err instanceof Error && !errorKindOf(err) && /Connection closed|Not connected|MCP error -32000/.test(err.message)) {
+        throw stepError("transport", `MCP ${name} failed: ${err.message}`);
+      }
+      throw err;
+    }
     const text = (res.content ?? [])
       .filter((c) => c.type === "text" && typeof c.text === "string")
       .map((c) => c.text)
       .join("\n");
-    if (res.isError) throw new Error(`MCP ${name} failed: ${text}`);
+    if (res.isError) throw mcpToolError(name, text);
     return text;
   }
 
@@ -242,7 +269,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.snapshotCache = undefined;
     const optionUid = await this.awaitNewOption(value, before);
     if (!optionUid) {
-      throw new Error(`select "${value}": no matching option appeared after opening the dropdown`);
+      throw stepError("resolution", `select "${value}": no matching option appeared after opening the dropdown`);
     }
     await this.callAccepting("click", { uid: optionUid });
     this.snapshotCache = undefined;
@@ -457,7 +484,7 @@ export class ChromeDevToolsDriver implements Driver {
         (await this.resolveVisible(rows, target));
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) {
-        throw new Error(describeResolutionMiss(rows, target));
+        throw stepError("resolution", describeResolutionMiss(rows, target));
       }
       this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);

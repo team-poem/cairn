@@ -97,6 +97,7 @@ export class ExpectAssertionHandler implements AssertionHandler {
         assertion,
         passed: false,
         detail: `LLM judgment failed: ${err instanceof Error ? err.message : String(err)}`,
+        reason: "judge-failed",
       };
     }
   }

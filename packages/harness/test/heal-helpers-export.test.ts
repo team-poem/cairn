@@ -27,10 +27,10 @@ describe.each([
   it("finalizeVerdict fails closed on an incomplete run and keeps the critic's detail", () => {
     const green: Verdict = { passed: true, results: [], detail: "all vacuous" };
     expect(api.finalizeVerdict(green)).toBe(green);
-    // A finalized red also carries its class (#173); with no blocked step and no failed goal it
-    // leans to `flow`, the default that never files a regression under "retry".
+    // A finalized red also says why it failed closed and what to do (#173, #212): a bare string is
+    // what `blockedReason` returns, so it reads as a blocked run — a stale script.
     expect(api.finalizeVerdict(green, "ended before done")).toEqual({
-      passed: false, results: [], detail: "all vacuous; ended before done", failure: "flow",
+      passed: false, results: [], detail: "all vacuous; ended before done", failClosed: "blocked", failure: "script",
     });
   });
 

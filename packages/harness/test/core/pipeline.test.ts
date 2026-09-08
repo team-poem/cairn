@@ -564,7 +564,7 @@ describe("pipeline audit coverage", () => {
         { stepHandlers: [] },
       );
       expect(result.evidence.execution.actions).toEqual([
-        { step: sc.steps[0], ok: false, error: 'no step handler for kind "click"' },
+        { step: sc.steps[0], ok: false, error: 'no step handler for kind "click"', errorKind: "handler" }, // typed where thrown (#212)
       ]);
       expect(result.evidence.execution.blocked).toBe(true);
       expect(result.verdict.passed).toBe(false);

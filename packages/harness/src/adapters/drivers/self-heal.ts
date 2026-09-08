@@ -5,6 +5,7 @@
  * and the substitution is recorded for re-freezing. No break → no LLM call.
  */
 import type { Driver, LlmClient } from "../../core/ports.js";
+import { errorKindOf, stepError } from "../../core/errors.js";
 import type {
   Evidence,
   PageElement,
@@ -149,7 +150,8 @@ export class SelfHealingDriver implements Driver {
 
   private async heal(target: Target, cause: unknown): Promise<Target> {
     if (this.heals.length >= this.maxHeals) {
-      throw new Error(
+      throw stepError(
+        errorKindOf(cause) ?? "resolution",
         `self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`,
       );
     }
@@ -160,7 +162,9 @@ export class SelfHealingDriver implements Driver {
     const choice = parseHealChoice(reply);
     if (!choice) {
       const why = cause instanceof Error ? cause.message : String(cause);
-      throw new Error(
+      // The original cause keeps its kind: a transport failure healed into nothing is still transport.
+      throw stepError(
+        errorKindOf(cause) ?? "resolution",
         `self-heal found no match for ${JSON.stringify(target)} (${why})`,
       );
     }

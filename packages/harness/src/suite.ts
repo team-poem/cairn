@@ -273,6 +273,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           passed: false,
           results: [],
           detail: "discovery truncated at the step cap — unverified path, nothing frozen",
+          failClosed: "truncated",
           failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap
         };
         scope?.emit({

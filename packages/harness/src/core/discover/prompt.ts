@@ -87,6 +87,7 @@ export function rankElements(
   // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
   const scored = elements
+    .filter((e) => e.occluded !== true)
     .map((e, i) => {
       const interactive = INTERACTIVE_ROLES.has(e.role);
       let score = interactive ? 100 : 0;

@@ -82,3 +82,10 @@ test("popupEvidenceBudget: popup priority preserves five result evidence slots",
   expect(ranked.filter(e => (e as Observed).inActivePopup)).toHaveLength(55);
   expect(ranked.filter(e => e.role === "StaticText")).toEqual(evidence);
 });
+
+test("occludedNotListed: positive occlusion excludes actions while unknown occlusion stays visible", () => {
+  const hidden = element("Hidden", { occluded: true });
+  const unknown = element("Unknown");
+  const visible = element("Visible", { occluded: false });
+  expect(rankElements([hidden, unknown, visible], "Hidden", 60)).toEqual([unknown, visible]);
+});

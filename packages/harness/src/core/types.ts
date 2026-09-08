@@ -139,6 +139,8 @@ export interface PageElement {
   name: string;
   /** Observed membership in the currently open popup, supplied by the Driver. */
   inActivePopup?: boolean;
+  /** Positive hit-test evidence that another element covers this control; absent means unknown. */
+  occluded?: boolean;
   checked?: boolean | "mixed";
   disabled?: boolean;
   value?: string;

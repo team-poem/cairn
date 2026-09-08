@@ -13,10 +13,9 @@
 import type { Driver, LlmClient } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
-import { normalizeElements } from "../perception.js";
-import { applyDecision, canonicalizeDecision, describeAction, parseDecision } from "../discover/decision.js";
+import { applyDecision, describeAction, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
-import { renderRankedElements, withReferenceRules } from "../discover/prompt.js";
+import { renderRankedElements } from "../discover/prompt.js";
 import { destinationKey } from "../discover/capture.js";
 import { EXPLORE_SYSTEM, buildExplorePrompt } from "./prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
@@ -139,7 +138,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const elements = normalizeElements(await driver.snapshot({ perception: true }));
+    const elements = await driver.snapshot();
     const render = renderRankedElements(elements, charter);
 
     if (pending) {
@@ -161,7 +160,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
 
     const reply = await llm.complete(
       buildExplorePrompt(charter, render, prevRender, steps, failures, visited, findings, currentUrl),
-      { system: withReferenceRules(EXPLORE_SYSTEM, elements) },
+      { system: EXPLORE_SYSTEM },
     );
     prevRender = render;
 
@@ -207,7 +206,6 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     // the page did not, so it must not be reported as a UX problem with the app.
     let verdict: PolicyVerdict;
     try {
-      decision = canonicalizeDecision(decision, elements);
       verdict = policy?.vet(decision, { elements, url: currentUrl }) ?? { ok: true as const };
     } catch (err) {
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
@@ -229,7 +227,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
         consoleCount: observation.logic.console.length,
         render,
       };
-      const step = await applyDecision(driver, decision, elements);
+      const step = await applyDecision(driver, decision);
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
       pending = { mark, decision, stepIndex: steps.length - 1 };
@@ -264,7 +262,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       url: observation.execution.finalUrl,
       requests: observation.logic.requests,
       console: observation.logic.console,
-      render: renderRankedElements(normalizeElements(await driver.snapshot({ perception: true })), charter),
+      render: renderRankedElements(await driver.snapshot(), charter),
       settleMs,
     });
   }

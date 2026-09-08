@@ -146,20 +146,20 @@ export class BuiltinStepHandler implements StepHandler {
     return step.kind !== "custom";
   }
 
-  async execute(step: Step, driver: Driver, ref?: string): Promise<void> {
+  async execute(step: Step, driver: Driver): Promise<void> {
     switch (step.kind) {
       case "goto":
         return driver.goto(step.url);
       case "click":
-        return ref === undefined ? driver.click(step.target) : driver.click(step.target, ref);
+        return driver.click(step.target);
       case "doubleClick":
-        return ref === undefined ? driver.doubleClick(step.target) : driver.doubleClick(step.target, ref);
+        return driver.doubleClick(step.target);
       case "hover":
-        return ref === undefined ? driver.hover(step.target) : driver.hover(step.target, ref);
+        return driver.hover(step.target);
       case "type":
-        return ref === undefined ? driver.type(step.target, step.text) : driver.type(step.target, step.text, ref);
+        return driver.type(step.target, step.text);
       case "select":
-        return ref === undefined ? driver.select(step.target, step.value) : driver.select(step.target, step.value, ref);
+        return driver.select(step.target, step.value);
       case "pressKey":
         return driver.pressKey(step.key);
       case "scroll":

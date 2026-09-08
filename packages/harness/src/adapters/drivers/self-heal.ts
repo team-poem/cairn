@@ -4,7 +4,7 @@
  * resolves, the LLM maps the original intent onto a current element, the action is retried,
  * and the substitution is recorded for re-freezing. No break → no LLM call.
  */
-import type { Driver, LlmClient, SnapshotOptions } from "../../core/ports.js";
+import type { Driver, LlmClient } from "../../core/ports.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
 import type {
   Evidence,
@@ -60,7 +60,6 @@ export function parseHealChoice(text: string): string | undefined {
 
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
-  readonly locateRef?: (ref: string) => Promise<Target>;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
 
@@ -71,15 +70,13 @@ export class SelfHealingDriver implements Driver {
   ) {
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
-    if (inner.locateRef) this.locateRef = (ref) => inner.locateRef!(ref);
   }
 
   async goto(url: string): Promise<void> {
     return this.inner.goto(url);
   }
 
-  async click(target: Target, ref?: string): Promise<void> {
-    if (ref !== undefined) return this.inner.click(target, ref);
+  async click(target: Target): Promise<void> {
     try {
       await this.inner.click(target);
     } catch (err) {
@@ -87,8 +84,7 @@ export class SelfHealingDriver implements Driver {
     }
   }
 
-  async doubleClick(target: Target, ref?: string): Promise<void> {
-    if (ref !== undefined) return this.inner.doubleClick(target, ref);
+  async doubleClick(target: Target): Promise<void> {
     try {
       await this.inner.doubleClick(target);
     } catch (err) {
@@ -96,8 +92,7 @@ export class SelfHealingDriver implements Driver {
     }
   }
 
-  async hover(target: Target, ref?: string): Promise<void> {
-    if (ref !== undefined) return this.inner.hover(target, ref);
+  async hover(target: Target): Promise<void> {
     try {
       await this.inner.hover(target);
     } catch (err) {
@@ -105,8 +100,7 @@ export class SelfHealingDriver implements Driver {
     }
   }
 
-  async type(target: Target, text: string, ref?: string): Promise<void> {
-    if (ref !== undefined) return this.inner.type(target, text, ref);
+  async type(target: Target, text: string): Promise<void> {
     try {
       await this.inner.type(target, text);
     } catch (err) {
@@ -114,8 +108,7 @@ export class SelfHealingDriver implements Driver {
     }
   }
 
-  async select(target: Target, value: string, ref?: string): Promise<void> {
-    if (ref !== undefined) return this.inner.select(target, value, ref);
+  async select(target: Target, value: string): Promise<void> {
     try {
       await this.inner.select(target, value);
     } catch (err) {
@@ -139,8 +132,8 @@ export class SelfHealingDriver implements Driver {
     return this.inner.screenshot();
   }
 
-  snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
-    return options === undefined ? this.inner.snapshot() : this.inner.snapshot(options);
+  snapshot(): Promise<PageElement[]> {
+    return this.inner.snapshot();
   }
 
   settle(options?: SettleOptions): Promise<void> {

@@ -8,8 +8,6 @@ import type { Driver } from "../ports.js";
 import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { extractFirstJsonObject } from "../json.js";
-import { stepError } from "../errors.js";
-import { dupeOrdinals } from "./prompt.js";
 
 export interface Decision {
   action:
@@ -28,8 +26,6 @@ export interface Decision {
     | "note"
     | "done";
   text?: string;
-  /** Exact identity from the current observation; never persisted in the returned Step. */
-  ref?: string;
   /** Disambiguate identically-named elements (#127): the element's role, and the 0-based
    * position among same role+name matches — the `(nth=K)` marker the listing shows. */
   role?: string;
@@ -88,20 +84,6 @@ export function parseDecision(text: string): Decision {
  */
 export async function decisionToStep(driver: Driver, decision: Decision): Promise<Step> {
   const located = (): Promise<Target> => {
-    if (decision.ref !== undefined) {
-      if (!driver.locateRef) throw new Error("driver does not support observation references");
-      return driver.locateRef(decision.ref).then((target) => {
-        // Driver results may carry extra runtime fields despite TypeScript's structural type.
-        // Freeze only the durable Target vocabulary, never a handle/ref copied from observation.
-        const durable: Target = {};
-        if (target.text !== undefined) durable.text = target.text;
-        if (target.role !== undefined) durable.role = target.role;
-        if (target.index !== undefined) durable.index = target.index;
-        if (target.nth !== undefined) durable.nth = target.nth;
-        if (target.selector !== undefined) durable.selector = target.selector;
-        return durable;
-      });
-    }
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
     return driver.locate({
       text: decision.text,
@@ -145,40 +127,10 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 
 const execute = new BuiltinStepHandler();
 
-/** A reference is useful only when it identifies exactly one row of this observation. */
-function referenceElement(decision: Decision, elements?: readonly PageElement[]): PageElement | undefined {
-  if (decision.ref === undefined) return undefined;
-  if (typeof decision.ref !== "string" || !decision.ref.trim()) {
-    throw stepError("resolution", "observation ref must be a nonempty string");
-  }
-  const matches = elements?.filter((element) => element.ref === decision.ref) ?? [];
-  if (matches.length !== 1) {
-    throw stepError("resolution", `observation ref is ${matches.length ? "duplicated" : "unknown or missing from the snapshot"}: ${decision.ref}`);
-  }
-  const element = matches[0]!;
-  if ((decision.text !== undefined && decision.text !== element.name) ||
-      (decision.role !== undefined && decision.role !== element.role)) {
-    throw stepError("resolution", "decision text or role conflicts with the observation ref");
-  }
-  return element;
-}
-
-/** Supply the selected observation's canonical metadata before an action policy evaluates it. */
-export function canonicalizeDecision(decision: Decision, elements: readonly PageElement[]): Decision {
-  const element = referenceElement(decision, elements);
-  if (!element) return decision;
-  const nth = dupeOrdinals([...elements]).get(element);
-  if (decision.nth !== undefined && decision.nth !== (nth ?? 0)) {
-    throw stepError("resolution", "decision nth conflicts with the observation ref");
-  }
-  return { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
-}
-
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
-export async function applyDecision(driver: Driver, decision: Decision, elements?: readonly PageElement[]): Promise<Step> {
-  decision = canonicalizeDecision(decision, elements ?? []);
+export async function applyDecision(driver: Driver, decision: Decision): Promise<Step> {
   const step = await decisionToStep(driver, decision);
-  await execute.execute(step, driver, decision.ref);
+  await execute.execute(step, driver);
   return step;
 }
 
@@ -200,14 +152,6 @@ export function describeAmbiguity(
   decision: Decision,
   elements: readonly PageElement[],
 ): string | undefined {
-  if (decision.ref !== undefined) {
-    try {
-      referenceElement(decision, elements);
-      return undefined;
-    } catch (err) {
-      return err instanceof Error ? err.message : String(err);
-    }
-  }
   if (!decision.text || decision.nth !== undefined) return undefined;
   const needle = decision.text.trim().toLowerCase();
   const matches = elements.filter(

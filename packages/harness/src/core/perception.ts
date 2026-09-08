@@ -1,4 +1,4 @@
-/** Browser-neutral policy over Driver observation facts. No DOM or driver handles. */
+/** Pure ranking and clickable quota policy. No DOM access or driver handles. */
 import type { PageElement } from "./types.js";
 
 const INTERACTIVE_ROLES = new Set([
@@ -41,15 +41,14 @@ export function rankElements(
   // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
   const scored = elements
-    .filter((e) => e.occluded !== true)
     .map((e, i) => {
-      const interactive = INTERACTIVE_ROLES.has(e.role) || e.clickable === true;
+      const interactive = INTERACTIVE_ROLES.has(e.role);
       let score = interactive ? 100 : 0;
       const name = e.name.toLowerCase();
       for (const w of words) if (name.includes(w)) score += 10;
       return { e, score, i, evidence: !interactive && score > 0 };
     })
-    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i);
+    .sort((a, b) => b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 
   const cut = scored.slice(0, limit);
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
@@ -61,23 +60,22 @@ export function rankElements(
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
   return [...cut.filter((s) => !evicted.has(s)), ...missed]
-    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
+    .sort((a, b) => b.score - a.score || a.i - b.i)
     .map((s) => s.e);
 }
 
-const MAX_SUPPLEMENTARY_CLICKABLES = 40;
+const MAX_PROMOTED_CLICKABLES = 40;
 
-/** Keep one proven clickable label per region without deleting the other text evidence. */
-export function normalizeElements(elements: PageElement[]): PageElement[] {
-  const seen = new Set<string>();
-  let promoted = 0;
-  return elements.map((element) => {
-    if (!element.clickable) return element;
-    if (promoted >= MAX_SUPPLEMENTARY_CLICKABLES || (element.clickableRegion && seen.has(element.clickableRegion))) {
-      return { ...element, clickable: false };
+/** Keep the first label per measured region, cap regions, then deduplicate names (#132). */
+export function promotedClickableNames(
+  candidates: { name: string }[],
+  regions: unknown[],
+): Set<string> {
+  const firstPerRegion = new Map<number, string>();
+  regions.forEach((rid, i) => {
+    if (typeof rid === "number" && rid >= 0 && !firstPerRegion.has(rid)) {
+      firstPerRegion.set(rid, candidates[i]!.name.trim());
     }
-    if (element.clickableRegion) seen.add(element.clickableRegion);
-    promoted++;
-    return element;
   });
+  return new Set([...firstPerRegion.values()].slice(0, MAX_PROMOTED_CLICKABLES));
 }

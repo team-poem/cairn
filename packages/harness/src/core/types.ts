@@ -137,16 +137,6 @@ export interface Scenario {
 export interface PageElement {
   role: string;
   name: string;
-  /** Opaque, transient observation identity; never a locator to persist in a frozen Target. */
-  ref?: string;
-  /** Observed membership in the currently open popup, supplied by the Driver. */
-  inActivePopup?: boolean;
-  /** Positive hit-test evidence that another element covers this control; absent means unknown. */
-  occluded?: boolean;
-  /** Proven click behavior outside native/ARIA roles; source role is unchanged. */
-  clickable?: boolean;
-  /** Observation-local identity of the actual clickable ancestor, used to de-nest its labels. */
-  clickableRegion?: string;
   checked?: boolean | "mixed";
   disabled?: boolean;
   value?: string;

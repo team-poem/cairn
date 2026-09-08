@@ -33,12 +33,6 @@ export interface Planner {
   plan(ctx: Context): Promise<Scenario>;
 }
 
-/** Ask for browser-neutral observation facts to apply the engine's common perception policy.
- * Legacy Drivers may ignore this additive option and keep returning their usual observations. */
-export interface SnapshotOptions {
-  perception?: boolean;
-}
-
 /** Drives a browser. Replaceable without touching core (invariant #5); resolves targets from intent, not handles.
  *
  * Lifecycle: whoever constructs a Driver owns it — the engine closes only drivers it created
@@ -64,25 +58,22 @@ export interface SnapshotOptions {
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target, ref?: string): Promise<void>;
-  doubleClick(target: Target, ref?: string): Promise<void>;
-  hover(target: Target, ref?: string): Promise<void>;
-  type(target: Target, text: string, ref?: string): Promise<void>;
+  click(target: Target): Promise<void>;
+  doubleClick(target: Target): Promise<void>;
+  hover(target: Target): Promise<void>;
+  type(target: Target, text: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
-  /** Resolve an exact, current observation reference to durable locators for freezing.
-   * Unsupported by legacy drivers; stale or detached references must reject, never retarget. */
-  locateRef?(ref: string): Promise<Target>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
-  select(target: Target, value: string, ref?: string): Promise<void>;
+  select(target: Target, value: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;
   /** Scroll the page to reveal lazy/below-the-fold content. */
   scroll(direction?: "down" | "up"): Promise<void>;
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
-  snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
+  snapshot(): Promise<PageElement[]>;
   /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
    * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an

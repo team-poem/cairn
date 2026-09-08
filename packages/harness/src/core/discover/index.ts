@@ -9,12 +9,11 @@
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt, renderRankedElements, withReferenceRules } from "./prompt.js";
-import { applyDecision, canonicalizeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
+import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
+import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import type { OutcomeMark } from "./capture.js";
-import { normalizeElements } from "../perception.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
@@ -162,13 +161,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const raw = await driver.snapshot({ perception: true });
-    const elements = normalizeElements(perceive ? await perceive(raw) : raw);
+    const raw = await driver.snapshot();
+    const elements = perceive ? await perceive(raw) : raw;
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = renderRankedElements(elements, intent);
     const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
-      system: withReferenceRules(SYSTEM, elements),
+      system: SYSTEM,
     });
     prevRender = render;
 
@@ -214,7 +213,6 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     }
 
     try {
-      decision = canonicalizeDecision(decision, elements);
       const beforeObs = await driver.observe();
       currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
@@ -244,7 +242,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         // perceived list, when a hook exists, answers usability (the state it was installed to fix).
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision, elements);
+      const step = await applyDecision(driver, decision);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -276,9 +274,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   // a goal reached by the last action is a trusted finish, not a truncation (#77).
   if (policy?.stop) {
     await driver.settle();
-    const raw = await driver.snapshot({ perception: true });
-    const elements = normalizeElements(perceive ? await perceive(raw) : raw);
-    if (policy.stop(steps, { elements })) return finish(false);
+    if (policy.stop(steps, { elements: await driver.snapshot() })) return finish(false);
   }
   return finish(true);
 }

@@ -121,3 +121,11 @@ test("normalizeClickableQuota: supplementary clickable priority caps at forty wi
   expect(result.filter(e => e.clickable)).toHaveLength(40);
   expect(result[40]?.name).toBe("Card 40");
 });
+
+test("normalizeIsPure: normalization never mutates a shared driver snapshot", () => {
+  const rows = [element("First", { role: "StaticText", clickable: true, clickableRegion: "same" }), element("Second", { role: "StaticText", clickable: true, clickableRegion: "same" })];
+  const before = structuredClone(rows);
+  rows.forEach(Object.freeze); Object.freeze(rows);
+  expect(normalize(rows).filter(e => e.clickable)).toHaveLength(1);
+  expect(rows).toEqual(before);
+});

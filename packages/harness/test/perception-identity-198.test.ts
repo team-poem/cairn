@@ -253,3 +253,7 @@ test("refFrozenStepReplay: frozen steps contain durable locators only and replay
   await new BuiltinStepHandler().execute(step, driver);
   expect(driver.events).toEqual([{ action: "click", target: { text: "Save", role: "button", index: 1, nth: 1 }, ref: undefined, value: undefined }]);
 });
+
+test("refDisambiguatesDuplicate: a valid unique reference removes the legacy duplicate name ambiguity", () => {
+  expect(describeAmbiguity({ action: "click", text: "Save", ref: "turn1:second" } as RefDecision, observedPair())).toBeUndefined();
+});

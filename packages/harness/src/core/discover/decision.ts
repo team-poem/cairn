@@ -178,6 +178,14 @@ export function describeAmbiguity(
   decision: Decision,
   elements: readonly PageElement[],
 ): string | undefined {
+  if (decision.ref !== undefined) {
+    try {
+      referenceElement(decision, elements);
+      return undefined;
+    } catch (err) {
+      return err instanceof Error ? err.message : String(err);
+    }
+  }
   if (!decision.text || decision.nth !== undefined) return undefined;
   const needle = decision.text.trim().toLowerCase();
   const matches = elements.filter(

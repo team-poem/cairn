@@ -58,9 +58,14 @@
   두 차례 리뷰 11건 전부 "렌더된 문자열을 자유 텍스트째 검사"가 원인 → 단언 종류로 검사 범위 고정, 드라이버 문구
   앵커, 상태 전체 파싱 — 구조화 신호는 #212로). #212(PR #213, 분류 신호를 필드로 — `AssertionResult.statuses`·`reason`,
   `Verdict.failClosed`, `ExecutedAction.errorKind`, `stepError`/`errorKindOf` export, Chrome 드라이버가 자기 MCP 봉투를
-  판정하고 다이얼로그 차단은 전송 검사 전에 제외, 트레이스 1.5; 코어에 자유 텍스트 정규식 0). 남은 슬레이트 =
-  #196·#197·#198(설계 논의 선행; #197은 #212의 필드를 그대로 읽으면 됨) · 후보 #171 재앵커(amazon 제안)·#174 비밀값·
-  #175 settle. #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
+  판정하고 다이얼로그 차단은 전송 검사 전에 제외, 트레이스 1.5; 코어에 자유 텍스트 정규식 0). #197(PR #217, `Verdict.proof` — work/judged/arrival/none, `proofOf`가 freeze와 replay를 같은 규칙으로,
+  가드는 vacuity 산수 밖, `provesAnAction`은 `proofOf`로 구현) · #174(PR #218, `{name}` 비밀값 — 결정 시점 슬롯 → 단일
+  채움 핸들러 → 출력에 대한 범위 검사(`onSiteOf`+포트), 프롬프트 value 마스킹, `{{escape}}`, environment 등급이면 heal
+  안 함; 두 차례 리뷰 10건 전부 반영). #171(PR #215, `replayEnvironment { baseUrl, allowedHosts }` — 실행 시점 URL 재앵커,
+  프리즌 파일 불변, 요청 매칭은 양쪽 호스트가 scope에 있을 때만, heal은 임시, suite는 정식 캐시 필수; 리뷰 3건
+  (루트 종료 흐름 영구 빨강·미선언 진입 호스트 무음 no-op·미실행 케이스가 "replayed"로 표기) 반영). 남은 것 =
+  #198(PR #216, 포트 변경을 순수 랭킹/quota 조각으로 좁힘 — `promotedClickableNames` export 여부가 곧 "clickable이
+  공개 어휘냐"라 이슈 198의 두 질문 답 대기) → 그 뒤 #169 벤치·#214 비용 축. #196·#175는 2.10.0. #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
   벤치가 #184·#203 게이트화의 전제" 답변 후 응답 대기. 후속 이슈 후보(저널 참조): 조합 가능한 `outcomeHeal`(#195
   저널) · CLI `localePrefixes` 플래그·스텝 expect.url 미스 힌트(#204 저널) · 요소 정체성(#177 한계, =#198).
   벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.

@@ -52,10 +52,13 @@
   **진행(2026-09-07):** 종결 = #199(PR #202) · #200(PR #201, `urlMatchesFrozen` 쿼리 부분집합 + `hasStablePath`
   `?` 앞 절단) · #203(PR #205, 2초 예산 안 리다이렉트 대기 + `observedBeforeLastMutation` 마커, 트레이스 1.3) ·
   #8(PR #206, 내부 경계 + `check:boundaries` + quickstart/consumer CI) · #195(PR #208, heal 헬퍼 3종 export) ·
-  #204(PR #209, `unrecognizedLeadingSegment` → "is not in localePrefixes" 힌트). 리뷰 중 = #177(PR #210, idle
-  스크롤 prune, `gate: idle-scroll`, 트레이스 1.4). 남은 슬레이트 = #196·#197·#198(설계 논의 선행) ·
-  후보 #171 재앵커(CLI 전제, 가장 큼)·#173 실패분류·#174 비밀값·#175 settle — 전부 미배정.
-  #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
+  #204(PR #209, `unrecognizedLeadingSegment` → "is not in localePrefixes" 힌트). #177(PR #210, idle 스크롤 prune — 같은 페이지의 뒤 타겟 스텝 전부가 스크롤 전에
+  있어야, 리졸버의 #127 중복 거부 거울, `perceive`로 활성 판단; `gate: idle-scroll`, 트레이스 1.4) ·
+  #173(PR #211, `Verdict.failure` flow/script/environment + CLI 종료코드 1·3·4, 2=사용법, 런 시작 후 크래시 4;
+  두 차례 리뷰 11건 전부 "렌더된 문자열을 자유 텍스트째 검사"가 원인 → 단언 종류로 검사 범위 고정, 드라이버 문구
+  앵커, 상태 전체 파싱 — 구조화 신호는 #212로). 남은 슬레이트 = #196·#197·#198(설계 논의 선행) · #212(#173의
+  기반: 결과에 구조화된 상태·에러 종류, #197과 한 모양으로) · 후보 #171 재앵커(CLI 전제, 가장 큼)·#174 비밀값·
+  #175 settle — 전부 미배정. #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
   벤치가 #184·#203 게이트화의 전제" 답변 후 응답 대기. 후속 이슈 후보(저널 참조): 조합 가능한 `outcomeHeal`(#195
   저널) · CLI `localePrefixes` 플래그·스텝 expect.url 미스 힌트(#204 저널) · 요소 정체성(#177 한계, =#198).
   벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.

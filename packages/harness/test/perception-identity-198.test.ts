@@ -462,3 +462,31 @@ test("loopNormalizationKeepsOriginalNth: both loops retain full snapshot ordinal
     expect(prompt).not.toContain("covered");
   }
 });
+
+test("typedConsumerPerceptionIdentity: both public entry declarations expose observation facts and reference actions", async () => {
+  const ts = await import("typescript");
+  const { fileURLToPath } = await import("node:url");
+  for (const entry of ["index", "browser"]) {
+    const filename = fileURLToPath(new URL(`./__virtual_${entry}_198.ts`, import.meta.url));
+    const source = `
+      import type { PageElement, Driver, Decision } from "../src/${entry}.js";
+      import { normalizeElements, rankElements } from "../src/${entry}.js";
+      declare const driver: Driver;
+      const observed: PageElement = { role: "StaticText", name: "Card", ref: "turn:1", clickable: true, clickableRegion: "card", inActivePopup: true, occluded: false };
+      const decision: Decision = { action: "click", ref: "turn:1" };
+      normalizeElements([observed]); rankElements([observed], "Card", 60);
+      driver.locateRef?.("turn:1"); driver.snapshot({ perception: true });
+      driver.click({}, "turn:1"); driver.doubleClick({}, "turn:1"); driver.hover({}, "turn:1");
+      driver.type({}, "value", "turn:1"); driver.select({}, "option", "turn:1");
+      void decision;
+    `;
+    const options = { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.NodeNext, moduleResolution: ts.ModuleResolutionKind.NodeNext, strict: true, noEmit: true, skipLibCheck: true };
+    const host = ts.createCompilerHost(options);
+    const read = host.readFile.bind(host); const exists = host.fileExists.bind(host);
+    host.readFile = path => path === filename ? source : read(path);
+    host.fileExists = path => path === filename || exists(path);
+    const program = ts.createProgram([filename], options, host);
+    const diagnostics = ts.getPreEmitDiagnostics(program).filter(d => d.file?.fileName === filename);
+    expect(diagnostics.map(d => ts.flattenDiagnosticMessageText(d.messageText, "\n"))).toEqual([]);
+  }
+});

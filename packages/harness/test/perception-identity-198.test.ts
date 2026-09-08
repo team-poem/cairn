@@ -129,3 +129,9 @@ test("normalizeIsPure: normalization never mutates a shared driver snapshot", ()
   expect(normalize(rows).filter(e => e.clickable)).toHaveLength(1);
   expect(rows).toEqual(before);
 });
+
+test("normalizeLegacyAndEmpty: legacy observations preserve data and order and empty snapshots stay empty", () => {
+  const rows = [element("Title", { role: "heading" }), element("Save", { disabled: true }), element("Email", { role: "textbox", value: "a@example.test" })];
+  expect(normalize(rows)).toEqual(rows);
+  expect(normalize([])).toEqual([]);
+});

@@ -177,6 +177,15 @@ creation included, and reads as a lower bound once a call reported no usage or
 reported only some of those fields. It is a count, and the runner records no
 per-model price, so a dollar figure cannot be derived from it. A tie is not a crossing.
 
+One CLI call can bill more than one model: the tool runs a small helper model
+of its own beside the model under test. An arm's cost column is everything the
+run spent, and a per-model line under each tier says what each model's share
+was. Where that line says a model was priced at list, the provider computed its
+share from published API rates, so it is what an API caller would have paid for
+the same tokens even when the run itself went through a subscription. A model
+the provider priced on some other basis, or did not price, says so instead of
+reading as free.
+
 The crossover is withheld rather than guessed whenever it would be a claim: a
 scripted source makes no paid call, an arm that stopped short of the schedule
 was never compared over it, a run whose cost the provider never reported adds

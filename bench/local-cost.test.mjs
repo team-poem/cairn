@@ -420,3 +420,47 @@ test("costMarksATokenTotalItCouldNotComplete: a call that reported no usage make
   // Money is a separate question: every call reported a cost, so the cost column stays measured.
   assert.equal(arms.agent.costComplete, true);
 });
+
+test("costSplitsCostByModel: the model under test is reported apart from the tool's helper model", async (t) => {
+  const { runCostComparison } = await load();
+  const { renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { fixtureVersions: ["v1", "v1"], runs: 2 });
+  h.runtime.createLlm = (_config, context) => ({ id: "fake", async complete(_prompt, options = {}) {
+    context.budget.reserve();
+    options.onUsage?.({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 10 });
+    context.budget.record({ costUsd: 0.1, models: {
+      "model-under-test": { costUsd: 0.09, costBasis: "list", inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 10 },
+      "tool-helper": { costUsd: 0.01, costBasis: "list", inputTokens: 40, outputTokens: 2 },
+    } });
+    return { text: "{}" };
+  } });
+  const report = await runCostComparison(h.config, h.runtime);
+  const agent = report.summaries[0].arms.agent;
+  // The arm total stays what the run actually spent; the split says who spent it.
+  assert.equal(Number(agent.cumulative.at(-1).costUsd.toFixed(4)), 0.2);
+  assert.equal(Number(agent.models["model-under-test"].costUsd.toFixed(4)), 0.18);
+  assert.equal(Number(agent.models["tool-helper"].costUsd.toFixed(4)), 0.02);
+  assert.equal(agent.models["model-under-test"].calls, 2);
+  assert.equal(agent.models["model-under-test"].listPriced, true);
+  assert.equal(report.records[0].models["model-under-test"].costUsd, 0.09);
+  const markdown = renderCostMarkdown(report);
+  assert.match(markdown, /agent · model-under-test: \$0\.180000 at list price, 2 call\(s\), 270 tokens/);
+  assert.match(markdown, /what an API caller would have paid/);
+});
+
+test("costSaysWhenAModelWasNotPricedAtList: an unpriced share is not presented as an API equivalent", async (t) => {
+  const { runCostComparison } = await load();
+  const { renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { fixtureVersions: ["v1", "v1"], runs: 2 });
+  h.runtime.createLlm = (_config, context) => ({ id: "fake", async complete(_prompt, options = {}) {
+    context.budget.reserve();
+    options.onUsage?.({ inputTokens: 10, outputTokens: 2, cacheReadTokens: 0, cacheCreationTokens: 0 });
+    context.budget.record({ costUsd: 0.1, models: { "model-under-test": { costUsd: null, costBasis: "negotiated", inputTokens: 10, outputTokens: 2 } } });
+    return { text: "{}" };
+  } });
+  const report = await runCostComparison(h.config, h.runtime);
+  const model = report.summaries[0].arms.agent.models["model-under-test"];
+  assert.equal(model.costComplete, false);
+  assert.equal(model.listPriced, false);
+  assert.match(renderCostMarkdown(report), /model-under-test: unknown \(not list price\)/);
+});

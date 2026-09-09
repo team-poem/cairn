@@ -1,5 +1,24 @@
 import { execFile } from "node:child_process";
 
+/**
+ * One CLI call can bill more than one model: the tool runs a small helper model of its own beside
+ * the model under test. `costBasis` says how the provider priced it, and "list" means API list
+ * price, which is what makes a subscription run comparable to what an API caller would have paid.
+ * Reporting the split keeps a per-model number from quietly including the helper's share.
+ */
+function perModel(modelUsage) {
+  if (!modelUsage || typeof modelUsage !== "object") return null;
+  const fields = [["inputTokens", "inputTokens"], ["outputTokens", "outputTokens"], ["cacheReadInputTokens", "cacheReadTokens"], ["cacheCreationInputTokens", "cacheCreationTokens"]];
+  const out = {};
+  for (const [id, usage] of Object.entries(modelUsage)) {
+    if (!usage || typeof usage !== "object") continue;
+    const entry = { costUsd: Number.isFinite(usage.costUSD) && usage.costUSD >= 0 ? usage.costUSD : null, costBasis: typeof usage.costBasis === "string" ? usage.costBasis : null };
+    for (const [from, to] of fields) if (Number.isFinite(usage[from]) && usage[from] >= 0) entry[to] = usage[from];
+    out[id] = entry;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
 export function createClaudeClient(config, { budget, signal, command = "claude" }) {
   return {
     id: `claude-code:${config.model}`,
@@ -16,7 +35,7 @@ export function createClaudeClient(config, { budget, signal, command = "claude" 
         let response;
         try { response = JSON.parse(stdout); } catch { throw new Error("Claude returned no valid JSON result", { cause: error }); }
         const failure = error || response.is_error || typeof response.result !== "string";
-        budget.record({ costUsd: response.total_cost_usd, modelIds: Object.keys(response.modelUsage ?? {}), providerSubtype: response.subtype ?? null, error: failure ? String(error?.message ?? response.result ?? "Claude completion failed") : null });
+        budget.record({ costUsd: response.total_cost_usd, modelIds: Object.keys(response.modelUsage ?? {}), models: perModel(response.modelUsage), providerSubtype: response.subtype ?? null, error: failure ? String(error?.message ?? response.result ?? "Claude completion failed") : null });
         recorded = true;
         const usage = response.usage;
         // Cache-CREATION tokens are billed and were being dropped, so a token total could not be

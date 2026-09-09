@@ -27,10 +27,18 @@ npm run bench:local -- replay --config bench/local/smoke.json --runs 2 \
   --out bench/results/replay-1
 ```
 
-Both commands write `results.json` and `results.md`. Discovery saves the **engine's
-returned Scenario**, plus a hash-bound metadata sidecar, for every successful
-attempt. Failed discoveries stay in the discovery denominator. Select one
-explicit discovery round (`captures/run-1`, for example) for replay; there is no
+Both commands write `results.json` and `results.md`. To regenerate Markdown from
+an existing JSON report without rerunning the browser or provider, run from the
+repository root (replace the two paths):
+
+```sh
+node --input-type=module -e 'import { readFile, writeFile } from "node:fs/promises"; import { renderMarkdown } from "./bench/local/report.mjs"; await writeFile(process.argv[2], renderMarkdown(JSON.parse(await readFile(process.argv[1], "utf8"))));' \
+  /path/to/results.json /path/to/regenerated.md
+```
+
+Discovery saves the **engine's returned Scenario**, plus a hash-bound metadata
+sidecar, for every successful attempt. Failed discoveries stay in the discovery
+denominator. Select one explicit discovery round (`captures/run-1`, for example) for replay; there is no
 automatic selection of the most successful capture. Captures are immutable and
 validated before opening a browser. The sidecar records canonical origin, fixture
 source/version/hash, discovery source, engine identity and scenario bytes hash.
@@ -56,7 +64,8 @@ measurement. JSON configuration supplies:
 - `latency.document` and `latency.api`: nonempty arrays of milliseconds. Attempt
   index `i` uses array entry `i % length` independently for each route class.
   Incidental request order does not advance the schedule.
-- `maxSteps`: optional positive discovery step limit (default 20).
+- `maxSteps`: optional positive decision limit for discovery and outcome
+  rediscovery during healing (default 20).
 - `llm`: required for discovery/heal, ignored for replay.
 
 Requested delays and observed request elapsed times are distinct in JSON. A

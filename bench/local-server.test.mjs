@@ -89,3 +89,20 @@ test("localVariantsAndIsolation: every v2 changes labels while new instances sta
   assert.equal((await request(b, "/api/order", {}, login.cookie)).status, 401);
   assert.equal(b.snapshot().complete, false);
 });
+
+test("localLatencySchedule: route-class delays depend on run index rather than incidental requests", { timeout: 5000 }, async (t) => {
+  const latency = { document: [0, 5], api: [0, 40] };
+  assert.equal(delayFor(latency, 1, "api"), 40);
+  assert.equal(delayFor(latency, 3, "api"), 40);
+  assert.equal(delayFor(latency, 2, "document"), 0);
+  const s = await fixture(t, { tier: "form", runIndex: 1, latency });
+  await request(s, "/favicon.ico");
+  await request(s, "/");
+  const start = performance.now();
+  await request(s, "/api/save", { value: "alice" });
+  assert.ok(performance.now() - start >= 30, "the requested 40ms API delay must actually occur");
+  const api = s.requestLog().filter((r) => r.path === "/api/save");
+  assert.equal(api.length, 1);
+  assert.equal(api[0].requestedDelayMs, 40);
+  assert.ok(api[0].elapsedMs >= 30);
+});

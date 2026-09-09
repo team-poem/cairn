@@ -18,10 +18,23 @@ export async function startFixture({ tier, version, runIndex, latency }) {
   let savedValue = null;
   const sessions = new Map();
   const logs = [];
+  const pending = new Map();
+  let closed = false;
   const server = createServer(async (req, res) => {
     const send = (body) => res.end(version === "v2" ? [["Continue", "Proceed"], ["Username", "Account"], ["Log in", "Sign in"], ["Add to cart", "Add item"], ["Place order", "Confirm order"], ["Name ", "Display name "], ["Save", "Store"]].reduce((text, [before, after]) => text.replaceAll(before, after), body) : body);
     const path = new URL(req.url, "http://localhost").pathname;
-    logs.push({ path });
+    const requestedDelayMs = delayFor(latency, runIndex, path.startsWith("/api/") ? "api" : "document");
+    const started = performance.now();
+    const entry = { path, requestedDelayMs, elapsedMs: null };
+    logs.push(entry);
+    res.once("finish", () => { entry.elapsedMs = performance.now() - started; });
+    if (requestedDelayMs > 0) {
+      const ready = await new Promise((resolve) => {
+        const timer = setTimeout(() => { pending.delete(timer); resolve(true); }, requestedDelayMs);
+        pending.set(timer, resolve);
+      });
+      if (!ready || closed) return;
+    }
     res.setHeader("content-type", "text/html; charset=utf-8");
     if (tier === "stateful") {
       const token = /(?:^|;\s*)session=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];
@@ -85,6 +98,12 @@ export async function startFixture({ tier, version, runIndex, latency }) {
     origin: `http://127.0.0.1:${server.address().port}`,
     snapshot: () => ({ complete, savedValue, cartCount: [...sessions.values()].reduce((n, s) => n + s.cartCount, 0), orderCount: [...sessions.values()].reduce((n, s) => n + s.orderCount, 0) }),
     requestLog: () => structuredClone(logs),
-    close: () => new Promise((resolve, reject) => { server.close((error) => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve()); server.closeAllConnections(); }),
+    close: () => new Promise((resolve, reject) => {
+      closed = true;
+      for (const [timer, resume] of pending) { clearTimeout(timer); resume(false); }
+      pending.clear();
+      server.close((error) => error && error.code !== "ERR_SERVER_NOT_RUNNING" ? reject(error) : resolve());
+      server.closeAllConnections();
+    }),
   };
 }

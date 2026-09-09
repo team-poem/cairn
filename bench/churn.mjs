@@ -5,7 +5,7 @@
 // Then replays the v1-frozen scenario against v2, with and without self-heal.
 
 import { createServer } from "node:http";
-import { discover, ChromeDevToolsDriver, createLlmClient, runScenario } from "/Users/deliveredkorea/cairn/packages/harness/dist/index.js";
+import { discover, ChromeDevToolsDriver, createLlmClient, runScenario } from "../packages/harness/dist/index.js";
 
 const V1 = `<!doctype html><html lang=en><meta charset=utf8><body>
   <input aria-label="Username">

@@ -100,3 +100,15 @@ test("benchmarkReplayRelocates: replay reads script-local freezes four times eac
   assert.deepEqual(f.events(), []);
   assert.equal((missing.stdout.match(/no frozen scenario/g) ?? []).length, 2);
 });
+
+test("churnRelocates: the local public engine preserves discovery and both four-run churn arms", (t) => {
+  const f = fixture(t);
+  succeeds(f.script("churn"));
+  const events = f.events();
+  assert.equal(events.filter((e) => e.kind === "discover").length, 1);
+  assert.equal(events.filter((e) => e.kind === "close").length, 1);
+  assert.deepEqual(events.filter((e) => e.kind === "llm").map((e) => e.model), ["sonnet", "haiku", "haiku", "haiku", "haiku"]);
+  const replays = events.filter((e) => e.kind === "replay");
+  assert.deepEqual(replays.map((e) => e.heal), [false, false, false, false, true, true, true, true]);
+  assert.ok(replays.every((e) => e.scenario.steps[0].url === "http://localhost:8077/v2"));
+});

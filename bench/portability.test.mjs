@@ -82,3 +82,21 @@ test("benchmarkDiscoverRelocates: discovery freezes both flows beside its script
   assert.equal(f.events().filter((e) => e.kind === "close").length, 2);
   assert.equal(existsSync(join(f.root, "elsewhere/bench/frozen")), false);
 });
+
+test("benchmarkReplayRelocates: replay reads script-local freezes four times each and skips absent files", (t) => {
+  const f = fixture(t);
+  for (const id of ids) {
+    f.put(`bench/frozen/${id}.json`, JSON.stringify({ scenario }));
+    f.put(`elsewhere/bench/frozen/${id}.json`, "invalid caller-local decoy");
+  }
+  const result = f.script("benchmark", ["replay"]);
+  succeeds(result);
+  assert.deepEqual(f.events(), Array.from({ length: 8 }, () => ({ kind: "replay", scenario, heal: false })));
+  assert.equal((result.stdout.match(/4\/4\s+4\/4/g) ?? []).length, 2);
+  f.clear();
+  rmSync(join(f.root, "bench/frozen"), { recursive: true });
+  const missing = f.script("benchmark", ["replay"]);
+  succeeds(missing);
+  assert.deepEqual(f.events(), []);
+  assert.equal((missing.stdout.match(/no frozen scenario/g) ?? []).length, 2);
+});

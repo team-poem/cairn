@@ -1,3 +1,38 @@
+const TIERS = ["navigation", "form", "stateful"];
+const ARMS = ["agent", "cairn"];
+
+/**
+ * The cost comparison (#214) shares the reliability config's fixtures and latency, and adds the
+ * two things a comparison needs: which arms to run, and when the app changes. `fixtureVersions`
+ * is one entry per run, so "the app changed at run k" is a property of the schedule rather than
+ * of the invocation — both arms then meet the same change on the same run.
+ */
+export function validateCostConfig(config) {
+  const fail = (message) => { throw new Error(`Invalid cost configuration: ${message}`); };
+  if (!config || config.mode !== "cost") fail("mode");
+  if (!Number.isSafeInteger(config.runs) || config.runs < 2) fail("runs must be at least 2; one run cannot show a crossover");
+  if (!Array.isArray(config.tiers) || !config.tiers.length || new Set(config.tiers).size !== config.tiers.length || config.tiers.some((tier) => !TIERS.includes(tier))) fail("tiers");
+  if (!Array.isArray(config.arms) || !config.arms.length || new Set(config.arms).size !== config.arms.length || config.arms.some((arm) => !ARMS.includes(arm))) fail("arms");
+  if (!Array.isArray(config.fixtureVersions) || config.fixtureVersions.length !== config.runs || config.fixtureVersions.some((version) => !["v1", "v2"].includes(version))) fail("fixtureVersions must name a version for every run");
+  if (config.fixtureVersions[0] !== "v1") fail("the first run must be v1: it is the canonical discovery both arms start from");
+  if (!/^[a-f0-9]{40}$/.test(config.engineCommit ?? "")) fail("engineCommit must be a full commit hash");
+  for (const kind of ["document", "api"]) {
+    const values = config.latency?.[kind];
+    if (!Array.isArray(values) || !values.length || values.some((n) => !Number.isFinite(n) || n < 0 || n > 2147483647)) fail(`${kind} latency`);
+  }
+  if (typeof config.outputDir !== "string" || !config.outputDir) fail("outputDir");
+  if (config.maxSteps !== undefined && (!Number.isSafeInteger(config.maxSteps) || config.maxSteps < 1)) fail("maxSteps");
+  const llm = config.llm;
+  if (llm?.source === "scripted") {
+    if (typeof llm.label !== "string" || !llm.label.trim()) fail("scripted source label");
+  } else {
+    if (llm?.source !== "llm" || typeof llm.backend !== "string" || !llm.backend.trim() || typeof llm.model !== "string" || !llm.model.trim()) fail("explicit LLM backend and model");
+    if (!Number.isSafeInteger(llm.maxCalls) || llm.maxCalls < 1) fail("maxCalls");
+    if (!Number.isFinite(llm.maxCostUsd) || llm.maxCostUsd <= 0) fail("maxCostUsd stopping threshold");
+  }
+  return config;
+}
+
 export function validateConfig(config) {
   const fail = (message) => { throw new Error(`Invalid benchmark configuration: ${message}`); };
   if (!config || !["discover", "replay", "heal"].includes(config.mode)) fail("mode");
@@ -27,7 +62,7 @@ export function validateConfig(config) {
 
 export function parseOptions(args) {
   const [mode, ...rest] = args;
-  if (!["discover", "replay", "heal"].includes(mode)) throw new Error("Explicit mode must be discover, replay or heal");
+  if (!["discover", "replay", "heal", "cost"].includes(mode)) throw new Error("Explicit mode must be discover, replay, heal or cost");
   const names = { "--runs": "runs", "--config": "configPath", "--captures": "captureDir", "--out": "outputDir", "--engine-commit": "engineCommit" };
   const result = { mode };
   for (let i = 0; i < rest.length; i += 2) {
@@ -38,6 +73,6 @@ export function parseOptions(args) {
     result[key] = key === "runs" ? Number(value) : value;
   }
   for (const key of ["runs", "configPath", "outputDir", "engineCommit"]) if (!(key in result)) throw new Error(`Missing ${key}`);
-  if (mode !== "discover" && !result.captureDir) throw new Error("Missing captureDir");
+  if (!["discover", "cost"].includes(mode) && !result.captureDir) throw new Error("Missing captureDir");
   return result;
 }

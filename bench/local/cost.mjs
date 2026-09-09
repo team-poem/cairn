@@ -1,0 +1,229 @@
+import { join } from "node:path";
+import { access, readFile } from "node:fs/promises";
+import { saveCapture, sha256, validateScenario } from "./artifacts.mjs";
+import { delayFor } from "./server.mjs";
+import { createBudget } from "./budget.mjs";
+import { validateCostConfig } from "./config.mjs";
+
+/**
+ * Two arms over the same fixtures, the same churn schedule and one shared budget (#214).
+ *
+ * `agent` discovers on every run — what an LLM agent driving the browser each time costs.
+ * `cairn` discovers once, replays after that, and heals when the app changes underneath it.
+ *
+ * The question is not whether a replay is free; `result.usage` already proves that per run. It is
+ * whether discovering once and paying for the occasional repair costs less than discovering every
+ * time, which depends entirely on how often the app breaks the freeze. So the arms share the
+ * fixture version schedule: the app changes on the same run for both.
+ *
+ * Both arms of one tier run on a single reserved port, so the capture's frozen URLs match every
+ * later run. That is what lets a heal come back re-freezable — under a replay environment the
+ * engine deliberately withholds it (#171) — and it is why the cairn arm can carry a repair
+ * forward instead of paying for the same break on every run after it.
+ */
+/**
+ * A repair that leaves the fixture origin would drive an offline benchmark to a real host and fold
+ * that traffic into the measured cost. The reliability runner is guarded by `loadCapture` and by a
+ * replay environment's allowed hosts; this path has neither, so it checks the scenario itself.
+ */
+function assertOnOrigin(scenario, origin) {
+  for (const step of scenario.steps) {
+    if (step.kind !== "goto") continue;
+    let parsed = null;
+    try { parsed = new URL(step.url); } catch { parsed = null; }
+    if (!parsed || parsed.origin !== origin) throw new Error("Scenario navigates away from the fixture origin");
+  }
+  return scenario;
+}
+
+export async function runCostComparison(config, runtime) {
+  validateCostConfig({ ...config, signal: undefined });
+  if (config.engineCommit !== runtime.engine.commit) throw new Error("Built engine commit does not match the requested commit");
+  // Checked before the first browser opens. A capture that already exists would not be found until
+  // the cairn arm's discovery, by which time the agent arm has been paid for in full.
+  try { await access(join(config.outputDir, "captures")); throw new Error(`Output directory already holds captures: ${config.outputDir}`); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  // A scripted run spends nothing, so it keeps no ledger; the call counter still observes it.
+  const budget = createBudget(config.llm.source === "llm" ? config.llm : { maxCalls: Number.MAX_SAFE_INTEGER, maxCostUsd: Number.MAX_VALUE });
+  const { signal, ...configuration } = config;
+  const report = {
+    schemaVersion: 1, kind: "cost-comparison",
+    engine: { ...runtime.engine }, configuration, configHash: sha256(JSON.stringify(configuration)),
+    runtime: { node: process.version, platform: process.platform, arch: process.arch, ...runtime.info },
+    startedAt: new Date().toISOString(), finishedAt: null,
+    requested: config.tiers.length * config.arms.length * config.runs, attempted: 0,
+    incomplete: false, stopReason: null, records: [], summaries: [],
+  };
+  comparison: for (const tier of config.tiers) {
+    const port = await runtime.reservePort();
+    for (const arm of config.arms) {
+      let frozen = null, frozenHash = null; // the cairn arm's current scenario, discovered once and replaced by a repair
+      for (let index = 0; index < config.runs; index++) {
+        if (signal?.aborted) { report.incomplete = true; report.stopReason = "Measurement aborted"; break comparison; }
+        const stop = budget.snapshot().stopReason;
+        if (stop) { report.incomplete = true; report.stopReason = stop; break comparison; }
+        const version = config.fixtureVersions[index];
+        const info = runtime.fixtureInfo(tier, version);
+        const discovering = arm === "agent" || frozen === null;
+        const started = performance.now();
+        const before = budget.snapshot().measuredCostUsd;
+        const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+        const record = {
+          tier, arm, index, fixtureVersion: version, action: discovering ? "discover" : "replay",
+          completed: false, passed: false, verdict: null, oracle: null, error: null,
+          healCount: 0, refrozen: false, scenarioHash: null, replayedScenarioHash: discovering ? null : frozenHash,
+          fixtureHash: info.hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])),
+          usage: null, engineUsage: null, observedUsage: null, costUsd: null, measuredCostUsd: null, elapsedMs: null,
+        };
+        report.attempted++;
+        let fixture, driver;
+        try {
+          fixture = await runtime.startFixture({ tier, version, runIndex: index, latency: config.latency, port });
+          driver = runtime.createDriver();
+          const client = runtime.createLlm(config.llm, { tier, version, origin: fixture.origin, budget, signal });
+          const llm = { id: client.id, complete(prompt, options = {}) {
+            observedUsage.llmCalls++;
+            let measured = false;
+            return client.complete(prompt, { ...options, onUsage(usage) {
+              if (measured) return;
+              measured = true; observedUsage.measuredCalls++;
+              for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"]) observedUsage[key] += usage[key] ?? 0;
+              options.onUsage?.(usage);
+            } });
+          } };
+          if (discovering) {
+            const scenario = await runtime.discover(info.intent, { driver, llm, baseUrl: fixture.origin + info.entryPath, semanticChecks: false, maxSteps: config.maxSteps ?? 20, signal });
+            assertOnOrigin(validateScenario(scenario, "replay"), fixture.origin);
+            record.completed = true;
+            // Discovery has no frozen assertions to rule on, so a discover run's verdict says only
+            // that a replayable scenario came back. The two arms' failure counts are not the same
+            // measurement, and the report says so.
+            record.verdict = true;
+            if (arm === "cairn") {
+              record.scenarioHash = frozenHash = await keep(config, runtime, `${tier}.skill.json`, scenario, { tier, version, info, fixture, record });
+              frozen = scenario;
+            }
+          } else {
+            // No replayEnvironment: the port is the capture's own, so the frozen URLs already match.
+            const output = await runtime.runScenario(structuredClone(frozen), { driver, heal: true, llm, signal, maxSteps: config.maxSteps });
+            record.completed = true;
+            record.verdict = output.result.verdict.passed;
+            record.engineUsage = output.result.usage ?? null;
+            record.healCount = (output.heals?.length ?? 0) + (output.stepHeals?.length ?? 0);
+            // The engine's own count and the benchmark's wrapper are separate vantage points, and a
+            // free run is a claim about money. An engine call the wrapper never saw would mean the
+            // run went through a client this comparison is not billing.
+            if (!Number.isFinite(output.result.usage?.llmCalls)) throw new Error("Replay returned no usage, so its LLM calls cannot be checked");
+            if (output.result.usage.llmCalls > observedUsage.llmCalls) throw new Error("Engine reported LLM calls the benchmark did not observe");
+            if (output.healedScenario) {
+              assertOnOrigin(validateScenario(output.healedScenario, "replay"), fixture.origin);
+              // Saved under its own name: the scenario the arm replays from here on is the repair,
+              // and a cost claim that rests on repairs has to leave them on disk.
+              record.scenarioHash = frozenHash = await keep(config, runtime, `${tier}.repair-${index}.skill.json`, output.healedScenario, { tier, version, info, fixture, record });
+              frozen = output.healedScenario; // the repair carries into every run after this one
+              record.refrozen = true;
+            }
+          }
+          record.oracle = fixture.snapshot();
+          record.passed = Boolean(record.verdict) && record.oracle.complete;
+        } catch (error) {
+          record.error = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };
+          record.oracle = fixture?.snapshot() ?? null;
+        } finally {
+          for (const resource of [driver, fixture]) {
+            try { await resource?.close(); }
+            catch (error) {
+              const detail = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };
+              record.cleanupErrors = [...(record.cleanupErrors ?? []), detail];
+              record.error ??= detail; record.passed = false;
+              report.incomplete = true; report.stopReason ??= "Resource cleanup failed";
+            }
+          }
+          record.observedUsage = { ...observedUsage };
+          record.usage = { ...observedUsage };
+          const measured = budget.snapshot();
+          record.measuredCostUsd = measured.measuredCostUsd - before;
+          record.costUsd = measured.costComplete ? record.measuredCostUsd : null;
+          record.elapsedMs = performance.now() - started;
+          if (measured.stopReason) { report.incomplete = true; report.stopReason ??= measured.stopReason; }
+        }
+        report.records.push(record);
+        if (signal?.aborted) { report.incomplete = true; report.stopReason ??= "Measurement aborted"; }
+        if (report.incomplete) break comparison;
+        // The cairn arm cannot continue a tier whose first discovery never produced a scenario, and
+        // the runs it never attempted are missing measurement, not a completed schedule.
+        if (arm === "cairn" && frozen === null) {
+          report.incomplete = true;
+          report.stopReason ??= "The cairn arm had no scenario to replay after a failed discovery";
+          break comparison; // as with every other stop, no later tier is paid for after this one
+        }
+      }
+    }
+  }
+  report.summaries = summarize(report, config);
+  report.finishedAt = new Date().toISOString();
+  report.budget = budget.snapshot();
+  return report;
+}
+
+/** Every scenario a record names is written the same way and hashed over the same bytes, so two
+ * records' hashes can be compared to tell whether the scenario actually changed. */
+async function keep(config, runtime, name, scenario, { tier, version, info, fixture, record }) {
+  const path = join(config.outputDir, "captures", name);
+  await saveCapture(path, scenario, { tier, fixtureVersion: version, fixtureHash: info.hash, captureOrigin: fixture.origin, source: { ...config.llm, kind: config.llm.source }, engine: runtime.engine }, runtime.saveSkillFile);
+  record.artifactPath = path;
+  return sha256(await readFile(path));
+}
+
+/** Cumulative cost and tokens per arm per run index, the crossover, and how often cairn had to pay. */
+function summarize(report, config) {
+  const costMeasured = config.llm?.source === "llm";
+  return config.tiers.map((tier) => {
+    const arms = Object.fromEntries(config.arms.map((arm) => {
+      const records = report.records.filter((record) => record.tier === tier && record.arm === arm);
+      let cost = 0, tokens = 0;
+      const cumulative = records.map((record) => {
+        cost += record.measuredCostUsd ?? 0;
+        tokens += ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"].reduce((sum, key) => sum + (record.observedUsage?.[key] ?? 0), 0);
+        return { index: record.index, costUsd: cost, tokens, calls: record.observedUsage?.llmCalls ?? 0 };
+      });
+      return [arm, {
+        attempted: records.length,
+        failures: records.filter((record) => !record.passed).length,
+        runsWithCalls: records.filter((record) => (record.observedUsage?.llmCalls ?? 0) > 0).length,
+        runsWithoutCalls: records.filter((record) => record.passed && (record.observedUsage?.llmCalls ?? 0) === 0).length,
+        repairs: records.filter((record) => record.refrozen).length,
+        costComplete: records.length > 0 && records.every((record) => record.costUsd !== null),
+        cumulative,
+      }];
+    }));
+    // The first run index where discovering once has cost less than discovering every time, and
+    // has stayed there. Null while cairn is still behind. Two arms that paid the same is a tie,
+    // not a crossing, and cumulative sums are floating point, so the comparison needs a hair of
+    // tolerance to keep a tie from reading as a lead.
+    // From the second run only. On the first both arms do the same work on the same fixture, so a
+    // difference there is provider pricing noise, not a freeze paying off.
+    const [agent, cairn] = [arms.agent?.cumulative ?? [], arms.cairn?.cumulative ?? []];
+    const shared = Math.min(agent.length, cairn.length);
+    let crossover = null;
+    for (let index = 1; index < shared; index++) {
+      if (agent[index].costUsd - cairn[index].costUsd > 1e-9) { crossover ??= index; }
+      else crossover = null;
+    }
+    // Four ways the number would be a claim rather than a measurement, and each is a state this
+    // runner can reach. A scripted source makes no paid call, so its zeros are an absence of
+    // measurement. An arm that stopped short of the schedule was never compared over it. A run
+    // whose cost the provider never reported adds nothing to that arm's total, which would score
+    // an unknown as free. And a failed run costs nothing, so a broken arm looks like a cheap one:
+    // the reserved port makes that concrete, since a port taken between reserving and listening
+    // fails every remaining run of the tier at zero cost. In all four the crossover is withheld.
+    const usable = (arm) => Boolean(arm) && arm.cumulative.length === config.runs && arm.costComplete && arm.failures === 0;
+    const comparable = costMeasured && usable(arms.agent) && usable(arms.cairn);
+    const why = !costMeasured ? "this source makes no paid call"
+      : !arms.agent || !arms.cairn ? "a comparison needs both arms"
+      : [arms.agent, arms.cairn].some((arm) => arm.cumulative.length !== config.runs) ? "an arm stopped short of the schedule"
+      : [arms.agent, arms.cairn].some((arm) => arm.failures > 0) ? "a run failed, and a failed run costs nothing"
+      : "a run's cost was never reported";
+    return { tier, arms, crossover: comparable ? crossover : null, costMeasured, comparable, comparableNote: comparable ? null : why, runs: config.runs };
+  });
+}

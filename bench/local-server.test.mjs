@@ -1,7 +1,7 @@
 // file: bench/local-server.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { startFixture, delayFor, fixtureInfo } from "./local/server.mjs";
+import { startFixture, delayFor, fixtureInfo, reservePort } from "./local/server.mjs";
 
 const immediate = { document: [0], api: [0] };
 async function fixture(t, options = {}) {
@@ -159,4 +159,33 @@ test("localAbortedUploadIsContained: cancelling an accepted partial form upload 
     assert.equal(result.error, undefined, String(result.error));
     assert.equal(result.status, 0, result.stderr);
   });
+});
+
+test("localReservedPortKeepsOneOrigin: sequential runs rebind the port and still start with fresh state", { timeout: 5000 }, async (t) => {
+  const port = await reservePort();
+  assert.ok(Number.isInteger(port) && port > 1024);
+  const first = await startFixture({ tier: "stateful", version: "v1", runIndex: 0, latency: immediate, port });
+  t.after(() => first.close());
+  assert.equal(new URL(first.origin).port, String(port));
+  const login = await request(first, "/api/login", { username: "alice" });
+  assert.equal(login.status, 200);
+  assert.equal((await request(first, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 200);
+  assert.equal(first.snapshot().cartCount, 1);
+  await first.close();
+
+  // The frozen URLs of a capture taken above have to match the next run, which is the whole point
+  // of reserving the port; the state behind them must not carry over.
+  const second = await startFixture({ tier: "stateful", version: "v1", runIndex: 1, latency: immediate, port });
+  t.after(() => second.close());
+  assert.equal(second.origin, first.origin);
+  assert.equal(second.snapshot().cartCount, 0);
+  assert.equal(second.snapshot().complete, false);
+  assert.equal((await request(second, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 401);
+});
+
+test("localReservedPortIsFreeAndFailsLoudly: the probe releases the port and a taken port is not shared", { timeout: 5000 }, async (t) => {
+  const port = await reservePort();
+  const holder = await startFixture({ tier: "navigation", version: "v1", runIndex: 0, latency: immediate, port });
+  t.after(() => holder.close());
+  await assert.rejects(startFixture({ tier: "navigation", version: "v1", runIndex: 1, latency: immediate, port }), (error) => error.code === "EADDRINUSE");
 });

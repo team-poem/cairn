@@ -12,7 +12,18 @@ export function delayFor(latency, runIndex, routeClass) {
   return values[runIndex % values.length];
 }
 
-export async function startFixture({ tier, version, runIndex, latency }) {
+/** Reserve a port the OS chose, so an arm's runs can share one origin (#214): a capture's frozen
+ * URLs then match every later run and no replay environment is needed, which is what lets a heal
+ * come back re-freezable. Sequential use only — each run still gets its own server and state. */
+export async function reservePort() {
+  const probe = createServer();
+  await new Promise((resolve, reject) => { probe.once("error", reject); probe.listen(0, "127.0.0.1", resolve); });
+  const { port } = probe.address();
+  await new Promise((resolve, reject) => probe.close((error) => (error ? reject(error) : resolve())));
+  return port;
+}
+
+export async function startFixture({ tier, version, runIndex, latency, port = 0 }) {
   fixtureInfo(tier, version);
   let complete = false;
   let savedValue = null;
@@ -102,7 +113,7 @@ export async function startFixture({ tier, version, runIndex, latency }) {
       else res.destroy();
     });
   });
-  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  await new Promise((resolve, reject) => { server.once("error", reject); server.listen(port, "127.0.0.1", resolve); });
   return {
     origin: `http://127.0.0.1:${server.address().port}`,
     snapshot: () => ({ complete, savedValue, cartCount: [...sessions.values()].reduce((n, s) => n + s.cartCount, 0), orderCount: [...sessions.values()].reduce((n, s) => n + s.orderCount, 0) }),

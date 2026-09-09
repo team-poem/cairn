@@ -83,3 +83,27 @@ test("localCapturesRejectUntrustedInputs: missing malformed stale tampered and s
     await assert.rejects(loadCapture(path, expected));
   }
 });
+
+test("localBudgetCountsBeforeCalls: a shared call limit and measured threshold stop subsequent calls without hiding overshoot", async () => {
+  const { createBudget } = await import("./local/budget.mjs");
+  const calls = createBudget({ maxCalls: 1, maxCostUsd: 10 });
+  calls.reserve();
+  calls.record({ costUsd: 0 });
+  assert.throws(() => calls.reserve());
+  assert.equal(calls.snapshot().calls, 1);
+  assert.equal(calls.snapshot().measuredCostUsd, 0);
+  const cost = createBudget({ maxCalls: 5, maxCostUsd: 0.1 });
+  cost.reserve();
+  cost.record({ costUsd: 0.15 });
+  assert.equal(cost.snapshot().measuredCostUsd, 0.15);
+  assert.throws(() => cost.reserve());
+  assert.equal(cost.snapshot().calls, 1);
+  const failed = createBudget({ maxCalls: 2, maxCostUsd: 1 });
+  failed.reserve();
+  failed.record({ costUsd: 0.02, error: "provider failure" });
+  assert.equal(failed.snapshot().calls, 1);
+  assert.equal(failed.snapshot().measuredCostUsd, 0.02);
+  assert.equal(failed.snapshot().costComplete, true);
+  failed.reserve();
+  assert.equal(failed.snapshot().calls, 2);
+});

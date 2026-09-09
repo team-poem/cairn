@@ -27,3 +27,20 @@ test("localConfigurationRejectsInvalidWork: modes counts tiers and latency are v
   }
   assert.equal(validateConfig({ ...replayConfig, runs: 1, latency: { document: [0], api: [0] } }).runs, 1);
 });
+
+test("localCliMakesModesAndLimitsExplicit: arguments preserve paths and paid modes require declared LLM limits", async () => {
+  const { parseOptions, validateConfig } = await import("./local/config.mjs");
+  const parsed = parseOptions(["replay", "--runs", "3", "--config", "/a path/config.json", "--captures", "/a path/freezes", "--out", "/a path/results", "--engine-commit", commit]);
+  assert.equal(parsed.mode, "replay");
+  assert.equal(parsed.runs, 3);
+  assert.equal(parsed.configPath, "/a path/config.json");
+  assert.equal(parsed.captureDir, "/a path/freezes");
+  assert.equal(parsed.outputDir, "/a path/results");
+  for (const args of [[], ["replay", "--runs"], ["replay", "--runs", "3x"], ["replay", "--surprise", "1"]]) assert.throws(() => parseOptions(args));
+  for (const mode of ["discover", "heal"]) {
+    assert.throws(() => validateConfig({ ...replayConfig, mode }));
+    const llm = { source: "llm", backend: "test-backend", model: "test-model", maxCalls: 3, maxCostUsd: 1 };
+    assert.equal(validateConfig({ ...replayConfig, mode, llm }).mode, mode);
+    for (const patch of [{ maxCalls: 0 }, { maxCalls: 1.1 }, { maxCostUsd: 0 }, { maxCostUsd: Infinity }, { backend: "" }, { model: "" }]) assert.throws(() => validateConfig({ ...replayConfig, mode, llm: { ...llm, ...patch } }));
+  }
+});

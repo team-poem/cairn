@@ -106,3 +106,17 @@ test("localLatencySchedule: route-class delays depend on run index rather than i
   assert.equal(api[0].requestedDelayMs, 40);
   assert.ok(api[0].elapsedMs >= 30);
 });
+
+test("localCloseCancelsPendingWork: closing a delayed server settles requests and cannot mutate a new run", { timeout: 3000 }, async (t) => {
+  const first = await fixture(t, { tier: "form", latency: { document: [0], api: [10000] } });
+  const pending = request(first, "/api/save", { value: "alice" }).catch(() => null);
+  for (let i = 0; i < 200 && first.requestLog().length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(first.requestLog().length > 0, "the delayed request was accepted");
+  await first.close();
+  await pending;
+  await first.close();
+  assert.equal(first.snapshot().complete, false);
+  const second = await fixture(t, { tier: "form" });
+  assert.equal(second.snapshot().complete, false);
+  assert.deepEqual(second.requestLog(), []);
+});

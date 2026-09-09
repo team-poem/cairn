@@ -95,7 +95,7 @@ export async function runBenchmark(config, runtime) {
           const measured = budget.snapshot();
           record.costUsd = measured.costComplete ? measured.measuredCostUsd - previousCost : null;
           record.measuredCostUsd = measured.measuredCostUsd - previousCost;
-          if (!measured.costComplete) { report.incomplete = true; report.stopReason = measured.stopReason; }
+          if (measured.stopReason) { report.incomplete = true; report.stopReason ??= measured.stopReason; }
         }
       }
       if (signal?.aborted) { report.incomplete = true; report.stopReason ??= "Measurement aborted"; }

@@ -311,3 +311,25 @@ test("localFinalCleanupAbortIsObserved: abort during awaited cleanup marks the l
   assert.equal(report.incomplete, true);
   assert.match(report.stopReason, /abort/i);
 });
+
+test("localTerminalBudgetStopIsIncomplete: final call and cost limits remain visible after the requested engine attempts return", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  for (const limits of [{ maxCalls: 1, maxCostUsd: 1 }, { maxCalls: 5, maxCostUsd: 0.01 }]) {
+    const h = await harness(t, { mode: "heal", runs: 1, fixtureVersion: "v2", llm: { source: "llm", backend: "fake", model: "fake-model", ...limits } });
+    h.runtime.createLlm = (_config, { budget }) => ({ id: "fake", async complete() { budget.reserve(); budget.record({ costUsd: 0.01 }); return "done"; } });
+    h.runtime.runScenario = async (_scenario, options) => { await options.llm.complete("repair"); const output = success(); output.result.usage.llmCalls = 1; return output; };
+    const report = await runBenchmark(h.config, h.runtime);
+    assert.equal(report.requested, 1);
+    assert.equal(report.attempted, 1);
+    assert.equal(report.completed, 1);
+    assert.equal(report.records.length, 1);
+    assert.equal(report.records[0].passed, true);
+    assert.equal(report.summaries[0].failures, 0);
+    assert.equal(report.budget.calls, 1);
+    assert.equal(report.budget.measuredCostUsd, 0.01);
+    assert.equal(report.budget.costComplete, true);
+    assert.match(report.budget.stopReason, /limit|threshold/i);
+    assert.equal(report.incomplete, true);
+    assert.equal(report.stopReason, report.budget.stopReason);
+  }
+});

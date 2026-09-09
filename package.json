@@ -9,7 +9,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node --test bench/portability.test.mjs",
     "check:boundaries": "npm run check:boundaries -w cairn-engine",
     "test:consumer": "node scripts/test-package-consumer.mjs"
   },

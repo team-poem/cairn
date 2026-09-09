@@ -121,3 +121,14 @@ test("benchmarkCommandsBuildFirst: root npm commands build before the selected m
     assert.deepEqual(f.events(), [{ kind: "build" }, { kind: script, args: [...(phase ? [phase] : []), "argument with spaces", "--sentinel"] }], command);
   }
 });
+
+test("benchmarkCommandsStopOnBuildFailure: every npm benchmark stops before execution when the engine build fails", (t) => {
+  const f = commandFixture(t);
+  for (const [command] of commands) {
+    f.clear();
+    const result = f.npm(command, true);
+    assert.equal(result.error, undefined, String(result.error));
+    assert.notEqual(result.status, 0, command);
+    assert.deepEqual(f.events(), [{ kind: "build" }], command);
+  }
+});

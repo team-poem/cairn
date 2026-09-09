@@ -107,3 +107,18 @@ test("localBudgetCountsBeforeCalls: a shared call limit and measured threshold s
   failed.reserve();
   assert.equal(failed.snapshot().calls, 2);
 });
+
+test("localBudgetUnknownStopsSequence: unmeasured or timed-out calls halt paid work and preserve earlier measured cost", async () => {
+  const { createBudget } = await import("./local/budget.mjs");
+  for (const unknown of [{}, { costUsd: null }, { costUsd: NaN }, { costUsd: -1 }, { costUsd: null, error: "timeout" }]) {
+    const budget = createBudget({ maxCalls: 5, maxCostUsd: 1 });
+    budget.reserve();
+    budget.record({ costUsd: 0.02 });
+    budget.reserve();
+    budget.record(unknown);
+    assert.equal(budget.snapshot().calls, 2);
+    assert.equal(budget.snapshot().measuredCostUsd, 0.02);
+    assert.equal(budget.snapshot().costComplete, false);
+    assert.throws(() => budget.reserve());
+  }
+});

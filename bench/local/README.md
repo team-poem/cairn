@@ -48,9 +48,13 @@ discovery. It incurs no provider calls and measures plumbing, not LLM discovery
 reliability. Its repair decisions are deliberately unsupported. To inspect v2
 label churn, copy the configuration, set `fixtureVersion` to `v2`, and run replay
 or heal against the same v1 captures. Replay always forbids LLM calls. A
-successful v2 replay is unaided survival; role/index fallback can make label
-changes survive without a repair. A scripted heal run can fail if an actual
-repair decision is needed.
+successful v2 replay is unaided survival. Click/type targets can survive renamed
+labels through an unambiguous role/index fallback. A frozen `waitFor.text`
+condition still checks its captured text and has no such locator fallback: for
+example, waiting for `Add to cart` can fail after that label becomes `Add item`
+even when clicking the renamed control could resolve. This outcome depends on
+the specific frozen steps and changed labels, not an inherent property of a tier.
+A scripted heal run can fail if an actual repair decision is needed.
 
 ## Configuration and counts
 
@@ -72,7 +76,11 @@ Requested delays and observed request elapsed times are distinct in JSON. A
 closed request may have a null observed time. Attempt elapsed time includes
 server/browser startup and awaited cleanup. Timers, cookies, authentication,
 cart and order state never cross attempts. The v2 fixtures change visible action
-labels while keeping the journey and completion status stable.
+labels while keeping the journey and completion status stable. Each attempt uses
+one constant delay per route class. The schedule has no per-request jitter or
+response-order injection and cannot deliberately reorder concurrent requests
+within the same class. Different document/API delays and natural timing still
+exist; these runs do not establish race-condition coverage.
 
 ## Actual LLM discovery or healing
 
@@ -106,19 +114,32 @@ adapter passes the remaining threshold to each CLI call. See the
 [official budget example](https://github.com/anthropics/claude-agent-sdk-python/blob/main/examples/max_budget_usd.py)
 and [CLI reference](https://code.claude.com/docs/en/cli-reference). For multiple
 invocations, explicitly allocate the remaining budget from previous results;
-there is no persistent budget service.
+there is no persistent budget service. Conservatively, reaching either limit
+marks the report incomplete and makes the CLI exit nonzero even when the final
+requested engine attempt returned successfully. This status does not imply
+unattempted work: requested/attempted/completed counts and each engine/oracle
+outcome remain intact.
 
 ## Interpret results
 
 JSON preserves engine verdict/proof/failure detail, fixture oracle, observed
 usage, locator/step repair counts, capture source, execution LLM source, per-run
-errors, request logs and provenance. A green verdict cannot override an
+errors, request logs and provenance. `engineUsage` retains only usage returned
+by the engine; `observedUsage` counts completions at the benchmark seam even if
+an engine operation fails or catches a guard error. Existing `usage` fields
+remain available. Replay requires both returned and observed call counts to be
+measured zero. A green verdict cannot override an
 incomplete fixture. Zero repair count with nonzero LLM calls can include outcome
 rediscovery, so it does not establish unaided survival.
 
 The Markdown table includes requested, attempted, engine-returned and failed
-counts. Failure rate uses all attempted runs, including exceptions. Budget or
-signal stops preserve unattempted counts and mark the report incomplete. All
+counts, with separate engine and observed LLM call columns. Discovery's engine
+column is `n/a` because discovery returns a Scenario; absent returned usage is
+`unknown`. The capture table identifies the execution fixture version/hash and
+each distinct canonical scenario hash, fixture version/hash and discovery source.
+Repeated captures are deduplicated; missing captures and unavailable legacy
+metadata stay explicit. Failure rate uses all attempted runs, including
+exceptions. Budget or signal stops preserve counts and mark the report incomplete. All
 failures are still failures even if repeated consistently; failure rate alone
 is not an estimate of intermittent flakiness. Replay of one selected capture
 cannot establish discovery success or general application coverage. Do not

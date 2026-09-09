@@ -16,7 +16,7 @@ export function createClaudeClient(config, { budget, signal, command = "claude" 
         let response;
         try { response = JSON.parse(stdout); } catch { throw new Error("Claude returned no valid JSON result", { cause: error }); }
         const failure = error || response.is_error || typeof response.result !== "string";
-        budget.record({ costUsd: response.total_cost_usd, error: failure ? String(error?.message ?? response.result ?? "Claude completion failed") : null });
+        budget.record({ costUsd: response.total_cost_usd, modelIds: Object.keys(response.modelUsage ?? {}), providerSubtype: response.subtype ?? null, error: failure ? String(error?.message ?? response.result ?? "Claude completion failed") : null });
         recorded = true;
         const usage = response.usage;
         if (usage && [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens].some((value) => Number.isFinite(value) && value >= 0)) {

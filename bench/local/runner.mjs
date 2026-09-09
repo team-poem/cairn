@@ -58,7 +58,7 @@ export async function runBenchmark(config, runtime) {
           record.scenarioHash = sha256(await readFile(path));
           record.passed = true;
         } else {
-        const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: config.mode === "heal", llm, signal, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
+        const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: config.mode === "heal", llm, signal, maxSteps: config.maxSteps, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
         report.completed++;
         record.completed = true;
         record.journey = !output.result.evidence.execution.blocked;

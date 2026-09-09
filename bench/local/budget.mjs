@@ -15,7 +15,7 @@ export function createBudget({ maxCalls, maxCostUsd }) {
       const known = Number.isFinite(value?.costUsd) && value.costUsd >= 0;
       if (known) measuredCostUsd += value.costUsd;
       else costComplete = false;
-      records.push({ costUsd: known ? value.costUsd : null, error: value?.error ?? null });
+      records.push({ costUsd: known ? value.costUsd : null, error: value?.error ?? null, ...(Array.isArray(value?.modelIds) ? { modelIds: [...value.modelIds] } : {}), ...(value?.providerSubtype != null ? { providerSubtype: value.providerSubtype } : {}) });
     },
     snapshot() { return { calls, measuredCostUsd, costComplete: costComplete && !pending, stopReason: stopReason(), records: structuredClone(records) }; },
   };

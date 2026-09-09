@@ -137,3 +137,26 @@ test("localMalformedBodyIsContained: JSON null is a rejected request and does no
     assert.equal(result.status, 0, result.stderr);
   });
 });
+
+test("localAbortedUploadIsContained: cancelling an accepted partial form upload cannot crash the server", () => {
+  const script = `
+    import { request } from 'node:http';
+    import { startFixture } from ${JSON.stringify(new URL("./local/server.mjs", import.meta.url).href)};
+    const fixture = await startFixture({tier:'form',version:'v1',runIndex:0,latency:{document:[0],api:[0]}});
+    const upload=request(fixture.origin+'/api/save',{method:'POST',headers:{'content-type':'application/json'}});
+    upload.on('error',()=>{});
+    upload.write('{"value":"');
+    for(let i=0;i<100 && fixture.requestLog().length===0;i++) await new Promise(r=>setTimeout(r,5));
+    if(!fixture.requestLog().length) throw Error('Upload was not accepted');
+    upload.destroy();
+    await new Promise(r=>setTimeout(r,30));
+    const valid=await fetch(fixture.origin+'/api/save',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({value:'alice'})});
+    if(valid.status!==200 || !fixture.snapshot().complete) throw Error('Fixture did not survive upload cancellation');
+    await fixture.close();
+  `;
+  return import("node:child_process").then(({ spawnSync }) => {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 3000 });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.equal(result.status, 0, result.stderr);
+  });
+});

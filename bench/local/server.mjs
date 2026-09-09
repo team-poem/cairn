@@ -20,7 +20,7 @@ export async function startFixture({ tier, version, runIndex, latency }) {
   const logs = [];
   const pending = new Map();
   let closed = false;
-  const server = createServer(async (req, res) => {
+  const handle = async (req, res) => {
     const send = (body) => res.end(version === "v2" ? [["Continue", "Proceed"], ["Username", "Account"], ["Log in", "Sign in"], ["Add to cart", "Add item"], ["Place order", "Confirm order"], ["Name ", "Display name "], ["Save", "Store"]].reduce((text, [before, after]) => text.replaceAll(before, after), body) : body);
     const path = new URL(req.url, "http://localhost").pathname;
     const requestedDelayMs = delayFor(latency, runIndex, path.startsWith("/api/") ? "api" : "document");
@@ -93,6 +93,13 @@ export async function startFixture({ tier, version, runIndex, latency }) {
     if (path === "/") send('<!doctype html><html lang="en"><title>Navigation</title><a href="/done">Continue</a></html>');
     else if (tier === "navigation" && path === "/done") { complete = true; send("Destination reached"); }
     else { res.statusCode = 404; send("Not found"); }
+  };
+  const server = createServer((req, res) => {
+    handle(req, res).catch(() => {
+      if (res.destroyed) return;
+      if (!res.headersSent) { res.statusCode = 400; res.end("Invalid request"); }
+      else res.destroy();
+    });
   });
   await new Promise((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
   return {

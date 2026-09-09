@@ -243,3 +243,23 @@ test("localPaidSequenceHonorsSharedBudget: unknown cost thresholds and hard call
     assert.equal(h.events.filter((e) => e.startsWith("server-close:")).length, limits.attempted);
   }
 });
+
+test("localTierSummariesDoNotDropWork: every selected tier retains its own attempts failures and artifact identity", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { tiers: ["navigation", "form", "stateful"], runs: 2 });
+  const hashes = { navigation: fixtureHash, form: "d".repeat(64), stateful: "e".repeat(64) };
+  h.runtime.fixtureInfo = (tier) => ({ hash: hashes[tier], entryPath: "/", intent: tier });
+  for (const tier of ["form", "stateful"]) {
+    const path = join(h.dir, tier + ".skill.json");
+    const bytes = JSON.stringify({ ...canonical, name: tier });
+    await writeFile(path, bytes);
+    await writeFile(path + ".meta.json", JSON.stringify({ tier, fixtureVersion: "v1", fixtureHash: hashes[tier], captureOrigin: "http://127.0.0.1:9000", scenarioHash: sha(bytes), source: { kind: "scripted", label: "offline smoke" }, engine: { version: "2.8.0", commit } }));
+  }
+  h.runtime.runScenario = async (scenario) => { if (scenario.name === "form") throw new Error("form failed"); return success(); };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.equal(report.requested, 6);
+  assert.equal(report.attempted, 6);
+  assert.equal(report.completed, 4);
+  assert.deepEqual(report.summaries.map((s) => [s.tier, s.requested, s.attempted, s.failures, s.failureRate]), [["navigation", 2, 2, 0, 0], ["form", 2, 2, 2, 1], ["stateful", 2, 2, 0, 0]]);
+  assert.ok(report.records.every((r) => r.fixtureHash === hashes[r.tier]));
+});

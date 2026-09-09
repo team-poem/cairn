@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Observation facts</title>
+<style>
+  body { margin: 0; }
+  #background { position: absolute; left: 20px; top: 20px; width: 120px; height: 40px; }
+  #cover { position: absolute; left: 10px; top: 10px; width: 160px; height: 70px; background: white; }
+  #opener { position: absolute; left: 200px; top: 20px; }
+  #portal { position: absolute; left: 200px; top: 60px; width: 150px; }
+  #portal [role=option] { height: 30px; }
+  #card { position: absolute; left: 400px; top: 20px; cursor: pointer; padding: 20px; }
+  #offscreen { position: absolute; top: 1400px; }
+  #scroller { position: absolute; left: 600px; top: 20px; width: 100px; height: 50px; overflow: hidden; transform: translateZ(0); }
+  #fixed-clipped { position: fixed; left: 0; top: 100px; width: 80px; height: 30px; }
+</style></head>
+<body>
+<button id="background">Save</button><div id="cover"></div>
+<button id="opener" aria-expanded="true" aria-controls="portal">Account</button>
+<div id="card"><span id="card-label">Open details</span></div>
+<button id="offscreen">Below the fold</button>
+<div id="scroller"><button id="fixed-clipped">Clipped fixed</button></div>
+<div id="portal" role="listbox"><div id="option" role="option">Personal</div></div>
+<script>
+document.body.addEventListener('click', event => {
+  if (event.target.closest('#card')) document.body.dataset.clicked = 'card';
+});
+</script>
+</body></html>

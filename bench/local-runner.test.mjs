@@ -139,3 +139,33 @@ test("localHealingAttemptsAreIndependent: v2 attempts reuse the original freeze 
   assert.ok(report.records.every((r) => r.fixtureHash === "d".repeat(64)));
   assert.equal(report.summaries[0].mode, "heal");
 });
+
+test("localDiscoveryHasItsOwnAttempts: failed discoveries remain counted and successful captures preserve their explicit source", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { mode: "discover", runs: 5, llm: { source: "scripted", label: "offline smoke" } });
+  h.runtime.createLlm = () => ({ id: "scripted", async complete() { return "unused"; } });
+  h.runtime.runScenario = async () => { throw new Error("Discovery must not silently become replay"); };
+  let calls = 0;
+  const start = h.runtime.startFixture;
+  h.runtime.startFixture = async (opts) => { const fixture = await start(opts); fixture.snapshot = () => ({ complete: calls !== 4 }); return fixture; };
+  h.runtime.discover = async (_intent, opts) => { assert.equal(opts.semanticChecks, false); if (++calls === 2) throw new Error("discovery failed"); return { ...canonical, ...(calls === 3 ? { truncated: true } : {}), steps: [{ kind: "goto", url: opts.baseUrl + "/" }, canonical.steps[1]], assertions: [{ kind: "navigated", to: opts.baseUrl + "/done" }] }; };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.equal(calls, 5);
+  assert.equal(report.requested, 5);
+  assert.equal(report.attempted, 5);
+  assert.equal(report.completed, 4);
+  assert.equal(report.summaries[0].failures, 3);
+  assert.equal(report.summaries[0].failureRate, 3 / 5);
+  assert.deepEqual(report.records.map((r) => r.passed), [true, false, false, false, true]);
+  assert.ok(report.records.slice(1, 4).every((r) => !r.artifactPath));
+  for (const record of report.records.filter((r) => r.artifactPath)) {
+    const sidecar = JSON.parse(await readFile(record.artifactPath + ".meta.json", "utf8"));
+    assert.equal(sidecar.source.kind, "scripted");
+    assert.equal(sidecar.source.label, "offline smoke");
+    assert.equal(sidecar.scenarioHash, sha(await readFile(record.artifactPath, "utf8")));
+    assert.equal(record.scenarioHash, sidecar.scenarioHash);
+    assert.equal(record.verdict, null);
+  }
+  assert.equal(report.records.filter((r) => r.artifactPath).length, 2);
+  assert.equal(new Set(report.records.filter((r) => r.artifactPath).map((r) => r.artifactPath)).size, 2);
+});

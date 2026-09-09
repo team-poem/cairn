@@ -1,13 +1,14 @@
 import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { validateConfig } from "./config.mjs";
-import { loadCapture, sha256 } from "./artifacts.mjs";
+import { loadCapture, saveCapture, sha256, validateScenario } from "./artifacts.mjs";
 import { delayFor } from "./server.mjs";
 
 export async function runBenchmark(config, runtime) {
   validateConfig(config);
   if (config.engineCommit !== runtime.engine.commit) throw new Error("Built engine commit does not match the requested commit");
   const captures = new Map();
-  for (const tier of config.tiers) captures.set(tier, await loadCapture(join(config.captureDir, `${tier}.skill.json`), { tier, fixtureVersion: "v1", fixtureHash: runtime.fixtureInfo(tier, "v1").hash, mode: config.mode }));
+  if (config.mode !== "discover") for (const tier of config.tiers) captures.set(tier, await loadCapture(join(config.captureDir, `${tier}.skill.json`), { tier, fixtureVersion: "v1", fixtureHash: runtime.fixtureInfo(tier, "v1").hash, mode: config.mode }));
   const { signal, ...configuration } = config;
   const report = { schemaVersion: 1, engine: { ...runtime.engine }, configuration, configHash: sha256(JSON.stringify(configuration)), runtime: { node: process.version, platform: process.platform, arch: process.arch }, startedAt: new Date().toISOString(), finishedAt: null, requested: config.tiers.length * config.runs, attempted: 0, completed: 0, incomplete: false, stopReason: null, records: [], summaries: [] };
   measurement: for (const tier of config.tiers) {
@@ -15,14 +16,32 @@ export async function runBenchmark(config, runtime) {
     for (let index = 0; index < config.runs; index++) {
       const started = performance.now();
       let fixture, driver;
-      const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture.metadata.source, scenarioHash: capture.metadata.scenarioHash, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
+      const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
-      record.captureSource = capture.metadata.source;
+      record.captureSource = capture?.metadata.source ?? null;
       record.llmSource = config.mode === "replay" ? null : { ...config.llm, kind: config.llm.source };
       try {
         fixture = await runtime.startFixture({ tier, version: config.fixtureVersion, runIndex: index, latency: config.latency });
         driver = runtime.createDriver();
-        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, {});
+        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, { tier, version: config.fixtureVersion });
+        if (config.mode === "discover") {
+          let llmCalls = 0;
+          const counted = { id: llm.id, complete(...args) { llmCalls++; return llm.complete(...args); } };
+          let scenario;
+          try { scenario = await runtime.discover(runtime.fixtureInfo(tier, config.fixtureVersion).intent, { driver, llm: counted, baseUrl: fixture.origin + runtime.fixtureInfo(tier, config.fixtureVersion).entryPath, semanticChecks: false, maxSteps: config.maxSteps ?? 20, signal }); }
+          finally { record.usage = { llmCalls, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }; }
+          report.completed++;
+          record.completed = true;
+          record.journey = !scenario.truncated;
+          record.oracle = fixture.snapshot();
+          validateScenario(scenario, "replay");
+          if (!record.oracle.complete) throw new Error("Discovery did not complete the fixture");
+          const path = join(config.outputDir, "captures", `run-${index + 1}`, `${tier}.skill.json`);
+          await saveCapture(path, scenario, { tier, fixtureVersion: config.fixtureVersion, fixtureHash: record.fixtureHash, captureOrigin: fixture.origin, source: record.source, engine: runtime.engine }, runtime.saveSkillFile);
+          record.artifactPath = path;
+          record.scenarioHash = sha256(await readFile(path));
+          record.passed = true;
+        } else {
         const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: config.mode === "heal", llm, signal, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
         report.completed++;
         record.completed = true;
@@ -36,6 +55,7 @@ export async function runBenchmark(config, runtime) {
         record.oracle = fixture.snapshot();
         record.passed = record.journey && record.verdict && record.oracle.complete && (config.mode !== "replay" || record.usage?.llmCalls === 0);
         if (config.mode === "replay" && record.usage?.llmCalls !== 0) record.error = { name: "ReplayUsageError", message: "Replay LLM usage must be measured zero" };
+        }
       } catch (error) {
         record.error = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };
         record.oracle = fixture?.snapshot() ?? null;

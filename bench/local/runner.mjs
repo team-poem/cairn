@@ -98,6 +98,7 @@ export async function runBenchmark(config, runtime) {
           if (!measured.costComplete) { report.incomplete = true; report.stopReason = measured.stopReason; }
         }
       }
+      if (signal?.aborted) { report.incomplete = true; report.stopReason ??= "Measurement aborted"; }
       report.records.push(record);
       if (report.incomplete) break measurement;
     }

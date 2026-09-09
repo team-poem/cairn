@@ -263,3 +263,26 @@ test("localTierSummariesDoNotDropWork: every selected tier retains its own attem
   assert.deepEqual(report.summaries.map((s) => [s.tier, s.requested, s.attempted, s.failures, s.failureRate]), [["navigation", 2, 2, 0, 0], ["form", 2, 2, 2, 1], ["stateful", 2, 2, 0, 0]]);
   assert.ok(report.records.every((r) => r.fixtureHash === hashes[r.tier]));
 });
+
+test("localFinalAbortPersistsIncompleteReport: an aborted only attempt remains incomplete in saved JSON and Markdown", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const { writeReport } = await import("./local/report.mjs");
+  const h = await harness(t, { runs: 1 });
+  const controller = new AbortController();
+  h.runtime.runScenario = async () => { controller.abort(); controller.signal.throwIfAborted(); };
+  const report = await runBenchmark({ ...h.config, signal: controller.signal }, h.runtime);
+  const paths = await writeReport(report, h.config.outputDir);
+  const saved = JSON.parse(await readFile(paths.json, "utf8"));
+  const markdown = await readFile(paths.markdown, "utf8");
+  assert.equal(saved.requested, 1);
+  assert.equal(saved.attempted, 1);
+  assert.equal(saved.completed, 0);
+  assert.equal(saved.records.length, 1);
+  assert.equal(saved.records[0].error.name, "AbortError");
+  assert.equal(saved.summaries[0].failures, 1);
+  assert.deepEqual(h.events, ["server:1", "driver:1", "driver-close:1", "server-close:1"]);
+  assert.equal(saved.incomplete, true);
+  assert.match(saved.stopReason, /abort/i);
+  assert.match(markdown, /INCOMPLETE:.*abort/i);
+  assert.doesNotMatch(markdown, /Requested attempts completed\./);
+});

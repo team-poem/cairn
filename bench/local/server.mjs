@@ -21,7 +21,7 @@ export async function startFixture({ tier, version, runIndex, latency }) {
   const pending = new Map();
   let closed = false;
   const handle = async (req, res) => {
-    const send = (body) => res.end(version === "v2" ? [["Continue", "Proceed"], ["Username", "Account"], ["Log in", "Sign in"], ["Add to cart", "Add item"], ["Place order", "Confirm order"], ["Name ", "Display name "], ["Save", "Store"]].reduce((text, [before, after]) => text.replaceAll(before, after), body) : body);
+    const send = (body) => res.end(version === "v2" ? [["Continue", "Proceed"], ["Username", "Account"], ["Log in", "Sign in"], ["Add to cart", "Add item"], ["Place order", "Confirm order"], ["Name ", "Display name "], [">Save<", ">Store<"]].reduce((text, [before, after]) => text.replaceAll(before, after), body) : body);
     const path = new URL(req.url, "http://localhost").pathname;
     const requestedDelayMs = delayFor(latency, runIndex, path.startsWith("/api/") ? "api" : "document");
     const started = performance.now();
@@ -35,6 +35,7 @@ export async function startFixture({ tier, version, runIndex, latency }) {
       });
       if (!ready || closed) return;
     }
+    if (path === "/favicon.ico") { res.statusCode = 204; res.end(); return; }
     res.setHeader("content-type", "text/html; charset=utf-8");
     if (tier === "stateful") {
       const token = /(?:^|;\s*)session=([^;]+)/.exec(req.headers.cookie ?? "")?.[1];

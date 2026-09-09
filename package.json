@@ -14,7 +14,8 @@
     "test:consumer": "node scripts/test-package-consumer.mjs",
     "bench:discover": "npm run build -w cairn-engine && node bench/benchmark.mjs discover",
     "bench:replay": "npm run build -w cairn-engine && node bench/benchmark.mjs replay",
-    "bench:churn": "npm run build -w cairn-engine && node bench/churn.mjs"
+    "bench:churn": "npm run build -w cairn-engine && node bench/churn.mjs",
+    "bench:local": "npm run build -w cairn-engine && node bench/local/cli.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.1"

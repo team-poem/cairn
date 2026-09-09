@@ -12,7 +12,7 @@ export async function runBenchmark(config, runtime) {
   if (config.mode !== "discover") for (const tier of config.tiers) captures.set(tier, await loadCapture(join(config.captureDir, `${tier}.skill.json`), { tier, fixtureVersion: "v1", fixtureHash: runtime.fixtureInfo(tier, "v1").hash, mode: config.mode }));
   const { signal, ...configuration } = config;
   const budget = config.mode !== "replay" && config.llm.source === "llm" ? createBudget(config.llm) : null;
-  const report = { schemaVersion: 1, engine: { ...runtime.engine }, configuration, configHash: sha256(JSON.stringify(configuration)), runtime: { node: process.version, platform: process.platform, arch: process.arch }, startedAt: new Date().toISOString(), finishedAt: null, requested: config.tiers.length * config.runs, attempted: 0, completed: 0, incomplete: false, stopReason: null, records: [], summaries: [] };
+  const report = { schemaVersion: 1, engine: { ...runtime.engine }, configuration, configHash: sha256(JSON.stringify(configuration)), runtime: { node: process.version, platform: process.platform, arch: process.arch, ...runtime.info }, startedAt: new Date().toISOString(), finishedAt: null, requested: config.tiers.length * config.runs, attempted: 0, completed: 0, incomplete: false, stopReason: null, records: [], summaries: [] };
   measurement: for (const tier of config.tiers) {
     const capture = captures.get(tier);
     for (let index = 0; index < config.runs; index++) {
@@ -21,20 +21,31 @@ export async function runBenchmark(config, runtime) {
       const started = performance.now();
       const previousCost = budget?.snapshot().measuredCostUsd;
       let fixture, driver;
+      const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
+      record.captureFixtureHash = capture?.metadata.fixtureHash ?? null;
       record.captureSource = capture?.metadata.source ?? null;
       record.llmSource = config.mode === "replay" ? null : { ...config.llm, kind: config.llm.source };
       try {
         fixture = await runtime.startFixture({ tier, version: config.fixtureVersion, runIndex: index, latency: config.latency });
         driver = runtime.createDriver();
-        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, { tier, version: config.fixtureVersion, budget });
+        const client = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, { tier, version: config.fixtureVersion, origin: fixture.origin, budget, signal });
+        const llm = { id: client.id, complete(prompt, options = {}) {
+          observedUsage.llmCalls++;
+          let measured = false;
+          return client.complete(prompt, { ...options, onUsage(usage) {
+            if (!measured) {
+              measured = true; observedUsage.measuredCalls++;
+              for (const key of ["inputTokens", "outputTokens", "cacheReadTokens"]) observedUsage[key] += usage[key] ?? 0;
+              options.onUsage?.(usage);
+            }
+          } });
+        } };
         if (config.mode === "discover") {
-          let llmCalls = 0;
-          const counted = { id: llm.id, complete(...args) { llmCalls++; return llm.complete(...args); } };
           let scenario;
-          try { scenario = await runtime.discover(runtime.fixtureInfo(tier, config.fixtureVersion).intent, { driver, llm: counted, baseUrl: fixture.origin + runtime.fixtureInfo(tier, config.fixtureVersion).entryPath, semanticChecks: false, maxSteps: config.maxSteps ?? 20, signal }); }
-          finally { record.usage = { llmCalls, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 }; }
+          try { scenario = await runtime.discover(runtime.fixtureInfo(tier, config.fixtureVersion).intent, { driver, llm, baseUrl: fixture.origin + runtime.fixtureInfo(tier, config.fixtureVersion).entryPath, semanticChecks: false, maxSteps: config.maxSteps ?? 20, signal }); }
+          finally { record.usage = { ...observedUsage }; }
           report.completed++;
           record.completed = true;
           record.journey = !scenario.truncated;
@@ -76,11 +87,15 @@ export async function runBenchmark(config, runtime) {
             report.stopReason = "Resource cleanup failed";
           }
         }
+        record.requestLog = fixture?.requestLog?.() ?? [];
+        record.observedUsage = { ...observedUsage };
+        if (record.usage === null && observedUsage.llmCalls > 0) record.usage = { ...observedUsage };
         record.elapsedMs = performance.now() - started;
         if (budget) {
           const measured = budget.snapshot();
           record.costUsd = measured.costComplete ? measured.measuredCostUsd - previousCost : null;
           record.measuredCostUsd = measured.measuredCostUsd - previousCost;
+          if (!measured.costComplete) { report.incomplete = true; report.stopReason = measured.stopReason; }
         }
       }
       report.records.push(record);

@@ -14,6 +14,7 @@ export async function runBenchmark(config, runtime) {
   measurement: for (const tier of config.tiers) {
     const capture = captures.get(tier);
     for (let index = 0; index < config.runs; index++) {
+      if (signal?.aborted) { report.incomplete = true; report.stopReason = "Measurement aborted"; break measurement; }
       const started = performance.now();
       let fixture, driver;
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };

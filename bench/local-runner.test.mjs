@@ -169,3 +169,21 @@ test("localDiscoveryHasItsOwnAttempts: failed discoveries remain counted and suc
   assert.equal(report.records.filter((r) => r.artifactPath).length, 2);
   assert.equal(new Set(report.records.filter((r) => r.artifactPath).map((r) => r.artifactPath)).size, 2);
 });
+
+test("localPreflightAndAbortAreExplicit: incompatible inputs do no browser work and interrupted measurements remain incomplete", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { runs: 3 });
+  for (const patch of [{ runs: 0 }, { engineCommit: "d".repeat(40) }, { captureDir: join(h.dir, "missing") }]) {
+    await assert.rejects(runBenchmark({ ...h.config, ...patch }, h.runtime));
+    assert.deepEqual(h.events, []);
+  }
+  const controller = new AbortController();
+  h.runtime.runScenario = async () => { controller.abort(); return success(); };
+  const report = await runBenchmark({ ...h.config, signal: controller.signal }, h.runtime);
+  assert.equal(report.requested, 3);
+  assert.equal(report.attempted, 1);
+  assert.equal(report.completed, 1);
+  assert.equal(report.incomplete, true);
+  assert.match(report.stopReason, /abort/i);
+  assert.deepEqual(h.events.filter((e) => e.includes("close")), ["driver-close:1", "server-close:1"]);
+});

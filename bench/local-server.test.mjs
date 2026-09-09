@@ -1,7 +1,30 @@
 // file: bench/local-server.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 import { startFixture, delayFor, fixtureInfo, reservePort } from "./local/server.mjs";
+
+/** Same shape as `request`, on a connection that is never pooled. Rebinding one port means the
+ * global fetch pool can hand back a socket the previous server already closed, which fails before
+ * the replacement server sees anything. A real run has no such client: each attempt drives a fresh
+ * browser. */
+function freshRequest(server, path, body, cookie) {
+  return new Promise((resolve, reject) => {
+    const payload = body === undefined ? null : JSON.stringify(body);
+    const call = httpRequest(server.origin + path, {
+      method: payload === null ? "GET" : "POST",
+      agent: false,
+      headers: { ...(payload === null ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }), ...(cookie ? { cookie } : {}) },
+    }, (response) => {
+      let text = "";
+      response.setEncoding("utf8");
+      response.on("data", (chunk) => { text += chunk; });
+      response.on("end", () => resolve({ status: response.statusCode, cookie: response.headers["set-cookie"]?.[0]?.split(";")[0], text }));
+    });
+    call.once("error", reject);
+    call.end(payload ?? undefined);
+  });
+}
 
 const immediate = { document: [0], api: [0] };
 async function fixture(t, options = {}) {
@@ -167,9 +190,9 @@ test("localReservedPortKeepsOneOrigin: sequential runs rebind the port and still
   const first = await startFixture({ tier: "stateful", version: "v1", runIndex: 0, latency: immediate, port });
   t.after(() => first.close());
   assert.equal(new URL(first.origin).port, String(port));
-  const login = await request(first, "/api/login", { username: "alice" });
+  const login = await freshRequest(first, "/api/login", { username: "alice" });
   assert.equal(login.status, 200);
-  assert.equal((await request(first, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 200);
+  assert.equal((await freshRequest(first, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 200);
   assert.equal(first.snapshot().cartCount, 1);
   await first.close();
 
@@ -180,7 +203,7 @@ test("localReservedPortKeepsOneOrigin: sequential runs rebind the port and still
   assert.equal(second.origin, first.origin);
   assert.equal(second.snapshot().cartCount, 0);
   assert.equal(second.snapshot().complete, false);
-  assert.equal((await request(second, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 401);
+  assert.equal((await freshRequest(second, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 401);
 });
 
 test("localReservedPortIsFreeAndFailsLoudly: the probe releases the port and a taken port is not shared", { timeout: 5000 }, async (t) => {

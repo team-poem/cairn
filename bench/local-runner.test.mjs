@@ -187,3 +187,32 @@ test("localPreflightAndAbortAreExplicit: incompatible inputs do no browser work 
   assert.match(report.stopReason, /abort/i);
   assert.deepEqual(h.events.filter((e) => e.includes("close")), ["driver-close:1", "server-close:1"]);
 });
+
+test("localReportsRetainProvenance: JSON is authoritative and its table preserves failures counts hashes and actual timestamps", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const { writeReport, renderMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { runs: 2 });
+  h.runtime.runScenario = async () => { throw new Error("all attempts fail"); };
+  const start = Date.now();
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.deepEqual(report.engine, h.runtime.engine);
+  assert.match(report.configHash, /^[a-f0-9]{64}$/);
+  assert.ok(Date.parse(report.startedAt) >= start);
+  assert.ok(Date.parse(report.finishedAt) >= Date.parse(report.startedAt));
+  assert.ok(report.runtime.node && report.runtime.platform);
+  assert.ok(report.records.every((r) => r.scenarioHash === sha(h.bytes) && r.fixtureHash === fixtureHash && Number.isFinite(r.elapsedMs) && r.elapsedMs >= 0));
+  assert.deepEqual(report.records.map((r) => r.requestedDelays), [{ document: 0, api: 0 }, { document: 0, api: 30 }]);
+  const paths = await writeReport(report, h.config.outputDir);
+  const saved = JSON.parse(await readFile(paths.json, "utf8"));
+  assert.deepEqual(saved, report);
+  const markdown = await readFile(paths.markdown, "utf8");
+  assert.equal(markdown, renderMarkdown(saved));
+  assert.match(markdown, /navigation/);
+  assert.match(markdown, /replay/);
+  assert.match(markdown, /100(?:\.0+)?%/);
+  assert.doesNotMatch(markdown, /reliable|deterministic success/i);
+  assert.equal(saved.summaries[0].requested, 2);
+  assert.equal(saved.summaries[0].attempted, 2);
+  assert.equal(saved.summaries[0].completed, 0);
+  assert.equal(saved.summaries[0].failures, 2);
+});

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { validateConfig } from "./config.mjs";
 import { loadCapture, saveCapture, sha256, validateScenario } from "./artifacts.mjs";
 import { delayFor } from "./server.mjs";
+import { createBudget } from "./budget.mjs";
 
 export async function runBenchmark(config, runtime) {
   validateConfig(config);
@@ -10,12 +11,15 @@ export async function runBenchmark(config, runtime) {
   const captures = new Map();
   if (config.mode !== "discover") for (const tier of config.tiers) captures.set(tier, await loadCapture(join(config.captureDir, `${tier}.skill.json`), { tier, fixtureVersion: "v1", fixtureHash: runtime.fixtureInfo(tier, "v1").hash, mode: config.mode }));
   const { signal, ...configuration } = config;
+  const budget = config.mode !== "replay" && config.llm.source === "llm" ? createBudget(config.llm) : null;
   const report = { schemaVersion: 1, engine: { ...runtime.engine }, configuration, configHash: sha256(JSON.stringify(configuration)), runtime: { node: process.version, platform: process.platform, arch: process.arch }, startedAt: new Date().toISOString(), finishedAt: null, requested: config.tiers.length * config.runs, attempted: 0, completed: 0, incomplete: false, stopReason: null, records: [], summaries: [] };
   measurement: for (const tier of config.tiers) {
     const capture = captures.get(tier);
     for (let index = 0; index < config.runs; index++) {
       if (signal?.aborted) { report.incomplete = true; report.stopReason = "Measurement aborted"; break measurement; }
+      if (budget?.snapshot().stopReason) { report.incomplete = true; report.stopReason = budget.snapshot().stopReason; break measurement; }
       const started = performance.now();
+      const previousCost = budget?.snapshot().measuredCostUsd;
       let fixture, driver;
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
@@ -24,7 +28,7 @@ export async function runBenchmark(config, runtime) {
       try {
         fixture = await runtime.startFixture({ tier, version: config.fixtureVersion, runIndex: index, latency: config.latency });
         driver = runtime.createDriver();
-        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, { tier, version: config.fixtureVersion });
+        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, { tier, version: config.fixtureVersion, budget });
         if (config.mode === "discover") {
           let llmCalls = 0;
           const counted = { id: llm.id, complete(...args) { llmCalls++; return llm.complete(...args); } };
@@ -73,6 +77,11 @@ export async function runBenchmark(config, runtime) {
           }
         }
         record.elapsedMs = performance.now() - started;
+        if (budget) {
+          const measured = budget.snapshot();
+          record.costUsd = measured.costComplete ? measured.measuredCostUsd - previousCost : null;
+          record.measuredCostUsd = measured.measuredCostUsd - previousCost;
+        }
       }
       report.records.push(record);
       if (report.incomplete) break measurement;
@@ -84,5 +93,6 @@ export async function runBenchmark(config, runtime) {
     return { tier, mode: config.mode, requested: config.runs, attempted: records.length, completed: records.filter((record) => record.completed).length, failures, failureRate: records.length ? failures / records.length : null };
   });
   report.finishedAt = new Date().toISOString();
+  if (budget) report.budget = budget.snapshot();
   return report;
 }

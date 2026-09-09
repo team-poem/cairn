@@ -216,3 +216,30 @@ test("localReportsRetainProvenance: JSON is authoritative and its table preserve
   assert.equal(saved.summaries[0].completed, 0);
   assert.equal(saved.summaries[0].failures, 2);
 });
+
+test("localPaidSequenceHonorsSharedBudget: unknown cost thresholds and hard call counts stop later attempts across the invocation", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  for (const limits of [{ maxCalls: 3, maxCostUsd: 0.01, costUsd: 0.02, attempted: 1 }, { maxCalls: 3, maxCostUsd: 1, costUsd: null, attempted: 1 }, { maxCalls: 2, maxCostUsd: 1, costUsd: 0, attempted: 2 }]) {
+    const h = await harness(t, { mode: "discover", runs: 3, llm: { source: "llm", backend: "test-backend", model: "test-model", maxCalls: limits.maxCalls, maxCostUsd: limits.maxCostUsd } });
+    const budgets = [];
+    h.runtime.createLlm = (_config, { budget }) => {
+      budgets.push(budget);
+      return { id: "test-backend", async complete() { budget.reserve(); budget.record({ costUsd: limits.costUsd }); return "done"; } };
+    };
+    h.runtime.discover = async (_intent, opts) => { await opts.llm.complete("offline provider stub"); return { ...canonical, steps: [{ kind: "goto", url: opts.baseUrl + "/" }, canonical.steps[1]], assertions: [{ kind: "navigated", to: opts.baseUrl + "/done" }] }; };
+    const report = await runBenchmark(h.config, h.runtime);
+    assert.equal(report.requested, 3);
+    assert.equal(report.attempted, limits.attempted);
+    assert.equal(report.incomplete, true);
+    assert.equal(new Set(budgets).size, 1);
+    assert.equal(report.budget.calls, limits.attempted);
+    assert.equal(report.records.length, limits.attempted);
+    assert.equal(report.summaries[0].requested, 3);
+    assert.equal(report.summaries[0].attempted, limits.attempted);
+    assert.ok(report.stopReason);
+    assert.equal(report.budget.measuredCostUsd, (limits.costUsd ?? 0) * limits.attempted);
+    assert.equal(report.budget.costComplete, limits.costUsd !== null);
+    assert.equal(h.events.filter((e) => e.startsWith("server:")).length, limits.attempted);
+    assert.equal(h.events.filter((e) => e.startsWith("server-close:")).length, limits.attempted);
+  }
+});

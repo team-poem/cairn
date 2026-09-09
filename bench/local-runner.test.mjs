@@ -73,3 +73,23 @@ test("localReplayRejectsLlmEvidence: attempted calls nonzero usage and unknown u
   assert.equal(report.records[2].usage, null);
   assert.equal(report.summaries[0].failures, 3);
 });
+
+test("localOracleAndEngineRemainSeparate: false greens blocked journeys and verdict failures remain observable", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { runs: 3 });
+  let index = 0;
+  const start = h.runtime.startFixture;
+  h.runtime.startFixture = async (opts) => { const fixture = await start(opts); const i = index++; fixture.snapshot = () => ({ complete: i !== 0 }); return fixture; };
+  let run = 0;
+  h.runtime.runScenario = async () => { const out = success(); if (run === 1) out.result.evidence.execution.blocked = true; if (run === 2) out.result.verdict = { passed: false, failure: "flow", results: [] }; run++; return out; };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.deepEqual(report.records.map((r) => r.passed), [false, false, false]);
+  assert.equal(report.records[0].verdict, true);
+  assert.equal(report.records[0].oracle.complete, false);
+  assert.equal(report.records[1].journey, false);
+  assert.equal(report.records[2].failure, "flow");
+  assert.deepEqual(report.records[0].proof, arrivalProof);
+  assert.equal(report.records[2].proof, null);
+  assert.equal(report.summaries[0].failureRate, 1);
+  assert.equal(report.completed, 3);
+});

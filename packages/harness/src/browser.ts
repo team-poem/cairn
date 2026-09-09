@@ -58,5 +58,6 @@ export type {
 } from "./core/explore/findings.js";
 export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { LlmStepHealer } from "./core/step-heal.js";
+export type { StepHealOptions } from "./core/step-heal.js";
 export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { TargetScore, ScoredTarget } from "./core/freeze.js";

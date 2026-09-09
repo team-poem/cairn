@@ -20,6 +20,7 @@ export { ENGINE_VERSION } from "./version.js";
 export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
 export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
+export type { StepHealOptions } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";

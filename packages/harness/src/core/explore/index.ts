@@ -10,12 +10,12 @@
  * this file owns only the loop. Decision parsing/execution and the ActionPolicy seam are
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
-import type { Driver, LlmClient } from "../ports.js";
+import { PerceptionObservation } from "../observation.js";
+import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
-import { applyDecision, describeAction, parseDecision } from "../discover/decision.js";
+import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
-import { renderRankedElements } from "../discover/prompt.js";
 import { destinationKey } from "../discover/capture.js";
 import { EXPLORE_SYSTEM, buildExplorePrompt } from "./prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
@@ -37,6 +37,8 @@ export interface ExploreOptions {
   /** Gate proposed actions (block destructive controls, fence the origin, declare coverage done
    * via `stop`). The SAME seam discover takes — one safety surface for both loops. */
   policy?: ActionPolicy;
+  /** Correct state before common selection; preserve each retained candidate ref/name/role. */
+  perceive?: PerceptionAdapter;
   /** URL substrings whose 4xx/5xx is product noise — excluded from failed-request findings. */
   benign?: string[];
   /** Console-text substrings that are product noise — excluded from console-error findings. */
@@ -75,10 +77,16 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     onFinding,
     signal,
     policy,
+    perceive,
     benign = [],
     benignConsole = [],
     slowSettleMs,
   } = opts;
+  const perceivePage = async () => {
+    const raw = await driver.snapshot({ perception: true });
+    const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
+    return { elements, page: new PerceptionObservation(driver, raw, elements, charter) };
+  };
   // Meter at the seam so the report always carries what the survey cost (#100).
   const llm = new UsageMeter(opts.llm);
 
@@ -138,8 +146,8 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const elements = await driver.snapshot();
-    const render = renderRankedElements(elements, charter);
+    const { elements, page } = await perceivePage();
+    const render = page.render;
 
     if (pending) {
       settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
@@ -159,14 +167,14 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     }
 
     const reply = await llm.complete(
-      buildExplorePrompt(charter, render, prevRender, steps, failures, visited, findings, currentUrl),
+      [buildExplorePrompt(charter, render, prevRender, steps, failures, visited, findings, currentUrl), page.references].filter(Boolean).join("\n\n"),
       { system: EXPLORE_SYSTEM },
     );
     prevRender = render;
 
     let decision: Decision;
     try {
-      decision = parseDecision(reply);
+      decision = page.bind(parseDecision(reply));
     } catch {
       pushFailure("your previous reply was not a single valid JSON action object");
       continue;
@@ -198,6 +206,12 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
         stepIndex: steps.length - 1,
       });
       onStep?.(decision);
+      continue;
+    }
+
+    const ambiguity = describeAmbiguity(decision, elements);
+    if (ambiguity) {
+      pushFailure(`${describeAction(decision)} — ${ambiguity}`);
       continue;
     }
 
@@ -262,7 +276,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       url: observation.execution.finalUrl,
       requests: observation.logic.requests,
       console: observation.logic.console,
-      render: renderRankedElements(await driver.snapshot(), charter),
+      render: (await perceivePage()).page.render,
       settleMs,
     });
   }

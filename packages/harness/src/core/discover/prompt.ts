@@ -99,6 +99,8 @@ export function renderElements(elements: PageElement[], nthOf?: Map<PageElement,
       const states = [
         e.checked === "mixed" ? "mixed" : e.checked ? "checked" : undefined,
         e.disabled ? "disabled" : undefined,
+        e.clickable ? "clickable" : undefined,
+        e.inActivePopup ? "active popup" : undefined,
       ].filter(Boolean);
       const state = states.length ? ` (${states.join(", ")})` : "";
       const value = e.value !== undefined ? ` = "${e.value.slice(0, 40)}"` : "";

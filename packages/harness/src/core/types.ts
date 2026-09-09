@@ -132,9 +132,21 @@ export interface Scenario {
   unprovenAction?: string;
 }
 
-/** An interactive element the discover loop perceives and acts on. Form state rides along so
- * the LLM can see a checkbox it already ticked or a disabled submit instead of thrashing (#93). */
+/** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
+export interface SnapshotOptions {
+  perception?: boolean;
+}
+
+/** An observed candidate; accessible semantics remain separate from measured interaction facts. */
 export interface PageElement {
+  /** Opaque driver token. Never persisted or sent directly to the model. */
+  ref?: string;
+  /** Positive measured facts; absence means unknown. */
+  inActivePopup?: boolean;
+  occluded?: boolean;
+  clickable?: boolean;
+  /** Driver-local measured clickable region identity, meaningful within this snapshot. */
+  clickableRegion?: string;
   role: string;
   name: string;
   checked?: boolean | "mixed";

@@ -6,10 +6,11 @@
  * Module layout: prompt (LLM surface) · decision (Decision→Step + shared execution) ·
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
+import { PerceptionObservation } from "../observation.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
+import { SYSTEM, buildPrompt } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -166,12 +167,13 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const raw = await driver.snapshot();
-    const elements = redactSecrets(perceive ? await perceive(raw) : raw, secrets);
+    const raw = await driver.snapshot({ perception: true });
+    const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
+    const page = new PerceptionObservation(driver, raw, elements, intent);
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
-    const render = renderRankedElements(elements, intent);
-    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
+    const render = page.render;
+    const reply = await llm.complete([buildPrompt(intent, render, prevRender, steps, failures, currentUrl), page.references].filter(Boolean).join("\n\n"), {
       system: SYSTEM,
     });
     prevRender = render;
@@ -183,6 +185,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
       // below hands out this object, so it is sanitized once, at the source.
       if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
+      decision = page.bind(decision);
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({

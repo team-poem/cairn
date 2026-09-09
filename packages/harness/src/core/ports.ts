@@ -9,6 +9,7 @@ import type {
   Evidence,
   LlmUsage,
   PageElement,
+  SnapshotOptions,
   Result,
   Scenario,
   SettleOptions,
@@ -58,22 +59,25 @@ export interface Planner {
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target): Promise<void>;
-  doubleClick(target: Target): Promise<void>;
-  hover(target: Target): Promise<void>;
-  type(target: Target, text: string): Promise<void>;
+  click(target: Target, ref?: string): Promise<void>;
+  doubleClick(target: Target, ref?: string): Promise<void>;
+  hover(target: Target, ref?: string): Promise<void>;
+  type(target: Target, text: string, ref?: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
+  /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
+   * Implementations accepting refs must honor them in every target-bearing interaction. */
+  locateRef?(ref: string): Promise<Target>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
-  select(target: Target, value: string): Promise<void>;
+  select(target: Target, value: string, ref?: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;
   /** Scroll the page to reveal lazy/below-the-fold content. */
   scroll(direction?: "down" | "up"): Promise<void>;
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
-  snapshot(): Promise<PageElement[]>;
+  snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
   /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
    * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an

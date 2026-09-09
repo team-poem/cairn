@@ -37,18 +37,30 @@ export function rankElements(
   intent: string,
   limit: number,
 ): PageElement[] {
+  // Positive occlusion is removed BEFORE clickable region allocation. Unknown stays eligible.
+  const regions = new Set<string>();
+  const candidates = elements.filter(e => {
+    if (e.occluded === true) return false;
+    if (!e.clickable || INTERACTIVE_ROLES.has(e.role)) return true;
+    const region = e.clickableRegion;
+    if (region !== undefined && regions.has(region)) return false;
+    if (regions.size >= MAX_PROMOTED_CLICKABLES) return false;
+    regions.add(region ?? `unmeasured:${elements.indexOf(e)}`);
+    return true;
+  });
+  limit = Math.max(0, Math.floor(limit));
   // Unicode-aware tokens — `\W` treats every Korean (or any non-ASCII) char as a separator, so a
   // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
-  const scored = elements
+  const scored = candidates
     .map((e, i) => {
-      const interactive = INTERACTIVE_ROLES.has(e.role);
+      const interactive = INTERACTIVE_ROLES.has(e.role) || e.clickable === true;
       let score = interactive ? 100 : 0;
       const name = e.name.toLowerCase();
       for (const w of words) if (name.includes(w)) score += 10;
-      return { e, score, i, evidence: !interactive && score > 0 };
+      return { e, score, i, evidence: !interactive && words.some(w => name.includes(w)) };
     })
-    .sort((a, b) => b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 
   const cut = scored.slice(0, limit);
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
@@ -60,7 +72,7 @@ export function rankElements(
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
   return [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
-    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
     .map((s) => s.e);
 }
 

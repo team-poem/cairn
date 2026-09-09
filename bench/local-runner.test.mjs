@@ -93,3 +93,30 @@ test("localOracleAndEngineRemainSeparate: false greens blocked journeys and verd
   assert.equal(report.summaries[0].failureRate, 1);
   assert.equal(report.completed, 3);
 });
+
+test("localFailuresKeepDenominators: driver setup and engine exceptions are recorded and all acquired resources close", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { runs: 3 });
+  const make = h.runtime.createDriver;
+  let created = 0, ran = 0;
+  h.runtime.createDriver = () => { if (++created === 1) throw new Error("driver setup failed"); return make(); };
+  h.runtime.runScenario = async () => { if (++ran === 1) throw new Error("engine crashed"); return success(); };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.equal(report.requested, 3);
+  assert.equal(report.attempted, 3);
+  assert.equal(report.completed, 1);
+  assert.equal(report.summaries[0].failures, 2);
+  assert.equal(report.summaries[0].failureRate, 2 / 3);
+  assert.match(report.records[0].error.message, /driver setup failed/);
+  assert.match(report.records[1].error.message, /engine crashed/);
+  assert.equal(h.events.filter((e) => e.startsWith("server-close:")).length, 3);
+  assert.equal(h.events.filter((e) => e.startsWith("driver-close:")).length, 2);
+  const cleanup = await harness(t, { runs: 2 });
+  const start = cleanup.runtime.startFixture;
+  cleanup.runtime.startFixture = async (opts) => { const fixture = await start(opts); fixture.close = async () => { throw new Error("server cleanup failed"); }; return fixture; };
+  const stopped = await runBenchmark(cleanup.config, cleanup.runtime);
+  assert.equal(stopped.attempted, 1);
+  assert.equal(stopped.incomplete, true);
+  assert.equal(stopped.records[0].passed, false);
+  assert.match(stopped.records[0].error.message, /server cleanup failed/);
+});

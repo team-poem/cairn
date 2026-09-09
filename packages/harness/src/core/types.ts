@@ -144,6 +144,7 @@ export interface PageElement {
   /** Positive measured facts; absence means unknown. */
   inActivePopup?: boolean;
   occluded?: boolean;
+  /** A measured interaction candidate (for example cursor:pointer), not proof of action success. */
   clickable?: boolean;
   /** Driver-local measured clickable region identity, meaningful within this snapshot. */
   clickableRegion?: string;

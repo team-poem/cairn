@@ -45,13 +45,19 @@ export interface Planner {
  * component ignores untrusted events, so a shortcut would silently no-op. The reference driver
  * (Chrome DevTools MCP) satisfies this; a custom driver must too.
  *
- * Perception is a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
+ * Accessible semantics stay a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
  * perceives like assistive tech, so a control whose state lives outside a11y (a custom widget with
  * no `aria-checked`/role/name — an accessibility violation) is *invisible or mis-reported to cairn
  * exactly as it is to a screen reader*. The engine does not special-case app-specific DOM to work
  * around this (invariant #1). A consumer whose app has such widgets injects corrected perception by
  * wrapping `snapshot()` in its own Driver — the sanctioned seam — while the real fix is the app
  * exposing proper ARIA state.
+ *
+ * `snapshot({ perception: true })` may additionally return measured interaction facts and opaque
+ * refs. Supply candidates in source order without a model-budget cutoff; the engine owns ranking
+ * and quotas. Do not change a role to encode a clickable hint. Exact refs require `locateRef` and
+ * every targeted action to address the same observed node or fail, never reselect by name. See
+ * spec/core/perception.md for the selection policy, lifetime, and legacy compatibility contract.
  *
  * A Driver that throws can say why (#212): `throw stepError("transport", msg)` — or any Error with
  * a plain `kind` of `resolution` | `post-condition` | `timeout` | `transport` | `handler` — decides

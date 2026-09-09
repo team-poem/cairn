@@ -47,5 +47,7 @@ node "/path with spaces/to/cairn/bench/benchmark.mjs" replay
 
 `npm test` includes offline portability checks with a stub engine. Those checks
 exercise paths, command ordering and argument forwarding without Chrome or LLM
-calls. Fixture tiers, latency injection and the proposed larger replay sample
-remain follow-up work for [#169](https://github.com/team-poem/cairn/issues/169).
+calls. The [local reliability runner](local/README.md) adds isolated fixture tiers,
+reproducible latency and explicit counts through `npm run bench:local -- ...`.
+Larger samples and actual LLM measurements remain follow-up work for
+[#169](https://github.com/team-poem/cairn/issues/169).

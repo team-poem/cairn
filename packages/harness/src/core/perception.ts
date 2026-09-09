@@ -37,28 +37,33 @@ export function rankElements(
   intent: string,
   limit: number,
 ): PageElement[] {
-  // Positive occlusion is removed BEFORE clickable region allocation. Unknown stays eligible.
-  const regions = new Set<string>();
-  const candidates = elements.filter(e => {
-    if (e.occluded === true) return false;
-    if (!e.clickable || INTERACTIVE_ROLES.has(e.role)) return true;
-    const region = e.clickableRegion;
-    if (region !== undefined && regions.has(region)) return false;
-    if (regions.size >= MAX_PROMOTED_CLICKABLES) return false;
-    regions.add(region ?? `unmeasured:${elements.indexOf(e)}`);
-    return true;
-  });
-  limit = Math.max(0, Math.floor(limit));
-  // Unicode-aware tokens — `\W` treats every Korean (or any non-ASCII) char as a separator, so a
-  // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
+  // Unicode-aware intent tokens also identify evidence BEFORE de-nesting clickable labels.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
+  const relevant = (e: PageElement) => words.some(w => e.name.toLowerCase().includes(w));
+  const visible = elements.filter(e => e.occluded !== true);
+  const promoted = new Set<PageElement>();
+  const regions = new Set<string | PageElement>();
+  // Allocate measured interaction representatives to the active popup first. A background
+  // region cannot exhaust the quota before a portal appended at the end of the snapshot.
+  const clickables = visible.filter(e => e.clickable && !INTERACTIVE_ROLES.has(e.role))
+    .sort((a, b) => Number(b.inActivePopup === true) - Number(a.inActivePopup === true));
+  for (const e of clickables) {
+    const region = e.clickableRegion ?? e;
+    if (regions.has(region) || regions.size >= MAX_PROMOTED_CLICKABLES) continue;
+    regions.add(region);
+    promoted.add(e);
+  }
+  // Region quotas suppress redundant action labels, never intent evidence. Retained siblings
+  // keep their original objects/refs, but do not receive the interactive promotion score.
+  const candidates = visible.filter(e => !e.clickable || INTERACTIVE_ROLES.has(e.role) || promoted.has(e) || relevant(e));
+  limit = Math.max(0, Math.floor(limit));
   const scored = candidates
     .map((e, i) => {
-      const interactive = INTERACTIVE_ROLES.has(e.role) || e.clickable === true;
+      const interactive = INTERACTIVE_ROLES.has(e.role) || promoted.has(e);
       let score = interactive ? 100 : 0;
       const name = e.name.toLowerCase();
       for (const w of words) if (name.includes(w)) score += 10;
-      return { e, score, i, evidence: !interactive && words.some(w => name.includes(w)) };
+      return { e, score, i, evidence: !interactive && relevant(e) };
     })
     .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 

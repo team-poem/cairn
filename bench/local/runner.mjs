@@ -25,6 +25,7 @@ export async function runBenchmark(config, runtime) {
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
       record.captureFixtureHash = capture?.metadata.fixtureHash ?? null;
+      record.captureFixtureVersion = capture?.metadata.fixtureVersion ?? null;
       record.captureSource = capture?.metadata.source ?? null;
       record.llmSource = config.mode === "replay" ? null : { ...config.llm, kind: config.llm.source };
       try {
@@ -55,6 +56,9 @@ export async function runBenchmark(config, runtime) {
           const path = join(config.outputDir, "captures", `run-${index + 1}`, `${tier}.skill.json`);
           await saveCapture(path, scenario, { tier, fixtureVersion: config.fixtureVersion, fixtureHash: record.fixtureHash, captureOrigin: fixture.origin, source: record.source, engine: runtime.engine }, runtime.saveSkillFile);
           record.artifactPath = path;
+          record.captureFixtureVersion = config.fixtureVersion;
+          record.captureFixtureHash = record.fixtureHash;
+          record.captureSource = record.source;
           record.scenarioHash = sha256(await readFile(path));
           record.passed = true;
         } else {

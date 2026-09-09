@@ -333,3 +333,27 @@ test("localTerminalBudgetStopIsIncomplete: final call and cost limits remain vis
     assert.equal(report.stopReason, report.budget.stopReason);
   }
 });
+
+test("localMarkdownIdentifiesExecutedFixtureAndCapture: regenerated reports identify v2 execution and the exact canonical v1 capture", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const { writeReport, renderMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { runs: 2, fixtureVersion: "v2" });
+  const executedHash = "d".repeat(64);
+  h.runtime.fixtureInfo = (_tier, version) => ({ hash: version === "v1" ? fixtureHash : executedHash, entryPath: "/", intent: "Reach the destination" });
+  const report = await runBenchmark(h.config, h.runtime);
+  const paths = await writeReport(report, h.config.outputDir);
+  const saved = JSON.parse(await readFile(paths.json, "utf8"));
+  const markdown = await readFile(paths.markdown, "utf8");
+  assert.equal(markdown, renderMarkdown(saved));
+  assert.equal(saved.configuration.fixtureVersion, "v2");
+  assert.equal(saved.records[0].scenarioHash, sha(h.bytes));
+  assert.equal(saved.records[0].captureFixtureVersion, "v1");
+  assert.equal(saved.records[0].fixtureHash, executedHash);
+  assert.equal(saved.records[0].captureFixtureHash, fixtureHash);
+  assert.match(markdown, /Executed fixture version:\s*v2/);
+  assert.match(markdown, /v1/);
+  assert.ok(markdown.includes("offline smoke"), "Discovery source label must identify scripted captures");
+  assert.equal(markdown.split(sha(h.bytes)).length - 1, 1, "Repeated attempts must list the same canonical capture once");
+  assert.ok(markdown.includes(executedHash), "Executed fixture hash must be visible");
+  assert.ok(markdown.includes(fixtureHash), "Canonical fixture hash must remain distinct from execution");
+});

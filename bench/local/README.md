@@ -172,9 +172,10 @@ on every run after it. Each run still gets its own server, browser and state.
 The report gives, per tier and per arm, cost and tokens as running totals
 against the run index, how many runs called the model, how many repairs were
 carried forward, and the crossover: the first run where the cairn arm has cost
-less and stayed there. The token total leaves out no billed field, cache
-creation included; it is a count, and the runner records no per-model price, so
-a dollar figure cannot be derived from it. A tie is not a crossing.
+less and stayed there. A token total counts every billed field, cache
+creation included, and reads as a lower bound once a call reported no usage or
+reported only some of those fields. It is a count, and the runner records no
+per-model price, so a dollar figure cannot be derived from it. A tie is not a crossing.
 
 The crossover is withheld rather than guessed whenever it would be a claim: a
 scripted source makes no paid call, an arm that stopped short of the schedule

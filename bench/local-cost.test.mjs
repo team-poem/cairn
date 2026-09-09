@@ -390,3 +390,33 @@ test("costNamesTheScenarioEveryRunReplayed: a free run says which frozen bytes i
   assert.equal(cairn[3].replayedScenarioHash, cairn[2].scenarioHash);
   assert.ok(report.records.filter((record) => record.arm === "agent").every((record) => record.replayedScenarioHash === null));
 });
+
+test("costMarksATokenTotalItCouldNotComplete: a call that reported no usage makes the total a lower bound", async (t) => {
+  const { runCostComparison } = await load();
+  const { renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { fixtureVersions: ["v1", "v1"], runs: 2 });
+  let call = 0;
+  h.runtime.createLlm = (_config, context) => ({ id: "fake", async complete(_prompt, options = {}) {
+    context.budget.reserve();
+    call++;
+    // A provider can report a cost with no usage at all, and can report only some of the fields.
+    if (call === 2) options.onUsage?.({ outputTokens: 20 });
+    if (call > 2) options.onUsage?.({ inputTokens: 100, outputTokens: 20, cacheReadTokens: 5, cacheCreationTokens: 10 });
+    context.budget.record({ costUsd: 0.1 });
+    return { text: "{}" };
+  } });
+  const report = await runCostComparison(h.config, h.runtime);
+  const agent = report.records.filter((record) => record.arm === "agent");
+  assert.deepEqual(agent.map((record) => record.usageComplete), [false, false]);
+  assert.equal(agent[0].observedUsage.measuredCalls, 0);
+  assert.equal(agent[1].observedUsage.partialCalls, 1);
+  const arms = report.summaries[0].arms;
+  assert.equal(arms.agent.tokensComplete, false);
+  assert.equal(arms.cairn.tokensComplete, true);
+  assert.deepEqual(arms.agent.cumulative.map((point) => point.tokens), [0, 20]);
+  const markdown = renderCostMarkdown(report);
+  assert.match(markdown, /at least 20/);
+  assert.match(markdown, /lower bound/);
+  // Money is a separate question: every call reported a cost, so the cost column stays measured.
+  assert.equal(arms.agent.costComplete, true);
+});

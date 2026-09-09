@@ -5,6 +5,8 @@ import { delayFor } from "./server.mjs";
 import { createBudget } from "./budget.mjs";
 import { validateCostConfig } from "./config.mjs";
 
+const BILLED = ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"];
+
 /**
  * Two arms over the same fixtures, the same churn schedule and one shared budget (#214).
  *
@@ -67,11 +69,14 @@ export async function runCostComparison(config, runtime) {
         const discovering = arm === "agent" || frozen === null;
         const started = performance.now();
         const before = budget.snapshot().measuredCostUsd;
-        const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
+        // `partialCalls` is what keeps a token total honest. The adapter reports whatever fields the
+        // provider returned, and a call can report a cost with no usage at all, so summing blindly
+        // would present an under-count as a complete total of every billed field.
+        const observedUsage = { llmCalls: 0, measuredCalls: 0, partialCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
         const record = {
           tier, arm, index, fixtureVersion: version, action: discovering ? "discover" : "replay",
           completed: false, passed: false, verdict: null, oracle: null, error: null,
-          healCount: 0, refrozen: false, scenarioHash: null, replayedScenarioHash: discovering ? null : frozenHash,
+          healCount: 0, refrozen: false, usageComplete: false, scenarioHash: null, replayedScenarioHash: discovering ? null : frozenHash,
           fixtureHash: info.hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])),
           usage: null, engineUsage: null, observedUsage: null, costUsd: null, measuredCostUsd: null, elapsedMs: null,
         };
@@ -87,7 +92,8 @@ export async function runCostComparison(config, runtime) {
             return client.complete(prompt, { ...options, onUsage(usage) {
               if (measured) return;
               measured = true; observedUsage.measuredCalls++;
-              for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"]) observedUsage[key] += usage[key] ?? 0;
+              if (!BILLED.every((key) => Number.isFinite(usage[key]))) observedUsage.partialCalls++;
+              for (const key of BILLED) observedUsage[key] += usage[key] ?? 0;
               options.onUsage?.(usage);
             } });
           } };
@@ -141,6 +147,7 @@ export async function runCostComparison(config, runtime) {
           }
           record.observedUsage = { ...observedUsage };
           record.usage = { ...observedUsage };
+          record.usageComplete = observedUsage.measuredCalls === observedUsage.llmCalls && observedUsage.partialCalls === 0;
           const measured = budget.snapshot();
           record.measuredCostUsd = measured.measuredCostUsd - before;
           record.costUsd = measured.costComplete ? record.measuredCostUsd : null;
@@ -184,7 +191,7 @@ function summarize(report, config) {
       let cost = 0, tokens = 0;
       const cumulative = records.map((record) => {
         cost += record.measuredCostUsd ?? 0;
-        tokens += ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"].reduce((sum, key) => sum + (record.observedUsage?.[key] ?? 0), 0);
+        tokens += BILLED.reduce((sum, key) => sum + (record.observedUsage?.[key] ?? 0), 0);
         return { index: record.index, costUsd: cost, tokens, calls: record.observedUsage?.llmCalls ?? 0 };
       });
       return [arm, {
@@ -194,6 +201,7 @@ function summarize(report, config) {
         runsWithoutCalls: records.filter((record) => record.passed && (record.observedUsage?.llmCalls ?? 0) === 0).length,
         repairs: records.filter((record) => record.refrozen).length,
         costComplete: records.length > 0 && records.every((record) => record.costUsd !== null),
+        tokensComplete: records.length > 0 && records.every((record) => record.usageComplete),
         cumulative,
       }];
     }));

@@ -61,3 +61,31 @@ test("localStatefulOracle: session cart and order survive page changes without s
   assert.equal(s.snapshot().orderCount, 1);
   assert.equal(s.snapshot().complete, true);
 });
+
+test("localVariantsAndIsolation: every v2 changes labels while new instances start with independent state", { timeout: 5000 }, async (t) => {
+  for (const [tier, path, before, after] of [["navigation", "/", "Continue", "Proceed"], ["form", "/", "Save", "Store"], ["stateful", "/login", "Log in", "Sign in"]]) {
+    const first = await fixture(t, { tier, version: "v1" });
+    const second = await fixture(t, { tier, version: "v2" });
+    assert.notEqual(first.origin, second.origin);
+    assert.match((await request(first, path)).text, new RegExp(before));
+    assert.match((await request(second, path)).text, new RegExp(after));
+    assert.notEqual(fixtureInfo(tier, "v1").hash, fixtureInfo(tier, "v2").hash);
+    assert.deepEqual(first.snapshot(), second.snapshot());
+  }
+  const first = await fixture(t, { tier: "form" });
+  const second = await fixture(t, { tier: "form" });
+  await request(first, "/api/save", { value: "alice" });
+  assert.equal(first.snapshot().complete, true);
+  assert.equal(second.snapshot().complete, false);
+  assert.deepEqual(second.requestLog(), []);
+  const a = await fixture(t, { tier: "stateful" });
+  const b = await fixture(t, { tier: "stateful" });
+  const login = await request(a, "/api/login", { username: "alice" });
+  await request(a, "/api/cart", { sku: "book", quantity: 1 }, login.cookie);
+  assert.equal(a.snapshot().cartCount, 1);
+  assert.equal(b.snapshot().cartCount, 0);
+  assert.equal(b.snapshot().orderCount, 0);
+  assert.deepEqual(b.requestLog(), []);
+  assert.equal((await request(b, "/api/order", {}, login.cookie)).status, 401);
+  assert.equal(b.snapshot().complete, false);
+});

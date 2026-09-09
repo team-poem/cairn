@@ -42,3 +42,22 @@ test("localFormOracle: only a valid saved value completes the asynchronous form"
   assert.equal(s.snapshot().savedValue, "alice");
   assert.equal(s.snapshot().complete, true);
 });
+
+test("localStatefulOracle: session cart and order survive page changes without skipping required actions", { timeout: 5000 }, async (t) => {
+  const s = await fixture(t, { tier: "stateful" });
+  assert.equal((await request(s, "/api/order", {})).status, 401);
+  assert.equal((await request(s, "/login")).status, 200);
+  const login = await request(s, "/api/login", { username: "alice" });
+  assert.equal(login.status, 200);
+  assert.ok(login.cookie);
+  assert.equal((await request(s, "/api/order", {}, login.cookie)).status, 409);
+  assert.equal((await request(s, "/products", undefined, login.cookie)).status, 200);
+  assert.equal((await request(s, "/api/cart", { sku: "book", quantity: 1 }, login.cookie)).status, 200);
+  assert.equal((await request(s, "/cart", undefined, login.cookie)).status, 200);
+  assert.equal(s.snapshot().cartCount, 1);
+  assert.equal(s.snapshot().complete, false);
+  assert.equal((await request(s, "/api/order", {}, login.cookie)).status, 200);
+  assert.equal((await request(s, "/done", undefined, login.cookie)).status, 200);
+  assert.equal(s.snapshot().orderCount, 1);
+  assert.equal(s.snapshot().complete, true);
+});

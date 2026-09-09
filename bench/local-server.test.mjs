@@ -32,3 +32,13 @@ test("localNavigationOracle: destination access completes a local navigation fix
   assert.equal(s.snapshot().complete, true);
   assert.equal((await request(s, "/missing")).status, 404);
 });
+
+test("localFormOracle: only a valid saved value completes the asynchronous form", { timeout: 5000 }, async (t) => {
+  const s = await fixture(t, { tier: "form" });
+  assert.equal((await request(s, "/")).status, 200);
+  assert.equal((await request(s, "/api/save", { value: "" })).status, 400);
+  assert.equal(s.snapshot().complete, false);
+  assert.equal((await request(s, "/api/save", { value: "alice" })).status, 200);
+  assert.equal(s.snapshot().savedValue, "alice");
+  assert.equal(s.snapshot().complete, true);
+});

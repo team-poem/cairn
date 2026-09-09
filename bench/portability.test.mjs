@@ -112,3 +112,12 @@ test("churnRelocates: the local public engine preserves discovery and both four-
   assert.deepEqual(replays.map((e) => e.heal), [false, false, false, false, true, true, true, true]);
   assert.ok(replays.every((e) => e.scenario.steps[0].url === "http://localhost:8077/v2"));
 });
+
+test("benchmarkCommandsBuildFirst: root npm commands build before the selected mode and forward arguments intact", (t) => {
+  const f = commandFixture(t);
+  for (const [command, script, phase] of commands) {
+    f.clear();
+    succeeds(f.npm(command));
+    assert.deepEqual(f.events(), [{ kind: "build" }, { kind: script, args: [...(phase ? [phase] : []), "argument with spaces", "--sentinel"] }], command);
+  }
+});

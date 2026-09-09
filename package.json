@@ -11,7 +11,10 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present && node --test bench/portability.test.mjs",
     "check:boundaries": "npm run check:boundaries -w cairn-engine",
-    "test:consumer": "node scripts/test-package-consumer.mjs"
+    "test:consumer": "node scripts/test-package-consumer.mjs",
+    "bench:discover": "npm run build -w cairn-engine && node bench/benchmark.mjs discover",
+    "bench:replay": "npm run build -w cairn-engine && node bench/benchmark.mjs replay",
+    "bench:churn": "npm run build -w cairn-engine && node bench/churn.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.1"

@@ -14,6 +14,7 @@
   - [trace](core/trace.md) — unified lifecycle event contract (draft, #138): envelope · header versioning · per-phase payloads.
   - [secrets](core/secrets.md) — `{name}` placeholders filled at run time, scoped to a site, never frozen (#174).
 - **[journal/](journal/)** — **current state · dev log** (Korean, internal): [state](journal/state.md) · [history](journal/history.md).
+- **Proposals (not accepted contracts):** [#198 perception responsibility and observation identity](proposals/198-perception-contract.md).
 
 ## Roles (don't duplicate across them)
 

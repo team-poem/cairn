@@ -43,6 +43,7 @@ export async function startFixture({ tier, version, runIndex, latency }) {
       if (req.method === "POST") {
         try { let raw = ""; for await (const chunk of req) raw += chunk; body = JSON.parse(raw); }
         catch { res.statusCode = 400; send("Invalid input"); return; }
+        if (body === null || typeof body !== "object" || Array.isArray(body)) { res.statusCode = 400; send("Expected a JSON object"); return; }
       }
       if (path === "/api/login" && req.method === "POST") {
         if (body.username !== "alice") { res.statusCode = 400; send("Use alice"); return; }

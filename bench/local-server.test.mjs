@@ -120,3 +120,20 @@ test("localCloseCancelsPendingWork: closing a delayed server settles requests an
   assert.equal(second.snapshot().complete, false);
   assert.deepEqual(second.requestLog(), []);
 });
+
+test("localMalformedBodyIsContained: JSON null is a rejected request and does not terminate the fixture process", () => {
+  const script = `
+    import { startFixture } from ${JSON.stringify(new URL("./local/server.mjs", import.meta.url).href)};
+    const fixture = await startFixture({tier:'stateful',version:'v1',runIndex:0,latency:{document:[0],api:[0]}});
+    const invalid = await fetch(fixture.origin+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:'null'});
+    if (invalid.status !== 400) throw Error('Malformed body was not rejected');
+    const valid = await fetch(fixture.origin+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username:'alice'})});
+    if (valid.status !== 200) throw Error('Fixture did not survive invalid input');
+    await fixture.close();
+  `;
+  return import("node:child_process").then(({ spawnSync }) => {
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8", timeout: 3000 });
+    assert.equal(result.error, undefined, String(result.error));
+    assert.equal(result.status, 0, result.stderr);
+  });
+});

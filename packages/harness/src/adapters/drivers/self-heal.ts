@@ -16,6 +16,7 @@ import type {
 import { PerceptionObservation, decisionReference } from "../../core/observation.js";
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { ACTION_RULES } from "../../core/discover/prompt.js";
+import { redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
@@ -30,6 +31,8 @@ export interface SelfHealOptions {
   maxHeals?: number;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
+  /** Mask configured input values in the repair prompt and policy context. */
+  secrets?: Secrets;
   /** Fired when a step is healed — a host's signal that the scenario is aging (re-freeze worthwhile). */
   onHeal?: (heal: Heal) => void;
 }
@@ -153,7 +156,7 @@ export class SelfHealingDriver implements Driver {
       );
     }
     const raw = await this.inner.snapshot({ perception: true });
-    const elements = this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw;
+    const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
     const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "");
     const reply = await this.llm.complete(healPrompt(target, page), {
       system: HEAL_SYSTEM,
@@ -171,7 +174,7 @@ export class SelfHealingDriver implements Driver {
     const decision = page.bind({ action, ...(choice ? { text: choice } : {}),
       ...(parsed?.ref !== undefined ? { ref: parsed.ref } : {}),
       ...(parsed?.role !== undefined ? { role: parsed.role } : {}),
-      ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}), ...(value !== undefined ? { value } : {}) });
+      ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}), ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) throw stepError("resolution", ambiguity);
     if (this.opts.policy) {

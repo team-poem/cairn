@@ -17,20 +17,25 @@ export async function runBenchmark(config, runtime) {
       let fixture, driver;
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture.metadata.source, scenarioHash: capture.metadata.scenarioHash, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
+      record.captureSource = capture.metadata.source;
+      record.llmSource = config.mode === "replay" ? null : { ...config.llm, kind: config.llm.source };
       try {
         fixture = await runtime.startFixture({ tier, version: config.fixtureVersion, runIndex: index, latency: config.latency });
         driver = runtime.createDriver();
-        const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: false, llm: { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } }, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
+        const llm = config.mode === "replay" ? { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } } : runtime.createLlm(config.llm, {});
+        const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: config.mode === "heal", llm, signal, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
         report.completed++;
         record.completed = true;
         record.journey = !output.result.evidence.execution.blocked;
         record.verdict = output.result.verdict.passed;
+        record.engineVerdict = structuredClone(output.result.verdict);
         record.proof = output.result.verdict.proof ?? null;
         record.failure = output.result.verdict.failure ?? null;
         record.usage = output.result.usage ?? null;
+        record.healCount = (output.heals?.length ?? 0) + (output.stepHeals?.length ?? 0);
         record.oracle = fixture.snapshot();
-        record.passed = record.journey && record.verdict && record.oracle.complete && record.usage?.llmCalls === 0;
-        if (record.usage?.llmCalls !== 0) record.error = { name: "ReplayUsageError", message: "Replay LLM usage must be measured zero" };
+        record.passed = record.journey && record.verdict && record.oracle.complete && (config.mode !== "replay" || record.usage?.llmCalls === 0);
+        if (config.mode === "replay" && record.usage?.llmCalls !== 0) record.error = { name: "ReplayUsageError", message: "Replay LLM usage must be measured zero" };
       } catch (error) {
         record.error = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };
         record.oracle = fixture?.snapshot() ?? null;

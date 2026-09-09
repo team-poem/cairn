@@ -120,3 +120,22 @@ test("localFailuresKeepDenominators: driver setup and engine exceptions are reco
   assert.equal(stopped.records[0].passed, false);
   assert.match(stopped.records[0].error.message, /server cleanup failed/);
 });
+
+test("localHealingAttemptsAreIndependent: v2 attempts reuse the original freeze and distinguish survival from repair counts", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { mode: "heal", fixtureVersion: "v2", llm: { source: "scripted", label: "offline smoke" } });
+  h.runtime.createLlm = () => ({ id: "scripted", async complete() { return "unused"; } });
+  h.runtime.fixtureInfo = (_tier, version) => ({ hash: version === "v2" ? "d".repeat(64) : fixtureHash, entryPath: "/", intent: "Reach the destination" });
+  const inputs = [];
+  const versions = [];
+  const start = h.runtime.startFixture;
+  h.runtime.startFixture = (opts) => { versions.push(opts.version); return start(opts); };
+  h.runtime.runScenario = async (scenario, opts) => { inputs.push(structuredClone(scenario)); assert.equal(opts.heal, true); scenario.name = "mutated by stub"; return { ...success(), healedScenario: { ...canonical, name: "healed replacement" } }; };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.deepEqual(inputs, [canonical, canonical]);
+  assert.deepEqual(versions, ["v2", "v2"]);
+  assert.equal(await readFile(h.path, "utf8"), h.bytes);
+  assert.ok(report.records.every((r) => r.mode === "heal" && r.passed && r.healCount === 0));
+  assert.ok(report.records.every((r) => r.fixtureHash === "d".repeat(64)));
+  assert.equal(report.summaries[0].mode, "heal");
+});

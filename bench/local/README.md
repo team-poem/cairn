@@ -199,6 +199,13 @@ to satisfy the frozen assertions, so the two arms' failure counts are not the
 same measurement. Regenerate the Markdown with `renderCostMarkdown` in place of
 `renderMarkdown`.
 
+A cost run also writes `cost-<tier>.svg` beside its report: cumulative spend
+against the run index, one line per arm, with the crossover marked. It is drawn
+from the JSON and nothing else, so the picture can be regenerated from the data
+that produced it instead of being redrawn by hand, and a tier whose comparison
+the report withheld gets no chart rather than a drawn one. Regenerate one with
+`renderCostChart(report, { tier })` from `bench/local/chart.mjs`.
+
 A crossover is not a general saving. How often an application breaks a freeze is
 the variable that decides the answer, and a schedule fixes it by construction.
 Report the schedule with the number.

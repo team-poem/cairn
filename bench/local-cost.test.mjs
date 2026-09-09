@@ -464,3 +464,17 @@ test("costSaysWhenAModelWasNotPricedAtList: an unpriced share is not presented a
   assert.equal(model.listPriced, false);
   assert.match(renderCostMarkdown(report), /model-under-test: unknown \(not list price\)/);
 });
+
+test("costWritesAChartForEveryTierItCompared: a withheld comparison gets no picture", async (t) => {
+  const { runCostComparison } = await load();
+  const { writeReport, renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { tiers: ["navigation", "form"] });
+  const report = await runCostComparison(h.config, h.runtime);
+  report.summaries[1].comparable = false;
+  report.summaries[1].comparableNote = "a run failed, and a failed run costs nothing";
+  const paths = await writeReport(report, h.config.outputDir, renderCostMarkdown);
+  assert.deepEqual(paths.charts, [join(h.config.outputDir, "cost-navigation.svg")]);
+  const svg = await readFile(paths.charts[0], "utf8");
+  assert.match(svg, /<svg /);
+  assert.match(svg, /cheaper from run 2/);
+});

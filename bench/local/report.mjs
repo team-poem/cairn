@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { renderCostChart } from "./chart.mjs";
 
 const cell = (value) => String(value).replaceAll("|", "\\|").replaceAll("\n", " ");
 const BILLED_TOTAL = (model) => ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"].reduce((sum, key) => sum + (model[key] ?? 0), 0);
@@ -67,5 +68,15 @@ export async function writeReport(report, directory, render = renderMarkdown) {
   const paths = { json: join(directory, "results.json"), markdown: join(directory, "results.md") };
   await writeFile(paths.json, JSON.stringify(report, null, 2) + "\n", { flag: "wx" });
   await writeFile(paths.markdown, render(report), { flag: "wx" });
+  // A chart per tier the report was willing to compare. A tier whose comparison was withheld is
+  // skipped rather than drawn, and never having a chart is not an error.
+  if (report.kind === "cost-comparison") {
+    for (const summary of report.summaries) {
+      if (!summary.comparable) continue;
+      const path = join(directory, `cost-${summary.tier}.svg`);
+      await writeFile(path, renderCostChart(report, { tier: summary.tier }), { flag: "wx" });
+      (paths.charts ??= []).push(path);
+    }
+  }
   return paths;
 }

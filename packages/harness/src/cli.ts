@@ -10,7 +10,7 @@
  *   cairn explore "<charter>" --url <u>        LLM survey the app for UX problems (freeze-less, #102)
  *                                              [--model m] [--max-steps n] [--report out.md] [--json out.json]
  *   cairn suite <cases.json>                   run a case list: replay cached skills, discover+freeze misses
- *                                              [--skills dir] [--base-url u] [--no-heal] [--model m]
+ *                                              [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m]
  *                                              [--report out.md] [--json out.json]
  *
  * All orchestration lives in the library (`runScenario` / `discover` / `explore` / `runSuite`). This file
@@ -38,11 +38,12 @@ import {
   renderSuiteReport,
   runScenario,
   runSuite,
+  validateReplayEntry,
   weakTargets,
   proofOf,
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
-import { flagNum, flagStr, parseArgs } from "./cli-args.js";
+import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
 import { secretsFromFlags } from "./cli-secrets.js";
 import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
@@ -85,11 +86,15 @@ function reporterFor(flags: Flags): Reporter {
 
 /** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
+  const replayEnvironment = flagReplayEnvironment(flags);
+  if (replayEnvironment) validateReplayEntry(scenario, replayEnvironment);
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
   let run: Awaited<ReturnType<typeof runScenario>>;
   try {
     run = await runScenario(scenario, {
+      replayEnvironment,
       reporter: reporterFor(flags),
       model: flagStr(flags, "model"),
       heal: Boolean(flags.get("heal")),
@@ -123,6 +128,12 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   if (!truncated && !healedScenario && !result.verdict.passed && Boolean(flags.get("heal")) && result.verdict.detail) {
     console.log(`\n${result.verdict.detail}`);
   }
+  if (replayEnvironment && flags.get("heal")) {
+    // Temporary outcome repairs have no artifact; report their final verdict and evidence
+    // independently so both console and JSON agree with the exit code after healing.
+    console.log("\nfinal replay environment result (repairs are temporary):");
+    await reporterFor(flags).emit(result);
+  }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
     await skills.freeze(freeze, healedScenario);
@@ -147,7 +158,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
   const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
@@ -349,13 +360,15 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) {
     throw new Error(
-      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]",
+      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]",
     );
   }
+  const replayEnvironment = flagReplayEnvironment(flags, "replay-base-url");
   const { cases, baseUrl } = await loadCasesFile(file);
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    replayEnvironment,
     skillDir: flagStr(flags, "skills"),
     baseUrl: flagStr(flags, "base-url") ?? baseUrl,
     heal: !flags.get("no-heal"),
@@ -364,7 +377,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     secrets: secretsFromFlags(flags),
     onCase: (v) =>
       console.log(
-        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
+        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.notRun ? `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})` : v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
           `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : proofTag(v)}`,
       ),
   });
@@ -389,16 +402,21 @@ const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 
 usage: cairn <command> [options]
 
-  run --dogfood | --scenario <file.json> [--json out]
-  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms] [--secret name=value…]
+  run --dogfood | --scenario <file.json> [--base-url u --allowed-hosts hosts] [--json out]
+  replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms] [--secret name=value…]
   discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic] [--secret name=value…]
   explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
-  suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]
+  suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]
 
   --secret name=value        fill {name} in type steps at run time; repeatable; or CAIRN_SECRET_<NAME> in the env
   --secret-origin name=url   refuse to type {name} on any page outside that origin
   --help, -h       print this message
   --version, -v    print the engine version
+
+replay environment: pair the runtime base flag with --allowed-hosts (comma-separated exact hosts).
+  The base is an HTTP(S) origin; original paths are preserved. Environment heals are temporary;
+  --freeze cannot be combined with a runtime base. Suite --replay-base-url requires a cached skill;
+  suite --base-url remains the canonical discovery URL.
 
 exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup)
 

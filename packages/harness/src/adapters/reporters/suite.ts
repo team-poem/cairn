@@ -6,6 +6,7 @@
 import type { SuiteResult, SuiteVerdict } from "../../suite.js";
 
 function pathLabel(v: SuiteVerdict): string {
+  if (v.notRun) return `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})`;
   if (v.truncated) return "discovery truncated";
   if (v.discovered) return "discovered + replayed";
   return "replayed (cached)";
@@ -33,7 +34,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
   const passed = suite.verdicts.filter((v) => v.verdict.passed).length;
   const failed = suite.verdicts.length - passed;
   // The engine's economics, proven per run: cached cases that needed no LLM at all.
-  const freeReplays = suite.verdicts.filter((v) => !v.discovered && v.usage.llmCalls === 0).length;
+  const freeReplays = suite.verdicts.filter((v) => !v.notRun && !v.discovered && v.usage.llmCalls === 0).length;
 
   const lines: string[] = [
     `# Suite report`,

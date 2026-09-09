@@ -6,6 +6,7 @@
  */
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
+import type { RequestMatchOptions } from "./requests.js";
 import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
 import { assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
@@ -33,6 +34,11 @@ export interface UrlMatchOptions {
   /** First-path-segment prefixes treated as locales in the stripping fallback.
    * Default: `DEFAULT_LOCALE_PREFIXES`. Pass `[]` to disable the fallback. */
   localePrefixes?: readonly string[];
+}
+
+/** Matching scope shared by explicit waits and per-step post-conditions. */
+export interface ConditionMatchOptions extends UrlMatchOptions {
+  requestMatch?: RequestMatchOptions;
 }
 
 interface HostPath {
@@ -144,7 +150,10 @@ export function unrecognizedLeadingSegment(
 
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
-  constructor(private readonly secrets: Secrets = {}) {}
+  constructor(
+    private readonly secrets: Secrets = {},
+    private readonly urlMatch: ConditionMatchOptions = {},
+  ) {}
 
   supports(step: Step): boolean {
     return step.kind !== "custom";
@@ -180,7 +189,7 @@ export class BuiltinStepHandler implements StepHandler {
       case "scroll":
         return driver.scroll(step.direction);
       case "waitFor":
-        return waitForCondition(driver, step.until, step.timeoutMs);
+        return waitForCondition(driver, step.until, step.timeoutMs, this.urlMatch);
       case "custom":
         // Owned by CustomStepHandler; reaching here means a handler-ordering bug, not bad input.
         throw new Error(`built-in handler received custom step "${step.name}"`);
@@ -210,8 +219,12 @@ export class CustomStepHandler implements StepHandler {
 }
 
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
-export function defaultStepHandlers(actions: Record<string, CustomAction> = {}, secrets: Secrets = {}): StepHandler[] {
-  return [new BuiltinStepHandler(secrets), new CustomStepHandler(actions)];
+export function defaultStepHandlers(
+  actions: Record<string, CustomAction> = {},
+  secrets: Secrets = {},
+  urlMatch: ConditionMatchOptions = {},
+): StepHandler[] {
+  return [new BuiltinStepHandler(secrets, urlMatch), new CustomStepHandler(actions)];
 }
 
 /**
@@ -224,8 +237,9 @@ export async function waitForCondition(
   driver: Driver,
   until: WaitUntil,
   timeoutMs = WAIT_TIMEOUT_MS,
+  urlMatch: ConditionMatchOptions = {},
 ): Promise<void> {
-  if (!(await pollCondition(driver, until, timeoutMs))) {
+  if (!(await pollCondition(driver, until, timeoutMs, { urlMatch }))) {
     throw stepError("timeout", `waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
   }
 }
@@ -242,7 +256,7 @@ export interface PollOptions {
    * per-step watermark, so an earlier step's request can't satisfy this step's post-condition. */
   sinceRequestIndex?: number;
   /** Consumer-injected URL-matching knobs (locale prefixes) for `until.url` (#86). */
-  urlMatch?: UrlMatchOptions;
+  urlMatch?: ConditionMatchOptions;
 }
 
 export async function pollCondition(
@@ -266,7 +280,7 @@ export async function conditionMet(
   driver: Driver,
   until: WaitUntil,
   sinceRequestIndex = 0,
-  urlMatch: UrlMatchOptions = {},
+  urlMatch: ConditionMatchOptions = {},
 ): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
@@ -275,7 +289,7 @@ export async function conditionMet(
       const { urlIncludes, status, method } = until.requestStatus;
       // Same predicate as the request-status assertion (core/requests.ts) — the step watermark
       // is applied by slicing the cumulative log before matching.
-      if (!findRequestStatus(logic.requests.slice(sinceRequestIndex), urlIncludes, status, method)) {
+      if (!findRequestStatus(logic.requests.slice(sinceRequestIndex), urlIncludes, status, method, urlMatch.requestMatch)) {
         return false;
       }
     }

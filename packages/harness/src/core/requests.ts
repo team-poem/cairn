@@ -1,4 +1,12 @@
+import { hostAuthority, hostIsAllowed, parseReplayUrl } from "./hosts.js";
 import type { NetworkRequest } from "./types.js";
+
+/** Exact host[:port] scope for comparing frozen API paths across replay environments. */
+export interface RequestMatchOptions {
+  /** Explicit ports match effective HTTP(S) ports; omitted ports scope standard endpoints. */
+  allowedHosts?: readonly string[];
+}
+
 
 /** Raw key -> raw value pairs of a query string ("a=1&b=2"), last one wins on a duplicate key.
  * No decoding — matched as literal text, same as the containment match this replaces. */
@@ -22,7 +30,30 @@ function parseQueryPairs(query: string): Map<string, string> {
  * (`?op=AddToCart` failing against `?trace=xy&op=AddToCart`). #200. Shared by every request-status
  * call site (this predicate, discovery-time grounding, the assertion diagnostic) so a verdict and
  * its diagnostic can never disagree. */
-export function urlMatchesFrozen(url: string, urlIncludes: string): boolean {
+export function urlMatchesFrozen(url: string, urlIncludes: string, opts: RequestMatchOptions = {}): boolean {
+  // Only an explicitly scoped frozen host enables fallback. Path/suffix checks and external
+  // checks keep their existing semantics. Never accept a hostname embedded in an actual query.
+  const allowedHosts = opts.allowedHosts;
+  const frozen = allowedHosts ? parseReplayUrl(urlIncludes) : undefined;
+  if (frozen && allowedHosts && hostIsAllowed(frozen.host, allowedHosts)) {
+    const actual = parseReplayUrl(url);
+    if (!actual?.absolute || !hostIsAllowed(actual.host, allowedHosts)) return false;
+    const observed = new URL(url);
+    const path = frozen.suffix.split(/[?#]/, 1)[0] ?? "";
+    if (path.startsWith("/") && path !== "/") {
+      // Dropping the host must keep its endpoint prefix anchored at the pathname start,
+      // never a nested endpoint or a URL carried in a query value.
+      // Reuse the original query-subset comparison below without broadening it.
+      if (!observed.pathname.startsWith(path)) return false;
+      return urlMatchesFrozen(observed.pathname + observed.search, frozen.suffix);
+    }
+    // No path means no cross-host fallback. Keep explicit default ports equivalent to the
+    // source URL's effective port, then require the original literal expectation as before.
+    const sourcePort = frozen.host.port ?? (frozen.host.protocol === "https:" ? "443" : frozen.host.protocol === "http:" ? "80" : undefined);
+    const sourceAuthority = hostAuthority({ ...frozen.host, port: sourcePort });
+    if (!hostIsAllowed(actual.host, [sourceAuthority])) return false;
+  }
+
   const q = urlIncludes.indexOf("?");
   if (q === -1) return url.includes(urlIncludes);
   const path = urlIncludes.slice(0, q);
@@ -44,10 +75,11 @@ export function findRequestStatus(
   urlIncludes: string,
   status: number,
   method?: string,
+  opts: RequestMatchOptions = {},
 ): NetworkRequest | undefined {
   const m = method?.toUpperCase();
   return requests.find(
-    (r) => urlMatchesFrozen(r.url, urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
+    (r) => urlMatchesFrozen(r.url, urlIncludes, opts) && r.status === status && (!m || r.method.toUpperCase() === m),
   );
 }
 

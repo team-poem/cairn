@@ -1,3 +1,6 @@
+import { validateReplayEnvironment } from "./index.js";
+import type { ReplayEnvironment } from "./index.js";
+
 export type Flags = Map<string, string | boolean | string[]>;
 
 /** Flags that may be given more than once; each value is kept, in order. */
@@ -65,6 +68,21 @@ export const flagNum = (flags: Flags, key: string): number | undefined => {
   }
   return n;
 };
+
+/** Paired runtime flags; suite keeps --base-url for its canonical discovery identity. */
+export function flagReplayEnvironment(flags: Flags, baseFlag = "base-url"): ReplayEnvironment | undefined {
+  if (!flags.has(baseFlag) && !flags.has("allowed-hosts")) return undefined;
+  const baseUrl = flagStr(flags, baseFlag);
+  const hosts = flagStr(flags, "allowed-hosts");
+  if (!baseUrl?.trim()) throw new Error(`--${baseFlag} requires an HTTP(S) origin with --allowed-hosts`);
+  if (!hosts?.trim()) throw new Error(`--allowed-hosts requires a comma-separated host list with --${baseFlag}`);
+  if (flags.has("freeze")) throw new Error("--freeze cannot be combined with a replay environment; repairs are temporary");
+  try {
+    return validateReplayEnvironment({ baseUrl, allowedHosts: hosts.split(",").map((host) => host.trim()) });
+  } catch (err) {
+    throw new Error(`--${baseFlag} / --allowed-hosts: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
 
 /** Every value of a repeatable flag (`--secret a=1 --secret b=2`), or `[]`. */
 export const flagList = (flags: Flags, key: string): string[] => {

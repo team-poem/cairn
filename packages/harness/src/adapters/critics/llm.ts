@@ -11,6 +11,7 @@ import {
   judgeAssertion,
   toVerdict,
 } from "./assertion.js";
+import type { RequestMatchOptions } from "../../core/requests.js";
 import type { CustomChecks } from "./assertion.js";
 import type { AssertionHandler, Critic, LlmClient } from "../../core/ports.js";
 import { extractFirstJsonObject } from "../../core/json.js";
@@ -113,12 +114,13 @@ export class LlmCritic implements Critic {
     benignConsole: readonly string[] = [],
     localePrefixes?: readonly string[],
     wildcards?: boolean,
+    requestMatch: RequestMatchOptions = {},
   ) {
     // `expect` → LLM (first, so it wins); everything else falls through to the same
     // mechanical/custom handlers AssertionCritic uses. The two critics differ only here.
     this.handlers = [
       new ExpectAssertionHandler(llm),
-      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards),
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards, requestMatch),
       new CustomAssertionHandler(custom),
     ];
   }

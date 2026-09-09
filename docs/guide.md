@@ -78,6 +78,8 @@ Long flows and slow apps have knobs. `discover --max-steps=30` raises the explor
 
 `discover --semantic` lets the freeze carry LLM-judged `expect` checks for outcomes no mechanical assertion captures. The trade-off is that replay then needs an LLM critic for those checks (everything else stays deterministic), so leave it off unless you need it.
 
+To replay an existing freeze against another origin, pair `--base-url` with `--allowed-hosts`. The [replay environment guide](replay-environments.md) covers the library option, suite cache reuse, and temporary healing.
+
 ## Explore it: a freeze-less UX survey
 
 `discover` builds a test. `explore` files a report. Give it a charter instead of an intent and the same loop wanders your app looking for what would annoy a real user. Nothing is frozen:

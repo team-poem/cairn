@@ -8,7 +8,8 @@ import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step,
 import { errorKindOf, stepError } from "./errors.js";
 import type { Secrets } from "./secrets.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
-import type { UrlMatchOptions } from "./steps.js";
+import type { RequestMatchOptions } from "./requests.js";
+import type { ConditionMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
 
@@ -45,6 +46,8 @@ export interface RunHarnessOptions {
    * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
    * or has real routes that look like locales (`/my`, `/tv`). `[]` disables stripping. */
   localePrefixes?: readonly string[];
+  /** API host scope shared by step expects and explicit waits. */
+  requestMatch?: RequestMatchOptions;
   /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
   trace?: TraceScope;
   /** Values for `{name}` placeholders in `type` steps, filled at run time and never frozen (#174).
@@ -77,7 +80,7 @@ async function runStep(
   driver: Driver,
   index: number,
   expectTimeoutMs: number,
-  urlMatch: UrlMatchOptions,
+  urlMatch: ConditionMatchOptions,
   healer?: StepHealer,
   trace?: TraceScope,
 ): Promise<ExecutedAction> {
@@ -268,16 +271,17 @@ export async function runHarness(
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
   // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
   // segment" is a property of the file being replayed, and an older file predates the notation.
-  const urlMatch: UrlMatchOptions = {
+  const urlMatch: ConditionMatchOptions = {
     localePrefixes: opts.localePrefixes,
     wildcards: scenario.wildcards,
+    requestMatch: opts.requestMatch,
   };
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {}, urlMatch);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).

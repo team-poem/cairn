@@ -71,6 +71,15 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
 | heal | `heal` | `layer: locator \| step`, `broke` → `became`, `judgedBy: original` | locator `Heal` (`onHeal`) · `StepHeal` |
 
+**Replay environments describe the executed copy.** When `replayEnvironment` is set,
+`step` URLs and page-assertion destinations (including root destinations) use the target
+origin. Request expectation strings remain canonical, while observed URLs and evidence
+come from the actual execution environment. The original assertions used to judge a heal
+are the original goal assertions after this runtime page-URL transformation; the stored
+skill is unchanged. Suite `skillRef` and `caseHash` still identify the canonical freeze.
+A cache miss or invalid entry ends the case without step events; `cached` on `case-start`
+records cache presence, not whether replay happened. No trace schema change is required.
+
 **Heal is three layers, one phase.** Locator heal (a target substitution) and surgical step heal
 (a corrective step) each emit a `heal` event — `broke → became` is a target pair or a step pair,
 told apart by `layer`. **Outcome-heal** (the full re-discovery in `run.ts`) is not one event: it

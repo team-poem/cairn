@@ -62,3 +62,24 @@ test("localCapturesUseEngineSave: scenario bytes and separate provenance round-t
   assert.equal(loaded.metadata.captureOrigin, metadata.captureOrigin);
   assert.equal(await readFile(path, "utf8"), bytes);
 });
+
+test("localCapturesRejectUntrustedInputs: missing malformed stale tampered and semantic replay captures fail closed", async (t) => {
+  const { saveCapture, loadCapture } = await import("./local/artifacts.mjs");
+  const path = join(await directory(t), "navigation.skill.json");
+  const expected = { tier: "navigation", fixtureVersion: "v1", fixtureHash, mode: "replay" };
+  await assert.rejects(loadCapture(path, expected));
+  await saveCapture(path, canonical, metadata, saveSkillFile);
+  for (const patch of [{ tier: "form" }, { fixtureVersion: "v2" }, { fixtureHash: "c".repeat(64) }]) await assert.rejects(loadCapture(path, { ...expected, ...patch }));
+  await writeFile(path, JSON.stringify({ ...canonical, name: "tampered" }));
+  await assert.rejects(loadCapture(path, expected));
+  for (const scenario of [{ name: "malformed" }, { ...canonical, assertions: [{ kind: "expect", criterion: "looks right" }] }, { ...canonical, truncated: true }]) {
+    await saveSkillFile(path, scenario);
+    await writeFile(path + ".meta.json", JSON.stringify({ ...metadata, scenarioHash: sha(await readFile(path, "utf8")) }));
+    await assert.rejects(loadCapture(path, expected));
+  }
+  await saveSkillFile(path, canonical);
+  for (const source of [null, {}, { kind: "unidentified" }, { kind: "llm", backend: "", model: "" }]) {
+    await writeFile(path + ".meta.json", JSON.stringify({ ...metadata, source, scenarioHash: sha(await readFile(path, "utf8")) }));
+    await assert.rejects(loadCapture(path, expected));
+  }
+});

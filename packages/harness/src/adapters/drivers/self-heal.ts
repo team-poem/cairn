@@ -13,7 +13,7 @@ import type {
   SnapshotOptions,
   Target,
 } from "../../core/types.js";
-import { PerceptionObservation, decisionReference } from "../../core/observation.js";
+import { PerceptionObservation, assertDecisionCurrent, decisionReference } from "../../core/observation.js";
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { ACTION_RULES } from "../../core/discover/prompt.js";
 import { redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
@@ -110,6 +110,7 @@ export class SelfHealingDriver implements Driver {
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
       if (ref !== undefined) throw cause;
       const repaired = await this.heal(target, cause, action, value);
+      repaired.validate();
       await dispatch(repaired.heal.healed, repaired.ref);
       this.heals.push(repaired.heal);
       this.onHeal?.(repaired.heal);
@@ -148,7 +149,7 @@ export class SelfHealingDriver implements Driver {
     return this.inner.close();
   }
 
-  private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string }> {
+  private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
     if (this.heals.length >= this.maxHeals) {
       throw stepError(
         errorKindOf(cause) ?? "resolution",
@@ -185,6 +186,6 @@ export class SelfHealingDriver implements Driver {
     const ref = decisionReference(this.inner, decision);
     const step = await decisionToStep(this.inner, decision);
     if (!("target" in step)) throw stepError("resolution", "heal did not choose a target");
-    return { heal: { original: target, healed: step.target }, ref };
+    return { heal: { original: target, healed: step.target }, ref, validate: () => assertDecisionCurrent(this.inner, decision) };
   }
 }

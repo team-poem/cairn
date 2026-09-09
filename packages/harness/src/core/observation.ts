@@ -8,7 +8,7 @@ import { stepError } from "./errors.js";
 
 let generation = 0;
 const current = new WeakMap<Driver, PerceptionObservation>();
-interface Binding { observation: PerceptionObservation; ref: string; text: string; role: string; nth?: number; used: boolean }
+interface Binding { observation: PerceptionObservation; ref: string; token: string; action: Decision["action"]; value?: string; text: string; role: string; nth?: number; used: boolean }
 const bindings = new WeakMap<Decision, Binding>();
 const targeted = new Set(["click", "doubleClick", "hover", "type", "select"]);
 function invalid(message: string): never { throw stepError("resolution", message); }
@@ -70,17 +70,29 @@ export class PerceptionObservation {
         (decision.role !== undefined && decision.role !== element.role) ||
         (decision.nth !== undefined && decision.nth !== nth)) invalid("reference contradicts element description");
     const canonical = { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
-    bindings.set(canonical, { observation: this, ref: element.ref!, text: element.name, role: element.role, nth, used: false });
+    bindings.set(canonical, { observation: this, ref: element.ref!, token: decision.ref, action: decision.action, value: decision.value, text: element.name, role: element.role, nth, used: false });
     return canonical;
+  }
+}
+
+/** Recheck observation ownership after any awaited enrichment or secret-origin observation.
+ * A consumed decision may finish its own dispatch, but can never begin another execution. */
+export function assertDecisionCurrent(driver: Driver, decision: Decision): void {
+  const bound = bindings.get(decision);
+  if (!bound && decision.ref === undefined) return;
+  if (!bound || current.get(driver) !== bound.observation) invalid("unbound or expired observation reference");
+  if (decision.ref !== bound.token || decision.action !== bound.action || decision.value !== bound.value ||
+      decision.text !== bound.text || decision.role !== bound.role || decision.nth !== bound.nth) {
+    invalid("bound decision description changed");
   }
 }
 
 /** Only a bound, current decision can obtain a driver token. Never resolve a raw model ref. */
 export function decisionReference(driver: Driver, decision: Decision, consume = false): string | undefined {
-  if (decision.ref === undefined) return undefined;
+  assertDecisionCurrent(driver, decision);
   const bound = bindings.get(decision);
-  if (!bound || bound.used || current.get(driver) !== bound.observation) invalid("unbound, consumed or expired observation reference");
-  if (decision.text !== bound.text || decision.role !== bound.role || decision.nth !== bound.nth) invalid("bound decision description changed");
+  if (!bound) return undefined;
+  if (bound.used) invalid("consumed observation reference");
   if (consume) bound.used = true;
   return bound.ref;
 }

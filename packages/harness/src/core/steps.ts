@@ -159,15 +159,18 @@ export class BuiltinStepHandler implements StepHandler {
     return step.kind !== "custom";
   }
 
-  async execute(step: Step, driver: Driver, ref?: string): Promise<void> {
+  async execute(step: Step, driver: Driver, ref?: string, validateReference?: () => void): Promise<void> {
     switch (step.kind) {
       case "goto":
         return driver.goto(step.url);
       case "click":
+        validateReference?.();
         return driver.click(step.target, ref);
       case "doubleClick":
+        validateReference?.();
         return driver.doubleClick(step.target, ref);
       case "hover":
+        validateReference?.();
         return driver.hover(step.target, ref);
       case "type": {
         // A `{name}` is filled for the driver only; the step (and so the skill, the trace, the
@@ -176,13 +179,19 @@ export class BuiltinStepHandler implements StepHandler {
         // The ONE place a placeholder is filled. A text with only `{{escapes}}` still goes through
         // `fillSecrets` so the literal braces come out; the page is observed only when a real
         // placeholder needs scoping.
-        if (!mayCarryScopedSecret(step.text, this.secrets)) return driver.type(step.target, fillSecrets(step.text, this.secrets), ref);
+        if (!mayCarryScopedSecret(step.text, this.secrets)) {
+          const output = fillSecrets(step.text, this.secrets);
+          validateReference?.();
+          return driver.type(step.target, output, ref);
+        }
         const pageUrl = (await driver.observe()).execution.finalUrl;
         const output = fillSecrets(step.text, this.secrets, pageUrl);
         assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
+        validateReference?.();
         return driver.type(step.target, output, ref);
       }
       case "select":
+        validateReference?.();
         return driver.select(step.target, step.value, ref);
       case "pressKey":
         return driver.pressKey(step.key);

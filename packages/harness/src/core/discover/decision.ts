@@ -9,7 +9,7 @@ import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.j
 import { BuiltinStepHandler } from "../steps.js";
 import { slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
-import { decisionReference, persistentTarget } from "../observation.js";
+import { assertDecisionCurrent, decisionReference, persistentTarget } from "../observation.js";
 import { extractFirstJsonObject } from "../json.js";
 
 export interface Decision {
@@ -145,7 +145,7 @@ export async function applyDecision(driver: Driver, decision: Decision, secrets:
   // progress event, the next prompt, or the freeze (#174). The handler then fills it exactly
   // once, for the driver only.
   if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
-  await new BuiltinStepHandler(secrets).execute(step, driver, ref);
+  await new BuiltinStepHandler(secrets).execute(step, driver, ref, () => assertDecisionCurrent(driver, decision));
   return step;
 }
 

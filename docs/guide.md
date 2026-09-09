@@ -50,7 +50,7 @@ That middle column has a name now: agentic testing. Agent-authored, agent-healed
 Measured, not claimed. A real multi-step checkout, via cairn's [`bench/`](../bench):
 
 - 4/4 deterministic replays, 0 LLM calls on replay
-- discovery costs about $0.50 once, then every replay after is $0 (a full LLM agent runs about $15 to $30 per run)
+- discovery costs about $0.50 once, then every replay after is $0
 - a renamed button broke hand-written selectors, and cairn healed it and stayed green
 
 ## The loop

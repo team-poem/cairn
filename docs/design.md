@@ -80,8 +80,12 @@ self-heal: broken by UI change    →  AI repairs it; onHeal flags "aging"      
 You keep the AI's flexibility but drop the AI cost and flakiness of paying it every run. The AI steps
 back in for only two things — (a) discovering a new path, (b) repairing a broken one (self-heal).
 
-> Measured: real multi-step flow replay **4/4 deterministic · 0 AI · ~4s** · discover **$0.4–0.6 once**
-> (vs $15–30/run for a full agent) · UI rename **survival 0→4/4** (self-heal AI 2→0).
+> Measured: real multi-step flow replay **4/4 deterministic · 0 AI · ~4s** · discover **$0.4–0.6 once** ·
+> UI rename **survival 0→4/4** (self-heal AI 2→0).
+
+What discovering every run would have cost instead is not measured above. `bench:local cost` runs both
+arms over one churn schedule and reports that comparison, so the number can come from a measurement
+rather than an estimate.
 
 ---
 

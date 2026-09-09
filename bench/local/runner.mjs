@@ -16,18 +16,23 @@ export async function runBenchmark(config, runtime) {
       const started = performance.now();
       const fixture = await runtime.startFixture({ tier, version: config.fixtureVersion, runIndex: index, latency: config.latency });
       const driver = runtime.createDriver();
-      const record = { tier, mode: config.mode, index, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture.metadata.source, scenarioHash: capture.metadata.scenarioHash, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
+      const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture.metadata.source, scenarioHash: capture.metadata.scenarioHash, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
       try {
         const output = await runtime.runScenario(structuredClone(capture.scenario), { driver, heal: false, llm: { id: "replay-no-llm", async complete() { throw new Error("LLM calls are forbidden in replay"); } }, replayEnvironment: { baseUrl: fixture.origin, allowedHosts: [new URL(capture.metadata.captureOrigin).host] } });
         report.completed++;
+        record.completed = true;
         record.journey = !output.result.evidence.execution.blocked;
         record.verdict = output.result.verdict.passed;
         record.proof = output.result.verdict.proof ?? null;
         record.failure = output.result.verdict.failure ?? null;
         record.usage = output.result.usage ?? null;
         record.oracle = fixture.snapshot();
-        record.passed = record.journey && record.verdict && record.oracle.complete;
+        record.passed = record.journey && record.verdict && record.oracle.complete && record.usage?.llmCalls === 0;
+        if (record.usage?.llmCalls !== 0) record.error = { name: "ReplayUsageError", message: "Replay LLM usage must be measured zero" };
+      } catch (error) {
+        record.error = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };
+        record.oracle = fixture.snapshot();
       } finally {
         try { await driver.close(); } finally { await fixture.close(); }
         record.elapsedMs = performance.now() - started;
@@ -35,6 +40,11 @@ export async function runBenchmark(config, runtime) {
       report.records.push(record);
     }
   }
+  report.summaries = config.tiers.map((tier) => {
+    const records = report.records.filter((record) => record.tier === tier);
+    const failures = records.filter((record) => !record.passed).length;
+    return { tier, mode: config.mode, requested: config.runs, attempted: records.length, completed: records.filter((record) => record.completed).length, failures, failureRate: records.length ? failures / records.length : null };
+  });
   report.finishedAt = new Date().toISOString();
   return report;
 }

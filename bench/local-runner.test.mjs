@@ -52,3 +52,24 @@ test("localReplayOwnsEachRun: fresh server browser and canonical origin mapping 
   assert.equal(report.incomplete, false);
   assert.ok(report.records.every((r) => r.passed && r.usage.llmCalls === 0));
 });
+
+test("localReplayRejectsLlmEvidence: attempted calls nonzero usage and unknown usage cannot be free successes", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { runs: 3 });
+  let call = 0;
+  h.runtime.runScenario = async (_scenario, opts) => {
+    call++;
+    if (call === 1) await opts.llm.complete("must never reach a provider");
+    const out = success();
+    if (call === 2) out.result.usage.llmCalls = 1;
+    if (call === 3) delete out.result.usage;
+    return out;
+  };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.equal(report.attempted, 3);
+  assert.ok(report.records.every((r) => r.passed === false));
+  assert.match(report.records[0].error.message, /LLM/i);
+  assert.equal(report.records[1].usage.llmCalls, 1);
+  assert.equal(report.records[2].usage, null);
+  assert.equal(report.summaries[0].failures, 3);
+});

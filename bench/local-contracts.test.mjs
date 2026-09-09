@@ -44,3 +44,21 @@ test("localCliMakesModesAndLimitsExplicit: arguments preserve paths and paid mod
     for (const patch of [{ maxCalls: 0 }, { maxCalls: 1.1 }, { maxCostUsd: 0 }, { maxCostUsd: Infinity }, { backend: "" }, { model: "" }]) assert.throws(() => validateConfig({ ...replayConfig, mode, llm: { ...llm, ...patch } }));
   }
 });
+
+test("localCapturesUseEngineSave: scenario bytes and separate provenance round-trip without wrapping or rewriting", async (t) => {
+  const { saveCapture, loadCapture } = await import("./local/artifacts.mjs");
+  const path = join(await directory(t), "navigation.skill.json");
+  const calls = [];
+  await saveCapture(path, canonical, metadata, async (file, value) => { calls.push({ file, value }); await saveSkillFile(file, value); });
+  assert.deepEqual(calls, [{ file: path, value: canonical }]);
+  const bytes = await readFile(path, "utf8");
+  assert.deepEqual(JSON.parse(bytes), canonical);
+  const sidecar = JSON.parse(await readFile(path + ".meta.json", "utf8"));
+  assert.equal(sidecar.scenarioHash, sha(bytes));
+  assert.deepEqual(sidecar.source, metadata.source);
+  assert.equal(sidecar.fixtureHash, fixtureHash);
+  const loaded = await loadCapture(path, { tier: "navigation", fixtureVersion: "v1", fixtureHash, mode: "replay" });
+  assert.deepEqual(loaded.scenario, canonical);
+  assert.equal(loaded.metadata.captureOrigin, metadata.captureOrigin);
+  assert.equal(await readFile(path, "utf8"), bytes);
+});

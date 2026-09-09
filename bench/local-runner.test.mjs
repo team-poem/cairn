@@ -286,3 +286,28 @@ test("localFinalAbortPersistsIncompleteReport: an aborted only attempt remains i
   assert.match(markdown, /INCOMPLETE:.*abort/i);
   assert.doesNotMatch(markdown, /Requested attempts completed\./);
 });
+
+test("localFinalCleanupAbortIsObserved: abort during awaited cleanup marks the last successful engine attempt incomplete", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const h = await harness(t, { runs: 1 });
+  const controller = new AbortController();
+  const create = h.runtime.createDriver;
+  h.runtime.createDriver = () => {
+    const driver = create();
+    const close = driver.close;
+    driver.close = async () => { await close(); await Promise.resolve(); controller.abort(); };
+    return driver;
+  };
+  const report = await runBenchmark({ ...h.config, signal: controller.signal }, h.runtime);
+  assert.equal(controller.signal.aborted, true);
+  assert.deepEqual(h.events, ["server:1", "driver:1", "run:1", "driver-close:1", "server-close:1"]);
+  assert.equal(report.requested, 1);
+  assert.equal(report.attempted, 1);
+  assert.equal(report.completed, 1);
+  assert.equal(report.records.length, 1);
+  assert.equal(report.records[0].verdict, true);
+  assert.equal(report.records[0].oracle.complete, true);
+  assert.equal(report.records[0].usage.llmCalls, 0);
+  assert.equal(report.incomplete, true);
+  assert.match(report.stopReason, /abort/i);
+});

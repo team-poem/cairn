@@ -22,7 +22,7 @@ export async function runBenchmark(config, runtime) {
       const previousCost = budget?.snapshot().measuredCostUsd;
       let fixture, driver;
       const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
-      const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
+      const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, engineUsage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
       record.captureFixtureHash = capture?.metadata.fixtureHash ?? null;
       record.captureFixtureVersion = capture?.metadata.fixtureVersion ?? null;
@@ -71,10 +71,11 @@ export async function runBenchmark(config, runtime) {
         record.proof = output.result.verdict.proof ?? null;
         record.failure = output.result.verdict.failure ?? null;
         record.usage = output.result.usage ?? null;
+        record.engineUsage = output.result.usage ?? null;
         record.healCount = (output.heals?.length ?? 0) + (output.stepHeals?.length ?? 0);
         record.oracle = fixture.snapshot();
-        record.passed = record.journey && record.verdict && record.oracle.complete && (config.mode !== "replay" || record.usage?.llmCalls === 0);
-        if (config.mode === "replay" && record.usage?.llmCalls !== 0) record.error = { name: "ReplayUsageError", message: "Replay LLM usage must be measured zero" };
+        record.passed = record.journey && record.verdict && record.oracle.complete && (config.mode !== "replay" || (record.usage?.llmCalls === 0 && observedUsage.llmCalls === 0));
+        if (config.mode === "replay" && (record.usage?.llmCalls !== 0 || observedUsage.llmCalls !== 0)) record.error = { name: "ReplayUsageError", message: "Replay engine-reported and observed LLM usage must both be measured zero" };
         }
       } catch (error) {
         record.error = { name: error.name ?? "Error", message: String(error.message ?? error), stack: error.stack ?? null };

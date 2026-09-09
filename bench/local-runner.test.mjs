@@ -357,3 +357,31 @@ test("localMarkdownIdentifiesExecutedFixtureAndCapture: regenerated reports iden
   assert.ok(markdown.includes(executedHash), "Executed fixture hash must be visible");
   assert.ok(markdown.includes(fixtureHash), "Canonical fixture hash must remain distinct from execution");
 });
+
+test("localReplayObservedCallsCannotBeHidden: a swallowed LLM guard error cannot become a passed replay with returned zero usage", async (t) => {
+  const { runBenchmark } = await import("./local/runner.mjs");
+  const { renderMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { runs: 1 });
+  h.runtime.runScenario = async (_scenario, options) => {
+    await assert.rejects(options.llm.complete("forbidden replay call"), /forbidden/i);
+    return success();
+  };
+  const report = await runBenchmark(h.config, h.runtime);
+  assert.equal(report.attempted, 1);
+  assert.equal(report.completed, 1);
+  assert.equal(report.records[0].verdict, true);
+  assert.equal(report.records[0].oracle.complete, true);
+  assert.equal(report.records[0].usage.llmCalls, 0);
+  assert.equal(report.records[0].observedUsage.llmCalls, 1);
+  assert.equal(report.records[0].passed, false);
+  assert.equal(report.summaries[0].failures, 1);
+  assert.equal(report.records[0].error.name, "ReplayUsageError");
+  const lines = renderMarkdown(report).split("\n");
+  const cells = (line) => line.split("|").slice(1, -1).map((cell) => cell.trim());
+  const columns = cells(lines.find((line) => line.startsWith("| Tier |")));
+  const values = cells(lines.find((line) => line.startsWith("| navigation | replay |")));
+  assert.ok(columns.includes("Engine LLM calls"));
+  assert.ok(columns.includes("Observed LLM calls"));
+  assert.equal(values[columns.indexOf("Engine LLM calls")], "0");
+  assert.equal(values[columns.indexOf("Observed LLM calls")], "1");
+});

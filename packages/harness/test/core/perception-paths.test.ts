@@ -114,3 +114,38 @@ it("discover exposes a trailing active portal from a custom driver within its pr
   expect(llm.prompts[0]).toContain("- [option] Portal choice");
   expect(llm.prompts[0]!.match(/^- \[/gm)).toHaveLength(60);
 });
+
+it("secret value redaction preserves a literal accessible name and opaque ref during discovery and step heal", async () => {
+  const secret = "alice@example.com";
+  const name = `Continue as ${secret}`;
+  const opaqueRef = `driver-node:${secret}`;
+  class SecretNamedDriver extends StubDriver {
+    dispatched: string[] = [];
+    override async snapshot(): Promise<PageElement[]> {
+      return [{ role: "button", name, value: secret, ref: opaqueRef }];
+    }
+    async locateRef(ref: string): Promise<Target> {
+      expect(ref).toBe(opaqueRef);
+      return { text: name, role: "button", index: 0, selector: "#continue" };
+    }
+    override async click(_target: Target, ref?: string): Promise<void> {
+      expect(ref).toBe(opaqueRef);
+      this.dispatched.push(ref!);
+    }
+  }
+  const driver = new SecretNamedDriver();
+  const llm = new DynamicLlm((prompt, n) => n === 1 ? { action: "click", ref: refOf(prompt) } : n === 2 ? { action: "done" } : { assertions: [] });
+  const scenario = await discover("continue", { driver, llm, secrets: { user: secret } });
+  expect(driver.dispatched).toEqual([opaqueRef]);
+  expect(llm.prompts[0]).toContain(name);
+  expect(llm.prompts[0]).toContain('= "{user}"');
+  expect(llm.prompts[0]).not.toContain(opaqueRef);
+  expect(scenario.steps[0]).toMatchObject({ target: { text: name, selector: "#continue" } });
+
+  const healerLlm = new DynamicLlm(prompt => ({ action: "click", ref: refOf(prompt) }));
+  const healed = await new LlmStepHealer(healerLlm, 5, { user: secret }).heal(original, 0, driver);
+  expect(healed?.step).toMatchObject({ target: { text: name, selector: "#continue" } });
+  expect(healerLlm.prompts[0]).toContain('= "{user}"');
+  expect(healerLlm.prompts[0]).not.toContain(opaqueRef);
+  expect(driver.dispatched).toEqual([opaqueRef, opaqueRef]);
+});

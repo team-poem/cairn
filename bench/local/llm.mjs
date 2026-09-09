@@ -19,9 +19,13 @@ export function createClaudeClient(config, { budget, signal, command = "claude" 
         budget.record({ costUsd: response.total_cost_usd, modelIds: Object.keys(response.modelUsage ?? {}), providerSubtype: response.subtype ?? null, error: failure ? String(error?.message ?? response.result ?? "Claude completion failed") : null });
         recorded = true;
         const usage = response.usage;
-        if (usage && [usage.input_tokens, usage.output_tokens, usage.cache_read_input_tokens].some((value) => Number.isFinite(value) && value >= 0)) {
+        // Cache-CREATION tokens are billed and were being dropped, so a token total could not be
+        // reconciled against `total_cost_usd` (#214). The engine's own RunUsage has no field for
+        // them; this is the bench's own accounting, which is what the cost arms compare.
+        const fields = [["input_tokens", "inputTokens"], ["output_tokens", "outputTokens"], ["cache_read_input_tokens", "cacheReadTokens"], ["cache_creation_input_tokens", "cacheCreationTokens"]];
+        if (usage && fields.some(([from]) => Number.isFinite(usage[from]) && usage[from] >= 0)) {
           const measured = {};
-          for (const [from, to] of [["input_tokens", "inputTokens"], ["output_tokens", "outputTokens"], ["cache_read_input_tokens", "cacheReadTokens"]]) if (Number.isFinite(usage[from]) && usage[from] >= 0) measured[to] = usage[from];
+          for (const [from, to] of fields) if (Number.isFinite(usage[from]) && usage[from] >= 0) measured[to] = usage[from];
           options.onUsage?.(measured);
         }
         if (failure) throw new Error(`Claude completion failed: ${error?.message ?? response.result ?? "invalid result"}`);

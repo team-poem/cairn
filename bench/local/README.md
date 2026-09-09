@@ -120,6 +120,80 @@ requested engine attempt returned successfully. This status does not imply
 unattempted work: requested/attempted/completed counts and each engine/oracle
 outcome remain intact.
 
+## Compare cost against discovering every run
+
+The `cost` mode answers one question with a measurement instead of an estimate:
+over a run of runs, does discovering once and paying for the occasional repair
+cost less than discovering every time? Two arms cover the same tiers, the same
+churn schedule and one shared budget.
+
+- `agent` discovers on every run. This is what an LLM agent driving the browser
+  each time costs.
+- `cairn` discovers once, replays after that, heals when the application changes
+  underneath it, and carries the repair into every later run.
+
+```sh
+ENGINE_COMMIT=$(git rev-parse HEAD)
+npm run bench:local -- cost --config bench/local/cost.example.json --runs 4 \
+  --engine-commit "$ENGINE_COMMIT" --out bench/results/cost-1
+```
+
+`--runs` must equal the number of entries in `fixtureVersions`. The shipped
+example is an offline smoke: it changes nothing under the freeze and its
+scripted source spends nothing, so it exercises the arms rather than measuring
+money. A real comparison replaces `llm` with the `llm` object from the section
+above and puts churn in the schedule, because a scripted repair decision is
+deliberately unsupported.
+
+Configuration adds two fields to the reliability config and needs no captures:
+
+- `arms`: one or more of `agent`, `cairn`. Both, to get a comparison.
+- `fixtureVersions`: one version per run, so "the application changed at run k"
+  is a property of the schedule. Both arms then meet the same change on the same
+  run. The first run must be `v1`, the version canonical discovery starts from.
+- `runs`: at least 2. One run cannot show a crossover.
+
+Every scenario an arm replays is written to `captures/`, the freeze and each
+repair under its own name, and every run records the hash of the scenario it
+replayed, so the runs after a heal are reproducible from the artifacts. An
+output directory that already holds captures is refused before the first browser
+opens, rather than at the first save, which would be after an arm was paid for. A discovered or healed scenario that navigates off the fixture origin
+is rejected rather than carried forward: this path has neither `loadCapture` nor
+a replay environment's allowed hosts to stop an offline benchmark from reaching
+a real host. A replay that reports no usage, or reports more LLM calls than the
+benchmark observed, fails rather than counting as free.
+
+Both arms of one tier run on a single reserved port, so a capture's frozen URLs
+match every later run and no replay environment is needed. That matters: under a
+replay environment the engine deliberately withholds the healed scenario, and a
+repair that cannot be re-frozen would make the cairn arm pay for the same break
+on every run after it. Each run still gets its own server, browser and state.
+
+The report gives, per tier and per arm, cost and tokens as running totals
+against the run index, how many runs called the model, how many repairs were
+carried forward, and the crossover: the first run where the cairn arm has cost
+less and stayed there. A token total counts every billed field, cache
+creation included, and reads as a lower bound once a call reported no usage or
+reported only some of those fields. It is a count, and the runner records no
+per-model price, so a dollar figure cannot be derived from it. A tie is not a crossing.
+
+The crossover is withheld rather than guessed whenever it would be a claim: a
+scripted source makes no paid call, an arm that stopped short of the schedule
+was never compared over it, a run whose cost the provider never reported adds
+nothing to that arm's total, and a failed run costs nothing, so a broken arm
+would read as a cheap one. The report names which of these
+withheld it. It is also measured from the second run only, since on the first
+both arms do the same work on the same fixture and any difference there is
+provider pricing noise. A discover run fails when no replayable
+scenario came back or the fixture never completed; a replay run additionally has
+to satisfy the frozen assertions, so the two arms' failure counts are not the
+same measurement. Regenerate the Markdown with `renderCostMarkdown` in place of
+`renderMarkdown`.
+
+A crossover is not a general saving. How often an application breaks a freeze is
+the variable that decides the answer, and a schedule fixes it by construction.
+Report the schedule with the number.
+
 ## Interpret results
 
 JSON preserves engine verdict/proof/failure detail, fixture oracle, observed
@@ -151,4 +225,4 @@ ignored `bench/results/` or an external output directory, never in a commit.
 `npm test` covers the offline fixture, capture, budget, runner and report
 contracts without Chrome or paid calls. Large-N, actual LLM and baseline results
 remain measurement work for [#169](https://github.com/team-poem/cairn/issues/169);
-this runner does not add #214 cost arms or change #220 CI structure.
+this runner does not change #220 CI structure.

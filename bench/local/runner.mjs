@@ -21,7 +21,7 @@ export async function runBenchmark(config, runtime) {
       const started = performance.now();
       const previousCost = budget?.snapshot().measuredCostUsd;
       let fixture, driver;
-      const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0 };
+      const observedUsage = { llmCalls: 0, measuredCalls: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 };
       const record = { tier, mode: config.mode, index, completed: false, passed: false, journey: null, verdict: null, proof: null, failure: null, oracle: null, error: null, usage: null, engineUsage: null, healCount: 0, source: capture?.metadata.source ?? { ...config.llm, kind: config.llm.source }, scenarioHash: capture?.metadata.scenarioHash ?? null, fixtureHash: runtime.fixtureInfo(tier, config.fixtureVersion).hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])), elapsedMs: null };
       report.attempted++;
       record.captureFixtureHash = capture?.metadata.fixtureHash ?? null;
@@ -38,7 +38,7 @@ export async function runBenchmark(config, runtime) {
           return client.complete(prompt, { ...options, onUsage(usage) {
             if (!measured) {
               measured = true; observedUsage.measuredCalls++;
-              for (const key of ["inputTokens", "outputTokens", "cacheReadTokens"]) observedUsage[key] += usage[key] ?? 0;
+              for (const key of ["inputTokens", "outputTokens", "cacheReadTokens", "cacheCreationTokens"]) observedUsage[key] += usage[key] ?? 0;
               options.onUsage?.(usage);
             }
           } });

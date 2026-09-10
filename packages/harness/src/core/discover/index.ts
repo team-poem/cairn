@@ -174,6 +174,12 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       page = new PerceptionObservation(driver, raw, elements, intent);
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
+      // Keep raw page content and rejected references out of the diagnostic stream.
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
       pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
       continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
     }

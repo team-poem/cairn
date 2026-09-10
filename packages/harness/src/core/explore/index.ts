@@ -14,6 +14,7 @@ import { PerceptionObservation } from "../observation.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
+import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
@@ -40,6 +41,8 @@ export interface ExploreOptions {
   policy?: ActionPolicy;
   /** Correct state before common selection; preserve each retained candidate ref/name/role. */
   perceive?: PerceptionAdapter;
+  /** Binding-rejection diagnostics (spec/core/trace.md); absent → no emission. */
+  trace?: TraceScope;
   /** URL substrings whose 4xx/5xx is product noise — excluded from failed-request findings. */
   benign?: string[];
   /** Console-text substrings that are product noise — excluded from console-error findings. */
@@ -79,6 +82,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     signal,
     policy,
     perceive,
+    trace,
     benign = [],
     benignConsole = [],
     slowSettleMs,
@@ -90,6 +94,12 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       return { elements, page: new PerceptionObservation(driver, raw, elements, charter) };
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
+      // Keep raw page content and rejected references out of the diagnostic stream.
+      trace?.emit({
+        kind: "gate",
+        phase: "explore",
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
       pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
       return { elements, page: undefined };
     }

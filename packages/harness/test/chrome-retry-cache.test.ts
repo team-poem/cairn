@@ -37,3 +37,13 @@ test("chromeRetryDiscoveryReplayIdentity: a failed target retry cannot change th
   await new BuiltinStepHandler().execute(JSON.parse(JSON.stringify(step)) as Step, replay.driver);
   expect(replay.clicks).toEqual(discovery.clicks);
 });
+
+test("chromeRetryDoesNotPoisonNextLookup: the same target dispatches to the same node after an unrelated failed retry", async () => {
+  const clean = retryChrome(retryDuplicateTree);
+  await clean.driver.click({ text: "Save", role: "button", nth: 1 });
+  const retried = retryChrome(retryDuplicateTree);
+  await expect(retried.driver.click({ text: "Missing", role: "button" })).rejects.toThrow();
+  await retried.driver.click({ text: "Save", role: "button", nth: 1 });
+  expect(clean.clicks).toEqual(["1_3"]);
+  expect(retried.clicks).toEqual(clean.clicks);
+});

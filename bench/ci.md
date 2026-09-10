@@ -18,7 +18,10 @@ Expand **Detailed measurements** for the three comparison tables. Extended
 interpretation notes, environment details and hashes remain in the downloadable
 report and raw artifacts, rather than the PR comment. Invalid
 tiers carry no speed claim. A short timing note always states that server/browser
-startup and awaited cleanup are included; timing remains informational.
+startup and awaited cleanup are included and residual order bias may remain;
+timing remains informational. The comment omits p95: with four samples it is
+the maximum, and the extreme measurement slots are not balanced. The full report
+in Actions and the artifacts retains p95 with its sample-size/order caveat.
 
 The publisher reuses `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` for the
 pingu-cairn GitHub App already used by repository automation. Its installation

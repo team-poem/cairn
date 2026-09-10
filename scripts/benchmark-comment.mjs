@@ -19,7 +19,7 @@ export function renderBriefing(comparison) {
     `- Package tarball: ${signed(packageBytes.delta)} B (${percent(packageBytes.percent)}). Browser gzip: ${signed(browserGzipBytes.delta)} B (${percent(browserGzipBytes.percent)}).`,
     `- Observed replay medians: ${timing}.`,
     `- Execution across both revisions: ${sum("runs") - sum("failures")}/${sum("runs")} passed; engine LLM calls: ${sum("llmCalls")}; observed LLM calls: ${sum("observedLlmCalls")}.`,
-    "- Timing includes server/browser startup and awaited cleanup; small samples and CI noise do not prove an improvement or regression.", "",
+    "- Timing includes server/browser startup and awaited cleanup; small samples and CI noise do not prove an improvement or regression. Residual order bias may remain.", "",
   ].join("\n");
 }
 
@@ -52,7 +52,7 @@ export async function postBenchmarkComment({ github, context, core, appSlug }) {
     if (pair.warmupFailed !== false) throw new Error("Warmup did not complete successfully");
     const comparison = compareReports(pair.base, pair.head);
     if (run.conclusion !== "success" && comparison.tiers.every(row => row.status !== "invalid")) throw new Error("Workflow failed despite successful samples; timing comparison withheld");
-    text = `${renderBriefing(comparison)}\n<details>\n<summary>Detailed measurements</summary>\n\n${renderComparison(comparison, { includeContext: false })}\n</details>\n`;
+    text = `${renderBriefing(comparison)}\n<details>\n<summary>Detailed measurements</summary>\n\n${renderComparison(comparison, { includeContext: false, includeP95: false })}\n</details>\n`;
     if (run.conclusion !== "success") text += "\n**The measurement check failed. Inspect the raw attempts before drawing conclusions.**\n";
   } catch (error) {
     core.warning(`Comparison unavailable: ${error.message}`);

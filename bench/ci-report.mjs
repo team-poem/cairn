@@ -115,7 +115,7 @@ const percentage = value => value === null ? "n/a" : `${signed(value)}%`;
 const usage = value => value === null ? "unknown" : number(value);
 
 /** Render only a comparison freshly derived by compareReports, never artifact Markdown. */
-export function renderComparison(comparison, { includeContext = true } = {}) {
+export function renderComparison(comparison, { includeContext = true, includeP95 = true } = {}) {
   const labels = { packageBytes: "Package tarball", unpackedBytes: "Package unpacked", browserBytes: "Browser bundle", browserGzipBytes: "Browser bundle gzip" };
   const sizes = SIZE_METRICS.map(metric => {
     const row = comparison.sizes[metric];
@@ -124,7 +124,7 @@ export function renderComparison(comparison, { includeContext = true } = {}) {
   const statuses = { improved: "lower median (informational)", regressed: "higher median (informational)", unchanged: "unchanged", invalid: "invalid: failed or LLM-tainted" };
   const timings = comparison.tiers.map(row => {
     requireValid(TIERS.includes(row.tier) && Object.hasOwn(statuses, row.status), "rendered tier status");
-    return `| ${row.tier} | ${number(row.base.runs)} / ${number(row.head.runs)} | ${number(row.base.medianMs)} | ${number(row.head.medianMs)} | ${signed(row.deltaMs)} | ${percentage(row.percent)} | ${number(row.base.p95Ms)} / ${number(row.head.p95Ms)} | ${statuses[row.status]} |`;
+    return `| ${row.tier} | ${number(row.base.runs)} / ${number(row.head.runs)} | ${number(row.base.medianMs)} | ${number(row.head.medianMs)} | ${signed(row.deltaMs)} | ${percentage(row.percent)} |${includeP95 ? ` ${number(row.base.p95Ms)} / ${number(row.head.p95Ms)} |` : ""} ${statuses[row.status]} |`;
   });
   const outcomes = comparison.tiers.map(row => `| ${row.tier} | ${number(row.base.failures)} / ${number(row.head.failures)} | ${usage(row.base.llmCalls)} / ${usage(row.head.llmCalls)} | ${usage(row.base.observedLlmCalls)} / ${usage(row.head.observedLlmCalls)} |`);
   const environment = Object.entries(comparison.environment).map(([key, value]) => `${cell(key)}: ${cell(value)}`).join("; ");
@@ -139,12 +139,12 @@ export function renderComparison(comparison, { includeContext = true } = {}) {
     "| Size | Before bytes | After bytes | Delta bytes | Change |",
     "| --- | ---: | ---: | ---: | ---: |", ...sizes, "",
     "## Replay elapsed time", "",
-    "| Tier | N before / after | Median before ms | Median after ms | Delta ms | Change | p95 before / after ms | Status |",
-    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |", ...timings, "",
+    `| Tier | N before / after | Median before ms | Median after ms | Delta ms | Change |${includeP95 ? " p95 before / after ms |" : ""} Status |`,
+    `| --- | ---: | ---: | ---: | ---: | ---: |${includeP95 ? " ---: |" : ""} --- |`, ...timings, "",
     "| Tier | Failures before / after | Engine LLM calls before / after | Observed LLM calls before / after |",
     "| --- | ---: | ---: | ---: |", ...outcomes, "",
     ...(includeContext ? [
-      "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Fully recorded failed attempts remain in the elapsed-time distribution; unknown LLM usage is not zero. Incomplete output withholds the comparison. A zero baseline has no defined percentage change (n/a).", "",
+      "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. With four samples p95 is the maximum and remains sensitive to execution order. Fully recorded failed attempts remain in the elapsed-time distribution; unknown LLM usage is not zero. Incomplete output withholds the comparison. A zero baseline has no defined percentage change (n/a).", "",
       "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
       "## Provenance", "", environment, "",
       `Uncommitted changes before / after: ${comparison.provenance.baseDirty ?? "unknown"} / ${comparison.provenance.headDirty ?? "unknown"}.`,

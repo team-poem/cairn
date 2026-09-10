@@ -111,3 +111,22 @@ test("ciZeroBaseline: retains absolute changes without inventing infinite percen
   assert.equal(result.tiers[0].percent, null);
   assert.doesNotMatch(renderComparison(result), /Infinity|NaN/);
 });
+
+test("ciValidMeasurements: rejects missing negative non-finite and unmeasured values", () => {
+  const mutations = [
+    head => delete head.sizes.packageBytes,
+    head => head.sizes.packageBytes = -1,
+    head => head.sizes.browserBytes = Infinity,
+    head => head.records[0].elapsedMs = NaN,
+    head => head.records[0].elapsedMs = -1,
+    head => head.records[0].llmCalls = null,
+    head => delete head.records[0].observedLlmCalls,
+    head => head.records[0].passed = "true",
+    head => head.workload.runs = 0,
+  ];
+  for (const mutate of mutations) {
+    const [base, head] = pair();
+    mutate(head);
+    assert.throws(() => compareReports(base, head));
+  }
+});

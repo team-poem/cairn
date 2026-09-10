@@ -40,6 +40,17 @@ function validateCounts(report) {
   for (const tier of tiers) requireValid(report.records.filter(record => record.tier === tier).length === runs, "samples per tier");
 }
 
+function validateMeasurements(report) {
+  requireValid(object(report.sizes), "sizes");
+  for (const metric of SIZE_METRICS) requireValid(Number.isSafeInteger(report.sizes[metric]) && report.sizes[metric] >= 0, metric);
+  for (const record of report.records) {
+    requireValid(Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0 && record.elapsedMs <= Number.MAX_SAFE_INTEGER, "elapsedMs");
+    requireValid(typeof record.passed === "boolean", "passed verdict");
+    for (const field of ["llmCalls", "observedLlmCalls"]) requireValid(Number.isSafeInteger(record[field]) && record[field] >= 0, field);
+  }
+  for (const field of ["llmCalls", "observedLlmCalls"]) requireValid(Number.isSafeInteger(report.records.reduce((sum, record) => sum + record[field], 0)), `total ${field}`);
+}
+
 function summarize(records) {
   const times = records.map(record => record.elapsedMs).sort((a, b) => a - b);
   const middle = Math.floor(times.length / 2);
@@ -60,6 +71,8 @@ export function compareReports(base, head) {
   requireValid(JSON.stringify(beforeIdentity) === JSON.stringify(afterIdentity), "environment or workload mismatch");
   validateCounts(base);
   validateCounts(head);
+  validateMeasurements(base);
+  validateMeasurements(head);
   return {
     environment: structuredClone(base.environment),
     workload: structuredClone(base.workload),

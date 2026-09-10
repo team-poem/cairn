@@ -52,3 +52,19 @@ test("stepHealPolicyRejectionConsumesAttempt: a rejected corrective action canno
   expect(healer.heals).toEqual([]);
   expect(driver.clicked).toEqual([]);
 });
+
+test("stepHealFailedDispatchAndSuccessShareBudget: a failed corrective dispatch uses one slot and a later successful repair uses the last", async () => {
+  let calls = 0;
+  const healer = new LlmStepHealer({ id: "counting", async complete() { calls++; return '{"action":"click","text":"Checkout"}'; } }, 2);
+  const failing = budgetDriver();
+  failing.click = async () => { throw new Error("target detached"); };
+  await expect(healer.heal(budgetStep, 0, failing)).resolves.toBeNull();
+  expect(healer.heals).toEqual([]);
+  const working = budgetDriver();
+  const healed = await healer.heal(budgetStep, 1, working);
+  expect(healed).toMatchObject({ index: 1, step: { kind: "click", target: { text: "Checkout" }, expect: budgetStep.expect } });
+  await expect(healer.heal(budgetStep, 2, working)).resolves.toBeNull();
+  expect(calls).toBe(2);
+  expect(healer.heals).toEqual([healed]);
+  expect(working.clicked).toEqual(["Checkout"]);
+});

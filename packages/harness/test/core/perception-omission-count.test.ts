@@ -63,3 +63,13 @@ test("filteredRowsAreNotCapOmissions: occlusion, region deduplication and promot
     expect(JSON.stringify(rows)).toBe(before);
   }
 });
+
+test("mixedFilteringCountsOnlyCapLoss: semantic listing and reference table report six omitted eligible rows under the default cap", () => {
+  const rows = [...numberedRows(65), ...coveredRows(50), ...sharedRegionRows(120)];
+  const before = JSON.stringify(rows);
+  for (const output of renderedViews(rows, "inspect", 60)) {
+    expect(output.match(omittedNotice)).toEqual(["(+6 more elements not shown — scroll or interact to reveal them)"]);
+    expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(60);
+  }
+  expect(JSON.stringify(rows)).toBe(before);
+});

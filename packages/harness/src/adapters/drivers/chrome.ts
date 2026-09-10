@@ -464,9 +464,12 @@ export class ChromeDevToolsDriver implements Driver {
         if (errorKindOf(err) === "transport") throw err;
         // A browser that cannot install the guard can still supply ordinary candidates.
       }
-      this.snapshotCache = await this.call("take_snapshot", { verbose: true });
     }
-    const raw = await this.getSnapshot();
+    // Perception has a larger candidate pool than ordinary lookup and select's watermark.
+    // Keep its full tree local so those compact-snapshot consumers retain their ordinals.
+    const raw = options?.perception
+      ? await this.call("take_snapshot", { verbose: true })
+      : await this.getSnapshot();
     const els = parseElements(raw);
     if (options?.perception) {
       const version = ++this.observationVersion;

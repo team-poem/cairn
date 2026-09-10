@@ -86,3 +86,11 @@ test("retainedEvidenceCountsTowardCap: over-quota intent evidence remains eligib
     for (let i = 40; i < 45; i++) expect(output).toContain(`Receipt ${i}`);
   }
 });
+
+test("emptyEligiblePoolHasNoHiddenRows: entirely covered captures render no imaginary scroll targets", () => {
+  for (const rows of [[], coveredRows(5)] as PageElement[][]) {
+    for (const limit of [0, 1, 60]) {
+      expect(renderedViews(rows, "inspect", limit)).toEqual(["", "", ""]);
+    }
+  }
+});

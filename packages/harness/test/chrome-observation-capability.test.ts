@@ -198,3 +198,14 @@ test("failedFastGuardIsNotRetriedWithChangedArguments: an observation tool error
     expect(capabilityWire.calls.filter(call => call.name === "click")).toEqual([]);
   });
 });
+
+test("sdkDiscoveryTimeoutCannotBecomeLegacySuccess: a snapshot aborts when the SDK's own request deadline expires before the driver's outer timeout", async () => {
+  const { McpError, ErrorCode } = await import("@modelcontextprotocol/sdk/types.js");
+  capabilityWire.listError = new McpError(ErrorCode.RequestTimeout, "Request timed out", { timeout: 60_000 });
+  await withCapabilityDriver(async driver => {
+    await expect(driver.snapshot({ perception: true })).rejects.toMatchObject({ kind: "transport" });
+    expect(capabilityWire.lists).toBe(1);
+    expect(capabilityWire.calls).toEqual([]);
+    expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
+  }, { timeoutMs: 120_000 });
+});

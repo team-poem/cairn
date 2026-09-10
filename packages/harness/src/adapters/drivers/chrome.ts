@@ -6,6 +6,7 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
 import { promotedClickableNames } from "../../core/perception.js";
@@ -289,6 +290,7 @@ export class ChromeDevToolsDriver implements Driver {
       // Optional schema discovery may be unsupported, but a dead or timed-out connection
       // must fail initialization and close its transport rather than pretend to be legacy.
       if (errorKindOf(err) === "transport") throw err;
+      if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) throw err;
       if (err instanceof Error && (/Connection closed|Not connected|MCP error -32000/.test(err.message) ||
           errorKindOf(mcpToolError("tools/list", err.message)) === "transport")) throw err;
       return false;

@@ -61,3 +61,18 @@ test("healNoMatchConsumesBudget: a model response selecting no match consumes an
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healPolicyRejectionConsumesBudget: denied model repair consumes an attempt without dispatching", async () => {
+  const f = repairFixture();
+  const driver = new SelfHealingDriver(f.inner, f.llm, {
+    maxHeals: 1, onHeal: f.onHeal,
+    policy: { vet: () => ({ ok: false, reason: "repair forbidden" }) },
+  });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/repair forbidden/);
+  expect(f.dispatch).toHaveBeenCalledTimes(1);
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(1);
+  expect(f.dispatch).toHaveBeenCalledTimes(2);
+  expect(driver.heals).toEqual([]);
+  expect(f.onHeal).not.toHaveBeenCalled();
+});

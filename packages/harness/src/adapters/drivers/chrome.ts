@@ -279,11 +279,20 @@ export class ChromeDevToolsDriver implements Driver {
   /** Negotiate once, before the first tool call; custom/older servers keep ordinary waits. */
   private async supportsObservationWaitOverride(client: Client): Promise<boolean> {
     if (typeof client.listTools !== "function") return false;
-    const listing = await this.withTimeout(client.listTools(), this.opts.timeoutMs ?? 30_000, "MCP tools/list");
-    const tool = Array.isArray(listing?.tools)
-      ? listing.tools.find(candidate => candidate?.name === "evaluate_script") : undefined;
-    const property = tool?.inputSchema?.properties?.waitForStableDom;
-    return property !== null && typeof property === "object" && "type" in property && property.type === "boolean";
+    try {
+      const listing = await this.withTimeout(client.listTools(), this.opts.timeoutMs ?? 30_000, "MCP tools/list");
+      const tool = Array.isArray(listing?.tools)
+        ? listing.tools.find(candidate => candidate?.name === "evaluate_script") : undefined;
+      const property = tool?.inputSchema?.properties?.waitForStableDom;
+      return property !== null && typeof property === "object" && "type" in property && property.type === "boolean";
+    } catch (err) {
+      // Optional schema discovery may be unsupported, but a dead or timed-out connection
+      // must fail initialization and close its transport rather than pretend to be legacy.
+      if (errorKindOf(err) === "transport") throw err;
+      if (err instanceof Error && (/Connection closed|Not connected|MCP error -32000/.test(err.message) ||
+          errorKindOf(mcpToolError("tools/list", err.message)) === "transport")) throw err;
+      return false;
+    }
   }
 
   private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation"): Promise<string> {

@@ -146,3 +146,13 @@ test("observationCapabilityIsConnectionScopedAndDoesNotChangeInputs: recapture r
     expect(capabilityWire.calls.filter(call => call.name === "click").map(call => call.arguments)).toEqual([{ uid: "1_2" }, { uid: "1_2" }]);
   });
 });
+
+test("unsupportedToolDiscoveryFallsBackOnce: a non-transport introspection error keeps ordinary evaluation usable without retrying discovery", async () => {
+  capabilityWire.listError = new Error("Method not found: tools/list");
+  await withCapabilityDriver(async driver => {
+    await captureAndClickSecond(driver);
+    await driver.snapshot({ perception: true });
+    expect(capabilityWire.lists).toBe(1);
+    for (const call of observationEvaluations()) expect(call.arguments).not.toHaveProperty("waitForStableDom");
+  });
+});

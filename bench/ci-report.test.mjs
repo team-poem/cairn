@@ -81,3 +81,19 @@ test("ciComparisonIdentity: rejects different runtime workload or canonical scen
     assert.throws(() => compareReports(base, head));
   }
 });
+
+test("ciCompleteCounts: refuses incomplete missing duplicate or unexpected tier samples", () => {
+  const mutations = [
+    input => input.incomplete = true,
+    input => input.records.pop(),
+    input => input.records.push({ ...input.records[0] }),
+    input => input.records[0].tier = "unexpected",
+    input => input.workload.captures.push({ ...input.workload.captures[0] }),
+    input => { input.workload.captures = []; input.records = []; },
+  ];
+  for (const side of ["base", "head"]) for (const mutate of mutations) {
+    const [base, head] = pair();
+    mutate(side === "base" ? base : head);
+    assert.throws(() => compareReports(base, head));
+  }
+});

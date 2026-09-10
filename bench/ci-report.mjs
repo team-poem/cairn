@@ -26,6 +26,17 @@ function identity(report) {
   } });
 }
 
+function validateCounts(report) {
+  requireValid(report.incomplete === false, "incomplete measurement");
+  const { captures, runs } = report.workload;
+  const tiers = new Set(captures.map(capture => capture.tier));
+  requireValid(tiers.size > 0 && tiers.size === captures.length, "unique nonempty capture tiers");
+  requireValid(Number.isSafeInteger(runs) && runs > 0 && runs <= 10000, "runs per tier");
+  requireValid(Array.isArray(report.records) && report.records.length === tiers.size * runs, "complete sample count");
+  for (const record of report.records) requireValid(object(record) && tiers.has(record.tier), "record tier");
+  for (const tier of tiers) requireValid(report.records.filter(record => record.tier === tier).length === runs, "samples per tier");
+}
+
 function summarize(records) {
   const times = records.map(record => record.elapsedMs).sort((a, b) => a - b);
   const middle = Math.floor(times.length / 2);
@@ -44,6 +55,8 @@ export function compareReports(base, head) {
   const beforeIdentity = identity(base);
   const afterIdentity = identity(head);
   requireValid(JSON.stringify(beforeIdentity) === JSON.stringify(afterIdentity), "environment or workload mismatch");
+  validateCounts(base);
+  validateCounts(head);
   return {
     environment: structuredClone(base.environment),
     workload: structuredClone(base.workload),

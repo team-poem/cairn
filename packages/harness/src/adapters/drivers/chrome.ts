@@ -687,8 +687,8 @@ export class ChromeDevToolsDriver implements Driver {
   async locateRef(ref: string): Promise<Target> {
     const row = await this.referenceRow(ref);
     try {
-      // Replay starts with the compact pool. Fetch it explicitly: the ordinary cache may
-      // contain a full-tree resolution retry, whose duplicate ordinals cannot be frozen.
+      // Replay starts with the compact pool. Capture it explicitly so the full-tree
+      // selection is re-anchored to current replay ordinals before freezing.
       const raw = await this.call("take_snapshot");
       const rows = parseSnapshotRows(raw);
       const matches = rows.filter((candidate) => candidate.uid === row.uid);
@@ -869,6 +869,9 @@ export class ChromeDevToolsDriver implements Driver {
         (await this.resolveVisible(rows, target));
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) {
+        // Retries may outlive the compact nodes. A later decision must capture again,
+        // not dispatch a UID that an intervening render removed from MCP's latest mapping.
+        this.snapshotCache = undefined;
         throw stepError("resolution", describeResolutionMiss(rows, target));
       }
       await delay(RESOLVE_RETRY_MS);

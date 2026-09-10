@@ -50,3 +50,16 @@ test("filteredRowsDoNotSendLoopsSearching: discover and explore receive no false
     expect(prompts[0]).not.toContain("more elements not shown");
   }
 });
+
+test("filteredRowsAreNotCapOmissions: occlusion, region deduplication and promotion quotas do not produce truncation notices", () => {
+  const beyondQuota = numberedRows(45, "StaticText", "Region").map((e, i) => ({ ...e, clickable: true, clickableRegion: `region-${i}` }));
+  for (const filtered of [coveredRows(50), sharedRegionRows(120), beyondQuota]) {
+    const rows = [...numberedRows(1), ...filtered];
+    const before = JSON.stringify(rows);
+    for (const output of renderedViews(rows, "inspect", 60)) {
+      expect(output).toContain("[button] Control 0");
+      expect(output).not.toContain("more elements not shown");
+    }
+    expect(JSON.stringify(rows)).toBe(before);
+  }
+});

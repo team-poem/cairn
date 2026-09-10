@@ -166,3 +166,20 @@ test("toolDiscoveryTransportFailureAbortsInitialization: a closed connection is 
     expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
   });
 });
+
+test("toolDiscoveryTimeoutIsBoundedAndClosesTransport: stalled capability negotiation fails within the configured call timeout", async () => {
+  vi.useFakeTimers();
+  capabilityWire.hangList = true;
+  try {
+    await withCapabilityDriver(async driver => {
+      const outcome = driver.snapshot({ perception: true }).then(
+        () => ({ ok: true }), error => ({ ok: false, error }),
+      );
+      await vi.advanceTimersByTimeAsync(26);
+      expect(await outcome).toMatchObject({ ok: false, error: { kind: "transport" } });
+      expect(capabilityWire.lists).toBe(1);
+      expect(capabilityWire.calls).toEqual([]);
+      expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
+    }, { timeoutMs: 25 });
+  } finally { vi.useRealTimers(); }
+});

@@ -142,3 +142,22 @@ it("bindingDiagnosticsDoNotEchoUntrustedData: a rejected reply cannot expose its
     expect(driver.refs).toEqual([]);
   }
 });
+
+it("throwingDiagnosticSinkDoesNotChangeRecovery: trace failures remain observational while rejected captures still attempt emission", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new DiagnosticDriver();
+    let gateAttempts = 0;
+    const scope = startTrace({ emit(event) {
+      if (event.kind === "gate") { gateAttempts++; throw new Error("sink unavailable"); }
+    } }, "test").scope("throwing-sink");
+    let captures = 0;
+    const llm = new DiagnosticLlm();
+    const result = await diagnosticLoop(mode, driver, llm, scope, rows => {
+      captures++;
+      return captures === 1 ? rows.map(row => ({ ...row, role: "link" })) : rows;
+    });
+    expect(result.truncated).not.toBe(true);
+    expect(llm.prompts).toHaveLength(1);
+    expect(gateAttempts).toBe(1);
+  }
+});

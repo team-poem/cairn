@@ -351,7 +351,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async select(target: Target, value: string, ref?: string): Promise<void> {
-    const uid = await this.actionUid(target, ref);
+    const uid = await this.actionUid(target, ref, true);
     // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
     // whose option list can't be clicked), kept as a fast path.
     if (await this.isNativeSelect(uid)) {
@@ -837,8 +837,8 @@ export class ChromeDevToolsDriver implements Driver {
     return row;
   }
 
-  private async actionUid(target: Target, ref?: string): Promise<string> {
-    return ref === undefined ? this.resolveUid(target) : (await this.referenceRow(ref)).uid;
+  private async actionUid(target: Target, ref?: string, refreshWatermark = false): Promise<string> {
+    return ref === undefined ? this.resolveUid(target, refreshWatermark) : (await this.referenceRow(ref)).uid;
   }
 
   private async selectedPage(): Promise<string | undefined> {
@@ -860,7 +860,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.snapshotCache = undefined;
   }
 
-  private async resolveUid(target: Target): Promise<string> {
+  private async resolveUid(target: Target, refreshWatermark = false): Promise<string> {
     let raw = await this.getSnapshot();
     for (let attempt = 0; ; attempt++) {
       const rows = parseSnapshotRows(raw);
@@ -875,9 +875,16 @@ export class ChromeDevToolsDriver implements Driver {
         throw stepError("resolution", describeResolutionMiss(rows, target));
       }
       await delay(RESOLVE_RETRY_MS);
+      // Refresh select's before-open watermark after changes during the retry wait.
+      // Capture compact BEFORE verbose: compact can retire verbose-only MCP UIDs,
+      // so the resolving capture must remain last before dispatch.
+      if (refreshWatermark) {
+        this.snapshotCache = undefined;
+        await this.getSnapshot();
+      }
       // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
-      // compact snapshot even when present. Keep the retry local: other lookups and select's
-      // before-open watermark must retain the compact pool, including after a failed retry.
+      // compact snapshot even when present. Keep this retry local to resolution;
+      // the ordinary cache retains the compact pool, refreshed above for select.
       raw = await this.call("take_snapshot", { verbose: true });
     }
   }

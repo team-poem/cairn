@@ -62,3 +62,43 @@ it("normalizedPerceivePreservesCanonicalRef: trimming a label preserves exact dr
     expect(driver.els[0]?.name).toBe("  Save  ");
   }
 });
+
+it("invalidPerceiveEndsBoundedly: both loops recover a fresh valid capture after a rejected binding and bound persistent failures", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    for (const change of [{ name: "Delete" }, { role: "link" }]) {
+      const driver = new PromptRefDriver();
+      let perceptionCalls = 0;
+      const callsAtDecision: number[] = [];
+      const llm = new PromptRecordingLlm((prompt, turn) => {
+        callsAtDecision.push(perceptionCalls);
+        return turn === 1 ? JSON.stringify({ action: "click", ref: promptRef(prompt) }) : '{"action":"done"}';
+      });
+      const result = await runPromptLoop(mode, driver, llm, rows => {
+        perceptionCalls++;
+        return perceptionCalls === 1 ? rows.map(row => ({ ...row, ...change })) : rows;
+      });
+      expect(result.truncated).not.toBe(true);
+      expect(driver.exact).toEqual(["node-save"]);
+      expect(result.steps.filter(step => step.kind === "click")).toEqual([
+        { kind: "click", target: { text: "Save", role: "button", selector: "#node-save" } },
+      ]);
+      expect(callsAtDecision[0]).toBe(2);
+      expect(llm.prompts[0]).toMatch(/perception|binding/i);
+      expect(llm.prompts[0]).not.toContain("not a single valid JSON action object");
+
+      const invalidDriver = new PromptRefDriver();
+      const neverCalled = new PromptRecordingLlm();
+      let invalidCaptures = 0;
+      const incomplete = await runPromptLoop(mode, invalidDriver, neverCalled, rows => {
+        invalidCaptures++;
+        return rows.map(row => ({ ...row, ...change }));
+      });
+      expect(incomplete.truncated).toBe(true);
+      expect(incomplete.steps.filter(step => step.kind !== "goto")).toEqual([]);
+      expect(invalidDriver.exact).toEqual([]);
+      expect(neverCalled.prompts).toEqual([]);
+      expect(invalidCaptures).toBeGreaterThan(1);
+      expect(invalidCaptures).toBeLessThanOrEqual(4);
+    }
+  }
+});

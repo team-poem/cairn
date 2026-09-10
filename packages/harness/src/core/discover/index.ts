@@ -7,6 +7,7 @@
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
 import { PerceptionObservation } from "../observation.js";
+import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
@@ -168,7 +169,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     await driver.settle();
     const raw = await driver.snapshot({ perception: true });
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
-    const page = new PerceptionObservation(driver, raw, elements, intent);
+    let page: PerceptionObservation;
+    try {
+      page = new PerceptionObservation(driver, raw, elements, intent);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
+      continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
+    }
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = page.render;

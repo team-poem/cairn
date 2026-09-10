@@ -11,6 +11,7 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
+import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
 import { UsageMeter } from "../usage.js";
@@ -85,7 +86,13 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
   const perceivePage = async () => {
     const raw = await driver.snapshot({ perception: true });
     const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
-    return { elements, page: new PerceptionObservation(driver, raw, elements, charter) };
+    try {
+      return { elements, page: new PerceptionObservation(driver, raw, elements, charter) };
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
+      return { elements, page: undefined };
+    }
   };
   // Meter at the seam so the report always carries what the survey cost (#100).
   const llm = new UsageMeter(opts.llm);
@@ -146,6 +153,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
     const { elements, page } = await perceivePage();
+    if (!page) continue; // retry with a fresh capture within the existing step bound
     const render = page.render;
 
     if (pending) {
@@ -270,13 +278,19 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
-      url: observation.execution.finalUrl,
-      requests: observation.logic.requests,
-      console: observation.logic.console,
-      render: (await perceivePage()).page.render,
-      settleMs,
-    });
+    const { page } = await perceivePage();
+    if (page) {
+      settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
+        url: observation.execution.finalUrl,
+        requests: observation.logic.requests,
+        console: observation.logic.console,
+        render: page.render,
+        settleMs,
+      });
+    } else {
+      // No valid semantic comparison exists; do not report a fabricated dead action.
+      truncated = true;
+    }
   }
 
   return {

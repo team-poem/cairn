@@ -35,7 +35,7 @@ function scriptedClient() {
 async function withBrowser<T>(broken: boolean, run: (driver: ChromeDevToolsDriver) => Promise<T>): Promise<T> {
   const fixture = await startFixture(broken);
   const driver = new ChromeDevToolsDriver({
-    args: ['-y', 'chrome-devtools-mcp@~1.3.0', '--isolated', '--headless'],
+    args: ['-y', 'chrome-devtools-mcp@1.8.0', '--isolated', '--no-page-id-routing', '--headless'],
   });
   try {
     return await run(driver);

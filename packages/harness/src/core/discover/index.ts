@@ -191,7 +191,6 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
       // below hands out this object, so it is sanitized once, at the source.
       if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
-      decision = page.bind(decision);
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({
@@ -200,6 +199,14 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "parse-retry", reason: "reply was not a single valid JSON action object" },
       });
       pushFailure("your previous reply was not a single valid JSON action object");
+      continue;
+    }
+
+    try {
+      decision = page.bind(decision);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
       continue;
     }
 

@@ -180,9 +180,17 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
 
     let decision: Decision;
     try {
-      decision = page.bind(parseDecision(reply));
+      decision = parseDecision(reply);
     } catch {
       pushFailure("your previous reply was not a single valid JSON action object");
+      continue;
+    }
+
+    try {
+      decision = page.bind(decision);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
       continue;
     }
 

@@ -116,3 +116,18 @@ it("normalizedRefDescriptionsUseRawIdentity: model label normalization binds the
   }
   expect(driver.exact).toEqual(["node-save"]);
 });
+
+it("referenceFailureIsNotMalformedJson: both loops teach a fresh reference after valid JSON with an unknown ref", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver();
+    const llm = new PromptRecordingLlm((_prompt, turn) => turn === 1
+      ? '{"action":"click","ref":"forged"}'
+      : turn === 2 ? 'this is not JSON' : '{"action":"done"}');
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.prompts[1]).toMatch(/unknown|expired/i);
+    expect(llm.prompts[1]).toMatch(/reference|ref/i);
+    expect(llm.prompts[1]).not.toContain("not a single valid JSON action object");
+    expect(llm.prompts[2]).toContain("not a single valid JSON action object");
+    expect(driver.exact).toEqual([]);
+  }
+});

@@ -162,3 +162,13 @@ it("systemExplainsMeasuredInteractionFacts: shared rules explain clickable and a
   expect(page.references).toContain("[StaticText] Open (clickable, active popup)");
   for (const system of [SYSTEM, EXPLORE_SYSTEM]) expect(system).toContain(PERCEPTION_RULES);
 });
+
+it("referenceTableDeclaresTruncation: the ref table reports candidates omitted by the same hard row budget", () => {
+  const driver = new PromptRefDriver(Array.from({ length: 61 }, (_, i) => ({ role: "button", name: `Choice ${i}`, ref: `node-${i}` })));
+  const page = new PerceptionObservation(driver, driver.els, driver.els, "choose", 60);
+  expect(page.references.match(/^- ref=/gm)).toHaveLength(60);
+  expect(page.references).toMatch(/1 more elements? not shown/);
+  expect(page.references).toMatch(/scroll|interact/i);
+  const uncut = new PerceptionObservation(driver, driver.els, driver.els, "choose", 61);
+  expect(uncut.references).not.toMatch(/more elements? not shown/);
+});

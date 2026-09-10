@@ -44,7 +44,8 @@ export class PerceptionObservation {
     const ranked = rankElements(perceived, intent, limit);
     const body = renderElements(ranked, ordinals);
     const hidden = perceived.length - ranked.length;
-    this.render = hidden > 0 ? `${body}\n(+${hidden} more elements not shown — scroll or interact to reveal them)` : body;
+    const omitted = hidden > 0 ? `\n(+${hidden} more elements not shown — scroll or interact to reveal them)` : "";
+    this.render = body + omitted;
     const lines: string[] = [];
     if (driver.locateRef) ranked.forEach((e, i) => {
       if (!e.ref) return;
@@ -54,7 +55,7 @@ export class PerceptionObservation {
       lines.push(`- ref="${token}" ${renderElements([e], ordinals).slice(2)}`);
     });
     this.references = lines.length
-      ? `Current observation references (valid for this decision only; use "ref" for exact selection):\n${lines.join("\n")}`
+      ? `Current observation references (valid for this decision only; use "ref" for exact selection):\n${lines.join("\n")}${omitted}`
       : "";
   }
 

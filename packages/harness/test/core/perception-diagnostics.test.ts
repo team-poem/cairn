@@ -78,3 +78,27 @@ it("invalidPerceptionIsTraceVisibleAtExhaustion: each rejected capture is diagno
     expect(result.steps.filter(step => step.kind !== "goto")).toEqual([]);
   }
 });
+
+it("recoveredPerceptionRetainsItsDiagnostic: a later valid capture can act without erasing the rejected turn", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new DiagnosticDriver();
+    const { events, scope } = diagnosticTrace();
+    let captures = 0;
+    const capturesAtDecision: number[] = [];
+    const llm = new DiagnosticLlm((prompt, turn) => {
+      capturesAtDecision.push(captures);
+      return turn === 1 ? JSON.stringify({ action: "click", ref: diagnosticRef(prompt) }) : '{"action":"done"}';
+    });
+    const result = await diagnosticLoop(mode, driver, llm, scope, rows => {
+      captures++;
+      return captures === 1 ? rows.map(row => ({ ...row, name: "Changed" })) : rows;
+    });
+    expect(result.truncated).not.toBe(true);
+    expect(capturesAtDecision).toEqual([2, 3]);
+    expect(driver.refs).toEqual(["private-driver-token"]);
+    expect(diagnosticGates(events)).toHaveLength(1);
+    expect(diagnosticGates(events)[0]).toMatchObject({ phase: mode, payload: { gate: "perception-binding" } });
+    expect(llm.prompts[0]).toMatch(/perception binding rejected/i);
+    expect(events.map(event => event.seq)).toEqual(events.map((_, index) => index));
+  }
+});

@@ -5,6 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build, version as esbuildVersion } from "esbuild";
+import { collectReplays, measuredRounds } from "./ci-sampling.mjs";
 import { compareReports, renderComparison } from "./ci-report.mjs";
 import { buildHash, git, load, tiers, latency, toolchain, writeJson } from "./ci-worker.mjs";
 
@@ -16,7 +17,7 @@ if (!baseArg || !headArg || !outArg || process.argv.length !== 5) {
 const baseRoot = resolve(baseArg), headRoot = resolve(headArg), out = resolve(outArg);
 await mkdir(dirname(out), { recursive: true });
 await mkdir(out); // Never mix samples with an earlier invocation.
-const runs = 3;
+const runs = measuredRounds;
 const baseCommit = git(baseRoot, "rev-parse", "HEAD"), headCommit = git(headRoot, "rev-parse", "HEAD");
 let markdown = `# Cairn PR benchmarks\n\nBefore: ${baseCommit}\nAfter: ${headCommit}\n\nMeasurement did not complete. See the raw artifacts and job log.\n`;
 
@@ -64,28 +65,9 @@ try {
     base: { schemaVersion: 1, commit: baseCommit, dirty: Boolean(git(baseRoot, "status", "--porcelain")), buildHash: await buildHash(baseRoot), environment, workload, sizes: baseSizes, records: [], incomplete: false },
     head: { schemaVersion: 1, commit: headCommit, dirty: Boolean(git(headRoot, "status", "--porcelain")), buildHash: await buildHash(headRoot), environment, workload, sizes: headSizes, records: [], incomplete: false },
   };
-  // Warmups are retained as artifacts but excluded from latency statistics.
-  let failed = false, warmupFailed = false;
-  for (const [side, root] of [["base", baseRoot], ["head", headRoot]]) {
-    const warmup = await attempt(root, `${side}-warmup`, "replay", captures);
-    if (warmup.failed || warmup.report.records.some(row => !row.passed)) { failed = true; warmupFailed = true; }
-  }
-  for (let round = 0; round < runs; round++) {
-    for (const side of round % 2 ? ["head", "base"] : ["base", "head"]) {
-      const { report, failed: runFailed } = await attempt(side === "base" ? baseRoot : headRoot, `${side}-${round + 1}`, "replay", captures);
-      if (runFailed) failed = true;
-      reports[side].incomplete ||= report.incomplete || (runFailed && report.records.every(row => row.passed));
-      if (report.engine.commit !== reports[side].commit || report.engine.buildHash !== reports[side].buildHash) throw new Error("Engine changed during measurement");
-      for (const key of ["node", "chrome", "mcp", "platform", "arch"]) {
-        if (report.runtime[key] !== environment[key]) throw new Error(`Runtime ${key} changed during measurement`);
-      }
-      for (const row of report.records) {
-        if (row.scenarioHash !== workload.captures.find(capture => capture.tier === row.tier)?.scenarioHash) throw new Error("Capture changed during measurement");
-        if (row.fixtureHash !== fixtureInfo(row.tier, "v1").hash) throw new Error("Fixture changed during measurement");
-        reports[side].records.push({ tier: row.tier, round, elapsedMs: row.elapsedMs, passed: row.passed, llmCalls: row.engineUsage?.llmCalls ?? null, observedLlmCalls: row.observedUsage?.llmCalls ?? null });
-      }
-    }
-  }
+  const { failed, warmupFailed } = await collectReplays({
+    reports, attempt, baseRoot, headRoot, captures, environment, workload, fixtureInfo,
+  });
   // Warmup failures invalidate the check even if the later attempts succeed.
   await writeJson(join(out, "paired.json"), { ...reports, warmupFailed });
   if (warmupFailed) throw new Error("A warmup failed; timing comparisons are withheld");

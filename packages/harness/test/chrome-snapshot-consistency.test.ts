@@ -71,3 +71,20 @@ test("chromeLegacyPerceptionFreezeReplayIdentity: perception capture preserves o
   await new BuiltinStepHandler().execute(frozen, replay.driver);
   expect(replay.clicks).toEqual(["1_3"]);
 });
+
+test("chromePerceptionSelectWatermark: a verbose-only closed option becomes selectable without choosing an unrelated native option", async () => {
+  const closed = 'uid=1_1 combobox "Size"\nuid=1_9 option "Medium"';
+  const open = closed + '\nuid=1_2 listbox "Sizes"\nuid=1_3 option "Medium"';
+  const { driver, clicks } = chromeSnapshotFixture({
+    compact: closed,
+    verbose: open,
+    openCompact: open,
+    openVerbose: open,
+    openerUid: "1_1",
+  });
+  const observed = await driver.snapshot({ perception: true });
+  expect(observed.filter(row => row.role === "option" && row.name === "Medium")).toHaveLength(2);
+
+  await driver.select({ text: "Size", role: "combobox" }, "Medium");
+  expect(clicks).toEqual(["1_1", "1_3"]);
+});

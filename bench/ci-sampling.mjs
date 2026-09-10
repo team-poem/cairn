@@ -1,5 +1,7 @@
 // Keep scheduling and result validation independent of subprocess execution.
-export const measuredRounds = 3;
+// AB/BA/AB/BA gives each engine two first positions and equal mean position.
+// This limits linear drift bias; nonlinear drift and noisy tails remain.
+export const measuredRounds = 4;
 
 export async function collectReplays({ reports, attempt, baseRoot, headRoot, captures, environment, workload, fixtureInfo }) {
   // Warmups are retained as artifacts but excluded from latency statistics.
@@ -13,6 +15,10 @@ export async function collectReplays({ reports, attempt, baseRoot, headRoot, cap
       const { report, failed: runFailed } = await attempt(side === "base" ? baseRoot : headRoot, `${side}-${round + 1}`, "replay", captures);
       if (runFailed) failed = true;
       reports[side].incomplete ||= report.incomplete || (runFailed && report.records.every(row => row.passed));
+      if (report.records.length !== workload.captures.length
+        || workload.captures.some(({ tier }) => report.records.filter(row => row.tier === tier).length !== 1)) {
+        throw new Error("Each replay attempt must contain one sample per tier");
+      }
       if (report.engine.commit !== reports[side].commit || report.engine.buildHash !== reports[side].buildHash) throw new Error("Engine changed during measurement");
       for (const key of ["node", "chrome", "mcp", "platform", "arch"]) {
         if (report.runtime[key] !== environment[key]) throw new Error(`Runtime ${key} changed during measurement`);

@@ -17,7 +17,8 @@ concurrency:
 
 jobs:
   comment:
-    if: ${{ github.event.workflow_run.event == 'pull_request' }}
+    # Forks control their measurement data; do not sign it with the repo App.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

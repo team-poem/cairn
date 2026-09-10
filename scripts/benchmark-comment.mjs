@@ -12,31 +12,34 @@ const percent = value => value === null ? "n/a" : value !== 0 && Math.abs(value)
 export function renderBriefing(comparison) {
   const { packageBytes, browserGzipBytes } = comparison.sizes;
   const sides = comparison.tiers.flatMap(row => [row.base, row.head]);
-  const sum = key => sides.reduce((total, side) => total + side[key], 0);
+  const sum = key => sides.some(side => side[key] === null) ? "unknown" : sides.reduce((total, side) => total + side[key], 0);
   const timing = comparison.tiers.map(row => `${row.tier}: ${row.status === "invalid" ? "invalid (failed or LLM-tainted)" : percent(row.percent)}`).join("; ");
   return [
     "## 🐧 Performance briefing", "",
     `- Package tarball: ${signed(packageBytes.delta)} B (${percent(packageBytes.percent)}). Browser gzip: ${signed(browserGzipBytes.delta)} B (${percent(browserGzipBytes.percent)}).`,
     `- Observed replay medians: ${timing}.`,
     `- Execution across both revisions: ${sum("runs") - sum("failures")}/${sum("runs")} passed; engine LLM calls: ${sum("llmCalls")}; observed LLM calls: ${sum("observedLlmCalls")}.`,
-    "- Timing is informational: small samples and CI noise do not prove an improvement or regression.", "",
+    "- Timing includes server/browser startup and awaited cleanup; small samples and CI noise do not prove an improvement or regression.", "",
   ].join("\n");
 }
 
 // No artifact-supplied Markdown, paths, PR numbers or repository names are used.
-// Fork code runs in the read-only measurement job; this module runs from the
+// Measurement data is produced by PR code. Only same-repository PRs receive
+// app-signed reports; fork results remain in Actions. This module runs from the
 // default branch with the narrowly scoped comment token.
 export async function postBenchmarkComment({ github, context, core, appSlug }) {
   if (typeof appSlug !== "string" || !/^[a-z0-9][a-z0-9-]{0,99}$/.test(appSlug)) throw new Error("Missing or invalid GitHub App slug");
   const run = context.payload.workflow_run;
   if (run.event !== "pull_request" || run.path?.split("@")[0] !== ".github/workflows/benchmark.yml") throw new Error("Unexpected benchmark workflow");
+  const repository = `${context.repo.owner}/${context.repo.repo}`;
+  if (run.head_repository?.full_name !== repository) { core.info("Fork measurement; leaving the summary in Actions"); return; }
   const { data: associated } = await github.rest.repos.listPullRequestsAssociatedWithCommit({ ...context.repo, commit_sha: run.head_sha, per_page: 100 });
   const candidates = associated.filter(pr => pr.state === "open" && pr.head.sha === run.head_sha
     && pr.base.repo.full_name === `${context.repo.owner}/${context.repo.repo}`
     && pr.head.repo?.full_name === run.head_repository?.full_name);
   if (candidates.length !== 1) { core.info("No unique current PR for this run; leaving the summary in Actions"); return; }
   const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: candidates[0].number });
-  if (pr.state !== "open" || pr.head.sha !== run.head_sha) { core.info("Stale benchmark run"); return; }
+  if (pr.state !== "open" || pr.head.sha !== run.head_sha || pr.head.repo?.full_name !== repository || pr.base.repo?.full_name !== repository) { core.info("Stale or ineligible benchmark run"); return; }
   const botLogin = `${appSlug}[bot]`;
   const { data: bot } = await github.rest.users.getByUsername({ username: botLogin });
   if (bot.type !== "Bot" || bot.login !== botLogin || !Number.isSafeInteger(bot.id) || bot.id <= 0) throw new Error("Could not verify the GitHub App bot identity");
@@ -61,7 +64,8 @@ export async function postBenchmarkComment({ github, context, core, appSlug }) {
   const previous = existing?.body?.match(/<!-- benchmark-run:(\d+):(\d+) -->/);
   if (previous && (Number(previous[1]) > run.id || (Number(previous[1]) === run.id && Number(previous[2]) > run.run_attempt))) return;
   const { data: current } = await github.rest.pulls.get({ ...context.repo, pull_number: pr.number });
-  if (current.state !== "open" || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha) return;
+  if (current.state !== "open" || current.head.sha !== pr.head.sha || current.base.sha !== pr.base.sha
+    || current.head.repo?.full_name !== repository || current.base.repo?.full_name !== repository) return;
   if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
   else await github.rest.issues.createComment({ ...context.repo, issue_number: pr.number, body });
 }

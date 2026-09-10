@@ -48,7 +48,10 @@ function validateMeasurements(report) {
   for (const record of report.records) {
     requireValid(Number.isFinite(record.elapsedMs) && record.elapsedMs >= 0 && record.elapsedMs <= Number.MAX_SAFE_INTEGER, "elapsedMs");
     requireValid(typeof record.passed === "boolean", "passed verdict");
-    for (const field of ["llmCalls", "observedLlmCalls"]) requireValid(Number.isSafeInteger(record[field]) && record[field] >= 0, field);
+    for (const field of ["llmCalls", "observedLlmCalls"]) {
+      requireValid((record.passed === false && record[field] === null)
+        || (Number.isSafeInteger(record[field]) && record[field] >= 0), field);
+    }
   }
   for (const field of ["llmCalls", "observedLlmCalls"]) requireValid(Number.isSafeInteger(report.records.reduce((sum, record) => sum + record[field], 0)), `total ${field}`);
 }
@@ -61,8 +64,8 @@ function summarize(records) {
     failures: records.filter(record => !record.passed).length,
     medianMs: times.length % 2 ? times[middle] : (times[middle - 1] + times[middle]) / 2,
     p95Ms: times[Math.ceil(times.length * 0.95) - 1],
-    llmCalls: records.reduce((sum, record) => sum + record.llmCalls, 0),
-    observedLlmCalls: records.reduce((sum, record) => sum + record.observedLlmCalls, 0),
+    llmCalls: records.some(record => record.llmCalls === null) ? null : records.reduce((sum, record) => sum + record.llmCalls, 0),
+    observedLlmCalls: records.some(record => record.observedLlmCalls === null) ? null : records.reduce((sum, record) => sum + record.observedLlmCalls, 0),
   };
 }
 
@@ -84,7 +87,7 @@ export function compareReports(base, head) {
       const deltaMs = after.medianMs - before.medianMs;
       return { tier, base: before, head: after, deltaMs,
         percent: percentChange(before.medianMs, after.medianMs),
-        status: [before, after].some(side => side.failures || side.llmCalls || side.observedLlmCalls) ? "invalid" : deltaMs < 0 ? "improved" : deltaMs > 0 ? "regressed" : "unchanged",
+        status: [before, after].some(side => side.failures || side.llmCalls !== 0 || side.observedLlmCalls !== 0) ? "invalid" : deltaMs < 0 ? "improved" : deltaMs > 0 ? "regressed" : "unchanged",
       };
     }),
     baseCommit: base.commit,
@@ -109,6 +112,7 @@ const number = value => {
 };
 const signed = value => `${value > 0 ? "+" : ""}${number(value)}`;
 const percentage = value => value === null ? "n/a" : `${signed(value)}%`;
+const usage = value => value === null ? "unknown" : number(value);
 
 /** Render only a comparison freshly derived by compareReports, never artifact Markdown. */
 export function renderComparison(comparison, { includeContext = true } = {}) {
@@ -122,7 +126,7 @@ export function renderComparison(comparison, { includeContext = true } = {}) {
     requireValid(TIERS.includes(row.tier) && Object.hasOwn(statuses, row.status), "rendered tier status");
     return `| ${row.tier} | ${number(row.base.runs)} / ${number(row.head.runs)} | ${number(row.base.medianMs)} | ${number(row.head.medianMs)} | ${signed(row.deltaMs)} | ${percentage(row.percent)} | ${number(row.base.p95Ms)} / ${number(row.head.p95Ms)} | ${statuses[row.status]} |`;
   });
-  const outcomes = comparison.tiers.map(row => `| ${row.tier} | ${number(row.base.failures)} / ${number(row.head.failures)} | ${number(row.base.llmCalls)} / ${number(row.head.llmCalls)} | ${number(row.base.observedLlmCalls)} / ${number(row.head.observedLlmCalls)} |`);
+  const outcomes = comparison.tiers.map(row => `| ${row.tier} | ${number(row.base.failures)} / ${number(row.head.failures)} | ${usage(row.base.llmCalls)} / ${usage(row.head.llmCalls)} | ${usage(row.base.observedLlmCalls)} / ${usage(row.head.observedLlmCalls)} |`);
   const environment = Object.entries(comparison.environment).map(([key, value]) => `${cell(key)}: ${cell(value)}`).join("; ");
   const captures = comparison.workload.captures.map(capture => `${cell(capture.tier)}: ${cell(capture.scenarioHash)}`).join("; ");
   return [
@@ -140,7 +144,7 @@ export function renderComparison(comparison, { includeContext = true } = {}) {
     "| Tier | Failures before / after | Engine LLM calls before / after | Observed LLM calls before / after |",
     "| --- | ---: | ---: | ---: |", ...outcomes, "",
     ...(includeContext ? [
-      "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Failed attempts remain in the elapsed-time distribution. A zero baseline has no defined percentage change (n/a).", "",
+      "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Fully recorded failed attempts remain in the elapsed-time distribution; unknown LLM usage is not zero. Incomplete output withholds the comparison. A zero baseline has no defined percentage change (n/a).", "",
       "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
       "## Provenance", "", environment, "",
       `Uncommitted changes before / after: ${comparison.provenance.baseDirty ?? "unknown"} / ${comparison.provenance.headDirty ?? "unknown"}.`,

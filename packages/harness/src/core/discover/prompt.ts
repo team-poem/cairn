@@ -114,7 +114,6 @@ export function renderElements(elements: PageElement[], nthOf?: Map<PageElement,
 export function buildPrompt(
   intent: string,
   render: string,
-  prevRender: string,
   steps: Step[],
   failures: string[],
   currentUrl?: string,
@@ -122,9 +121,12 @@ export function buildPrompt(
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
     : "(none yet)";
-  // #15 — a stable page between steps doesn't need the whole list re-sent.
-  const elementsBlock =
-    render && render === prevRender ? "(unchanged from previous step)" : render || "(none)";
+  // The listing goes out every turn. `LlmClient` is one `complete(prompt)` with no conversation
+  // (core/ports.ts), and every shipped backend sends a standalone request per call, so a model has
+  // no previous turn to compare against: eliding the list left it with a sentence pointing at
+  // something it had never seen, and it concluded the controls did not exist (#225). The list is
+  // capped at ELEMENT_LIMIT and describes only the current page, so it does not grow with the run.
+  const elementsBlock = render || "(none)";
   return [
     `Intent: ${intent}`,
     // #116 — where the browser is (from the last action's observation; may lag one action).

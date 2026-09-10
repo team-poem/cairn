@@ -12,7 +12,6 @@ describe("buildExplorePrompt — pinned layout", () => {
     const out = buildExplorePrompt(
       "survey the shop",
       "[link] Products",
-      "",
       [{ kind: "goto", url: "https://shop/" }],
       ['click "Gone" — element not found: Gone'],
       ["shop"],
@@ -42,8 +41,8 @@ describe("buildExplorePrompt — pinned layout", () => {
     ]);
   });
 
-  it("buildExplorePromptPinned: empty memories collapse to their placeholders and an unchanged page is not re-sent", () => {
-    const out = buildExplorePrompt("c", "[link] A", "[link] A", [], [], [], []);
+  it("buildExplorePromptPinned: empty memories collapse to their placeholders and the page is always listed", () => {
+    const out = buildExplorePrompt("c", "[link] A", [], [], [], []);
     expect(out.split("\n")).toEqual([
       "Charter: c",
       "Current page: (unknown)",
@@ -55,7 +54,7 @@ describe("buildExplorePrompt — pinned layout", () => {
       "(none yet)",
       "",
       "Interactive elements now on the page:",
-      "(unchanged from previous step)",
+      "[link] A",
       "",
       "What is the single next action? Respond with JSON only.",
     ]);

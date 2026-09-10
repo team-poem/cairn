@@ -27,3 +27,4 @@ coverage/
 
 # benchmark outputs
 bench/frozen/
+bench/results/

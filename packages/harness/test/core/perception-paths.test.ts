@@ -41,7 +41,8 @@ it("discover policy sees canonical ref-only target and blocks it before actuatio
   expect(seen).toEqual(["Delete", "Delete", "Delete"]);
   expect(driver.refs).toEqual([]);
   expect(result.truncated).toBe(true);
-  expect(llm.prompts[1]).toContain("unchanged from previous step");
+  expect(llm.prompts[1]).toContain("- [button] Delete");
+  expect(llm.prompts[1]).not.toContain("unchanged from previous step");
   expect(refOf(llm.prompts[1]!)).not.toBe(refOf(llm.prompts[0]!));
 });
 
@@ -51,7 +52,8 @@ it("explore detects a no-op despite rotating refs and forwards current exact sel
   const result = await explore("survey", { driver, llm, baseUrl: "https://app/start", maxSteps: 2 });
   expect(driver.refs).toHaveLength(1);
   expect(result.findings.some(f => f.kind === "dead-action")).toBe(true);
-  expect(llm.prompts[1]).toContain("unchanged from previous step");
+  expect(llm.prompts[1]).toContain("- [button] Delete");
+  expect(llm.prompts[1]).not.toContain("unchanged from previous step");
   expect(JSON.stringify(result.steps)).not.toContain("ref");
 });
 

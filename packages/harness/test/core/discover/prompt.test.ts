@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SYSTEM, rankElements } from "../../../src/core/discover/prompt.js";
+import { SYSTEM, buildPrompt, rankElements } from "../../../src/core/discover/prompt.js";
 
 describe("SYSTEM prompt (#99) — pinned bytes", () => {
   it("stays byte-identical across shared-constant refactors", () => {
@@ -184,5 +184,55 @@ describe("SYSTEM cross-role signal (#127)", () => {
     const { SYSTEM } = await import("../../../src/core/discover/prompt.js");
     expect(SYSTEM).toContain("appears under more than one role");
     expect(SYSTEM).toContain('always add "role"');
+  });
+});
+
+describe("buildPrompt — pinned layout", () => {
+  it("buildPromptPinned: every memory block appears in order when populated", () => {
+    const out = buildPrompt(
+      "enter a name and save it",
+      "[textbox] Name\n[button] Save",
+      [{ kind: "goto", url: "https://shop/" }],
+      ['click "Gone" — element not found: Gone'],
+      "https://shop/",
+    );
+    expect(out.split("\n")).toEqual([
+      "Intent: enter a name and save it",
+      "Current page: https://shop/",
+      "",
+      "These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:",
+      '- click "Gone" — element not found: Gone',
+      "",
+      "Actions taken so far:",
+      '1. {"kind":"goto","url":"https://shop/"}',
+      "",
+      "Interactive elements now on the page:",
+      "[textbox] Name",
+      "[button] Save",
+      "",
+      "What is the single next action? Respond with JSON only.",
+    ]);
+  });
+
+  it("buildPromptPinned: empty memories collapse to their placeholders and the page is always listed", () => {
+    // The listing carries no memory of an earlier turn, because the port hands the model one
+    // standalone prompt per call and there is no earlier turn to carry (#225).
+    const out = buildPrompt("c", "[link] A", [], []);
+    expect(out.split("\n")).toEqual([
+      "Intent: c",
+      "Current page: (unknown)",
+      "",
+      "Actions taken so far:",
+      "(none yet)",
+      "",
+      "Interactive elements now on the page:",
+      "[link] A",
+      "",
+      "What is the single next action? Respond with JSON only.",
+    ]);
+  });
+
+  it("buildPromptPinned: an empty page says so rather than going silent", () => {
+    expect(buildPrompt("c", "", [], [])).toContain("Interactive elements now on the page:\n(none)");
   });
 });

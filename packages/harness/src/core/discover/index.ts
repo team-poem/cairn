@@ -162,7 +162,6 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   const pushFailure = (line: string): void => {
     if (!failures.includes(line)) failures.push(line);
   };
-  let prevRender = "";
   let consecutiveBlocks = 0;
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
@@ -173,10 +172,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = page.render;
-    const reply = await llm.complete([buildPrompt(intent, render, prevRender, steps, failures, currentUrl), page.references].filter(Boolean).join("\n\n"), {
+    const reply = await llm.complete([buildPrompt(intent, render, steps, failures, currentUrl), page.references].filter(Boolean).join("\n\n"), {
       system: SYSTEM,
     });
-    prevRender = render;
 
     let decision: Decision;
     try {

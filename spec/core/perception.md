@@ -50,9 +50,9 @@ With no optional facts, legacy ranking and evidence selection remain unchanged.
 
 The engine builds a separate reference table for each decision. Model tokens map to captured
 Driver refs and canonical candidate descriptions. Raw Driver tokens are not sent to the model.
-The semantic page render contains no refs, so rotating handles do not defeat unchanged-page
-compression or explore's dead-action comparison. A fresh reference table is sent even when
-the semantic page is unchanged.
+The semantic page render contains no refs, so rotating handles do not defeat explore's
+dead-action comparison. Each independent model request includes the complete current listing
+and a fresh reference table, even when the semantic page is unchanged.
 
 A referenced decision is bound before ambiguity and `ActionPolicy` checks, which see its real
 name, role, and full-snapshot ordinal. Unknown, expired, contradictory, duplicated, or fabricated

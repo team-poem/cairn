@@ -134,7 +134,6 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     }
   };
 
-  let prevRender = "";
   let truncated = true;
   let consecutiveBlocks = 0;
 
@@ -167,10 +166,9 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     }
 
     const reply = await llm.complete(
-      [buildExplorePrompt(charter, render, prevRender, steps, failures, visited, findings, currentUrl), page.references].filter(Boolean).join("\n\n"),
+      [buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl), page.references].filter(Boolean).join("\n\n"),
       { system: EXPLORE_SYSTEM },
     );
-    prevRender = render;
 
     let decision: Decision;
     try {

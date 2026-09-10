@@ -30,3 +30,14 @@ test("healFailedRetryConsumesBudget: failed repaired dispatch consumes the only 
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healModelFailureConsumesBudget: rejected model request cannot be retried beyond maxHeals", async () => {
+  const f = repairFixture();
+  f.complete.mockRejectedValue(new Error("model unavailable"));
+  const driver = new SelfHealingDriver(f.inner, f.llm, { maxHeals: 1, onHeal: f.onHeal });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow("model unavailable");
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(1);
+  expect(driver.heals).toEqual([]);
+  expect(f.onHeal).not.toHaveBeenCalled();
+});

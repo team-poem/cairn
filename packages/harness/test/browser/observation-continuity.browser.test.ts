@@ -89,3 +89,23 @@ test("observationUnrelatedChangesBeforeEnrichment: clock text, spinner attribute
     });
   }
 });
+
+test("observationClockChangesDuringCompactCapture: repeated incidental updates do not prevent exact addressing or durable replay", async () => {
+  await withContinuityPage(async ({ page, driver, clicks, onCompact }) => {
+    let ticks = 0;
+    onCompact(async () => {
+      ticks++;
+      await page.evaluate(`document.querySelector('#clock').firstChild.data = ${JSON.stringify("tick:")} + ${ticks}`);
+    });
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const ref = await secondSaveRef(driver);
+      const frozen = JSON.parse(JSON.stringify(await driver.locateRef(ref))) as Target;
+      expect(frozen).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
+      expect(JSON.stringify(frozen)).not.toContain(ref);
+      await driver.click(frozen, ref);
+      await driver.click(frozen);
+    }
+    expect(ticks).toBeGreaterThanOrEqual(3);
+    expect(clicks).toEqual(Array(6).fill("second"));
+  });
+});

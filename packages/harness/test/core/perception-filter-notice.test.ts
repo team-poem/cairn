@@ -64,3 +64,19 @@ test("filterReasonsHaveSeparateNotices: occlusion, region deduplication and quot
     expect(JSON.stringify(rows)).toBe(before);
   }
 });
+
+test("mixedCapAndFilteringStayDistinct: cap loss and policy exclusions have separate accurate notices including a zero cap", () => {
+  const rows = [...noticeRows(5), ...coveredNoticeRows(5)];
+  for (const cap of [3, 0]) {
+    const outputs = filterViews(rows, "inspect", cap);
+    expect(outputs[2] === "").toBe(cap === 0);
+    for (const output of cap === 0 ? outputs.slice(0, 2) : outputs) {
+      expect(output.split(filterNotice(5))).toHaveLength(2);
+      expect(output.match(/\(\+\d+ more elements not shown[^)]*\)/g)).toEqual([
+        `(+${5 - cap} more elements not shown — scroll or interact to reveal them)`,
+      ]);
+      expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(cap);
+      expect(output).not.toContain("Covered");
+    }
+  }
+});

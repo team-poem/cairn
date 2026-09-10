@@ -28,6 +28,7 @@ const STEP_HEAL_SYSTEM =
 
 export class LlmStepHealer implements StepHealer {
   readonly heals: StepHeal[] = [];
+  private attempts = 0;
   constructor(
     private readonly llm: LlmClient,
     private readonly maxHeals = MAX_STEP_HEALS,
@@ -37,12 +38,16 @@ export class LlmStepHealer implements StepHealer {
   ) {}
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
-    if (this.heals.length >= this.maxHeals) return null;
+    if (this.attempts >= this.maxHeals) return null;
     const raw = await driver.snapshot({ perception: true });
     const elements = redactSecrets(this.options.perceive ? await this.options.perceive(raw.map(e => ({ ...e }))) : raw, this.secrets);
     let decision: Decision;
     try {
       const page = new PerceptionObservation(driver, raw, elements, step.intent ?? step.kind);
+      // Observation can await other work. Reserve immediately before the request so even
+      // concurrent calls and failed repairs share the same finite model-call budget.
+      if (this.attempts >= this.maxHeals) return null;
+      this.attempts++;
       const reply = await this.llm.complete(stepHealPrompt(step, page), { system: STEP_HEAL_SYSTEM });
       decision = parseDecision(reply);
       if (decision.action === "type" && decision.value !== undefined) decision.value = slotSecretText(decision.value, this.secrets);

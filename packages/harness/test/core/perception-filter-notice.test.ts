@@ -95,3 +95,18 @@ test("retainedIntentEvidenceIsNotFiltered: evidence retained beyond the region q
     for (let i = 40; i < 45; i++) expect(output).toContain(`Receipt ${i}`);
   }
 });
+
+test("entirelyFilteredCaptureDisclosesWithoutRefs: an all-covered capture explains exclusions without creating action rows or a reference table", () => {
+  for (const limit of [0, 3, 60]) {
+    const rows = coveredNoticeRows(5);
+    const outputs = filterViews(rows, "inspect", limit);
+    expect(outputs.slice(0, 2)).toEqual([`\n${filterNotice(5)}`, `\n${filterNotice(5)}`]);
+    expect(outputs[2]).toBe("");
+    for (const output of outputs) {
+      expect(output).not.toContain("more elements not shown");
+      expect(output).not.toContain("Covered");
+      expect(output).not.toContain("ref=");
+      expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(0);
+    }
+  }
+});

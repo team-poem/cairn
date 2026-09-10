@@ -183,3 +183,18 @@ test("toolDiscoveryTimeoutIsBoundedAndClosesTransport: stalled capability negoti
     }, { timeoutMs: 25 });
   } finally { vi.useRealTimers(); }
 });
+
+test("failedFastGuardIsNotRetriedWithChangedArguments: an observation tool error follows existing conservative fallback without speculative evaluation retry", async () => {
+  capabilityWire.rejectGuard = true;
+  await withCapabilityDriver(async driver => {
+    const rows = await driver.snapshot({ perception: true });
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row => row.ref === undefined)).toBe(true);
+    expect(capabilityWire.lists).toBe(1);
+    const guards = observationEvaluations().filter(call => String(call.arguments.function).includes("new MutationObserver"));
+    expect(guards).toHaveLength(1);
+    expect(guards[0]!.arguments.waitForStableDom).toBe(false);
+    for (const call of observationEvaluations()) expect(call.arguments.waitForStableDom).toBe(false);
+    expect(capabilityWire.calls.filter(call => call.name === "click")).toEqual([]);
+  });
+});

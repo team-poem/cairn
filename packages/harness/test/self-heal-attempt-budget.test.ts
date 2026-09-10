@@ -88,3 +88,18 @@ test("healEnrichmentFailureConsumesBudget: locator enrichment failure consumes t
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healMixedAttemptsRespectBudget: failed and successful repairs share one request budget", async () => {
+  const f = repairFixture();
+  f.dispatch.mockRejectedValueOnce(new Error("original target missing"))
+    .mockRejectedValueOnce(new Error("first repair failed"));
+  const driver = new SelfHealingDriver(f.inner, f.llm, { maxHeals: 2, onHeal: f.onHeal });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow("first repair failed");
+  await driver.click({ text: "Old save" });
+  expect(driver.heals).toEqual([{ original: { text: "Old save" }, healed: { text: "Save" } }]);
+  expect(f.onHeal).toHaveBeenCalledTimes(1);
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(2);
+  expect(driver.heals).toHaveLength(1);
+  expect(f.onHeal).toHaveBeenCalledTimes(1);
+});

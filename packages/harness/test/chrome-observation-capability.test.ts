@@ -209,3 +209,15 @@ test("sdkDiscoveryTimeoutCannotBecomeLegacySuccess: a snapshot aborts when the S
     expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
   }, { timeoutMs: 120_000 });
 });
+
+test("sdkDiscoveryTimeoutCodeControlsInitialization: SDK RequestTimeout is fatal even when its message differs from the usual timeout wording", async () => {
+  const { McpError, ErrorCode } = await import("@modelcontextprotocol/sdk/types.js");
+  capabilityWire.listError = new McpError(ErrorCode.RequestTimeout, "server deadline elapsed");
+  await withCapabilityDriver(async driver => {
+    const connection = driver as unknown as { ensureConnected(): Promise<unknown> };
+    await expect(connection.ensureConnected()).rejects.toMatchObject({ kind: "transport" });
+    expect(capabilityWire.lists).toBe(1);
+    expect(capabilityWire.calls).toEqual([]);
+    expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
+  }, { timeoutMs: 120_000 });
+});

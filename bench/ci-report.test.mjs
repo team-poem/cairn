@@ -34,3 +34,20 @@ test("ciSizeDeltas: reports signed byte and percentage changes for every shipped
     browserGzipBytes: { base: 500, head: 550, delta: 50, percent: 10 },
   });
 });
+
+test("ciTierStatistics: keeps per-tier latency and failures separate and uses nearest-rank p95", () => {
+  const [base, head] = pair();
+  for (const row of head.records) row.elapsedMs *= row.tier === "navigation" ? 0.5 : 2;
+  head.records.find(row => row.tier === "form").passed = false;
+  const result = compareReports(base, head);
+  const navigation = result.tiers.find(row => row.tier === "navigation");
+  assert.deepEqual(navigation.base, { runs: 5, failures: 0, medianMs: 30, p95Ms: 50, llmCalls: 0, observedLlmCalls: 0 });
+  assert.deepEqual(navigation.head, { runs: 5, failures: 0, medianMs: 15, p95Ms: 25, llmCalls: 0, observedLlmCalls: 0 });
+  assert.equal(navigation.deltaMs, -15);
+  assert.equal(navigation.percent, -50);
+  assert.equal(navigation.status, "improved");
+  const form = result.tiers.find(row => row.tier === "form");
+  assert.equal(form.head.failures, 1);
+  assert.equal(form.head.medianMs, 60);
+  assert.equal(form.status, "invalid");
+});

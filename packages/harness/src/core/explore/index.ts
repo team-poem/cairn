@@ -200,6 +200,11 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       decision = page.bind(decision);
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
+      trace?.emit({
+        kind: "gate",
+        phase: "explore",
+        payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
+      });
       pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
       continue;
     }

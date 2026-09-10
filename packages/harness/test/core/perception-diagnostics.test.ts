@@ -102,3 +102,26 @@ it("recoveredPerceptionRetainsItsDiagnostic: a later valid capture can act witho
     expect(events.map(event => event.seq)).toEqual(events.map((_, index) => index));
   }
 });
+
+it("invalidReferenceHasItsOwnGate: valid JSON with an unknown or contradictory reference is visible without being mislabeled as a parse failure", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    for (const choice of ["unknown", "contradictory", "non-string"] as const) {
+      const driver = new DiagnosticDriver();
+      const { events, scope } = diagnosticTrace();
+      const llm = new DiagnosticLlm((prompt, turn) => {
+        if (turn > 1) return '{"action":"done"}';
+        return JSON.stringify({ action: "click", ref: choice === "unknown" ? "forged" : diagnosticRef(prompt),
+          ...(choice === "contradictory" ? { role: "link" } : {}), ...(choice === "non-string" ? { text: 42 } : {}) });
+      });
+      const result = await diagnosticLoop(mode, driver, llm, scope);
+      expect(result.truncated).not.toBe(true);
+      expect(driver.refs).toEqual([]);
+      const gates = diagnosticGates(events);
+      expect(gates).toHaveLength(1);
+      expect(gates[0]).toMatchObject({ phase: mode, caseRef: "diagnostic-case", payload: { gate: "reference-binding" } });
+      expect(gates[0]!.payload.reason).toMatch(/reference|binding/i);
+      expect(gates[0]!.stepRef).toBeUndefined();
+      expect(llm.prompts[1]).not.toContain("not a single valid JSON action object");
+    }
+  }
+});

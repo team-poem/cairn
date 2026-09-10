@@ -9,7 +9,7 @@ import { redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
 import { describeAmbiguity } from "./discover/decision.js";
-import { ACTION_RULES, PERCEPTION_RULES } from "./discover/prompt.js";
+import { ACTION_RULES, ACTION_VOCABULARY, PERCEPTION_RULES } from "./discover/prompt.js";
 import { PerceptionObservation } from "./observation.js";
 
 export interface StepHealOptions {
@@ -20,10 +20,10 @@ export interface StepHealOptions {
 const MAX_STEP_HEALS = 5;
 
 const STEP_HEAL_SYSTEM =
-  PERCEPTION_RULES + ACTION_RULES +
+  PERCEPTION_RULES + ACTION_VOCABULARY + ". " + ACTION_RULES +
   "You repair ONE step of a browser QA scenario that ran but didn't reach its expected outcome. " +
   "Given the step's goal and the current page elements, reply with the SINGLE next action that " +
-  'achieves the goal, as one JSON action object (same format as discovery: {"action":"click","text":"..."}). ' +
+  'achieves the goal, using the action and target formats above. ' +
   'If nothing on the page can achieve it, reply {"action":"done"}. JSON only, no prose.';
 
 export class LlmStepHealer implements StepHealer {

@@ -188,3 +188,34 @@ it("pageDataPrecedesFinalActionInstruction: both loop requests end with the inst
     expect(promptRef(llm.prompts[0]!)).not.toBe(promptRef(llm.prompts[1]!));
   }
 });
+
+it("stepHealTeachesAndExecutesRefOnlySchema: the healer receives shared target rules and dispatches the chosen duplicate from a ref-only example", async () => {
+  const driver = new PromptRefDriver([
+    { role: "button", name: "Save", ref: "first" },
+    { role: "button", name: "Save", ref: "second" },
+  ]);
+  const prompts: string[] = [];
+  const systems: string[] = [];
+  const llm: LlmClient = {
+    id: "phase2-heal-schema",
+    async complete(prompt, opts) {
+      prompts.push(prompt);
+      systems.push(opts?.system ?? "");
+      const examples = [...(opts?.system ?? "").matchAll(/\{[^{}]*"ref"[^{}]*\}/g)].map(match => parseDecision(match[0]));
+      const click = examples.find(decision => decision.action === "click" && decision.text === undefined && decision.role === undefined && decision.nth === undefined);
+      const row = prompt.split("\n").find(line => line.includes("ref=") && line.includes("nth=1"))!;
+      return click ? JSON.stringify({ ...click, ref: promptRef(row) }) : '{"action":"done"}';
+    },
+  };
+  const original = { kind: "click" as const, target: { text: "Old save" }, intent: "save the second record", expect: { text: "Saved" } };
+  const result = await new LlmStepHealer(llm).heal(original, 2, driver);
+  expect(prompts).toHaveLength(1);
+  expect(systems[0]).toContain(ACTION_VOCABULARY);
+  expect(systems[0]).toContain(ACTION_RULES);
+  expect(systems[0]).toContain(PERCEPTION_RULES);
+  expect(systems[0]).toMatch(/ref[\s\S]{0,160}(?:current|this) (?:observation|decision)/i);
+  expect(systems[0]).toMatch(/(?:without|omit|optional)[\s\S]{0,100}(?:text|role|nth)/i);
+  expect(driver.exact).toEqual(["second"]);
+  expect(result).toEqual({ index: 2, step: { kind: "click", target: { text: "Save", role: "button", selector: "#second" }, intent: original.intent, expect: original.expect } });
+  expect(JSON.stringify(result)).not.toContain('"ref"');
+});

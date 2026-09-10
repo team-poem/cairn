@@ -130,11 +130,18 @@ servers without the option use ordinary evaluation; a failed evaluation is never
 with a different wait mode. Negotiation transport failures and timeouts abort initialization
 and close the local transport; optional schema-discovery failures keep the legacy path.
 
-This skips post-evaluation DOM settling, while preserving MCP's navigation detection and
-actual input waiting. Guard setup and validation maintain private observation bookkeeping;
-they are not arbitrary UI-changing scripts. Scroll, native inputs, legacy probes and other
-evaluations keep ordinary waiting. The five evaluation boundaries around full/compact capture,
-enrichment and dispatch remain intact: negotiation caching never caches a node validation.
+When fast observation is supported, each perception capture first runs an ordinary evaluation
+to give initial rendering MCP's bounded DOM quiet window, then installs the fast guard. Waiting
+after installing the guard would retain initial candidate insertions as cohort mutations. This
+readiness evaluation precedes the existing five evaluation boundaries around full/compact
+capture, enrichment and dispatch; it never clears mutations retained after guard installation.
+Older/custom servers without the option keep their existing evaluation sequence.
+
+Read-only scripts can still observe an incomplete render. MCP's quiet window is a bounded
+heuristic, not proof that all asynchronous UI work has finished: later mutations may still
+require a fresh observation or cause a ref to be refused. Fast guard/facts/validation calls
+retain navigation detection. Scroll, native inputs, legacy probes and other evaluations keep
+ordinary waiting. Negotiation caching never caches a node validation.
 
 Opt-in Chrome capture requests the full MCP accessibility tree because compact snapshots can
 omit listbox options. It excludes virtual `InlineTextBox` runs, which can share non-actionable

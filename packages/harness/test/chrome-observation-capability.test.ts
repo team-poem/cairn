@@ -97,12 +97,12 @@ test("coldObservationNegotiatesBeforeItsFirstGuard: all five observation evaluat
     await captureAndClickSecond(driver);
     expect(capabilityWire.lists).toBe(1);
     const evaluations = observationEvaluations();
-    expect(evaluations).toHaveLength(5);
-    for (const call of evaluations) expect(call.arguments.waitForStableDom).toBe(false);
+    expect(evaluations).toHaveLength(6);
+    for (const call of evaluations.slice(1)) expect(call.arguments.waitForStableDom).toBe(false);
     expect(capabilityWire.calls.filter(call => call.name === "take_snapshot").map(call => call.arguments)).toEqual([{ verbose: true }, {}]);
-    // A first action may select its newly tracked tab; the thirteen observation/action calls retain their order.
+    // A first action may select its newly tracked tab; readiness precedes the thirteen observation/action calls.
     expect(capabilityWire.calls.filter(call => call.name !== "select_page").map(call => call.name)).toEqual([
-      "evaluate_script", "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script",
+      "evaluate_script", "evaluate_script", "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script",
       "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script", "click", "list_pages",
     ]);
     expect(capabilityWire.calls.find(call => call.name === "click")?.arguments).toEqual({ uid: "1_2" });
@@ -139,10 +139,10 @@ test("observationCapabilityIsConnectionScopedAndDoesNotChangeInputs: recapture r
     await driver.scroll("down");
     expect(capabilityWire.lists).toBe(1);
     const evaluations = observationEvaluations();
-    expect(evaluations).toHaveLength(11);
-    for (const call of evaluations.slice(0, 10)) expect(call.arguments.waitForStableDom).toBe(false);
-    expect(String(evaluations[10]!.arguments.function)).toContain("window.scrollBy");
-    expect(evaluations[10]!.arguments).not.toHaveProperty("waitForStableDom");
+    expect(evaluations).toHaveLength(13);
+    for (const call of [...evaluations.slice(1, 6), ...evaluations.slice(7, 12)]) expect(call.arguments.waitForStableDom).toBe(false);
+    expect(String(evaluations[12]!.arguments.function)).toContain("window.scrollBy");
+    expect(evaluations[12]!.arguments).not.toHaveProperty("waitForStableDom");
     expect(capabilityWire.calls.filter(call => call.name === "click").map(call => call.arguments)).toEqual([{ uid: "1_2" }, { uid: "1_2" }]);
   });
 });
@@ -194,7 +194,7 @@ test("failedFastGuardIsNotRetriedWithChangedArguments: an observation tool error
     const guards = observationEvaluations().filter(call => String(call.arguments.function).includes("new MutationObserver"));
     expect(guards).toHaveLength(1);
     expect(guards[0]!.arguments.waitForStableDom).toBe(false);
-    for (const call of observationEvaluations()) expect(call.arguments.waitForStableDom).toBe(false);
+    for (const call of observationEvaluations().slice(1)) expect(call.arguments.waitForStableDom).toBe(false);
     expect(capabilityWire.calls.filter(call => call.name === "click")).toEqual([]);
   });
 });

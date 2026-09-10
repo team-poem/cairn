@@ -297,11 +297,16 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
-  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation"): Promise<string> {
+  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture"): Promise<string> {
     const client = await this.ensureConnected();
-    // Only Cairn-owned observation housekeeping opts out. Inputs and arbitrary scripts keep
-    // MCP's normal waiting; navigation detection also remains enabled for observation calls.
-    const toolArgs = purpose === "observation" && name === "evaluate_script" && this.observationWaitOverride
+    // Let initial rendering settle before the guard starts retaining cohort mutations.
+    // Unsupported servers keep their existing observation protocol.
+    if (purpose === "capture" && name === "evaluate_script" && this.observationWaitOverride) {
+      await this.call("evaluate_script", { function: "() => ({})" });
+    }
+    // Guard/facts/validation keep navigation detection; readiness and actual inputs keep
+    // ordinary waiting. Read-only scripts can still observe a partially rendered page.
+    const toolArgs = (purpose === "observation" || purpose === "capture") && name === "evaluate_script" && this.observationWaitOverride
       ? { ...args, waitForStableDom: false } : args;
     let res: { content?: Array<{ type: string; text?: string }>; isError?: boolean };
     try {
@@ -492,7 +497,7 @@ export class ChromeDevToolsDriver implements Driver {
     if (options?.perception) {
       // Install before capture so changed sibling order cannot freeze an already-stale ordinal.
       try {
-        await this.call("evaluate_script", { function: this.startObservationGuard() }, "observation");
+        await this.call("evaluate_script", { function: this.startObservationGuard() }, "capture");
         guarded = true;
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;

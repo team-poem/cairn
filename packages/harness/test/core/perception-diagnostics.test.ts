@@ -125,3 +125,20 @@ it("invalidReferenceHasItsOwnGate: valid JSON with an unknown or contradictory r
     }
   }
 });
+
+it("bindingDiagnosticsDoNotEchoUntrustedData: a rejected reply cannot expose its ref, description, reason, or input value through the gate", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new DiagnosticDriver();
+    const { events, scope } = diagnosticTrace();
+    const markers = ["PRIVATE_REF_221", "PRIVATE_TEXT_221", "PRIVATE_REASON_221", "PRIVATE_VALUE_221"];
+    const llm = new DiagnosticLlm(() => JSON.stringify({ action: "type", ref: markers[0], text: markers[1], reason: markers[2], value: markers[3] }));
+    const result = await diagnosticLoop(mode, driver, llm, scope, undefined, 1);
+    expect(result.truncated).toBe(true);
+    const gates = diagnosticGates(events);
+    expect(gates).toHaveLength(1);
+    expect(gates[0]).toMatchObject({ payload: { gate: "reference-binding" } });
+    const serialized = JSON.stringify(gates);
+    for (const marker of [...markers, "private-driver-token"]) expect(serialized).not.toContain(marker);
+    expect(driver.refs).toEqual([]);
+  }
+});

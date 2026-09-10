@@ -2,11 +2,24 @@
 
 Every PR runs `PR benchmarks`, comparing its exact base and head SHAs on one
 Ubuntu runner. The Actions summary and `cairn-benchmarks-<run_attempt>` artifact contain the
-comparison and its raw data. A separate workflow updates one bot comment per PR,
+comparison and its raw data. A separate workflow updates one pingu-cairn comment per PR,
 including contributions from forks. It runs trusted default-branch code, reads
 JSON only, recomputes the comparison, and skips outdated base/head results.
 Artifacts are scoped to the exact rerun attempt, so an early failure cannot
 reuse an earlier attempt's successful measurements.
+
+The comment starts with a short briefing: package and browser-gzip changes,
+observed replay-median changes by tier, passed attempts and LLM call counts.
+Expand **Full measurements and provenance** for the complete tables. Invalid
+tiers carry no speed claim, and timing remains informational.
+
+The publisher reuses `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` for the
+pingu-cairn GitHub App already used by repository automation. Its installation
+token requests only pull-request write permission; artifact reads keep using the
+read-only workflow token. The App slug comes from the token action, and the
+publisher verifies the corresponding bot user and numeric ID before updating
+that bot's marked comment. Human comments and other bots' reports are untouched.
+
 **The comment workflow must be present on the repository's default branch to
 start receiving `workflow_run` events.** Until then, use the Actions summary.
 

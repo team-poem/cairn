@@ -94,3 +94,14 @@ test("emptyEligiblePoolHasNoHiddenRows: entirely covered captures render no imag
     }
   }
 });
+
+test("zeroCapCountsEligibleRowsOnly: a zero row budget reports only eligible candidates and never creates reference tokens", () => {
+  const rows = [...numberedRows(2), ...coveredRows(5), ...sharedRegionRows(10)];
+  const outputs = renderedViews(rows, "inspect", 0);
+  expect(outputs[2]).toBe("");
+  for (const output of outputs.slice(0, 2)) {
+    expect(output.match(omittedNotice)).toEqual(["(+3 more elements not shown — scroll or interact to reveal them)"]);
+    expect(output).not.toContain("ref=");
+    expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(0);
+  }
+});

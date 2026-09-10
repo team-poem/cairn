@@ -1,0 +1,61 @@
+name: PR benchmark comment
+
+# This workflow must land on the default branch before workflow_run is active.
+# The checkout is trusted. Never check out or execute the PR's artifact/code here.
+on:
+  workflow_run:
+    workflows: [PR benchmarks]
+    types: [completed]
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: benchmark-comment-${{ github.event.workflow_run.head_repository.full_name }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  comment:
+    # Forks control their measurement data; do not sign it with the repo App.
+    if: ${{ github.event.workflow_run.event == 'pull_request' && github.event.workflow_run.head_repository.full_name == github.repository }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+      - name: Find measurement artifact
+        id: artifact
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            if (run.path?.split('@')[0] !== '.github/workflows/benchmark.yml') throw new Error('Unexpected source workflow');
+            const { data } = await github.rest.actions.listWorkflowRunArtifacts({ ...context.repo, run_id: run.id });
+            const artifact = data.artifacts.find(item => item.name === `cairn-benchmarks-${run.run_attempt}` && !item.expired);
+            core.setOutput('exists', Boolean(artifact));
+      - uses: actions/download-artifact@v4
+        if: ${{ steps.artifact.outputs.exists == 'true' }}
+        with:
+          name: cairn-benchmarks-${{ github.event.workflow_run.run_attempt }}
+          path: benchmark-data
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Create pingu-cairn comment token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          permission-pull-requests: write
+      - name: Brief the PR as pingu-cairn
+        uses: actions/github-script@v7
+        env:
+          CAIRN_BOT_SLUG: ${{ steps.app-token.outputs.app-slug }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { postBenchmarkComment } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/benchmark-comment.mjs`);
+            await postBenchmarkComment({ github, context, core, appSlug: process.env.CAIRN_BOT_SLUG });

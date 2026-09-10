@@ -73,3 +73,16 @@ test("mixedFilteringCountsOnlyCapLoss: semantic listing and reference table repo
   }
   expect(JSON.stringify(rows)).toBe(before);
 });
+
+test("retainedEvidenceCountsTowardCap: over-quota intent evidence remains eligible while filtered labels do not inflate omissions", () => {
+  const rows: PageElement[] = [
+    ...numberedRows(45, "StaticText", "Region").map((e, i) => ({ ...e, name: i >= 40 ? `Receipt ${i}` : e.name, clickable: true, clickableRegion: `region-${i}` })),
+    ...numberedRows(10, "StaticText", "Sibling").map(e => ({ ...e, clickable: true, clickableRegion: "region-0" })),
+    ...coveredRows(10),
+  ];
+  for (const output of renderedViews(rows, "receipt", 40)) {
+    expect(output.match(omittedNotice)).toEqual(["(+5 more elements not shown — scroll or interact to reveal them)"]);
+    expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(40);
+    for (let i = 40; i < 45; i++) expect(output).toContain(`Receipt ${i}`);
+  }
+});

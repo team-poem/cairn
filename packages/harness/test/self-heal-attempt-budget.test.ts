@@ -76,3 +76,15 @@ test("healPolicyRejectionConsumesBudget: denied model repair consumes an attempt
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healEnrichmentFailureConsumesBudget: locator enrichment failure consumes the model attempt", async () => {
+  const f = repairFixture();
+  vi.spyOn(f.inner, "locate").mockRejectedValue(new Error("replacement disappeared"));
+  const driver = new SelfHealingDriver(f.inner, f.llm, { maxHeals: 1, onHeal: f.onHeal });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow("replacement disappeared");
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(1);
+  expect(f.dispatch).toHaveBeenCalledTimes(2);
+  expect(driver.heals).toEqual([]);
+  expect(f.onHeal).not.toHaveBeenCalled();
+});

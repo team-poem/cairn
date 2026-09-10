@@ -130,3 +130,21 @@ test("ciValidMeasurements: rejects missing negative non-finite and unmeasured va
     assert.throws(() => compareReports(base, head));
   }
 });
+
+test("ciOrderingAndMedian: comparison is independent of capture and sample order and handles even medians", () => {
+  const [base, head] = pair();
+  for (const input of [base, head]) {
+    input.workload.runs = 4;
+    input.records = input.records.filter(row => row.elapsedMs !== 50);
+  }
+  head.workload.captures.reverse();
+  head.records.reverse();
+  const result = compareReports(base, head);
+  assert.equal(result.tiers.length, 2);
+  for (const tier of result.tiers) {
+    assert.equal(tier.base.medianMs, 25);
+    assert.equal(tier.head.p95Ms, 40);
+    assert.equal(tier.status, "unchanged");
+    assert.equal(tier.deltaMs, 0);
+  }
+});

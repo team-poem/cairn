@@ -102,3 +102,17 @@ it("invalidPerceiveEndsBoundedly: both loops recover a fresh valid capture after
     }
   }
 });
+
+it("normalizedRefDescriptionsUseRawIdentity: model label normalization binds the same ref and preserves real contradictions", async () => {
+  const driver = new PromptRefDriver([{ role: "button", name: "  Save  ", ref: "node-save" }]);
+  const page = new PerceptionObservation(driver, driver.els, driver.els, "save");
+  const decision = page.bind({ action: "click", ref: promptRef(page.references), text: "save", role: "button" });
+  expect(decision).toMatchObject({ text: "  Save  ", role: "button" });
+  await applyDecision(driver, decision);
+  expect(driver.exact).toEqual(["node-save"]);
+  for (const contradiction of [{ text: "Delete" }, { role: "link" }, { nth: 1 }]) {
+    const next = new PerceptionObservation(driver, driver.els, driver.els, "save");
+    expect(() => next.bind({ action: "click", ref: promptRef(next.references), ...contradiction })).toThrow(/contradict/i);
+  }
+  expect(driver.exact).toEqual(["node-save"]);
+});

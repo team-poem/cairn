@@ -151,3 +151,14 @@ it("systemTeachesExecutableRefActions: every target action has a ref-only exampl
     expect(system).toMatch(/(?:without|omit|optional)[\s\S]{0,100}(?:text|role|nth)/i);
   }
 });
+
+it("systemExplainsMeasuredInteractionFacts: shared rules explain clickable and active popup without promising effects or inventing roles", () => {
+  expect(PERCEPTION_RULES).toMatch(/clickable/i);
+  expect(PERCEPTION_RULES).toMatch(/active popup/i);
+  expect(PERCEPTION_RULES).toMatch(/(?:does not|not|no)[\s\S]{0,60}(?:guarantee|prove)[\s\S]{0,70}(?:effect|success|result)/i);
+  expect(PERCEPTION_RULES).toMatch(/(?:role[\s\S]{0,100}(?:unchanged|retain|preserv))|(?:(?:retain|preserv)[\s\S]{0,100}role)/i);
+  const driver = new PromptRefDriver([{ role: "StaticText", name: "Open", ref: "node-open", clickable: true, inActivePopup: true }]);
+  const page = new PerceptionObservation(driver, driver.els, driver.els, "open");
+  expect(page.references).toContain("[StaticText] Open (clickable, active popup)");
+  for (const system of [SYSTEM, EXPLORE_SYSTEM]) expect(system).toContain(PERCEPTION_RULES);
+});

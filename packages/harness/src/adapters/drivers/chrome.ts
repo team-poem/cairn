@@ -484,7 +484,7 @@ export class ChromeDevToolsDriver implements Driver {
         const row = named[i]!;
         const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
         // A failed page measurement preserves candidates but cannot promise exact identity.
-        // All candidates share the frozen ordinal pool. An unguarded shadow/frame row can
+        // All candidate bindings share the captured ordinal pool. An unguarded shadow/frame row can
         // change the ordinal of a document row too, so coverage must hold for the whole capture.
         const addressable = guarded && page !== undefined && this.unguarded.size === 0;
         if (addressable) this.references.set(ref, row);

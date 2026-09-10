@@ -89,7 +89,22 @@ guarantee.
 Opt-in Chrome capture requests the full MCP accessibility tree because compact snapshots can
 omit listbox options. It excludes virtual `InlineTextBox` runs, which can share non-actionable
 UIDs; the owning text row remains. Ordinary no-options snapshots keep their existing shape.
+The perception tree does not populate the ordinary compact cache used by legacy lookup and
+custom select's before/after option comparison.
 Replay resolution retries with the full tree when a compact snapshot omits a frozen target.
+
+For a referenced decision, `locateRef` takes an additional compact snapshot and finds the exact
+captured UID there before computing persistent `index` and `nth`. It verifies unchanged name
+and role, checks that the persistent target resolves back to that UID, and revalidates the
+observation after capture and immediately before publishing the locator. This keeps new frozen
+targets consistent with ordinary replay without changing existing frozen-target semantics.
+
+A candidate visible only in the full tree can still be listed with an observation ref, but
+Chrome refuses to freeze that ref when the compact capture cannot retain its exact node. A
+missing or changed node, failed capture, or expired observation invalidates the references;
+Chrome does not reuse the full-tree ordinal or substitute another same-named element. Such a
+candidate requires a Driver with a durable locator strategy. Existing frozen option targets
+retain their compact-miss/full-tree replay fallback.
 
 The DOM probe measures expanded `aria-controls`/`aria-owns` relationships, open dialogs/popovers,
 hit-test coverage, and roleless cursor regions, including delegated click handlers. It treats

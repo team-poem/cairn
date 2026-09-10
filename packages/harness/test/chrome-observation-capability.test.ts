@@ -156,3 +156,13 @@ test("unsupportedToolDiscoveryFallsBackOnce: a non-transport introspection error
     for (const call of observationEvaluations()) expect(call.arguments).not.toHaveProperty("waitForStableDom");
   });
 });
+
+test("toolDiscoveryTransportFailureAbortsInitialization: a closed connection is not treated as an unsupported optional feature", async () => {
+  capabilityWire.listError = new Error("MCP error -32000: Connection closed");
+  await withCapabilityDriver(async driver => {
+    await expect(driver.snapshot({ perception: true })).rejects.toMatchObject({ kind: "transport" });
+    expect(capabilityWire.lists).toBe(1);
+    expect(capabilityWire.calls).toEqual([]);
+    expect(capabilityWire.closes).toBeGreaterThanOrEqual(1);
+  });
+});

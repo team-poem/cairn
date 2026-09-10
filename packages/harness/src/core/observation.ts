@@ -12,6 +12,7 @@ interface Binding { observation: PerceptionObservation; ref: string; token: stri
 const bindings = new WeakMap<Decision, Binding>();
 const targeted = new Set(["click", "doubleClick", "hover", "type", "select"]);
 function invalid(message: string): never { throw stepError("resolution", message); }
+function sameName(a: string, b: string): boolean { return a.trim().toLowerCase() === b.trim().toLowerCase(); }
 
 export class PerceptionObservation {
   readonly render: string;
@@ -32,7 +33,7 @@ export class PerceptionObservation {
     const retained = new Set<string>();
     for (const e of perceived) if (e.ref !== undefined) {
       const original = originals.get(e.ref);
-      if (!original || retained.has(e.ref) || original.name !== e.name || original.role !== e.role) {
+      if (!original || retained.has(e.ref) || !sameName(original.name, e.name) || original.role !== e.role) {
         invalid("perception changed or duplicated an element binding");
       }
       retained.add(e.ref);
@@ -48,7 +49,8 @@ export class PerceptionObservation {
     if (driver.locateRef) ranked.forEach((e, i) => {
       if (!e.ref) return;
       const token = `o${id}-${i}`;
-      this.table.set(token, { element: { ...e }, nth: ordinals.get(e) });
+      // Display normalization cannot replace the raw identity seen by policy and dispatch.
+      this.table.set(token, { element: { ...e, name: originals.get(e.ref)!.name }, nth: ordinals.get(e) });
       lines.push(`- ref="${token}" ${renderElements([e], ordinals).slice(2)}`);
     });
     this.references = lines.length
@@ -66,7 +68,7 @@ export class PerceptionObservation {
     const row = this.table.get(decision.ref);
     if (!row) invalid("unknown or expired observation reference");
     const { element, nth } = row;
-    if ((decision.text !== undefined && decision.text !== element.name) ||
+    if ((decision.text !== undefined && !sameName(decision.text, element.name)) ||
         (decision.role !== undefined && decision.role !== element.role) ||
         (decision.nth !== undefined && decision.nth !== nth)) invalid("reference contradicts element description");
     const canonical = { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };

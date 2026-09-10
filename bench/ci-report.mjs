@@ -17,6 +17,8 @@ function canonical(value) {
 function identity(report) {
   requireValid(object(report) && report.schemaVersion === 1, "schemaVersion");
   requireValid(typeof report.commit === "string" && /^[a-f0-9]{40}$/.test(report.commit), "full commit SHA");
+  if (report.dirty !== undefined) requireValid(typeof report.dirty === "boolean", "workspace dirty flag");
+  if (report.buildHash !== undefined) requireValid(typeof report.buildHash === "string" && /^[a-f0-9]{64}$/.test(report.buildHash), "build hash");
   requireValid(object(report.environment), "environment");
   for (const key of ["node", "chrome", "platform", "arch"]) requireValid(text(report.environment[key]), `environment.${key}`);
   requireValid(Object.values(report.environment).every(text), "environment values");
@@ -87,6 +89,10 @@ export function compareReports(base, head) {
     }),
     baseCommit: base.commit,
     headCommit: head.commit,
+    provenance: {
+      baseDirty: base.dirty ?? null, headDirty: head.dirty ?? null,
+      baseBuildHash: base.buildHash ?? null, headBuildHash: head.buildHash ?? null,
+    },
     sizes: Object.fromEntries(SIZE_METRICS.map(metric => [metric, {
       base: base.sizes[metric], head: head.sizes[metric],
       delta: head.sizes[metric] - base.sizes[metric],
@@ -99,7 +105,7 @@ export function compareReports(base, head) {
 const cell = value => String(value).replace(/[\r\n\t]/g, " ").replace(/[&<>"'`|\\[\]()!*_#@]/g, character => `&#${character.charCodeAt(0)};`);
 const number = value => {
   requireValid(Number.isFinite(value), "rendered number");
-  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 };
 const signed = value => `${value > 0 ? "+" : ""}${number(value)}`;
 const percentage = value => value === null ? "n/a" : `${signed(value)}%`;
@@ -136,6 +142,9 @@ export function renderComparison(comparison) {
     "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Failed attempts remain in the elapsed-time distribution. A zero baseline has no defined percentage change (n/a).", "",
     "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
     "## Provenance", "", environment, "",
+    `Uncommitted changes before / after: ${comparison.provenance.baseDirty ?? "unknown"} / ${comparison.provenance.headDirty ?? "unknown"}.`,
+    `Built JS SHA-256 before: ${comparison.provenance.baseBuildHash ?? "unknown"}`,
+    `Built JS SHA-256 after: ${comparison.provenance.headBuildHash ?? "unknown"}`, "",
     `Fixture: ${cell(comparison.workload.fixtureHash)}`, `Captures: ${captures}`, "",
   ].join("\n");
 }

@@ -47,3 +47,11 @@ test("chromeRetryDoesNotPoisonNextLookup: the same target dispatches to the same
   expect(clean.clicks).toEqual(["1_3"]);
   expect(retried.clicks).toEqual(clean.clicks);
 });
+
+test("chromeRetrySelectWatermark: a control found only by verbose retry selects its newly visible option", async () => {
+  const nativeOption = 'uid=1_9 option "Medium"';
+  const full = 'uid=1_1 combobox "Size"\n' + nativeOption + '\nuid=1_2 listbox "Sizes"\nuid=1_3 option "Medium"';
+  const { driver, clicks } = retryChrome({ compact: nativeOption, verbose: full, openCompact: full, openerUid: "1_1" });
+  await driver.select({ text: "Size", role: "combobox" }, "Medium");
+  expect(clicks).toEqual(["1_1", "1_3"]);
+});

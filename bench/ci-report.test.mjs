@@ -148,3 +148,22 @@ test("ciOrderingAndMedian: comparison is independent of capture and sample order
     assert.equal(tier.deltaMs, 0);
   }
 });
+
+test("ciMarkdownContext: shows commit provenance deltas and measurement limitations", () => {
+  const [base, head] = pair();
+  head.sizes.packageBytes = 900;
+  const markdown = renderComparison(compareReports(base, head));
+  assert.ok(markdown.includes(base.commit));
+  assert.ok(markdown.includes(head.commit));
+  assert.match(markdown, /before/i);
+  assert.match(markdown, /after/i);
+  assert.match(markdown, /delta|change/i);
+  assert.match(markdown, /-100/);
+  assert.match(markdown, /-10(?:\.0+)?%/);
+  assert.match(markdown, /navigation/);
+  assert.match(markdown, /form/);
+  assert.match(markdown, /informational/i);
+  assert.match(markdown, /startup/i);
+  assert.match(markdown, /cleanup/i);
+  assert.match(markdown, /does not establish.*(?:general|reliability)/i);
+});

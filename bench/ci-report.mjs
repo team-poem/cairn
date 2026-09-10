@@ -95,6 +95,47 @@ export function compareReports(base, head) {
   };
 }
 
+// Escape artifact text before embedding it in Markdown, including mention syntax.
+const cell = value => String(value).replace(/[\r\n\t]/g, " ").replace(/[&<>"'`|\\[\]()!*_#@]/g, character => `&#${character.charCodeAt(0)};`);
+const number = value => {
+  requireValid(Number.isFinite(value), "rendered number");
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, "").replace(/\.$/, "");
+};
+const signed = value => `${value > 0 ? "+" : ""}${number(value)}`;
+const percentage = value => value === null ? "n/a" : `${signed(value)}%`;
+
+/** Render only a comparison freshly derived by compareReports, never artifact Markdown. */
 export function renderComparison(comparison) {
-  return JSON.stringify(comparison);
+  const labels = { packageBytes: "Package tarball", unpackedBytes: "Package unpacked", browserBytes: "Browser bundle", browserGzipBytes: "Browser bundle gzip" };
+  const sizes = SIZE_METRICS.map(metric => {
+    const row = comparison.sizes[metric];
+    return `| ${labels[metric]} | ${number(row.base)} | ${number(row.head)} | ${signed(row.delta)} | ${percentage(row.percent)} |`;
+  });
+  const statuses = { improved: "lower median (informational)", regressed: "higher median (informational)", unchanged: "unchanged", invalid: "invalid: failed or LLM-tainted" };
+  const timings = comparison.tiers.map(row => {
+    requireValid(TIERS.includes(row.tier) && Object.hasOwn(statuses, row.status), "rendered tier status");
+    return `| ${row.tier} | ${number(row.base.runs)} / ${number(row.head.runs)} | ${number(row.base.medianMs)} | ${number(row.head.medianMs)} | ${signed(row.deltaMs)} | ${percentage(row.percent)} | ${number(row.base.p95Ms)} / ${number(row.head.p95Ms)} | ${statuses[row.status]} |`;
+  });
+  const outcomes = comparison.tiers.map(row => `| ${row.tier} | ${number(row.base.failures)} / ${number(row.head.failures)} | ${number(row.base.llmCalls)} / ${number(row.head.llmCalls)} | ${number(row.base.observedLlmCalls)} / ${number(row.head.observedLlmCalls)} |`);
+  const environment = Object.entries(comparison.environment).map(([key, value]) => `${cell(key)}: ${cell(value)}`).join("; ");
+  const captures = comparison.workload.captures.map(capture => `${cell(capture.tier)}: ${cell(capture.scenarioHash)}`).join("; ");
+  return [
+    "# PR performance comparison", "",
+    `Before: ${cell(comparison.baseCommit)}`, `After: ${cell(comparison.headCommit)}`, "",
+    comparison.tiers.some(row => row.status === "invalid")
+      ? "Invalid timing comparison: measured failures or LLM calls cannot establish a speed improvement."
+      : "All measured attempts passed with zero engine-reported and observed LLM calls.", "",
+    "## Package size", "",
+    "| Size | Before bytes | After bytes | Delta bytes | Change |",
+    "| --- | ---: | ---: | ---: | ---: |", ...sizes, "",
+    "## Replay elapsed time", "",
+    "| Tier | N before / after | Median before ms | Median after ms | Delta ms | Change | p95 before / after ms | Status |",
+    "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |", ...timings, "",
+    "| Tier | Failures before / after | Engine LLM calls before / after | Observed LLM calls before / after |",
+    "| --- | ---: | ---: | ---: |", ...outcomes, "",
+    "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Failed attempts remain in the elapsed-time distribution. A zero baseline has no defined percentage change (n/a).", "",
+    "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
+    "## Provenance", "", environment, "",
+    `Fixture: ${cell(comparison.workload.fixtureHash)}`, `Captures: ${captures}`, "",
+  ].join("\n");
 }

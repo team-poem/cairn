@@ -9,13 +9,17 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm run test --workspaces --if-present && node --test bench/portability.test.mjs bench/local-*.test.mjs",
+    "test": "npm run test:workspace && npm run test:bench",
     "check:boundaries": "npm run check:boundaries -w cairn-engine",
     "test:consumer": "node scripts/test-package-consumer.mjs",
     "bench:discover": "npm run build -w cairn-engine && node bench/benchmark.mjs discover",
     "bench:replay": "npm run build -w cairn-engine && node bench/benchmark.mjs replay",
     "bench:churn": "npm run build -w cairn-engine && node bench/churn.mjs",
-    "bench:local": "npm run build -w cairn-engine && node bench/local/cli.mjs"
+    "bench:local": "npm run build -w cairn-engine && node bench/local/cli.mjs",
+    "test:workspace": "npm run test --workspaces --if-present",
+    "test:bench": "node --test bench/portability.test.mjs bench/local-*.test.mjs bench/ci-*.test.mjs scripts/benchmark-comment.test.mjs",
+    "bench:ci": "node bench/ci-compare.mjs",
+    "test:compatibility": "node bench/ci-smoke.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.1"

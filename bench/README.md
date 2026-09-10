@@ -51,3 +51,10 @@ calls. The [local reliability runner](local/README.md) adds isolated fixture tie
 reproducible latency and explicit counts through `npm run bench:local -- ...`.
 Larger samples and actual LLM measurements remain follow-up work for
 [#169](https://github.com/team-poem/cairn/issues/169).
+
+## PR checks
+
+See [CI benchmarks and OS compatibility](ci.md) for per-PR base/head size and
+replay comparisons, Linux/macOS/Windows browser checks, and local commands.
+`npm run test:bench` runs the offline benchmark contracts; `npm run test:workspace`
+runs the workspace suite. `npm test` runs both once.

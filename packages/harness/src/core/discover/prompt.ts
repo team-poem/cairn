@@ -3,7 +3,7 @@
  * snapshot ranking (#15), and per-turn prompt assembly. Pure — no driver, no I/O.
  */
 import type { PageElement, Step } from "../types.js";
-import { rankElements } from "../perception.js";
+import { selectElements } from "../perception.js";
 export { rankElements } from "../perception.js";
 
 /** How the model must read the page listing — shared by every loop prompt (discover, explore)
@@ -72,11 +72,10 @@ export function renderRankedElements(
   limit = ELEMENT_LIMIT,
 ): string {
   const nthOf = dupeOrdinals(elements);
-  const ranked = rankElements(elements, intent, limit);
+  const { elements: ranked, omittedCount } = selectElements(elements, intent, limit);
   const body = renderElements(ranked, nthOf);
-  const hidden = elements.length - ranked.length;
-  return hidden > 0
-    ? `${body}\n(+${hidden} more elements not shown — scroll or interact to reveal them)`
+  return omittedCount > 0
+    ? `${body}\n(+${omittedCount} more elements not shown — scroll or interact to reveal them)`
     : body;
 }
 

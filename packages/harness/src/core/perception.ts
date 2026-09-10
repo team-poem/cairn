@@ -32,11 +32,11 @@ const EVIDENCE_SLOTS = 5;
  * Up to EVIDENCE_SLOTS of the cap are reserved for intent-matching non-interactive text (#115);
  * with no such matches (or when they fit anyway) the ranking is unchanged.
  */
-export function rankElements(
+export function selectElements(
   elements: PageElement[],
   intent: string,
   limit: number,
-): PageElement[] {
+): { elements: PageElement[]; omittedCount: number } {
   // Unicode-aware intent tokens also identify evidence BEFORE de-nesting clickable labels.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
   const relevant = (e: PageElement) => words.some(w => e.name.toLowerCase().includes(w));
@@ -69,16 +69,24 @@ export function rankElements(
 
   const cut = scored.slice(0, limit);
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
-  if (!missed.length) return cut.map((s) => s.e);
+  // Policy-filtered rows are not hidden by the prompt cap. Evidence swaps preserve cut length.
+  const omittedCount = candidates.length - cut.length;
+  if (!missed.length) return { elements: cut.map((s) => s.e), omittedCount };
 
   // Evict the lowest-ranked non-evidence rows to make room, then restore rank order.
   const evicted = new Set<(typeof cut)[number]>();
   for (let i = cut.length - 1; i >= 0 && evicted.size < missed.length; i--) {
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
-  return [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
+  const selected = [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
     .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
     .map((s) => s.e);
+  return { elements: selected, omittedCount };
+}
+
+/** Preserve the array-only ranking API; internal renderers also need the cap omission count. */
+export function rankElements(elements: PageElement[], intent: string, limit: number): PageElement[] {
+  return selectElements(elements, intent, limit).elements;
 }
 
 const MAX_PROMOTED_CLICKABLES = 40;

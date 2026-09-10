@@ -3,7 +3,7 @@ import type { Driver } from "./ports.js";
 import type { PageElement, Target } from "./types.js";
 import type { Decision } from "./discover/decision.js";
 import { dupeOrdinals, renderElements, ELEMENT_LIMIT } from "./discover/prompt.js";
-import { rankElements } from "./perception.js";
+import { selectElements } from "./perception.js";
 import { stepError } from "./errors.js";
 
 let generation = 0;
@@ -43,10 +43,9 @@ export class PerceptionObservation {
       const nth = rawOrdinals.get(original);
       if (nth !== undefined) ordinals.set(e, nth);
     }
-    const ranked = rankElements(perceived, intent, limit);
+    const { elements: ranked, omittedCount } = selectElements(perceived, intent, limit);
     const body = renderElements(ranked, ordinals);
-    const hidden = perceived.length - ranked.length;
-    const omitted = hidden > 0 ? `\n(+${hidden} more elements not shown — scroll or interact to reveal them)` : "";
+    const omitted = omittedCount > 0 ? `\n(+${omittedCount} more elements not shown — scroll or interact to reveal them)` : "";
     this.render = body + omitted;
     const lines: string[] = [];
     if (driver.locateRef) ranked.forEach((e, i) => {

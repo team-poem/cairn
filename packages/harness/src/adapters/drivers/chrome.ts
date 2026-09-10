@@ -23,11 +23,12 @@ import type {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MCP_COMMAND = "npx";
-// Pinned to the tested 1.3.x line: the parsers below depend on chrome-devtools-mcp's text
-// format, so an unbounded `@latest` could break them silently. Override via ChromeDriverOptions.
+// Pin the tested release: the parsers below depend on chrome-devtools-mcp's text format.
+// Keep its selected-page protocol instead of 1.8's default explicit page-ID routing.
+// Override via ChromeDriverOptions.
 // `--isolated` gives the harness its own ephemeral browser, so a standalone `cairn run`
 // never collides with another chrome-devtools-mcp using the default profile.
-const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
+const MCP_ARGS = ["-y", "chrome-devtools-mcp@1.8.0", "--isolated", "--no-page-id-routing"];
 
 // Target resolution retries — a late-rendering element (SPA hydration, a just-opened panel) may not
 // be in the snapshot on the first look. Retry briefly before failing, so replay doesn't miss it and

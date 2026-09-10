@@ -28,6 +28,7 @@ export interface Heal {
 }
 
 export interface SelfHealOptions {
+  /** Maximum repair model requests, including unsuccessful attempts. Defaults to 5. */
   maxHeals?: number;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
@@ -64,6 +65,7 @@ export function parseHealChoice(text: string): string | undefined {
 
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
+  private healAttempts = 0;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
 
@@ -149,16 +151,24 @@ export class SelfHealingDriver implements Driver {
     return this.inner.close();
   }
 
-  private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
-    if (this.heals.length >= this.maxHeals) {
+  private assertHealBudget(target: Target, cause: unknown): void {
+    if (this.healAttempts >= this.maxHeals) {
       throw stepError(
         errorKindOf(cause) ?? "resolution",
         `self-heal budget (${this.maxHeals}) exhausted for ${JSON.stringify(target)}`,
       );
     }
+  }
+
+  private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
+    this.assertHealBudget(target, cause);
     const raw = await this.inner.snapshot({ perception: true });
     const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
     const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "");
+    // Observation may yield to another repair. Reserve a request only after it succeeds,
+    // and keep this check and increment synchronous so concurrent calls share the limit.
+    this.assertHealBudget(target, cause);
+    this.healAttempts++;
     const reply = await this.llm.complete(healPrompt(target, page), {
       system: HEAL_SYSTEM,
     });

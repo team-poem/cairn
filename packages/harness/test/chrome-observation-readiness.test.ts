@@ -81,3 +81,19 @@ test("delayedObservationKeepsActionableDuplicate: initial rendering completes be
     expect(readinessWire.insertedAfterGuard).toBe(false);
   } finally { await driver.close(); }
 });
+
+test("readinessSettlesBeforeObservationGuard: a separate ordinary evaluation completes rendering before the fast observation guard is installed", async () => {
+  const driver = new ChromeDevToolsDriver({ promoteClickables: false });
+  try {
+    await driver.snapshot({ perception: true });
+    expect(readinessWire.events).toEqual(["render:save-buttons", "guard:ready", "capture:ready"]);
+    const evaluations = readinessWire.calls.filter(call => call.name === "evaluate_script");
+    expect(evaluations).toHaveLength(3);
+    expect(evaluations[0]!.arguments).not.toHaveProperty("waitForStableDom");
+    expect(String(evaluations[0]!.arguments.function)).not.toContain("new MutationObserver");
+    expect(String(evaluations[1]!.arguments.function)).toContain("new MutationObserver");
+    expect(evaluations[1]!.arguments.waitForStableDom).toBe(false);
+    expect(evaluations[2]!.arguments.waitForStableDom).toBe(false);
+    expect(readinessWire.calls.filter(call => call.name === "take_snapshot").map(call => call.arguments)).toEqual([{ verbose: true }]);
+  } finally { await driver.close(); }
+});

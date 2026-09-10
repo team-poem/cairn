@@ -80,3 +80,18 @@ test("mixedCapAndFilteringStayDistinct: cap loss and policy exclusions have sepa
     }
   }
 });
+
+test("retainedIntentEvidenceIsNotFiltered: evidence retained beyond the region quota belongs to cap omissions rather than filtering", () => {
+  const rows: PageElement[] = [
+    ...noticeRows(45, "Region", "StaticText").map((e, i) => ({ ...e, name: i >= 40 ? `Receipt ${i}` : e.name, clickable: true, clickableRegion: `region-${i}` })),
+    ...noticeRows(10, "Sibling", "StaticText").map(e => ({ ...e, clickable: true, clickableRegion: "region-0" })),
+    ...coveredNoticeRows(10),
+  ];
+  for (const output of filterViews(rows, "receipt", 40)) {
+    expect(output).toContain(filterNotice(20));
+    expect(output.match(/\(\+\d+ more elements not shown[^)]*\)/g)).toEqual([
+      "(+5 more elements not shown — scroll or interact to reveal them)",
+    ]);
+    for (let i = 40; i < 45; i++) expect(output).toContain(`Receipt ${i}`);
+  }
+});

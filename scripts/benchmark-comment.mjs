@@ -49,7 +49,7 @@ export async function postBenchmarkComment({ github, context, core, appSlug }) {
     if (pair.warmupFailed !== false) throw new Error("Warmup did not complete successfully");
     const comparison = compareReports(pair.base, pair.head);
     if (run.conclusion !== "success" && comparison.tiers.every(row => row.status !== "invalid")) throw new Error("Workflow failed despite successful samples; timing comparison withheld");
-    text = `${renderBriefing(comparison)}\n<details>\n<summary>Full measurements and provenance</summary>\n\n${renderComparison(comparison)}\n</details>\n`;
+    text = `${renderBriefing(comparison)}\n<details>\n<summary>Detailed measurements</summary>\n\n${renderComparison(comparison, { includeContext: false })}\n</details>\n`;
     if (run.conclusion !== "success") text += "\n**The measurement check failed. Inspect the raw attempts before drawing conclusions.**\n";
   } catch (error) {
     core.warning(`Comparison unavailable: ${error.message}`);

@@ -10,7 +10,9 @@ reuse an earlier attempt's successful measurements.
 
 The comment starts with a short briefing: package and browser-gzip changes,
 observed replay-median changes by tier, passed attempts and LLM call counts.
-Expand **Full measurements and provenance** for the complete tables. Invalid
+Expand **Detailed measurements** for the three comparison tables. Extended
+interpretation notes, environment details and hashes remain in the downloadable
+report and raw artifacts, rather than the PR comment. Invalid
 tiers carry no speed claim, and timing remains informational.
 
 The publisher reuses `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` for the

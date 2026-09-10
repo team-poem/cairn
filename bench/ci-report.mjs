@@ -111,7 +111,7 @@ const signed = value => `${value > 0 ? "+" : ""}${number(value)}`;
 const percentage = value => value === null ? "n/a" : `${signed(value)}%`;
 
 /** Render only a comparison freshly derived by compareReports, never artifact Markdown. */
-export function renderComparison(comparison) {
+export function renderComparison(comparison, { includeContext = true } = {}) {
   const labels = { packageBytes: "Package tarball", unpackedBytes: "Package unpacked", browserBytes: "Browser bundle", browserGzipBytes: "Browser bundle gzip" };
   const sizes = SIZE_METRICS.map(metric => {
     const row = comparison.sizes[metric];
@@ -139,12 +139,14 @@ export function renderComparison(comparison) {
     "| --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |", ...timings, "",
     "| Tier | Failures before / after | Engine LLM calls before / after | Observed LLM calls before / after |",
     "| --- | ---: | ---: | ---: |", ...outcomes, "",
-    "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Failed attempts remain in the elapsed-time distribution. A zero baseline has no defined percentage change (n/a).", "",
-    "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
-    "## Provenance", "", environment, "",
-    `Uncommitted changes before / after: ${comparison.provenance.baseDirty ?? "unknown"} / ${comparison.provenance.headDirty ?? "unknown"}.`,
-    `Built JS SHA-256 before: ${comparison.provenance.baseBuildHash ?? "unknown"}`,
-    `Built JS SHA-256 after: ${comparison.provenance.headBuildHash ?? "unknown"}`, "",
-    `Fixture: ${cell(comparison.workload.fixtureHash)}`, `Captures: ${captures}`, "",
+    ...(includeContext ? [
+      "Latency is informational and includes server/browser startup and awaited cleanup. Shared-runner noise and small samples do not establish statistical significance; p95 uses the nearest rank and is descriptive. Failed attempts remain in the elapsed-time distribution. A zero baseline has no defined percentage change (n/a).", "",
+      "This scripted capture and replay measurement does not establish general application reliability or paid LLM discovery quality.", "",
+      "## Provenance", "", environment, "",
+      `Uncommitted changes before / after: ${comparison.provenance.baseDirty ?? "unknown"} / ${comparison.provenance.headDirty ?? "unknown"}.`,
+      `Built JS SHA-256 before: ${comparison.provenance.baseBuildHash ?? "unknown"}`,
+      `Built JS SHA-256 after: ${comparison.provenance.headBuildHash ?? "unknown"}`, "",
+      `Fixture: ${cell(comparison.workload.fixtureHash)}`, `Captures: ${captures}`, "",
+    ] : []),
   ].join("\n");
 }

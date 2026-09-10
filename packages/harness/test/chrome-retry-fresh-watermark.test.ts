@@ -51,3 +51,9 @@ test("chromeRetryFreshSelectWatermark: an unrelated native option arriving durin
   await driver.select({ text: "Size", role: "combobox" }, "Medium");
   expect(clicks).toEqual(["1_1", "1_3"]);
 });
+
+test("chromeRetryFreshWatermarkRetainsDispatch: refreshing the before-open watermark preserves a control omitted from compact MCP mappings", async () => {
+  const { driver, clicks } = changingRetrySelect(true);
+  await driver.select({ text: "Size", role: "combobox" }, "Medium");
+  expect(clicks).toEqual(["1_1", "1_3"]);
+});

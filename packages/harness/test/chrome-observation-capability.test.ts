@@ -91,3 +91,20 @@ test("observationServerPinAndOverride: the default uses MCP 1.8.0 with legacy pa
   await withCapabilityDriver(driver => driver.snapshot().then(() => {}), { command: "custom-mcp", args: ["--custom-protocol"] });
   expect(capabilityWire.transports[1]).toEqual({ command: "custom-mcp", args: ["--custom-protocol"] });
 });
+
+test("coldObservationNegotiatesBeforeItsFirstGuard: all five observation evaluations opt out of stable-DOM waiting while keeping the selected UID and capture boundaries", async () => {
+  await withCapabilityDriver(async driver => {
+    await captureAndClickSecond(driver);
+    expect(capabilityWire.lists).toBe(1);
+    const evaluations = observationEvaluations();
+    expect(evaluations).toHaveLength(5);
+    for (const call of evaluations) expect(call.arguments.waitForStableDom).toBe(false);
+    expect(capabilityWire.calls.filter(call => call.name === "take_snapshot").map(call => call.arguments)).toEqual([{ verbose: true }, {}]);
+    // A first action may select its newly tracked tab; the thirteen observation/action calls retain their order.
+    expect(capabilityWire.calls.filter(call => call.name !== "select_page").map(call => call.name)).toEqual([
+      "evaluate_script", "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script",
+      "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script", "click", "list_pages",
+    ]);
+    expect(capabilityWire.calls.find(call => call.name === "click")?.arguments).toEqual({ uid: "1_2" });
+  });
+});

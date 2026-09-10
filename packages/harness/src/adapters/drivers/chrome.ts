@@ -177,6 +177,7 @@ export function mcpToolError(name: string, text: string): Error {
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
   private transport?: StdioClientTransport;
+  private observationWaitOverride = false;
   private initialUrl?: string;
   private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
@@ -264,6 +265,8 @@ export class ChromeDevToolsDriver implements Driver {
         this.opts.connectTimeoutMs ?? 60_000,
         "chrome-devtools-mcp connect",
       );
+      this.observationWaitOverride = await this.supportsObservationWaitOverride(client);
+      if (this.closed) throw stepError("transport", "driver closed during MCP initialization");
     } catch (err) {
       await transport.close().catch(() => {}); // don't orphan the spawned subprocess
       throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
@@ -273,12 +276,26 @@ export class ChromeDevToolsDriver implements Driver {
     return client;
   }
 
-  private async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
+  /** Negotiate once, before the first tool call; custom/older servers keep ordinary waits. */
+  private async supportsObservationWaitOverride(client: Client): Promise<boolean> {
+    if (typeof client.listTools !== "function") return false;
+    const listing = await this.withTimeout(client.listTools(), this.opts.timeoutMs ?? 30_000, "MCP tools/list");
+    const tool = Array.isArray(listing?.tools)
+      ? listing.tools.find(candidate => candidate?.name === "evaluate_script") : undefined;
+    const property = tool?.inputSchema?.properties?.waitForStableDom;
+    return property !== null && typeof property === "object" && "type" in property && property.type === "boolean";
+  }
+
+  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation"): Promise<string> {
     const client = await this.ensureConnected();
+    // Only Cairn-owned observation housekeeping opts out. Inputs and arbitrary scripts keep
+    // MCP's normal waiting; navigation detection also remains enabled for observation calls.
+    const toolArgs = purpose === "observation" && name === "evaluate_script" && this.observationWaitOverride
+      ? { ...args, waitForStableDom: false } : args;
     let res: { content?: Array<{ type: string; text?: string }>; isError?: boolean };
     try {
       res = (await this.withTimeout(
-        client.callTool({ name, arguments: args }),
+        client.callTool({ name, arguments: toolArgs }),
         this.opts.timeoutMs ?? 30_000,
         `MCP ${name}`,
       )) as typeof res;
@@ -464,7 +481,7 @@ export class ChromeDevToolsDriver implements Driver {
     if (options?.perception) {
       // Install before capture so changed sibling order cannot freeze an already-stale ordinal.
       try {
-        await this.call("evaluate_script", { function: this.startObservationGuard() });
+        await this.call("evaluate_script", { function: this.startObservationGuard() }, "observation");
         guarded = true;
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;
@@ -524,7 +541,7 @@ export class ChromeDevToolsDriver implements Driver {
         reply = await this.call("evaluate_script", {
           function: perceptionProbeScript(uids, this.opts.promoteClickables !== false, this.regionKey, this.guardKey),
           args: uids,
-        });
+        }, "observation");
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;
         // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
@@ -788,7 +805,7 @@ export class ChromeDevToolsDriver implements Driver {
           }`,
           args: [row.uid, ...(currentCohort?.map(candidate => candidate.uid) ??
             (this.capturedReferenceCohorts.has(ref) ? [] : cohort.map(candidate => candidate.uid)))],
-        });
+        }, "observation");
         const result = extractFirstJsonObject(reply) as { connected?: unknown; revision?: unknown } | undefined;
         if (result?.connected !== true) {
           throw new Error("observed node or its positional cohort changed");

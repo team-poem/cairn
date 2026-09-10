@@ -41,3 +41,14 @@ test("stepHealRejectedRepliesConsumeAttempts: thrown, malformed, done and unusab
     expect(driver.clicked).toEqual([]);
   }
 });
+
+test("stepHealPolicyRejectionConsumesAttempt: a rejected corrective action cannot request another model call beyond its cap", async () => {
+  let calls = 0;
+  const driver = budgetDriver();
+  const healer = new LlmStepHealer({ id: "counting", async complete() { calls++; return '{"action":"click","text":"Checkout"}'; } }, 1, {}, { policy: { vet() { return { ok: false, reason: "blocked by consumer" }; } } });
+  await expect(healer.heal(budgetStep, 0, driver)).resolves.toBeNull();
+  await expect(healer.heal(budgetStep, 1, driver)).resolves.toBeNull();
+  expect(calls).toBe(1);
+  expect(healer.heals).toEqual([]);
+  expect(driver.clicked).toEqual([]);
+});

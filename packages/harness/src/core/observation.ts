@@ -12,7 +12,9 @@ interface Binding { observation: PerceptionObservation; ref: string; token: stri
 const bindings = new WeakMap<Decision, Binding>();
 const targeted = new Set(["click", "doubleClick", "hover", "type", "select"]);
 function invalid(message: string): never { throw stepError("resolution", message); }
-function sameName(a: string, b: string): boolean { return a.trim().toLowerCase() === b.trim().toLowerCase(); }
+function sameName(a: unknown, b: unknown): boolean {
+  return typeof a === "string" && typeof b === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
+}
 
 export class PerceptionObservation {
   readonly render: string;

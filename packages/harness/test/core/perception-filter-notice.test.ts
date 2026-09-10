@@ -45,3 +45,22 @@ test("filteredCandidatesReachDecisionPrompts: discover and explore disclose poli
     expect(prompts[0]!.match(/ref="[^"]+"/g)).toHaveLength(3);
   }
 });
+
+test("filterReasonsHaveSeparateNotices: occlusion, region deduplication and quota exclusions are visible in every rendered view", () => {
+  const shared = noticeRows(4, "Label", "StaticText").map(e => ({ ...e, clickable: true, clickableRegion: "shared" }));
+  const quota = noticeRows(45, "Region", "StaticText").map((e, i) => ({ ...e, clickable: true, clickableRegion: `region-${i}` }));
+  for (const { rows, filtered, shown } of [
+    { rows: [...noticeRows(3), ...coveredNoticeRows(7)], filtered: 7, shown: 3 },
+    { rows: shared, filtered: 3, shown: 1 },
+    { rows: quota, filtered: 5, shown: 40 },
+  ]) {
+    const before = JSON.stringify(rows);
+    for (const output of filterViews(rows, "inspect", 60)) {
+      expect(output.split(filterNotice(filtered))).toHaveLength(2);
+      expect(output).not.toContain("more elements not shown");
+      expect(output).not.toContain("scroll or interact");
+      expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(shown);
+    }
+    expect(JSON.stringify(rows)).toBe(before);
+  }
+});

@@ -23,7 +23,7 @@ export function compareReports(base, head) {
       const deltaMs = after.medianMs - before.medianMs;
       return { tier, base: before, head: after, deltaMs,
         percent: percentChange(before.medianMs, after.medianMs),
-        status: before.failures || after.failures ? "invalid" : deltaMs < 0 ? "improved" : deltaMs > 0 ? "regressed" : "unchanged",
+        status: [before, after].some(side => side.failures || side.llmCalls || side.observedLlmCalls) ? "invalid" : deltaMs < 0 ? "improved" : deltaMs > 0 ? "regressed" : "unchanged",
       };
     }),
     baseCommit: base.commit,

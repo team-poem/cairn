@@ -51,3 +51,17 @@ test("ciTierStatistics: keeps per-tier latency and failures separate and uses ne
   assert.equal(form.head.medianMs, 60);
   assert.equal(form.status, "invalid");
 });
+
+test("ciUnsafeSpeedup: failed or model-calling attempts never count as speed improvements", () => {
+  for (const side of ["base", "head"]) {
+    for (const fault of [{ passed: false }, { llmCalls: 1 }, { observedLlmCalls: 1 }]) {
+      const [base, head] = pair();
+      for (const row of head.records) row.elapsedMs /= 10;
+      Object.assign((side === "base" ? base : head).records[0], fault);
+      const navigation = compareReports(base, head).tiers.find(row => row.tier === "navigation");
+      assert.equal(navigation.status, "invalid", `${side} ${JSON.stringify(fault)}`);
+      assert.equal(navigation[side].llmCalls, fault.llmCalls ?? 0);
+      assert.equal(navigation[side].observedLlmCalls, fault.observedLlmCalls ?? 0);
+    }
+  }
+});

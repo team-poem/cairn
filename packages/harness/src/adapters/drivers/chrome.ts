@@ -104,7 +104,8 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       if (${JSON.stringify(guard ?? null)}) {
         // RootWebArea resolves to Document in MCP. It is covered by this observer too.
         facts.referenceReady = !!el && el.isConnected && el.getRootNode() === document &&
-          !!globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.observer;
+          !!globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.observer &&
+          !globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.overflow;
       }
       if (!el || el.nodeType !== 1 || !el.isConnected) return [ids[i], facts];
       if ([...active].some(root => root === el || root.contains(el))) facts.inActivePopup = true;
@@ -186,6 +187,8 @@ export class ChromeDevToolsDriver implements Driver {
   private observedPage?: string;
   private readonly references = new Map<string, SnapshotRow>();
   private readonly unguarded = new Set<string>();
+  private readonly validatedReferenceRevisions = new Map<string, number>();
+  private readonly capturedReferenceCohorts = new Set<string>();
   private readonly guardKey = `cairn-observation-guard:${this.driverId}`;
   private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
 
@@ -556,9 +559,27 @@ export class ChromeDevToolsDriver implements Driver {
   private startObservationGuard(): string {
     return `() => {
       const key = Symbol.for(${JSON.stringify(this.guardKey)});
-      globalThis[key]?.observer.disconnect();
-      const state = { changed: false, observer: new MutationObserver(() => { state.changed = true; }) };
-      state.observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+      globalThis[key]?.observer?.disconnect();
+      // Keep records rather than one page-wide invalidation bit. Validation protects the
+      // selected role cohort, then uses a fresh AX capture for indirect dependencies.
+      const state = { records: [], cohorts: new Map(), overflow: false, observer: undefined, retain: undefined };
+      state.retain = records => {
+        if (state.overflow) return;
+        // An expired observation may remain in the page until the next capture. Bound retained
+        // DOM references even when that page keeps mutating and the Driver performs no work.
+        if (state.records.length + records.length > 4096) {
+          state.overflow = true;
+          state.records.length = 0;
+          state.cohorts.clear();
+          state.observer.disconnect();
+          return;
+        }
+        state.records.push(...records);
+      };
+      state.observer = new MutationObserver(records => state.retain(records));
+      state.observer.observe(document, {
+        subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
+      });
       globalThis[key] = state;
       globalThis[Symbol.for(${JSON.stringify(this.regionKey)})] = new WeakMap();
       return {};
@@ -704,18 +725,106 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("resolution", "observation ref expired: active page continuity is unavailable");
     }
     try {
-      // MCP resolves the captured UID to its original backend node. A detached/replaced node
-      // cannot be re-found by name here, even when the replacement has identical page text.
-      const reply = await this.call("evaluate_script", {
-        function: `(el) => {
-          const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
-          const unchanged = !!state && !state.changed && state.observer.takeRecords().length === 0;
-          return { connected: unchanged && !!el && el.isConnected && el.getRootNode() === document };
-        }`,
-        args: [row.uid],
-      });
-      if ((extractFirstJsonObject(reply) as { connected?: unknown } | undefined)?.connected !== true) {
-        throw new Error("observed node is detached or its continuity is unavailable");
+      // Include unnamed peers: role/index counts them as well. These are the captured
+      // backend nodes, never a search by text or a reconstruction of implicit ARIA roles.
+      const cohort = this.observedRows.filter(candidate => candidate.role === row.role);
+      const validateNodes = async (currentCohort?: SnapshotRow[]): Promise<{ connected?: unknown; revision?: unknown }> => {
+        const reply = await this.call("evaluate_script", {
+          function: `(selected, ...peers) => {
+            const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
+            if (!state?.observer || state.overflow) return { connected: false };
+            state.retain(state.observer.takeRecords());
+            if (state.overflow) return { connected: false };
+            const key = ${JSON.stringify(ref)};
+            let captured = state.cohorts.get(key);
+            if (!captured) {
+              if (${currentCohort !== undefined}) return { connected: false };
+              const ids = ${JSON.stringify(cohort.map(candidate => candidate.uid))};
+              if (peers.length !== ids.length) return { connected: false };
+              captured = new Map(ids.map((uid, index) => [uid, peers[index]]));
+              state.cohorts.set(key, captured);
+            }
+            // MCP's compact snapshot can discard verbose-only UID mappings. Retain original
+            // cohort DOM objects in this observation, but resolve the selected UID afresh
+            // and require that it is still the very same captured backend node.
+            const nodes = [...captured.values()];
+            // A verbose-only peer can receive a new UID after compact capture. Its fresh UID
+            // must resolve to the saved original DOM object at the same cohort position.
+            if (${currentCohort !== undefined} &&
+                (peers.length !== nodes.length || peers.some((node, index) => node !== nodes[index]))) {
+              return { connected: false };
+            }
+            const connected = selected === captured.get(${JSON.stringify(row.uid)}) &&
+              nodes.length > 0 && nodes.every(node =>
+                !!node && node.isConnected && node.getRootNode() === document);
+            if (!connected) return { connected: false };
+            const elements = nodes.map(node => node.nodeType === 3 ? node.parentElement : node);
+            const contains = (parent, child) => parent === child || parent.contains?.(child);
+            const inside = node => elements.some(element => contains(element, node));
+            const ancestor = node => elements.some(element => contains(node, element));
+            const tags = new Set(elements.filter(node => node.nodeType === 1).map(node => node.tagName));
+            const role = ${JSON.stringify(row.role)};
+            const couldJoinCohort = node => {
+              if (node.nodeType !== 1) return false;
+              // Matching a known cohort tag is conservative, not a tag-to-role calculator.
+              // Other ways of acquiring this role are checked in the fresh accessibility tree.
+              return [node, ...node.querySelectorAll('*')].some(element =>
+                tags.has(element.tagName) || (element.getAttribute('role') || '').split(/\\s+/).includes(role));
+            };
+            const affectsCohort = record => {
+              if (record.type === 'childList') {
+                if (inside(record.target)) return true;
+                return [...record.removedNodes].some(node => ancestor(node) || couldJoinCohort(node)) ||
+                  [...record.addedNodes].some(node => ancestor(node) || couldJoinCohort(node));
+              }
+              if (inside(record.target) || (record.type === 'attributes' && ancestor(record.target))) return true;
+              return record.type === 'attributes' && record.attributeName === 'role' &&
+                [record.oldValue || '', record.target.getAttribute('role') || ''].some(value => value.split(/\\s+/).includes(role));
+            };
+            return { connected: !state.records.some(affectsCohort), revision: state.records.length };
+          }`,
+          args: [row.uid, ...(currentCohort?.map(candidate => candidate.uid) ??
+            (this.capturedReferenceCohorts.has(ref) ? [] : cohort.map(candidate => candidate.uid)))],
+        });
+        const result = extractFirstJsonObject(reply) as { connected?: unknown; revision?: unknown } | undefined;
+        if (result?.connected !== true) {
+          throw new Error("observed node or its positional cohort changed");
+        }
+        if (this.references.get(ref) !== row) throw new Error("observation superseded while retaining its cohort");
+        this.capturedReferenceCohorts.add(ref);
+        return result;
+      };
+      let validation = await validateNodes();
+      if (typeof validation.revision === "number" &&
+          validation.revision !== (this.validatedReferenceRevisions.get(ref) ?? 0)) {
+        // A sibling's CSS class or an external aria-labelledby target can change a node's
+        // accessibility without touching it. Ask the browser for semantics instead of
+        // implementing accessible-name/implicit-role inference in this DOM guard.
+        const projection = (rows: SnapshotRow[]) => rows
+          .filter(candidate => candidate.role === row.role)
+          .map(({ role, name }) => ({ role, name }));
+        const expected = JSON.stringify(projection(this.observedRows));
+        let stable = false;
+        // Bound verification work. This admits completed unrelated updates, including updates
+        // during compact capture, but still fails closed if every fresh AX capture overlaps
+        // another mutation. DOM locality alone cannot prove arbitrary CSS/ARIA effects harmless.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const raw = await this.call("take_snapshot", { verbose: true });
+          const refreshed = parseSnapshotRows(raw).filter(candidate => candidate.role === row.role);
+          if (JSON.stringify(projection(refreshed)) !== expected) {
+            throw new Error("observed accessibility cohort changed");
+          }
+          const after = await validateNodes(refreshed);
+          if (after.revision === validation.revision) {
+            validation = after;
+            stable = true;
+            break;
+          }
+          validation = after;
+        }
+        if (!stable) throw new Error("observation could not validate a stable accessibility cohort");
+        if (this.references.get(ref) !== row) throw new Error("observation superseded during accessibility validation");
+        this.validatedReferenceRevisions.set(ref, validation.revision as number);
       }
     } catch (err) {
       this.invalidateObservation();
@@ -743,6 +852,8 @@ export class ChromeDevToolsDriver implements Driver {
 
   private invalidateObservation(): void {
     this.references.clear();
+    this.validatedReferenceRevisions.clear();
+    this.capturedReferenceCohorts.clear();
     this.unguarded.clear();
     this.observedRows = [];
     this.observedPage = undefined;

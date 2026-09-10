@@ -121,6 +121,21 @@ guarantee.
 
 ## Chrome capture and limits
 
+The default driver pins Chrome DevTools MCP 1.8.0 and disables its explicit page-ID
+routing to retain the selected-page/UID protocol. During connection initialization,
+it negotiates `evaluate_script`'s public `waitForStableDom` boolean once. Guard setup,
+perception facts and reference validation request `false` only when supported. This
+includes the first guard call: arguments are prepared after negotiation. Older/custom
+servers without the option use ordinary evaluation; a failed evaluation is never retried
+with a different wait mode. Negotiation transport failures and timeouts abort initialization
+and close the local transport; optional schema-discovery failures keep the legacy path.
+
+This skips post-evaluation DOM settling, while preserving MCP's navigation detection and
+actual input waiting. Guard setup and validation maintain private observation bookkeeping;
+they are not arbitrary UI-changing scripts. Scroll, native inputs, legacy probes and other
+evaluations keep ordinary waiting. The five evaluation boundaries around full/compact capture,
+enrichment and dispatch remain intact: negotiation caching never caches a node validation.
+
 Opt-in Chrome capture requests the full MCP accessibility tree because compact snapshots can
 omit listbox options. It excludes virtual `InlineTextBox` runs, which can share non-actionable
 UIDs; the owning text row remains. Ordinary no-options snapshots keep their existing shape.

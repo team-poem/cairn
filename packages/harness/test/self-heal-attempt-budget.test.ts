@@ -41,3 +41,13 @@ test("healModelFailureConsumesBudget: rejected model request cannot be retried b
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healMalformedReplyConsumesBudget: unparseable model response consumes an attempt", async () => {
+  const f = repairFixture("not JSON");
+  const driver = new SelfHealingDriver(f.inner, f.llm, { maxHeals: 1, onHeal: f.onHeal });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/no JSON/);
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(1);
+  expect(driver.heals).toEqual([]);
+  expect(f.onHeal).not.toHaveBeenCalled();
+});

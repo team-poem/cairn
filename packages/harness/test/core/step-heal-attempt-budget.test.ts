@@ -28,3 +28,16 @@ test("stepHealReplayReuseHonorsAttemptBudget: repeated divergent replays sharing
   expect(calls).toBe(1);
   expect(healer.heals).toEqual([]);
 });
+
+test("stepHealRejectedRepliesConsumeAttempts: thrown, malformed, done and unusable responses each consume a model request", async () => {
+  for (const reply of [new Error("model offline"), "not JSON", '{"action":"done"}', '{"action":"click"}']) {
+    let calls = 0;
+    const healer = new LlmStepHealer({ id: "counting", async complete() { calls++; if (reply instanceof Error) throw reply; return reply; } }, 1);
+    const driver = budgetDriver();
+    await expect(healer.heal(budgetStep, 0, driver)).resolves.toBeNull();
+    await expect(healer.heal(budgetStep, 1, driver)).resolves.toBeNull();
+    expect(calls).toBe(1);
+    expect(healer.heals).toEqual([]);
+    expect(driver.clicked).toEqual([]);
+  }
+});

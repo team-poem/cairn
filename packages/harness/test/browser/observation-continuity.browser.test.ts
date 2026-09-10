@@ -125,3 +125,28 @@ test("observationUnrelatedStructuralChanges: inserting or replacing decorative s
     });
   }
 });
+
+test("observationDispatchContinuity: unrelated changes after enrichment are allowed while node, semantic and duplicate drift remain rejected", async () => {
+  for (const mutation of [
+    { script: "document.querySelector('#clock').firstChild.data = '12:02'", safe: true },
+    { script: "document.querySelector('#second').replaceWith(document.querySelector('#second').cloneNode(true))", safe: false },
+    { script: "document.querySelector('#second').textContent = 'Delete'", safe: false },
+    { script: "document.querySelector('#second').setAttribute('role', 'link')", safe: false },
+    { script: "document.querySelector('#first').before(document.querySelector('#first').cloneNode(true))", safe: false },
+    { script: "document.querySelector('#first').before(document.querySelector('#second'))", safe: false },
+    { script: "document.querySelector('#first').setAttribute('aria-label', 'Cancel')", safe: false },
+  ]) {
+    await withContinuityPage(async ({ page, driver, clicks }) => {
+      const ref = await secondSaveRef(driver);
+      const target = await driver.locateRef(ref);
+      await page.evaluate(mutation.script);
+      if (mutation.safe) {
+        await driver.click(target, ref);
+        expect(clicks).toEqual(["second"]);
+      } else {
+        await expect(driver.click(target, ref)).rejects.toThrow(/expired|unchanged|ref|continuity/i);
+        expect(clicks).toEqual([]);
+      }
+    });
+  }
+});

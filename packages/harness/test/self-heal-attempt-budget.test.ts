@@ -51,3 +51,13 @@ test("healMalformedReplyConsumesBudget: unparseable model response consumes an a
   expect(driver.heals).toEqual([]);
   expect(f.onHeal).not.toHaveBeenCalled();
 });
+
+test("healNoMatchConsumesBudget: a model response selecting no match consumes an attempt", async () => {
+  const f = repairFixture('{"name":null}');
+  const driver = new SelfHealingDriver(f.inner, f.llm, { maxHeals: 1, onHeal: f.onHeal });
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/no match/);
+  await expect(driver.click({ text: "Old save" })).rejects.toThrow(/budget.*exhausted/);
+  expect(f.complete).toHaveBeenCalledTimes(1);
+  expect(driver.heals).toEqual([]);
+  expect(f.onHeal).not.toHaveBeenCalled();
+});

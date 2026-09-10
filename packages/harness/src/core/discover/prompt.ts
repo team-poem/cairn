@@ -19,7 +19,11 @@ export const PERCEPTION_RULES =
  * can't teach an action the freeze/execution logic doesn't know (#99). Loop-terminal actions
  * (`done`, explore's `note`) are appended by each SYSTEM, not listed here. */
 export const ACTION_VOCABULARY =
-  "Actions: " +
+  "Actions with exact current references: " +
+  '{"action":"click","ref":"<ref>"} · {"action":"doubleClick","ref":"<ref>"} · ' +
+  '{"action":"hover","ref":"<ref>"} · {"action":"type","ref":"<ref>","value":"<text>"} · ' +
+  '{"action":"select","ref":"<ref>","value":"<option>"}. ' +
+  "Legacy named targets and other actions: " +
   '{"action":"click","text":"<element>"} · {"action":"doubleClick","text":"<element>"} · ' +
   '{"action":"hover","text":"<element>"} (reveals flyout/dropdown menus) · ' +
   '{"action":"type","text":"<element>","value":"<text>"} · {"action":"select","text":"<element>","value":"<option>"} · ' +
@@ -30,7 +34,12 @@ export const ACTION_VOCABULARY =
 
 /** How the model must choose targets — shared by every loop prompt (#99). */
 export const ACTION_RULES =
-  'Always add "reason":"<short>". Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
+  'Always add "reason":"<short>". A "ref" is valid only for the current observation and one decision; ' +
+  'choose it from the current reference table, never invent or reuse it. With a ref, omit text, role, and nth: ' +
+  'the ref alone selects the exact element, including duplicates. If you supply a description too, it must agree ' +
+  'with that element (names allow surrounding whitespace and case normalization). ' +
+  'The following name/role/nth rules apply only when there is no ref. ' +
+  'Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
   "When a name appears under more than one role (e.g. a [link] and a [button] both named \"Log in\"), " +
   'always add "role" to say which you mean. When several elements share the SAME role and name, the ' +
   "listing marks each with (nth=K) — add that 0-based \"nth\" too " +

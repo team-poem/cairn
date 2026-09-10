@@ -131,3 +131,23 @@ it("referenceFailureIsNotMalformedJson: both loops teach a fresh reference after
     expect(driver.exact).toEqual([]);
   }
 });
+
+it("systemTeachesExecutableRefActions: every target action has a ref-only example usable without text role or nth", () => {
+  const examples = [...ACTION_VOCABULARY.matchAll(/\{[^{}]*"ref"[^{}]*\}/g)].map(match => parseDecision(match[0]));
+  for (const action of ["click", "doubleClick", "hover", "type", "select"] as const) {
+    const example = examples.find(decision => decision.action === action && decision.text === undefined && decision.role === undefined && decision.nth === undefined);
+    expect(example, `missing ref-only ${action} example`).toBeDefined();
+    const driver = new PromptRefDriver([
+      { role: "button", name: "Save", ref: "first" },
+      { role: "button", name: "Save", ref: "second" },
+    ]);
+    const page = new PerceptionObservation(driver, driver.els, driver.els, "save");
+    const second = page.references.split("\n").find(line => line.includes("nth=1"))!;
+    expect(page.bind({ ...example!, ref: promptRef(second) })).toMatchObject({ action, text: "Save", role: "button", nth: 1 });
+  }
+  for (const system of [SYSTEM, EXPLORE_SYSTEM]) {
+    expect(system).toContain(ACTION_VOCABULARY);
+    expect(system).toMatch(/ref[\s\S]{0,160}(?:current|this) (?:observation|decision)/i);
+    expect(system).toMatch(/(?:without|omit|optional)[\s\S]{0,100}(?:text|role|nth)/i);
+  }
+});

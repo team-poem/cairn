@@ -74,9 +74,16 @@ export function renderRankedElements(
   const nthOf = dupeOrdinals(elements);
   const { elements: ranked, omittedCount } = selectElements(elements, intent, limit);
   const body = renderElements(ranked, nthOf);
-  return omittedCount > 0
-    ? `${body}\n(+${omittedCount} more elements not shown — scroll or interact to reveal them)`
-    : body;
+  return body + renderSelectionNotices(omittedCount, elements.length - ranked.length - omittedCount);
+}
+
+/** Cap omissions and policy exclusions are different reasons the listing is incomplete. */
+export function renderSelectionNotices(omittedCount: number, filteredCount: number): string {
+  const capped = omittedCount > 0
+    ? `\n(+${omittedCount} more elements not shown — scroll or interact to reveal them)` : "";
+  const filtered = filteredCount > 0
+    ? `\n(${filteredCount} candidate${filteredCount === 1 ? "" : "s"} excluded by visibility or region filtering; this listing is not a complete page inventory.)` : "";
+  return capped + filtered;
 }
 
 /** 0-based position among same role+name duplicates, in snapshot order — exactly the pool a

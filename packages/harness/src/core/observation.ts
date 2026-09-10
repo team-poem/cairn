@@ -2,7 +2,7 @@
 import type { Driver } from "./ports.js";
 import type { PageElement, Target } from "./types.js";
 import type { Decision } from "./discover/decision.js";
-import { dupeOrdinals, renderElements, ELEMENT_LIMIT } from "./discover/prompt.js";
+import { dupeOrdinals, renderElements, renderSelectionNotices, ELEMENT_LIMIT } from "./discover/prompt.js";
 import { selectElements } from "./perception.js";
 import { stepError } from "./errors.js";
 
@@ -45,7 +45,7 @@ export class PerceptionObservation {
     }
     const { elements: ranked, omittedCount } = selectElements(perceived, intent, limit);
     const body = renderElements(ranked, ordinals);
-    const omitted = omittedCount > 0 ? `\n(+${omittedCount} more elements not shown — scroll or interact to reveal them)` : "";
+    const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
     this.render = body + omitted;
     const lines: string[] = [];
     if (driver.locateRef) ranked.forEach((e, i) => {

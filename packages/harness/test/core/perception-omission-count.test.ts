@@ -90,7 +90,7 @@ test("retainedEvidenceCountsTowardCap: over-quota intent evidence remains eligib
 test("emptyEligiblePoolHasNoHiddenRows: entirely covered captures render no imaginary scroll targets", () => {
   for (const rows of [[], coveredRows(5)] as PageElement[][]) {
     for (const limit of [0, 1, 60]) {
-      expect(renderedViews(rows, "inspect", limit)).toEqual(["", "", ""]);
+      expect(renderedViews(rows, "inspect", limit)).toEqual([0, 1, 2].map(view => rows.length > 0 && view < 2 ? "\n(5 candidates excluded by visibility or region filtering; this listing is not a complete page inventory.)" : ""));
     }
   }
 });

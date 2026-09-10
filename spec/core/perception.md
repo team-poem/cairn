@@ -57,11 +57,19 @@ Selection never mutates the source candidates:
 
 This makes a trailing portal eligible ahead of background controls while keeping result text
 available. A popup larger than the budget is itself truncated under the same score/tie rules;
-evidence reservations may displace its lowest-ranked rows. The listing reports only eligible
+evidence reservations may displace its lowest-ranked rows. The cap notice reports only eligible
 candidates omitted by the row cap. Positively occluded rows and labels excluded by de-nesting or
 the promotion quota do not inflate this count; over-quota labels retained as intent evidence do
 remain eligible. Evidence replacements preserve the selected count. The semantic listing and
 reference table use the same selection result and cap omission count.
+A separate notice reports candidates excluded by positive occlusion, region de-nesting or
+the promotion quota, and says the listing is not a complete page inventory. These exclusions
+are counted from the post-`perceive` candidates, separately from cap omissions; they do not
+imply that scrolling will reveal the excluded rows. Intent evidence retained by selection is
+not a filtering loss. Ordinary ranked renders and observation renders share both notices.
+If every candidate is filtered out, the semantic listing still carries the filtering notice;
+an empty input stays empty. A reference table is emitted only when actual references exist,
+so an empty reference table remains empty, including under a zero row cap.
 With no optional facts, legacy ranking and evidence selection remain unchanged.
 
 ## Temporary addressing and durable targets

@@ -128,3 +128,21 @@ test("observationCapabilityRequiresAnAdvertisedBoolean: absent or malformed tool
     });
   }
 });
+
+test("observationCapabilityIsConnectionScopedAndDoesNotChangeInputs: recapture reuses negotiation while scrolling and actual clicks keep default semantics", async () => {
+  await withCapabilityDriver(async driver => {
+    await driver.goto("https://example.test/form");
+    capabilityWire.calls = [];
+    await captureAndClickSecond(driver);
+    capabilityWire.tools = { tools: [] }; // no second negotiation for an established connection
+    await captureAndClickSecond(driver);
+    await driver.scroll("down");
+    expect(capabilityWire.lists).toBe(1);
+    const evaluations = observationEvaluations();
+    expect(evaluations).toHaveLength(11);
+    for (const call of evaluations.slice(0, 10)) expect(call.arguments.waitForStableDom).toBe(false);
+    expect(String(evaluations[10]!.arguments.function)).toContain("window.scrollBy");
+    expect(evaluations[10]!.arguments).not.toHaveProperty("waitForStableDom");
+    expect(capabilityWire.calls.filter(call => call.name === "click").map(call => call.arguments)).toEqual([{ uid: "1_2" }, { uid: "1_2" }]);
+  });
+});

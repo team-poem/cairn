@@ -51,3 +51,21 @@ it("locatorHealPromptTeachesOnlyLocatorResponses: every complete JSON example ma
   expect(systems[0]).not.toMatch(/always add ["']reason/i);
   expect(systems[0]).not.toMatch(/(?:respond with|choose|return) (?:one |a |the )?(?:next )?action/i);
 });
+
+it("locatorHealRefRulesUseTheLocatorNameField: ref-only repair selects a duplicate with schema-specific description guidance", async () => {
+  const driver = new LocatorPromptDriver();
+  const systems: string[] = [];
+  const llm: LlmClient = { id: "locator-ref-schema", async complete(prompt, opts) {
+    systems.push(opts?.system ?? "");
+    return JSON.stringify({ ref: locatorPromptRef(prompt) });
+  } };
+  const healer = new SelfHealingDriver(driver, llm);
+  await healer.click({ text: "Old save" });
+  expect(driver.repaired).toEqual([{ target: { text: "Save", role: "button", nth: 1, selector: "#second" }, ref: "second" }]);
+  expect(healer.heals).toEqual([{ original: { text: "Old save" }, healed: { text: "Save", role: "button", nth: 1, selector: "#second" } }]);
+  const system = systems[0]!;
+  expect(system).toMatch(/ref[\s\S]{0,160}(?:current|this) (?:observation|decision)/i);
+  expect(system).toMatch(/(?:without|omit|optional)[\s\S]{0,100}(?:["']?name["']?)[\s\S]{0,50}role[\s\S]{0,50}nth/i);
+  expect(system).not.toContain('"action":');
+  expect(JSON.stringify(healer.heals)).not.toContain('"ref"');
+});

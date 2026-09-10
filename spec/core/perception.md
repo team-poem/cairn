@@ -33,6 +33,13 @@ Discover and explore reject invalid observation bindings before calling the deci
 They can recover on a subsequent valid capture, with the existing step limit bounding repeated
 invalid captures. Snapshot/consumer callback errors retain their own error behavior. A valid
 JSON reply with a bad ref receives a binding diagnostic, separate from a JSON parse failure.
+With a trace scope, every rejected capture emits `gate: perception-binding`, and every rejected
+reference decision emits `gate: reference-binding`. Fixed messages describe the rejected contract
+without echoing page content, Driver tokens, or model fields. Repeated rejections remain visible
+when the loop exhausts its step cap before any decision. Discovery preserves its caller's phase,
+including outcome-heal. Explore accepts an optional `trace: TraceScope` and emits these two gates
+under `phase: explore`, including a rejected final pending-action capture. They are neither
+executed actions nor page findings; a failing sink cannot alter recovery.
 
 ## Selection policy
 
@@ -50,7 +57,11 @@ Selection never mutates the source candidates:
 
 This makes a trailing portal eligible ahead of background controls while keeping result text
 available. A popup larger than the budget is itself truncated under the same score/tie rules;
-evidence reservations may displace its lowest-ranked rows. The listing reports omitted rows.
+evidence reservations may displace its lowest-ranked rows. The listing reports only eligible
+candidates omitted by the row cap. Positively occluded rows and labels excluded by de-nesting or
+the promotion quota do not inflate this count; over-quota labels retained as intent evidence do
+remain eligible. Evidence replacements preserve the selected count. The semantic listing and
+reference table use the same selection result and cap omission count.
 With no optional facts, legacy ranking and evidence selection remain unchanged.
 
 ## Temporary addressing and durable targets
@@ -81,7 +92,11 @@ satisfy the contract. The existing step handler dispatches these actions; there 
 and `selector` into the step, and refuses a ref action if no persistent locator is available.
 Freeze and re-freeze never store the ref, browser handle, or observation generation. Step-heal
 preserves original intent/expect; locator-heal forwards exact refs and never heals a stale ref
-into a different node. Both repair paths accept policy/perception options. Configured secret
+into a different node. Locator-heal instructions use its `name`/`ref`/`role`/`nth` response fields,
+including `name: null`
+for no match. They do not require an executable action or reason; the action schema remains
+specific to discover, explore and surgical healing. Both repair paths accept policy/perception
+options. Configured secret
 values are redacted before their shared prompt rendering, following the existing value-only
 redaction contract; names and Driver tokens retain their addressing meaning.
 
@@ -89,8 +104,13 @@ Locator-heal and surgical step-heal `maxHeals` limits count repair model request
 an unusable repair. The attempt is reserved immediately before the model call, after observation
 succeeds. Failed policy checks, locator enrichment, or retry dispatch still consume that attempt.
 Only successful repairs enter `heals`; locator-heal triggers `onHeal` only after a successful
-retry. This history is not the request budget. Both defaults remain 5 requests; increasing the
-default requires evidence rather than silently compensating for failures now being counted.
+retry. This history is not the request budget. Both defaults remain 5 requests **per healer layer**,
+not a total-run budget:
+a run that uses both locator and surgical healing can make 5 + 5 repair requests, with outcome
+re-discovery budgeted separately. Increasing a cap does not add retries to an unrepaired step.
+A one-replay failure and the yield from reusing one healer across multiple invocations are
+different measurements. Increasing the default requires evidence rather than silently
+compensating for failures now being counted.
 An ordinary replay stops on an unrepaired divergent step; repeated calls or reuse of a
 surgical healer still share its request cap.
 
@@ -104,13 +124,21 @@ guarantee.
 Opt-in Chrome capture requests the full MCP accessibility tree because compact snapshots can
 omit listbox options. It excludes virtual `InlineTextBox` runs, which can share non-actionable
 UIDs; the owning text row remains. Ordinary no-options snapshots keep their existing shape.
+`promoteClickables` controls clickable/clickableRegion hints in perception snapshots while roles
+stay accessible roles. Legacy snapshots retain their existing StaticText-to-button promotion.
+Disabling that option leaves other measured perception facts and exact references available.
 The perception tree does not populate the ordinary compact cache used by legacy lookup and
 custom select's before/after option comparison.
 Replay resolution retries with the full tree when a compact snapshot omits a frozen target.
 These retry captures remain local to resolution and never overwrite the compact cache.
 Exhausted retries discard the compact cache too: later decisions must not dispatch nodes that
-an intervening render removed. A successful verbose-only control lookup preserves the compact
-before-open option watermark for custom select.
+an intervening render removed. A legacy `select` retry refreshes the compact before-open option
+watermark **after** its retry
+wait and **before** the verbose resolution capture. This excludes unrelated options that appeared
+while waiting and keeps the successfully resolving verbose UID mapping last before dispatch:
+a later compact capture could retire a verbose-only UID. Only select needs this extra compact
+capture; other action retries retain their previous call count. This does not make capture and
+click atomic or guarantee correct membership if another option appears between these calls.
 
 For a referenced decision, `locateRef` takes an additional compact snapshot and finds the exact
 captured UID there before computing persistent `index` and `nth`. It verifies unchanged name

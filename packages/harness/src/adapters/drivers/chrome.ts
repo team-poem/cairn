@@ -146,8 +146,10 @@ export interface ChromeDriverOptions {
   timeoutMs?: number;
   /** Timeout for the initial browser launch/connect (ms). Default 60s (first run may download). */
   connectTimeoutMs?: number;
-  /** Surface roleless `cursor:pointer` regions as clickable controls in the listing (#132). Default on;
-   * set false to see only the raw a11y tree. */
+  /** Measure roleless `cursor:pointer` regions for clickable hints (#132). Default on.
+   * Perception snapshots expose clickable/clickableRegion facts and preserve a11y roles;
+   * legacy snapshots promote matching StaticText listing roles to button. False disables
+   * those hints and legacy promotion; other perception facts and exact refs remain available. */
   promoteClickables?: boolean;
 }
 

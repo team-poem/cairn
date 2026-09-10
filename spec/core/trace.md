@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.5**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.6**.
 > Field names bind.
 
 ## One line
@@ -12,7 +12,7 @@ it live, store it, replay it in a viewer, and *audit* what a green actually prov
 
 ## Model (agreed in #125)
 
-- Lifecycle: **run → case → phase** (`discover` · `replay` · `heal`).
+- Lifecycle: **run → case → phase** (`discover` · `explore` · `replay` · `heal`).
 - Events are **flat**. Correlation is by reference (`caseRef`, `stepRef`), never containment —
   heal events are not children of replay steps; presentation builds trees, the contract doesn't.
 - Attach where it belongs: **usage** at run/case end · **verdict** at case end · **evidence**
@@ -31,7 +31,7 @@ it live, store it, replay it in a viewer, and *audit* what a green actually prov
 |---|---|---|
 | `seq` | total order | monotonic per trace |
 | `ts` | wall clock | epoch ms |
-| `phase?` | phase scoping | `discover · replay · heal` — **absent on lifecycle events** (trace/run/case start·end) |
+| `phase?` | phase scoping | `discover · explore · replay · heal` — **absent on lifecycle events** (trace/run/case start·end) |
 | `kind` | event typing | dispatch key; unknown kinds are skippable (compat rule below) |
 | `caseRef?` | correlation | `SuiteCase.id`; absent on run-level events |
 | `stepRef?` | correlation | step index in the (frozen) scenario |
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.5", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.6", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -66,6 +66,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
+| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these two diagnostics only |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
@@ -137,6 +138,24 @@ truncated run already wrote stays readable.
 the engine never captures a screenshot for the trace at all (same zero-cost stance as an absent
 sink) and the field stays off the payload — a ref nothing can resolve is worse than no ref.
 
+## Binding diagnostics (#221, version 1.6)
+
+Each rejected observation construction emits `gate: perception-binding`. A valid JSON decision
+whose observation reference cannot bind emits `gate: reference-binding`, not `parse-retry`.
+These events have no `stepRef`: a rejected attempt did not produce a frozen step. They do not
+fabricate an `action`, invoke `onStep`, or become an explore page finding. Messages are fixed
+engine-owned descriptions, with no rejected ref, value, description, or model reason echoed.
+A sequence of rejected captures remains observable even if it exhausts the loop before any
+model decision. Fresh-capture recovery and original snapshot/callback error propagation remain
+unchanged, and the existing Tracer isolates sink failures.
+
+Discover preserves its supplied phase, including `heal` during outcome re-discovery. Standalone
+explore accepts optional `trace: TraceScope` using the public `startTrace(...).scope(...)` API;
+it emits these binding diagnostics under `phase: explore`, including an invalid final outcome
+capture. This is limited diagnostic coverage, not a full explore lifecycle event stream. Hosts
+own the scope and trace lifecycle as they do for standalone discovery. The 1.6 addition extends
+two gate values and one phase value; the envelope is unchanged.
+
 ## Versioning — header `major.minor`
 
 - **minor** = additive: a new `kind`, a new optional payload field, a new value of an existing
@@ -177,8 +196,9 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
 ## Decided in review (#140)
 
 - **Per-assertion live events stay** — the `case-end` rollup needs them anyway.
-- **`explore` gets no phase value yet** — it earns one when someone actually asks for explore
-  traces (invariant #7 spirit: vocabulary is earned, not added speculatively).
+- **Explore phase was deferred until requested.** Version 1.6 (#221) adds `explore` for the
+  requested binding-rejection diagnostics described above. Full explore lifecycle tracing
+  remains outside this change (vocabulary is earned, not added speculatively).
 
 ## Decided in implementation (#143)
 

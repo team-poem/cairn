@@ -18,6 +18,38 @@ An AI walks your app once to discover the flow and freezes it to plain JSON. Fro
 
 cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
 
+## Measured
+
+Six runs of the same journey, twice: an agent that discovers on every run, against cairn discovering
+once and replaying. The app changes on run 4. Cost is what the provider reported at list price, so a
+subscription run and an API run are the same number.
+
+![Cumulative LLM cost over six runs of a login, cart and order journey: discovering every run climbs
+to $0.269 while discovering once and replaying stays flat at $0.046, crossing over at run
+two](docs/cost.svg)
+
+| Journey | Model | Discover every run | Discover once, then replay |
+| --- | --- | ---: | ---: |
+| click through to a destination | Sonnet 5 | $0.109 · 18 calls | $0.018 · 3 calls |
+| type a name and save it | Sonnet 5 | $0.151 · 24 calls | $0.025 · 4 calls |
+| log in, add to cart, order | Sonnet 5 | $0.269 · 42 calls | $0.046 · 7 calls |
+| log in, add to cart, order | Opus 5 | $0.463 · 42 calls | $0.077 · 7 calls |
+
+Every journey crossed over on the second run. Five of the six runs made no LLM call at all. The ratio
+barely moves between models because the saving is in the call count, not the price per call.
+
+On run 4 the app renamed the controls these journeys use: `Log in` became `Sign in`, `Add to cart`
+became `Add item`, `Save` became `Store`. Every frozen scenario kept passing, because a frozen target
+carries more than a name, and a renamed button still resolves by role and position. That is the first
+line of defence, and it is what these numbers measure.
+
+Self-heal is the second line, for a change that role and position cannot absorb. It did not fire
+here, so no repair cost is included above. When it does fire it costs one repair, once, and the
+repaired scenario is frozen again, so the run after it is back to zero calls.
+
+Numbers come from `bench/local`, on local fixtures, with 72 attempts and no failures. They describe
+these journeys on this schedule, not your app.
+
 ## Features
 
 - Discover a flow from a plain-language intent, with an LLM, once

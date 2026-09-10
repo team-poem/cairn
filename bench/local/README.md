@@ -138,6 +138,11 @@ npm run bench:local -- cost --config bench/local/cost.example.json --runs 4 \
   --engine-commit "$ENGINE_COMMIT" --out bench/results/cost-1
 ```
 
+`cost.claude-sonnet-5.json` and `cost.claude-opus-5.json` are the two schedules the published
+README numbers came from: three tiers, six runs, the app changing on run 4. Reuse them unchanged to
+add a model, so the rows stay comparable, and change only the `model` and the spending threshold.
+`cost.example.json` is the offline smoke instead.
+
 `--runs` must equal the number of entries in `fixtureVersions`. The shipped
 example is an offline smoke: it changes nothing under the freeze and its
 scripted source spends nothing, so it exercises the arms rather than measuring

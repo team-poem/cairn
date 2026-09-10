@@ -97,3 +97,17 @@ test("ciCompleteCounts: refuses incomplete missing duplicate or unexpected tier 
     assert.throws(() => compareReports(base, head));
   }
 });
+
+test("ciZeroBaseline: retains absolute changes without inventing infinite percentages", () => {
+  const [base, head] = pair();
+  base.sizes.packageBytes = 0;
+  base.sizes.browserBytes = 0;
+  head.sizes.browserBytes = 0;
+  for (const row of base.records) row.elapsedMs = 0;
+  const result = compareReports(base, head);
+  assert.equal(result.sizes.packageBytes.delta, 1000);
+  assert.equal(result.sizes.packageBytes.percent, null);
+  assert.equal(result.sizes.browserBytes.percent, null);
+  assert.equal(result.tiers[0].percent, null);
+  assert.doesNotMatch(renderComparison(result), /Infinity|NaN/);
+});

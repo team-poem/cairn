@@ -1,5 +1,8 @@
 const SIZE_METRICS = ["packageBytes", "unpackedBytes", "browserBytes", "browserGzipBytes"];
-const percentChange = (base, head) => (head - base) / base * 100;
+const percentChange = (base, head) => {
+  const percent = base === 0 ? null : (head - base) / base * 100;
+  return Number.isFinite(percent) ? percent : null;
+};
 
 const TIERS = ["navigation", "form", "stateful"];
 const object = value => value !== null && typeof value === "object" && !Array.isArray(value);

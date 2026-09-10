@@ -108,3 +108,23 @@ test("coldObservationNegotiatesBeforeItsFirstGuard: all five observation evaluat
     expect(capabilityWire.calls.find(call => call.name === "click")?.arguments).toEqual({ uid: "1_2" });
   });
 });
+
+test("observationCapabilityRequiresAnAdvertisedBoolean: absent or malformed tool schemas preserve the legacy evaluation protocol", async () => {
+  for (const tools of [
+    { tools: [] },
+    { tools: [{ name: "evaluate_script", inputSchema: { type: "object", properties: {} } }] },
+    capabilityTools({ type: "string" }),
+    capabilityTools(null),
+    { tools: "malformed" },
+  ]) {
+    capabilityWire.tools = tools;
+    capabilityWire.calls = [];
+    const before = capabilityWire.lists;
+    await withCapabilityDriver(async driver => {
+      await captureAndClickSecond(driver);
+      expect(capabilityWire.lists - before).toBe(1);
+      expect(observationEvaluations()).toHaveLength(5);
+      for (const call of observationEvaluations()) expect(call.arguments).not.toHaveProperty("waitForStableDom");
+    });
+  }
+});

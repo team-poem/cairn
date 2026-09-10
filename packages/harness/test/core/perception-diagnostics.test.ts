@@ -161,3 +161,22 @@ it("throwingDiagnosticSinkDoesNotChangeRecovery: trace failures remain observati
     expect(gateAttempts).toBe(1);
   }
 });
+
+it("exploreTailCaptureFailureIsDiagnosed: invalid final outcome capture is visible without fabricating a page defect", async () => {
+  const driver = new DiagnosticDriver();
+  const { events, scope } = diagnosticTrace();
+  let captures = 0;
+  const llm = new DiagnosticLlm(prompt => JSON.stringify({ action: "click", ref: diagnosticRef(prompt) }));
+  const options = { driver, llm, trace: scope, baseUrl: "https://app/start", maxSteps: 1,
+    perceive: (rows: Parameters<PerceptionAdapter>[0]) => {
+      captures++;
+      return captures === 1 ? rows : rows.map(row => ({ ...row, role: "link" }));
+    } };
+  const report = await explore("save", options);
+  expect(captures).toBe(2);
+  expect(report.truncated).toBe(true);
+  expect(driver.refs).toEqual(["private-driver-token"]);
+  expect(report.findings).toEqual([]);
+  expect(diagnosticGates(events)).toHaveLength(1);
+  expect(diagnosticGates(events)[0]).toMatchObject({ phase: "explore", payload: { gate: "perception-binding" } });
+});

@@ -74,6 +74,11 @@ into a different node. Both repair paths accept policy/perception options. Confi
 values are redacted before their shared prompt rendering, following the existing value-only
 redaction contract; names and Driver tokens retain their addressing meaning.
 
+Locator-heal's `maxHeals` limits repair model requests, including requests that fail or yield
+an unusable repair. The attempt is reserved immediately before the model call, after observation
+succeeds. Failed policy checks, locator enrichment, or retry dispatch still consume that attempt.
+Only successful retries enter `heals` and trigger `onHeal`; this history is not the request budget.
+
 Replay uses existing persistent locators with no LLM. Observation identity does not establish
 durable business identity across later duplicate reordering, nor cross-observation identity for
 idle-scroll pruning. Drivers without `locateRef` use legacy addressing without an exact-node

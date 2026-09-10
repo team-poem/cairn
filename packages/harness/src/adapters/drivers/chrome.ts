@@ -750,8 +750,9 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async resolveUid(target: Target): Promise<string> {
+    let raw = await this.getSnapshot();
     for (let attempt = 0; ; attempt++) {
-      const rows = parseSnapshotRows(await this.getSnapshot());
+      const rows = parseSnapshotRows(raw);
       const uid =
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
         (await this.resolveVisible(rows, target));
@@ -759,11 +760,11 @@ export class ChromeDevToolsDriver implements Driver {
       if (attempt >= RESOLVE_RETRIES) {
         throw stepError("resolution", describeResolutionMiss(rows, target));
       }
-      this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
       // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
-      // compact snapshot even when present. Retry with full capture before declaring it absent.
-      this.snapshotCache = await this.call("take_snapshot", { verbose: true });
+      // compact snapshot even when present. Keep the retry local: other lookups and select's
+      // before-open watermark must retain the compact pool, including after a failed retry.
+      raw = await this.call("take_snapshot", { verbose: true });
     }
   }
 

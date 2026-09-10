@@ -684,6 +684,9 @@ export class ChromeDevToolsDriver implements Driver {
       // Capture awaited browser work: reject mutations, page changes, and superseded refs
       // before returning a durable ordinal or publishing the compact cache.
       await this.referenceRow(ref);
+      if (this.references.get(ref) !== row) {
+        throw stepError("resolution", "observation ref expired before publishing the compact locator");
+      }
       this.snapshotCache = raw;
       return target;
     } catch (err) {

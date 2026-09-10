@@ -65,3 +65,19 @@ test("ciUnsafeSpeedup: failed or model-calling attempts never count as speed imp
     }
   }
 });
+
+test("ciComparisonIdentity: rejects different runtime workload or canonical scenario identity", () => {
+  const mutations = [
+    head => head.schemaVersion = 2,
+    ...["node", "chrome", "platform", "arch"].map(key => head => head.environment[key] += "-different"),
+    head => head.workload.fixtureHash = "different-fixture",
+    head => head.workload.captures[0].scenarioHash = "different-scenario",
+    head => head.workload.captures[0].tier = "stateful",
+    head => head.workload.runs = 4,
+  ];
+  for (const mutate of mutations) {
+    const [base, head] = pair();
+    mutate(head);
+    assert.throws(() => compareReports(base, head));
+  }
+});

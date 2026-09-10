@@ -6,10 +6,12 @@
  * Module layout: prompt (LLM surface) · decision (Decision→Step + shared execution) ·
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
+import { PerceptionObservation } from "../observation.js";
+import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
+import { SYSTEM, buildPrompt } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -165,12 +167,26 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const raw = await driver.snapshot();
-    const elements = redactSecrets(perceive ? await perceive(raw) : raw, secrets);
+    const raw = await driver.snapshot({ perception: true });
+    const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
+    let page: PerceptionObservation;
+    try {
+      page = new PerceptionObservation(driver, raw, elements, intent);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      // Keep raw page content and rejected references out of the diagnostic stream.
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
+      pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
+      continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
+    }
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
-    const render = renderRankedElements(elements, intent);
-    const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl), {
+    const render = page.render;
+    const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
       system: SYSTEM,
     });
 
@@ -189,6 +205,19 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "parse-retry", reason: "reply was not a single valid JSON action object" },
       });
       pushFailure("your previous reply was not a single valid JSON action object");
+      continue;
+    }
+
+    try {
+      decision = page.bind(decision);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
+      });
+      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
       continue;
     }
 

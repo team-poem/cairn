@@ -9,6 +9,7 @@ import type {
   Evidence,
   LlmUsage,
   PageElement,
+  SnapshotOptions,
   Result,
   Scenario,
   SettleOptions,
@@ -44,7 +45,7 @@ export interface Planner {
  * component ignores untrusted events, so a shortcut would silently no-op. The reference driver
  * (Chrome DevTools MCP) satisfies this; a custom driver must too.
  *
- * Perception is a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
+ * Accessible semantics stay a11y-native: `snapshot()` reports what the accessibility tree exposes — cairn
  * perceives like assistive tech, so a control whose state lives outside a11y (a custom widget with
  * no `aria-checked`/role/name — an accessibility violation) is *invisible or mis-reported to cairn
  * exactly as it is to a screen reader*. The engine does not special-case app-specific DOM to work
@@ -52,28 +53,37 @@ export interface Planner {
  * wrapping `snapshot()` in its own Driver — the sanctioned seam — while the real fix is the app
  * exposing proper ARIA state.
  *
+ * `snapshot({ perception: true })` may additionally return measured interaction facts and opaque
+ * refs. Supply candidates in source order without a model-budget cutoff; the engine owns ranking
+ * and quotas. Do not change a role to encode a clickable hint. Exact refs require `locateRef` and
+ * every targeted action to address the same observed node or fail, never reselect by name. See
+ * spec/core/perception.md for the selection policy, lifetime, and legacy compatibility contract.
+ *
  * A Driver that throws can say why (#212): `throw stepError("transport", msg)` — or any Error with
  * a plain `kind` of `resolution` | `post-condition` | `timeout` | `transport` | `handler` — decides
  * whether the red is the script's (exit 3, re-discover) or the environment's (exit 4, retry). An
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target): Promise<void>;
-  doubleClick(target: Target): Promise<void>;
-  hover(target: Target): Promise<void>;
-  type(target: Target, text: string): Promise<void>;
+  click(target: Target, ref?: string): Promise<void>;
+  doubleClick(target: Target, ref?: string): Promise<void>;
+  hover(target: Target, ref?: string): Promise<void>;
+  type(target: Target, text: string, ref?: string): Promise<void>;
   /** Resolve a target and return it enriched with resilient locators (role, structural index) for freezing. */
   locate(target: Target): Promise<Target>;
+  /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
+   * Implementations accepting refs must honor them in every target-bearing interaction. */
+  locateRef?(ref: string): Promise<Target>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
-  select(target: Target, value: string): Promise<void>;
+  select(target: Target, value: string, ref?: string): Promise<void>;
   /** Press a key or combo (e.g. "Enter", "Escape", "Control+a"). */
   pressKey(key: string): Promise<void>;
   /** Scroll the page to reveal lazy/below-the-fold content. */
   scroll(direction?: "down" | "up"): Promise<void>;
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
-  snapshot(): Promise<PageElement[]>;
+  snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
   /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
    * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an

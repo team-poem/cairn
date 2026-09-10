@@ -32,36 +32,61 @@ const EVIDENCE_SLOTS = 5;
  * Up to EVIDENCE_SLOTS of the cap are reserved for intent-matching non-interactive text (#115);
  * with no such matches (or when they fit anyway) the ranking is unchanged.
  */
-export function rankElements(
+export function selectElements(
   elements: PageElement[],
   intent: string,
   limit: number,
-): PageElement[] {
-  // Unicode-aware tokens — `\W` treats every Korean (or any non-ASCII) char as a separator, so a
-  // Korean intent yielded no tokens and ranked nothing by relevance (P8). Match letter/number runs.
+): { elements: PageElement[]; omittedCount: number } {
+  // Unicode-aware intent tokens also identify evidence BEFORE de-nesting clickable labels.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
-  const scored = elements
+  const relevant = (e: PageElement) => words.some(w => e.name.toLowerCase().includes(w));
+  const visible = elements.filter(e => e.occluded !== true);
+  const promoted = new Set<PageElement>();
+  const regions = new Set<string | PageElement>();
+  // Allocate measured interaction representatives to the active popup first. A background
+  // region cannot exhaust the quota before a portal appended at the end of the snapshot.
+  const clickables = visible.filter(e => e.clickable && !INTERACTIVE_ROLES.has(e.role))
+    .sort((a, b) => Number(b.inActivePopup === true) - Number(a.inActivePopup === true));
+  for (const e of clickables) {
+    const region = e.clickableRegion ?? e;
+    if (regions.has(region) || regions.size >= MAX_PROMOTED_CLICKABLES) continue;
+    regions.add(region);
+    promoted.add(e);
+  }
+  // Region quotas suppress redundant action labels, never intent evidence. Retained siblings
+  // keep their original objects/refs, but do not receive the interactive promotion score.
+  const candidates = visible.filter(e => !e.clickable || INTERACTIVE_ROLES.has(e.role) || promoted.has(e) || relevant(e));
+  limit = Math.max(0, Math.floor(limit));
+  const scored = candidates
     .map((e, i) => {
-      const interactive = INTERACTIVE_ROLES.has(e.role);
+      const interactive = INTERACTIVE_ROLES.has(e.role) || promoted.has(e);
       let score = interactive ? 100 : 0;
       const name = e.name.toLowerCase();
       for (const w of words) if (name.includes(w)) score += 10;
-      return { e, score, i, evidence: !interactive && score > 0 };
+      return { e, score, i, evidence: !interactive && relevant(e) };
     })
-    .sort((a, b) => b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 
   const cut = scored.slice(0, limit);
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
-  if (!missed.length) return cut.map((s) => s.e);
+  // Policy-filtered rows are not hidden by the prompt cap. Evidence swaps preserve cut length.
+  const omittedCount = candidates.length - cut.length;
+  if (!missed.length) return { elements: cut.map((s) => s.e), omittedCount };
 
   // Evict the lowest-ranked non-evidence rows to make room, then restore rank order.
   const evicted = new Set<(typeof cut)[number]>();
   for (let i = cut.length - 1; i >= 0 && evicted.size < missed.length; i--) {
     if (!cut[i]!.evidence) evicted.add(cut[i]!);
   }
-  return [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
-    .sort((a, b) => b.score - a.score || a.i - b.i)
+  const selected = [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
+    .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
     .map((s) => s.e);
+  return { elements: selected, omittedCount };
+}
+
+/** Preserve the array-only ranking API; internal renderers also need the cap omission count. */
+export function rankElements(elements: PageElement[], intent: string, limit: number): PageElement[] {
+  return selectElements(elements, intent, limit).elements;
 }
 
 const MAX_PROMOTED_CLICKABLES = 40;

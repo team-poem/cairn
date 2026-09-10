@@ -36,7 +36,7 @@ if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
     }
     await hashTree(dist);
     const { ChromeDevToolsDriver, discover, runScenario, saveSkillFile, ENGINE_VERSION } = await import("../../packages/harness/dist/index.js");
-    const driverArgs = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated", "--headless"];
+    const driverArgs = ["-y", "chrome-devtools-mcp@1.8.0", "--isolated", "--no-page-id-routing", "--headless"];
     function version(command, arguments_) { try { return execFileSync(command, arguments_, { encoding: "utf8", timeout: 10000, stdio: ["ignore", "pipe", "ignore"] }).trim(); } catch { return null; } }
     const controller = new AbortController();
     const abort = () => controller.abort();

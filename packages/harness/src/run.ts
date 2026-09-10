@@ -214,9 +214,9 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
 
   try {
     const result = await runHarness(

@@ -9,6 +9,7 @@ import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.j
 import { BuiltinStepHandler } from "../steps.js";
 import { slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
+import { assertDecisionCurrent, decisionReference, persistentTarget } from "../observation.js";
 import { extractFirstJsonObject } from "../json.js";
 
 export interface Decision {
@@ -27,6 +28,8 @@ export interface Decision {
      * anyway, `decisionToStep` rejects it like `done`. */
     | "note"
     | "done";
+  /** Engine-issued current-observation token; never part of a Step or Target. */
+  ref?: string;
   text?: string;
   /** Disambiguate identically-named elements (#127): the element's role, and the 0-based
    * position among same role+name matches — the `(nth=K)` marker the listing shows. */
@@ -85,7 +88,12 @@ export function parseDecision(text: string): Decision {
  * Pure translation — execution happens through the shared step handler in `applyDecision`.
  */
 export async function decisionToStep(driver: Driver, decision: Decision): Promise<Step> {
-  const located = (): Promise<Target> => {
+  const ref = decisionReference(driver, decision, true);
+  const located = async (): Promise<Target> => {
+    if (ref !== undefined) {
+      if (!driver.locateRef) throw new Error("driver does not support exact references");
+      return persistentTarget(await driver.locateRef(ref));
+    }
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
     return driver.locate({
       text: decision.text,
@@ -127,10 +135,9 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
   }
 }
 
-const execute = new BuiltinStepHandler();
-
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 export async function applyDecision(driver: Driver, decision: Decision, secrets: Secrets = {}): Promise<Step> {
+  const ref = decisionReference(driver, decision);
   const step = await decisionToStep(driver, decision);
   // A secret's value is put back behind its `{name}` HERE, before the step is executed or kept:
   // the model may echo the literal it saw in a text field rather than the intent's placeholder,
@@ -138,7 +145,7 @@ export async function applyDecision(driver: Driver, decision: Decision, secrets:
   // progress event, the next prompt, or the freeze (#174). The handler then fills it exactly
   // once, for the driver only.
   if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
-  await new BuiltinStepHandler(secrets).execute(step, driver);
+  await new BuiltinStepHandler(secrets).execute(step, driver, ref, () => assertDecisionCurrent(driver, decision));
   return step;
 }
 

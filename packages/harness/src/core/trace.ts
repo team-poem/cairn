@@ -12,10 +12,11 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.2 — `freeze.payload.unprovenAction` (#190), same rule.
  * 1.3 — `freeze.payload.observedBeforeLastMutation` (#203), destination advisory summary.
  * 1.4 — `gate: idle-scroll` (#177), a scroll step dropped at freeze; `stepRef` is its original index.
- * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from. */
-export const TRACE_VERSION = "1.5";
+ * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from.
+ * 1.6 — perception/reference binding gates and the explore phase (#221). */
+export const TRACE_VERSION = "1.6";
 
-export type TracePhase = "discover" | "replay" | "heal";
+export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
 interface Envelope {
   /** Total order, monotonic per trace; 0 is always the `trace` header. */
@@ -44,7 +45,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "unproven-action" | "idle-scroll"; action?: string; reason: string };
+        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll"; action?: string; reason: string };
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {

@@ -6,15 +6,17 @@
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
-import type { Driver } from "../../core/ports.js";
 import { promotedClickableNames } from "../../core/perception.js";
+import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
   Evidence,
   NetworkRequest,
   PageElement,
+  SnapshotOptions,
   SettleOptions,
   Target,
 } from "../../core/types.js";
@@ -22,11 +24,12 @@ import type {
 const delay = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 const MCP_COMMAND = "npx";
-// Pinned to the tested 1.3.x line: the parsers below depend on chrome-devtools-mcp's text
-// format, so an unbounded `@latest` could break them silently. Override via ChromeDriverOptions.
+// Pin the tested release: the parsers below depend on chrome-devtools-mcp's text format.
+// Keep its selected-page protocol instead of 1.8's default explicit page-ID routing.
+// Override via ChromeDriverOptions.
 // `--isolated` gives the harness its own ephemeral browser, so a standalone `cairn run`
 // never collides with another chrome-devtools-mcp using the default profile.
-const MCP_ARGS = ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"];
+const MCP_ARGS = ["-y", "chrome-devtools-mcp@1.8.0", "--isolated", "--no-page-id-routing"];
 
 // Target resolution retries — a late-rendering element (SPA hydration, a just-opened panel) may not
 // be in the snapshot on the first look. Retry briefly before failing, so replay doesn't miss it and
@@ -37,6 +40,7 @@ const RESOLVE_RETRY_MS = 300;
 // A custom dropdown's options render into a portal AFTER it opens — bounded wait for them.
 const OPTION_WAIT_MS = 2_000;
 const OPTION_POLL_MS = 150;
+let nextDriverId = 0;
 
 // A roleless clickable region (a card that's a div + cursor:pointer, not a native/ARIA control) is
 // invisible to a11y-based perception: the model can't target it and gets drawn to a name-matching
@@ -60,6 +64,83 @@ const CLICKABLE_PROBE =
   " if (!seen.has(n)) seen.set(n, next++); return seen.get(n); }" +
   " n = n.parentElement; } return -1; }); }";
 
+/** Facts are keyed by the exact MCP node, never by its accessible name. The DOM supplies
+ * geometry/ARIA/cursor facts only; core owns de-nesting, promotion quotas, and ranking.
+ * A clipped, offscreen, zero-size, or shadow-tree hit test is unknown, not positive occlusion. */
+export function perceptionProbeScript(uids: readonly string[], clickables = true, registry?: string, guard?: string): string {
+  return String.raw`(...els) => {
+    const ids = ${JSON.stringify(uids)};
+    const registry = ${JSON.stringify(registry ?? null)};
+    const regions = registry
+      ? (globalThis[Symbol.for(registry)] ??= new WeakMap()) : new Map();
+    const active = new Set();
+    const visible = (el) => {
+      const style = getComputedStyle(el);
+      return el.getClientRects().length > 0 && style.display !== "none" &&
+        style.visibility !== "hidden" && el.getAttribute("aria-hidden") !== "true";
+    };
+    for (const control of document.querySelectorAll('[aria-expanded="true"]')) {
+      for (const attr of ["aria-controls", "aria-owns"]) {
+        for (const id of (control.getAttribute(attr) || "").split(/\s+/)) {
+          const popup = id && document.getElementById(id);
+          if (popup && visible(popup) && visible(control)) active.add(popup);
+        }
+      }
+    }
+    for (const popup of document.querySelectorAll('dialog[open]')) if (visible(popup)) active.add(popup);
+    try {
+      for (const popup of document.querySelectorAll(':popover-open')) if (visible(popup)) active.add(popup);
+    } catch { /* Older browsers need no popover selector to report ARIA-controlled popups. */ }
+    const clipped = (el, x, y) => {
+      for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
+        const style = getComputedStyle(p);
+        if (!/(auto|scroll|overlay|hidden|clip)/.test(style.overflowX + " " + style.overflowY)) continue;
+        const box = p.getBoundingClientRect();
+        if (x < box.left || x > box.right || y < box.top || y > box.bottom) return true;
+      }
+      return false;
+    };
+    return Object.fromEntries(els.map((raw, i) => {
+      const el = raw && raw.nodeType === 3 ? raw.parentElement : raw;
+      const facts = {};
+      if (${JSON.stringify(guard ?? null)}) {
+        // RootWebArea resolves to Document in MCP. It is covered by this observer too.
+        facts.referenceReady = !!el && el.isConnected && el.getRootNode() === document &&
+          !!globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.observer &&
+          !globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.overflow;
+      }
+      if (!el || el.nodeType !== 1 || !el.isConnected) return [ids[i], facts];
+      if ([...active].some(root => root === el || root.contains(el))) facts.inActivePopup = true;
+      const box = el.getBoundingClientRect();
+      const x = box.left + box.width / 2, y = box.top + box.height / 2;
+      if (el.getRootNode() === document && box.width && box.height &&
+          x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && !clipped(el, x, y)) {
+        const top = document.elementFromPoint(x, y);
+        if (top) facts.occluded = top !== el && !el.contains(top);
+      }
+      if (${clickables}) {
+        let elAt = el;
+        let region;
+        for (let hops = 0; elAt && hops < ${CLICKABLE_HOPS}; hops++, elAt = elAt.parentElement) {
+          if (/^(button|link|checkbox|radio|switch|combobox|option|menuitem|tab|textbox)$/.test(elAt.getAttribute("role") || "") ||
+              /^(A|BUTTON|INPUT|SELECT|TEXTAREA|SUMMARY|LABEL|DETAILS|OPTION)$/.test(elAt.tagName)) {
+            region = undefined; break;
+          }
+          if (elAt.getAttribute("role")) break;
+          if (getComputedStyle(elAt).cursor !== "pointer") break;
+          region = elAt;
+        }
+        if (region) {
+          if (!regions.has(region)) regions.set(region, ids[i]);
+          facts.clickable = true;
+          facts.clickableRegion = regions.get(region);
+        }
+      }
+      return [ids[i], facts];
+    }));
+  }`;
+}
+
 export interface ChromeDriverOptions {
   command?: string;
   args?: string[];
@@ -67,8 +148,10 @@ export interface ChromeDriverOptions {
   timeoutMs?: number;
   /** Timeout for the initial browser launch/connect (ms). Default 60s (first run may download). */
   connectTimeoutMs?: number;
-  /** Surface roleless `cursor:pointer` regions as clickable controls in the listing (#132). Default on;
-   * set false to see only the raw a11y tree. */
+  /** Measure roleless `cursor:pointer` regions for clickable hints (#132). Default on.
+   * Perception snapshots expose clickable/clickableRegion facts and preserve a11y roles;
+   * legacy snapshots promote matching StaticText listing roles to button. False disables
+   * those hints and legacy promotion; other perception facts and exact refs remain available. */
   promoteClickables?: boolean;
 }
 
@@ -95,6 +178,7 @@ export function mcpToolError(name: string, text: string): Error {
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
   private transport?: StdioClientTransport;
+  private observationWaitOverride = false;
   private initialUrl?: string;
   private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
@@ -102,6 +186,16 @@ export class ChromeDevToolsDriver implements Driver {
   private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
   private lastRaw?: string; // raw snapshot the clickable probe last ran on — re-probe only on change (#132)
   private lastClickable?: Set<string>; // labels of roleless clickable regions, keyed by that raw
+  private readonly driverId = ++nextDriverId;
+  private observationVersion = 0;
+  private observedRows: SnapshotRow[] = [];
+  private observedPage?: string;
+  private readonly references = new Map<string, SnapshotRow>();
+  private readonly unguarded = new Set<string>();
+  private readonly validatedReferenceRevisions = new Map<string, number>();
+  private readonly capturedReferenceCohorts = new Set<string>();
+  private readonly guardKey = `cairn-observation-guard:${this.driverId}`;
+  private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {}
 
@@ -120,6 +214,7 @@ export class ChromeDevToolsDriver implements Driver {
       const followable = followableTab(entries, this.seenPages);
       entries.forEach((e) => this.seenPages.add(e.id));
       if (followable !== undefined) {
+        this.invalidateObservation();
         await this.call("select_page", { pageId: followable });
         this.snapshotCache = undefined; // different tab → different DOM
       }
@@ -171,6 +266,8 @@ export class ChromeDevToolsDriver implements Driver {
         this.opts.connectTimeoutMs ?? 60_000,
         "chrome-devtools-mcp connect",
       );
+      this.observationWaitOverride = await this.supportsObservationWaitOverride(client);
+      if (this.closed) throw stepError("transport", "driver closed during MCP initialization");
     } catch (err) {
       await transport.close().catch(() => {}); // don't orphan the spawned subprocess
       throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
@@ -180,12 +277,41 @@ export class ChromeDevToolsDriver implements Driver {
     return client;
   }
 
-  private async call(name: string, args: Record<string, unknown> = {}): Promise<string> {
+  /** Negotiate once, before the first tool call; custom/older servers keep ordinary waits. */
+  private async supportsObservationWaitOverride(client: Client): Promise<boolean> {
+    if (typeof client.listTools !== "function") return false;
+    try {
+      const listing = await this.withTimeout(client.listTools(), this.opts.timeoutMs ?? 30_000, "MCP tools/list");
+      const tool = Array.isArray(listing?.tools)
+        ? listing.tools.find(candidate => candidate?.name === "evaluate_script") : undefined;
+      const property = tool?.inputSchema?.properties?.waitForStableDom;
+      return property !== null && typeof property === "object" && "type" in property && property.type === "boolean";
+    } catch (err) {
+      // Optional schema discovery may be unsupported, but a dead or timed-out connection
+      // must fail initialization and close its transport rather than pretend to be legacy.
+      if (errorKindOf(err) === "transport") throw err;
+      if (err instanceof McpError && err.code === ErrorCode.RequestTimeout) throw err;
+      if (err instanceof Error && (/Connection closed|Not connected|MCP error -32000/.test(err.message) ||
+          errorKindOf(mcpToolError("tools/list", err.message)) === "transport")) throw err;
+      return false;
+    }
+  }
+
+  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture"): Promise<string> {
     const client = await this.ensureConnected();
+    // Let initial rendering settle before the guard starts retaining cohort mutations.
+    // Unsupported servers keep their existing observation protocol.
+    if (purpose === "capture" && name === "evaluate_script" && this.observationWaitOverride) {
+      await this.call("evaluate_script", { function: "() => ({})" });
+    }
+    // Guard/facts/validation keep navigation detection; readiness and actual inputs keep
+    // ordinary waiting. Read-only scripts can still observe a partially rendered page.
+    const toolArgs = (purpose === "observation" || purpose === "capture") && name === "evaluate_script" && this.observationWaitOverride
+      ? { ...args, waitForStableDom: false } : args;
     let res: { content?: Array<{ type: string; text?: string }>; isError?: boolean };
     try {
       res = (await this.withTimeout(
-        client.callTool({ name, arguments: args }),
+        client.callTool({ name, arguments: toolArgs }),
         this.opts.timeoutMs ?? 30_000,
         `MCP ${name}`,
       )) as typeof res;
@@ -207,6 +333,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async goto(url: string): Promise<void> {
+    this.invalidateObservation();
     if (this.initialUrl === undefined) this.initialUrl = url;
     // accept beforeunload so leaving a dirty form/page doesn't hang on a dialog.
     await this.call("navigate_page", { type: "url", url, handleBeforeUnload: "accept" });
@@ -214,14 +341,16 @@ export class ChromeDevToolsDriver implements Driver {
     await this.trackPages();
   }
 
-  async click(target: Target): Promise<void> {
-    await this.callAccepting("click", { uid: await this.resolveUid(target) });
-    this.snapshotCache = undefined;
+  async click(target: Target, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.callAccepting("click", { uid });
   }
 
-  async doubleClick(target: Target): Promise<void> {
-    await this.callAccepting("click", { uid: await this.resolveUid(target), dblClick: true });
-    this.snapshotCache = undefined;
+  async doubleClick(target: Target, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.callAccepting("click", { uid, dblClick: true });
   }
 
   /**
@@ -242,24 +371,27 @@ export class ChromeDevToolsDriver implements Driver {
     await this.followNewTab();
   }
 
-  async hover(target: Target): Promise<void> {
-    await this.call("hover", { uid: await this.resolveUid(target) });
-    this.snapshotCache = undefined;
+  async hover(target: Target, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.call("hover", { uid });
   }
 
-  async type(target: Target, text: string): Promise<void> {
-    await this.callAccepting("fill", { uid: await this.resolveUid(target), value: text });
-    this.snapshotCache = undefined;
+  async type(target: Target, text: string, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref);
+    this.invalidateObservation();
+    await this.callAccepting("fill", { uid, value: text });
     // Let the app apply the input (controlled inputs, validation) before the next action — otherwise
     // a fast submit races an un-committed field. settle's idle floor gives that beat (readiness, #64).
     await this.settle();
   }
 
-  async select(target: Target, value: string): Promise<void> {
-    const uid = await this.resolveUid(target);
+  async select(target: Target, value: string, ref?: string): Promise<void> {
+    const uid = await this.actionUid(target, ref, true);
     // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
     // whose option list can't be clicked), kept as a fast path.
     if (await this.isNativeSelect(uid)) {
+      this.invalidateObservation();
       await this.callAccepting("fill", { uid, value });
       this.snapshotCache = undefined;
       await this.settle();
@@ -270,6 +402,7 @@ export class ChromeDevToolsDriver implements Driver {
     // which used to make discover thrash. One `select` step still freezes as a single stable unit
     // (the control), so replay drives open→pick deterministically (no LLM).
     const before = new Set(parseSnapshotRows(await this.getSnapshot()).map((r) => r.uid));
+    this.invalidateObservation();
     await this.callAccepting("click", { uid }); // activate/open
     this.snapshotCache = undefined;
     const optionUid = await this.awaitNewOption(value, before);
@@ -320,12 +453,14 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async pressKey(key: string): Promise<void> {
+    this.invalidateObservation();
     // a form submit (Enter) can trigger a confirm() — handle it like any other action.
     await this.callAccepting("press_key", { key });
     this.snapshotCache = undefined;
   }
 
   async scroll(direction: "down" | "up" = "down"): Promise<void> {
+    this.invalidateObservation();
     const sign = direction === "up" ? "-" : "";
     await this.call("evaluate_script", {
       function: `() => { window.scrollBy(0, ${sign}window.innerHeight * 0.9); }`,
@@ -354,12 +489,47 @@ export class ChromeDevToolsDriver implements Driver {
     return this.snapshotCache;
   }
 
-  async snapshot(): Promise<PageElement[]> {
+  async snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
-    this.snapshotCache = undefined;
-    const raw = await this.getSnapshot();
+    this.invalidateObservation();
+    let guarded = false;
+    if (options?.perception) {
+      // Install before capture so changed sibling order cannot freeze an already-stale ordinal.
+      try {
+        await this.call("evaluate_script", { function: this.startObservationGuard() }, "capture");
+        guarded = true;
+      } catch (err) {
+        if (errorKindOf(err) === "transport") throw err;
+        // A browser that cannot install the guard can still supply ordinary candidates.
+      }
+    }
+    // Perception has a larger candidate pool than ordinary lookup and select's watermark.
+    // Keep its full tree local so those compact-snapshot consumers retain their ordinals.
+    const raw = options?.perception
+      ? await this.call("take_snapshot", { verbose: true })
+      : await this.getSnapshot();
     const els = parseElements(raw);
+    if (options?.perception) {
+      const version = ++this.observationVersion;
+      const page = await this.selectedPage();
+      this.observedPage = page;
+      // MCP's verbose tree includes virtual InlineTextBox entries with shared/unresolvable UIDs.
+      // The owning StaticText remains available; virtual glyph runs cannot be action targets.
+      this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
+      const named = this.observedRows.filter((row) => row.name.trim());
+      const facts = await this.probePerceptionFacts(named);
+      return els.filter(element => element.role !== "InlineTextBox").map((element, i) => {
+        const row = named[i]!;
+        const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
+        // A failed page measurement preserves candidates but cannot promise exact identity.
+        // All candidate bindings share the captured ordinal pool. An unguarded shadow/frame row can
+        // change the ordinal of a document row too, so coverage must hold for the whole capture.
+        const addressable = guarded && page !== undefined && this.unguarded.size === 0;
+        if (addressable) this.references.set(ref, row);
+        return { ...element, ...facts.get(row.uid), ...(addressable ? { ref } : {}) };
+      });
+    }
     if (this.opts.promoteClickables === false) return els;
     // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
     // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
@@ -375,6 +545,81 @@ export class ChromeDevToolsDriver implements Driver {
       }
     }
     return els;
+  }
+
+  private async probePerceptionFacts(rows: SnapshotRow[]): Promise<Map<string, Partial<PageElement>>> {
+    const facts = new Map<string, Partial<PageElement>>();
+    if (!rows.length) return facts;
+    const measure = async (batch: SnapshotRow[]): Promise<void> => {
+      const uids = batch.map((row) => row.uid);
+      let reply: string;
+      try {
+        reply = await this.call("evaluate_script", {
+          function: perceptionProbeScript(uids, this.opts.promoteClickables !== false, this.regionKey, this.guardKey),
+          args: uids,
+        }, "observation");
+      } catch (err) {
+        if (errorKindOf(err) === "transport") throw err;
+        // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
+        // unsupported node must not erase measurable main-page facts. Region IDs use the
+        // first candidate UID in a page-local WeakMap, so they survive batch boundaries.
+        if (batch.length > 1) {
+          const middle = Math.ceil(batch.length / 2);
+          await measure(batch.slice(0, middle));
+          await measure(batch.slice(middle));
+        } else {
+          this.unguarded.add(batch[0]!.uid);
+        }
+        return;
+      }
+      const reported = extractFirstJsonObject(reply) as Record<string, unknown> | undefined;
+      for (const uid of uids) {
+        const value = reported?.[uid];
+        if (!value || typeof value !== "object") { this.unguarded.add(uid); continue; }
+        const raw = value as Record<string, unknown>;
+        if (raw.referenceReady !== true) this.unguarded.add(uid);
+        const row: Partial<PageElement> = {};
+        if (typeof raw.inActivePopup === "boolean") row.inActivePopup = raw.inActivePopup;
+        if (typeof raw.occluded === "boolean") row.occluded = raw.occluded;
+        if (this.opts.promoteClickables !== false) {
+          if (typeof raw.clickable === "boolean") row.clickable = raw.clickable;
+          if (typeof raw.clickableRegion === "string") row.clickableRegion = raw.clickableRegion;
+        }
+        facts.set(uid, row);
+      }
+    };
+    await measure(rows);
+    return facts;
+  }
+
+  private startObservationGuard(): string {
+    return `() => {
+      const key = Symbol.for(${JSON.stringify(this.guardKey)});
+      globalThis[key]?.observer?.disconnect();
+      // Keep records rather than one page-wide invalidation bit. Validation protects the
+      // selected role cohort, then uses a fresh AX capture for indirect dependencies.
+      const state = { records: [], cohorts: new Map(), overflow: false, observer: undefined, retain: undefined };
+      state.retain = records => {
+        if (state.overflow) return;
+        // An expired observation may remain in the page until the next capture. Bound retained
+        // DOM references even when that page keeps mutating and the Driver performs no work.
+        if (state.records.length + records.length > 4096) {
+          state.overflow = true;
+          state.records.length = 0;
+          state.cohorts.clear();
+          state.observer.disconnect();
+          return;
+        }
+        state.records.push(...records);
+      };
+      state.observer = new MutationObserver(records => state.retain(records));
+      state.observer.observe(document, {
+        subtree: true, childList: true, characterData: true, attributes: true, attributeOldValue: true,
+      });
+      globalThis[key] = state;
+      globalThis[Symbol.for(${JSON.stringify(this.regionKey)})] = new WeakMap();
+      return {};
+    }`;
   }
 
   /** Labels of roleless `cursor:pointer` regions (#132), one per region (de-nested), capped.
@@ -451,7 +696,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.transport = undefined;
     this.closed = true;
     this.seenPages.clear();
-    this.snapshotCache = undefined;
+    this.invalidateObservation();
     this.initialUrl = undefined;
     this.lastRaw = undefined;
     this.lastClickable = undefined;
@@ -475,18 +720,208 @@ export class ChromeDevToolsDriver implements Driver {
     return { ...target, text: target.text ?? row.name, role: row.role, index, ...(nth >= 0 ? { nth } : {}) };
   }
 
-  private async resolveUid(target: Target): Promise<string> {
+  async locateRef(ref: string): Promise<Target> {
+    const row = await this.referenceRow(ref);
+    try {
+      // Replay starts with the compact pool. Capture it explicitly so the full-tree
+      // selection is re-anchored to current replay ordinals before freezing.
+      const raw = await this.call("take_snapshot");
+      const rows = parseSnapshotRows(raw);
+      const matches = rows.filter((candidate) => candidate.uid === row.uid);
+      if (matches.length !== 1 || matches[0]!.role !== row.role || matches[0]!.name !== row.name) {
+        throw stepError("resolution", "observation ref has no unchanged node in the compact snapshot — take a fresh snapshot");
+      }
+      const index = rows.filter((candidate) => candidate.role === row.role).findIndex((candidate) => candidate.uid === row.uid);
+      const dupes = rows.filter((candidate) => candidate.role === row.role && candidate.name.toLowerCase() === row.name.trim().toLowerCase());
+      const nth = dupes.length > 1 ? dupes.findIndex((candidate) => candidate.uid === row.uid) : undefined;
+      const target = { text: row.name, role: row.role, index, ...(nth !== undefined ? { nth } : {}) };
+      if (resolveTargetUid(rows, target) !== row.uid) {
+        throw stepError("resolution", "observation ref has no replayable compact locator — take a fresh snapshot");
+      }
+      // Capture awaited browser work: reject mutations, page changes, and superseded refs
+      // before returning a durable ordinal or publishing the compact cache.
+      await this.referenceRow(ref);
+      if (this.references.get(ref) !== row) {
+        throw stepError("resolution", "observation ref expired before publishing the compact locator");
+      }
+      this.snapshotCache = raw;
+      return target;
+    } catch (err) {
+      this.invalidateObservation();
+      throw err;
+    }
+  }
+
+  private async referenceRow(ref: string): Promise<SnapshotRow> {
+    const row = this.references.get(ref);
+    if (!row) throw stepError("resolution", "unknown or expired observation ref — take a fresh snapshot");
+    const page = await this.selectedPage();
+    if (page === undefined || page !== this.observedPage) {
+      this.invalidateObservation();
+      throw stepError("resolution", "observation ref expired: active page continuity is unavailable");
+    }
+    try {
+      // Include unnamed peers: role/index counts them as well. These are the captured
+      // backend nodes, never a search by text or a reconstruction of implicit ARIA roles.
+      const cohort = this.observedRows.filter(candidate => candidate.role === row.role);
+      const validateNodes = async (currentCohort?: SnapshotRow[]): Promise<{ connected?: unknown; revision?: unknown }> => {
+        const reply = await this.call("evaluate_script", {
+          function: `(selected, ...peers) => {
+            const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
+            if (!state?.observer || state.overflow) return { connected: false };
+            state.retain(state.observer.takeRecords());
+            if (state.overflow) return { connected: false };
+            const key = ${JSON.stringify(ref)};
+            let captured = state.cohorts.get(key);
+            if (!captured) {
+              if (${currentCohort !== undefined}) return { connected: false };
+              const ids = ${JSON.stringify(cohort.map(candidate => candidate.uid))};
+              if (peers.length !== ids.length) return { connected: false };
+              captured = new Map(ids.map((uid, index) => [uid, peers[index]]));
+              state.cohorts.set(key, captured);
+            }
+            // MCP's compact snapshot can discard verbose-only UID mappings. Retain original
+            // cohort DOM objects in this observation, but resolve the selected UID afresh
+            // and require that it is still the very same captured backend node.
+            const nodes = [...captured.values()];
+            // A verbose-only peer can receive a new UID after compact capture. Its fresh UID
+            // must resolve to the saved original DOM object at the same cohort position.
+            if (${currentCohort !== undefined} &&
+                (peers.length !== nodes.length || peers.some((node, index) => node !== nodes[index]))) {
+              return { connected: false };
+            }
+            const connected = selected === captured.get(${JSON.stringify(row.uid)}) &&
+              nodes.length > 0 && nodes.every(node =>
+                !!node && node.isConnected && node.getRootNode() === document);
+            if (!connected) return { connected: false };
+            const elements = nodes.map(node => node.nodeType === 3 ? node.parentElement : node);
+            const contains = (parent, child) => parent === child || parent.contains?.(child);
+            const inside = node => elements.some(element => contains(element, node));
+            const ancestor = node => elements.some(element => contains(node, element));
+            const tags = new Set(elements.filter(node => node.nodeType === 1).map(node => node.tagName));
+            const role = ${JSON.stringify(row.role)};
+            const couldJoinCohort = node => {
+              if (node.nodeType !== 1) return false;
+              // Matching a known cohort tag is conservative, not a tag-to-role calculator.
+              // Other ways of acquiring this role are checked in the fresh accessibility tree.
+              return [node, ...node.querySelectorAll('*')].some(element =>
+                tags.has(element.tagName) || (element.getAttribute('role') || '').split(/\\s+/).includes(role));
+            };
+            const affectsCohort = record => {
+              if (record.type === 'childList') {
+                if (inside(record.target)) return true;
+                return [...record.removedNodes].some(node => ancestor(node) || couldJoinCohort(node)) ||
+                  [...record.addedNodes].some(node => ancestor(node) || couldJoinCohort(node));
+              }
+              if (inside(record.target) || (record.type === 'attributes' && ancestor(record.target))) return true;
+              return record.type === 'attributes' && record.attributeName === 'role' &&
+                [record.oldValue || '', record.target.getAttribute('role') || ''].some(value => value.split(/\\s+/).includes(role));
+            };
+            return { connected: !state.records.some(affectsCohort), revision: state.records.length };
+          }`,
+          args: [row.uid, ...(currentCohort?.map(candidate => candidate.uid) ??
+            (this.capturedReferenceCohorts.has(ref) ? [] : cohort.map(candidate => candidate.uid)))],
+        }, "observation");
+        const result = extractFirstJsonObject(reply) as { connected?: unknown; revision?: unknown } | undefined;
+        if (result?.connected !== true) {
+          throw new Error("observed node or its positional cohort changed");
+        }
+        if (this.references.get(ref) !== row) throw new Error("observation superseded while retaining its cohort");
+        this.capturedReferenceCohorts.add(ref);
+        return result;
+      };
+      let validation = await validateNodes();
+      if (typeof validation.revision === "number" &&
+          validation.revision !== (this.validatedReferenceRevisions.get(ref) ?? 0)) {
+        // A sibling's CSS class or an external aria-labelledby target can change a node's
+        // accessibility without touching it. Ask the browser for semantics instead of
+        // implementing accessible-name/implicit-role inference in this DOM guard.
+        const projection = (rows: SnapshotRow[]) => rows
+          .filter(candidate => candidate.role === row.role)
+          .map(({ role, name }) => ({ role, name }));
+        const expected = JSON.stringify(projection(this.observedRows));
+        let stable = false;
+        // Bound verification work. This admits completed unrelated updates, including updates
+        // during compact capture, but still fails closed if every fresh AX capture overlaps
+        // another mutation. DOM locality alone cannot prove arbitrary CSS/ARIA effects harmless.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const raw = await this.call("take_snapshot", { verbose: true });
+          const refreshed = parseSnapshotRows(raw).filter(candidate => candidate.role === row.role);
+          if (JSON.stringify(projection(refreshed)) !== expected) {
+            throw new Error("observed accessibility cohort changed");
+          }
+          const after = await validateNodes(refreshed);
+          if (after.revision === validation.revision) {
+            validation = after;
+            stable = true;
+            break;
+          }
+          validation = after;
+        }
+        if (!stable) throw new Error("observation could not validate a stable accessibility cohort");
+        if (this.references.get(ref) !== row) throw new Error("observation superseded during accessibility validation");
+        this.validatedReferenceRevisions.set(ref, validation.revision as number);
+      }
+    } catch (err) {
+      this.invalidateObservation();
+      if (errorKindOf(err) === "transport") throw err;
+      throw stepError("resolution", `observation ref expired: ${err instanceof Error ? err.message : String(err)}`);
+    }
+    if (this.references.get(ref) !== row) {
+      throw stepError("resolution", "observation ref expired while validating the node");
+    }
+    return row;
+  }
+
+  private async actionUid(target: Target, ref?: string, refreshWatermark = false): Promise<string> {
+    return ref === undefined ? this.resolveUid(target, refreshWatermark) : (await this.referenceRow(ref)).uid;
+  }
+
+  private async selectedPage(): Promise<string | undefined> {
+    try {
+      // Include the URL as well as the tab ID: navigation can retain the selected tab.
+      return (await this.call("list_pages")).match(/^\s*(\d+:[^\n]*\[selected\])\s*$/m)?.[1];
+    } catch {
+      return undefined;
+    }
+  }
+
+  private invalidateObservation(): void {
+    this.references.clear();
+    this.validatedReferenceRevisions.clear();
+    this.capturedReferenceCohorts.clear();
+    this.unguarded.clear();
+    this.observedRows = [];
+    this.observedPage = undefined;
+    this.snapshotCache = undefined;
+  }
+
+  private async resolveUid(target: Target, refreshWatermark = false): Promise<string> {
+    let raw = await this.getSnapshot();
     for (let attempt = 0; ; attempt++) {
-      const rows = parseSnapshotRows(await this.getSnapshot());
+      const rows = parseSnapshotRows(raw);
       const uid =
         (target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined) ??
         (await this.resolveVisible(rows, target));
       if (uid) return uid;
       if (attempt >= RESOLVE_RETRIES) {
+        // Retries may outlive the compact nodes. A later decision must capture again,
+        // not dispatch a UID that an intervening render removed from MCP's latest mapping.
+        this.snapshotCache = undefined;
         throw stepError("resolution", describeResolutionMiss(rows, target));
       }
-      this.snapshotCache = undefined; // re-fetch — the element may render on a later frame
       await delay(RESOLVE_RETRY_MS);
+      // Refresh select's before-open watermark after changes during the retry wait.
+      // Capture compact BEFORE verbose: compact can retire verbose-only MCP UIDs,
+      // so the resolving capture must remain last before dispatch.
+      if (refreshWatermark) {
+        this.snapshotCache = undefined;
+        await this.getSnapshot();
+      }
+      // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
+      // compact snapshot even when present. Keep this retry local to resolution;
+      // the ordinary cache retains the compact pool, refreshed above for select.
+      raw = await this.call("take_snapshot", { verbose: true });
     }
   }
 

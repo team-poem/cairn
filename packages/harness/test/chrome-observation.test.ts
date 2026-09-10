@@ -49,7 +49,7 @@ test("chromeObservationExactNode: a duplicate ref enriches and clicks only its c
   expect(target).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
   await driver.click(target, ref);
   expect(calls.filter(c => c.name === "click")).toEqual([{ name: "click", args: { uid: "1_2" } }]);
-  expect(calls.filter(c => c.name === "take_snapshot")).toHaveLength(1);
+  expect(calls.filter(c => c.name === "take_snapshot")).toHaveLength(2);
   expect(JSON.stringify(target)).not.toContain(ref);
   await expect(driver.locateRef(ref)).rejects.toThrow(/ref|expired/i);
 });

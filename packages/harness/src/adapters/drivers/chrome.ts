@@ -665,10 +665,31 @@ export class ChromeDevToolsDriver implements Driver {
 
   async locateRef(ref: string): Promise<Target> {
     const row = await this.referenceRow(ref);
-    const index = this.observedRows.filter((candidate) => candidate.role === row.role).findIndex((candidate) => candidate.uid === row.uid);
-    const dupes = this.observedRows.filter((candidate) => candidate.role === row.role && candidate.name.trim().toLowerCase() === row.name.trim().toLowerCase());
-    const nth = dupes.length > 1 ? dupes.findIndex((candidate) => candidate.uid === row.uid) : undefined;
-    return { text: row.name, role: row.role, index, ...(nth !== undefined ? { nth } : {}) };
+    try {
+      // Replay starts with the compact pool. Fetch it explicitly: the ordinary cache may
+      // contain a full-tree resolution retry, whose duplicate ordinals cannot be frozen.
+      const raw = await this.call("take_snapshot");
+      const rows = parseSnapshotRows(raw);
+      const matches = rows.filter((candidate) => candidate.uid === row.uid);
+      if (matches.length !== 1 || matches[0]!.role !== row.role || matches[0]!.name !== row.name) {
+        throw stepError("resolution", "observation ref has no unchanged node in the compact snapshot — take a fresh snapshot");
+      }
+      const index = rows.filter((candidate) => candidate.role === row.role).findIndex((candidate) => candidate.uid === row.uid);
+      const dupes = rows.filter((candidate) => candidate.role === row.role && candidate.name.toLowerCase() === row.name.trim().toLowerCase());
+      const nth = dupes.length > 1 ? dupes.findIndex((candidate) => candidate.uid === row.uid) : undefined;
+      const target = { text: row.name, role: row.role, index, ...(nth !== undefined ? { nth } : {}) };
+      if (resolveTargetUid(rows, target) !== row.uid) {
+        throw stepError("resolution", "observation ref has no replayable compact locator — take a fresh snapshot");
+      }
+      // Capture awaited browser work: reject mutations, page changes, and superseded refs
+      // before returning a durable ordinal or publishing the compact cache.
+      await this.referenceRow(ref);
+      this.snapshotCache = raw;
+      return target;
+    } catch (err) {
+      this.invalidateObservation();
+      throw err;
+    }
   }
 
   private async referenceRow(ref: string): Promise<SnapshotRow> {

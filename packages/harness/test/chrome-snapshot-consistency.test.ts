@@ -88,3 +88,20 @@ test("chromePerceptionSelectWatermark: a verbose-only closed option becomes sele
   await driver.select({ text: "Size", role: "combobox" }, "Medium");
   expect(clicks).toEqual(["1_1", "1_3"]);
 });
+
+test("chromeReferenceFreezeReplayIdentity: a captured duplicate ref freezes a locator that replays the same node across capture pools", async () => {
+  const discovery = chromeSnapshotFixture(duplicatePoolTree);
+  const observed = await discovery.driver.snapshot({ perception: true });
+  const ref = observed[1]?.ref;
+  expect(ref).toBeTypeOf("string");
+  const target = await discovery.driver.locateRef(ref!);
+  await discovery.driver.click(target, ref!);
+  expect(discovery.clicks).toEqual(["1_2"]);
+
+  const frozen = JSON.parse(JSON.stringify(target)) as Target;
+  expect(Object.keys(frozen).every(key => ["text", "role", "index", "nth", "selector"].includes(key))).toBe(true);
+  expect(JSON.stringify(frozen)).not.toContain(ref!);
+  const replay = chromeSnapshotFixture(duplicatePoolTree);
+  await replay.driver.click(frozen);
+  expect(replay.clicks).toEqual(["1_2"]);
+});

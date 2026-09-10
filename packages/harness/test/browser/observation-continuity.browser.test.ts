@@ -109,3 +109,19 @@ test("observationClockChangesDuringCompactCapture: repeated incidental updates d
     expect(clicks).toEqual(Array(6).fill("second"));
   });
 });
+
+test("observationUnrelatedStructuralChanges: inserting or replacing decorative siblings preserves exact identity and role ordinals", async () => {
+  for (const mutation of [
+    "document.querySelector('#spinner').appendChild(document.createElement('span'))",
+    "document.querySelector('#lazy').replaceWith(document.querySelector('#lazy').cloneNode(true))",
+  ]) {
+    await withContinuityPage(async ({ page, driver, clicks }) => {
+      const ref = await secondSaveRef(driver);
+      await page.evaluate(mutation);
+      const target = await driver.locateRef(ref);
+      expect(target).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
+      await driver.click(target, ref);
+      expect(clicks).toEqual(["second"]);
+    });
+  }
+});

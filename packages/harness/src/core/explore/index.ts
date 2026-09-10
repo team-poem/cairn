@@ -174,7 +174,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     }
 
     const reply = await llm.complete(
-      [buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl), page.references].filter(Boolean).join("\n\n"),
+      buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references),
       { system: EXPLORE_SYSTEM },
     );
 

@@ -27,6 +27,7 @@ export function buildExplorePrompt(
   visited: readonly string[],
   findings: readonly Finding[],
   currentUrl?: string,
+  references?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -65,6 +66,7 @@ export function buildExplorePrompt(
     ``,
     `Interactive elements now on the page:`,
     elementsBlock,
+    ...(references ? [``, references] : []),
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

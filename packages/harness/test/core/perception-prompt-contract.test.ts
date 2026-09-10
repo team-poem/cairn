@@ -172,3 +172,19 @@ it("referenceTableDeclaresTruncation: the ref table reports candidates omitted b
   const uncut = new PerceptionObservation(driver, driver.els, driver.els, "choose", 61);
   expect(uncut.references).not.toMatch(/more elements? not shown/);
 });
+
+it("pageDataPrecedesFinalActionInstruction: both loop requests end with the instruction after current reference data on every turn", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const marker = "PAGE_DATA_LAST_ROW_221";
+    const driver = new PromptRefDriver([{ role: "button", name: marker, ref: "node-save" }]);
+    const llm = new PromptRecordingLlm((_prompt, turn) => turn === 1 ? '{"action":"pressKey","key":"Escape"}' : '{"action":"done"}');
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.prompts).toHaveLength(2);
+    for (const prompt of llm.prompts) {
+      expect(prompt.trimEnd().endsWith("What is the single next action? Respond with JSON only.")).toBe(true);
+      expect(prompt.lastIndexOf(marker)).toBeLessThan(prompt.lastIndexOf("What is the single next action?"));
+      expect(promptRef(prompt)).toBeTruthy();
+    }
+    expect(promptRef(llm.prompts[0]!)).not.toBe(promptRef(llm.prompts[1]!));
+  }
+});

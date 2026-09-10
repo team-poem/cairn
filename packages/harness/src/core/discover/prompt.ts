@@ -129,6 +129,7 @@ export function buildPrompt(
   steps: Step[],
   failures: string[],
   currentUrl?: string,
+  references?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -156,6 +157,7 @@ export function buildPrompt(
     ``,
     `Interactive elements now on the page:`,
     elementsBlock,
+    ...(references ? [``, references] : []),
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

@@ -180,3 +180,16 @@ it("exploreTailCaptureFailureIsDiagnosed: invalid final outcome capture is visib
   expect(diagnosticGates(events)).toHaveLength(1);
   expect(diagnosticGates(events)[0]).toMatchObject({ phase: "explore", payload: { gate: "perception-binding" } });
 });
+
+it("outcomeHealBindingGatesKeepHealPhase: rediscovery diagnostics preserve the caller's phase and case correlation", async () => {
+  const driver = new DiagnosticDriver();
+  const { events, scope } = diagnosticTrace();
+  let captures = 0;
+  const llm = new DiagnosticLlm(() => '{"action":"click","ref":"forged"}');
+  await discover("save", { driver, llm, trace: scope, tracePhase: "heal", maxSteps: 2,
+    perceive: rows => ++captures === 1 ? rows.map(row => ({ ...row, role: "link" })) : rows });
+  const gates = diagnosticGates(events);
+  expect(gates.map(gate => gate.payload.gate)).toEqual(["perception-binding", "reference-binding"]);
+  for (const gate of gates) expect(gate).toMatchObject({ phase: "heal", caseRef: "diagnostic-case" });
+  expect(driver.refs).toEqual([]);
+});

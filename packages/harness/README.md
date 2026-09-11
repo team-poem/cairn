@@ -16,7 +16,7 @@ An AI walks your app once to discover the flow and freezes it to plain JSON. Fro
 
 > A cairn is a stack of stones that marks a trail. It is built once, so the path can be found again. That is the whole idea: find the path once, follow the marker forever, rebuild it when the trail shifts.
 
-cairn is an engine, not a product. The core is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
+cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
 
 Six login → cart → order runs: **42 LLM calls → 7 per model**, with zero calls on the five replays. [Benchmark details](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/228-codex.md).
 
@@ -77,13 +77,14 @@ if (!result.verdict.passed) process.exit(1)
 
 | Doc | What it covers |
 | --- | --- |
-| [User guide](https://github.com/team-poem/cairn/blob/main/docs/guide.md) | CLI, library, suites, explore, skill files, traces, extension points, FAQ |
-| [Design](https://github.com/team-poem/cairn/blob/main/docs/design.md) | the full design, end to end |
-| [The loop](https://github.com/team-poem/cairn/blob/main/spec/core/the-loop.md) | why discover, freeze, replay, heal |
-| [Surgical heal](https://github.com/team-poem/cairn/blob/main/spec/core/surgical-heal.md) | per-step divergence detection and repair |
-| [Targeting](https://github.com/team-poem/cairn/blob/main/spec/core/targeting.md) | multi-locator targets that survive redesigns |
-| [Judgment](https://github.com/team-poem/cairn/blob/main/spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
-| [Trace](https://github.com/team-poem/cairn/blob/main/spec/core/trace.md) | the versioned trace event contract |
+| [`docs/guide.md`](https://github.com/team-poem/cairn/blob/main/docs/guide.md) | the user guide: CLI, library, suites, explore, skill files, traces, extension points, FAQ |
+| [`docs/design.md`](https://github.com/team-poem/cairn/blob/main/docs/design.md) | the full design, end to end |
+| [`spec/core/the-loop.md`](https://github.com/team-poem/cairn/blob/main/spec/core/the-loop.md) | why discover, freeze, replay, heal |
+| [`spec/core/surgical-heal.md`](https://github.com/team-poem/cairn/blob/main/spec/core/surgical-heal.md) | per-step divergence detection and repair |
+| [`spec/core/targeting.md`](https://github.com/team-poem/cairn/blob/main/spec/core/targeting.md) | multi-locator targets that survive redesigns |
+| [`spec/core/judgment.md`](https://github.com/team-poem/cairn/blob/main/spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
+| [`spec/core/trace.md`](https://github.com/team-poem/cairn/blob/main/spec/core/trace.md) | the versioned trace event contract |
+| [`spec/core/secrets.md`](https://github.com/team-poem/cairn/blob/main/spec/core/secrets.md) | `{name}` secrets: filled at run time, scoped to a site, never frozen |
 
 ## LLM backends
 
@@ -103,7 +104,7 @@ If your model is not supported, implement the `LlmClient` port or open an [issue
 
 ## Contributing
 
-cairn takes pull requests. See [CONTRIBUTING.md](https://github.com/team-poem/cairn/blob/main/CONTRIBUTING.md) for the workflow.
+cairn takes pull requests. See [`CONTRIBUTING.md`](https://github.com/team-poem/cairn/blob/main/CONTRIBUTING.md) for the workflow (Conventional Commits, an issue link per PR, the `spec/architecture.md` invariants).
 
 ## License
 

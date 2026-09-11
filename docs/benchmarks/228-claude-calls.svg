@@ -1,10 +1,10 @@
 <svg width="1200" height="260" viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">Codex: 42 LLM calls versus 7 over six checkout runs</title>
-  <desc id="desc">Sol · Terra · Luna. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model totals, not a sum or average across models. Totals summed from the recorded runs. Both provider charts use the same zero-based scale.</desc>
+  <title id="title">Claude: 42 LLM calls versus 7 over six checkout runs</title>
+  <desc id="desc">Sonnet 5 · Opus 5. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model totals, not a sum or average across models. Totals reported in the PR author's original README. Both provider charts use the same zero-based scale.</desc>
   <rect width="1200" height="260" rx="20" fill="#0b1019"/>
   <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-    <text x="40" y="49" fill="#ffffff" font-size="30" font-weight="600">Codex</text>
-    <text x="40" y="80" fill="#8fa0b8" font-size="20">Sol · Terra · Luna</text>
+    <text x="40" y="49" fill="#ffffff" font-size="30" font-weight="600">Claude</text>
+    <text x="40" y="80" fill="#8fa0b8" font-size="20">Sonnet 5 · Opus 5</text>
     <text x="1160" y="52" text-anchor="end" fill="#8fa0b8" font-size="21">LLM calls / model · 6 runs</text>
     <line x1="310" y1="105" x2="310" y2="231" stroke="#8fa0b8"/>
     <text x="40" y="144" fill="#dce4ef" font-size="24">Discover every run</text>

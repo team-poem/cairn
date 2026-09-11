@@ -18,13 +18,13 @@ An AI walks your app once to discover the flow and freezes it to plain JSON. Fro
 
 cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
 
-Across six runs of a local login → cart → order journey, each of the five tested models used **42 LLM calls when discovering every run, and 7 when discovering once and replaying**. The five replays made no LLM calls. Sonnet 5 and Opus 5 were measured in the original PR; Sol, Terra, and Luna reproduced the call-count result below.
+Six login → cart → order runs: **42 LLM calls → 7 per model**, with zero calls on the five replays. [Benchmark details](docs/benchmarks/228-codex.md).
 
-When controls were renamed on run 4, multi-locator targeting kept the frozen scenarios passing. Self-heal repairs changes those locators cannot absorb; it did not fire in these measurements, so repair cost and success rate remain [unmeasured](https://github.com/team-poem/cairn/issues/230).
+Multi-locator targeting survived the label changes. Self-heal handles changes it cannot absorb; that repair remains [unmeasured](https://github.com/team-poem/cairn/issues/230).
 
-[Benchmark details](docs/benchmarks/228-codex.md) include the schedule, all three journeys, token counts, and separate provider cost tables. These local fixtures measure the effect of replay within each model, and do not establish a model price or quality ranking.
+![Claude — Sonnet 5 and Opus 5 each used 42 LLM calls for six discoveries versus 7 for one discovery and five replays.](docs/benchmarks/228-claude-calls.svg)
 
-![Cumulative LLM calls over six checkout runs: discover every run rises from 7 to 42; discover once and replay stays at 7. Sol, Terra, and Luna each produced this same trace.](docs/benchmarks/228-calls.svg)
+![Codex — Sol, Terra and Luna each used 42 LLM calls for six discoveries versus 7 for one discovery and five replays.](docs/benchmarks/228-calls.svg)
 
 ## Features
 

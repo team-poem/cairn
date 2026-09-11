@@ -30,13 +30,16 @@ and replaying reaches $0.046, crossing over on run two](docs/cost.svg)
 | --- | ---: | ---: |
 | Sonnet 5 | $0.269 · 42 calls | $0.046 · 7 calls |
 | Opus 5 | $0.463 · 42 calls | $0.077 · 7 calls |
-| GPT-5.6 Sol | 506,120 tokens · 42 calls | 84,088 tokens · 7 calls |
-| GPT-5.6 Terra | 504,711 tokens · 42 calls | 83,956 tokens · 7 calls |
-| GPT-5.6 Luna | 448,690 tokens · 42 calls | 74,978 tokens · 7 calls |
+| GPT-5.6 Sol | ~$1.1513 · 42 calls | ~$0.1502 · 7 calls |
+| GPT-5.6 Terra | ~$0.3788 · 42 calls | ~$0.0566 · 7 calls |
+| GPT-5.6 Luna | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
 
 Claude rows show provider-reported API list-price equivalents, including the CLI's helper model.
-They are not extra subscription charges. Codex CLI 0.146.0 reported no dollar cost, so its rows show
-billed token counts. No dollar conversion or cost crossover is claimed for Codex.
+Codex rows marked `~` are estimates from recorded input, cache, and output tokens using
+[OpenAI Standard short-context API rates](https://developers.openai.com/api/docs/pricing) checked on
+2026-09-11. The CLI reported no dollar cost or service tier; Standard pricing is an assumption.
+Neither provider's figures represent extra subscription charges. Token breakdowns and the reproducible
+conversion are in the detailed results; no Codex dollar crossover is claimed.
 
 The full Codex measurement covers navigation, form saving, and checkout with Sol, Terra, and Luna
 at medium reasoning effort: **108 attempts passed; all 45 replays made zero LLM calls**.

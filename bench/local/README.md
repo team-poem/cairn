@@ -124,8 +124,8 @@ Codex CLI is also supported with an explicit call-only budget:
 `budgetMode: "calls"` requires `maxCalls` and forbids `maxCostUsd`: it limits
 completion calls, not money. Codex CLI 0.146.0 reports usage but no dollar cost;
 the ledger retains unknown cost while this explicitly selected mode continues.
-Reports show unknown money and withhold dollar crossovers and SVGs. No API price
-is inferred from a subscription run. Codex runs in a fresh temporary directory
+Reports show unknown money and withhold dollar crossovers and SVGs. The runner
+does not infer API prices from a subscription run. Codex runs in a fresh temporary directory
 with user configuration, project instructions, shell tools, web search, and
 session persistence disabled. The adapter accepts JSONL terminal results, keeps
 reported usage on process failures, propagates cancellation, and times out each
@@ -173,7 +173,8 @@ add a model, so the rows stay comparable, and change only the `model` and the sp
 `cost.gpt-5.6-sol.json`, `cost.gpt-5.6-terra.json`, and `cost.gpt-5.6-luna.json`
 keep that fixture and latency schedule and select Codex with medium reasoning and
 a 160-call limit. Their [measured results and recorded data](../../docs/benchmarks/228-codex.md)
-report tokens and calls; the CLI did not report dollars. A call is a benchmark
+retain tokens and calls and separately publish dated Standard API-price estimates;
+the CLI did not report dollars. A call is a benchmark
 completion invocation, not a count of provider-internal requests or reconnects.
 
 `--runs` must equal the number of entries in `fixtureVersions`. The shipped
@@ -213,7 +214,9 @@ carried forward, and the crossover: the first run where the cairn arm has cost
 less and stayed there. A token total counts every billed field, cache
 creation included, and reads as a lower bound once a call reported no usage or
 reported only some of those fields. It is a count, and the runner records no
-per-model price, so a dollar figure cannot be derived from it. A tie is not a crossing.
+per-model price, so the total alone cannot determine a dollar figure. A separate
+publication calculation requires disjoint token buckets and explicit model rates.
+A tie is not a crossing.
 
 One CLI call can bill more than one model: the tool runs a small helper model
 of its own beside the model under test. An arm's cost column is everything the

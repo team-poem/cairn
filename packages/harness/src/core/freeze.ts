@@ -5,6 +5,7 @@
  * warning at freeze time lets the author strengthen weak targets up front, lowering the self-heal
  * trigger rate. Pure — no I/O, no LLM (invariant #4).
  */
+import { proofOf } from "./pipeline.js";
 import type { Scenario, Step, Target } from "./types.js";
 import type { TraceEvent } from "./trace.js";
 
@@ -117,9 +118,9 @@ export function guessedKeyRuns(scenario: Scenario): GuessedKeyRun[] {
  * loud direction and is left as is.
  */
 export function provesAnAction(scenario: Scenario): boolean {
-  return scenario.assertions.some(
-    (a) => (a.kind === "request-status" || a.kind === "custom") && a.vacuous !== true,
-  );
+  // One predicate, two readers: the #184 gate here and the green's grade (#197) share `proofOf`,
+  // so "proves the action" can never mean two things.
+  return proofOf(scenario.assertions).grade === "work";
 }
 
 /** Did the freeze keep a semantic criterion? Judged by an LLM at replay, never grounded here. */

@@ -6,15 +6,19 @@
  * Module layout: prompt (LLM surface) · decision (Decision→Step + shared execution) ·
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
+import { PerceptionObservation } from "../observation.js";
+import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt, renderRankedElements } from "./prompt.js";
+import { SYSTEM, buildPrompt } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
-import { assignStepExpects, observeOutcomes } from "./capture.js";
+import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
+import { missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
+import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
-import { deriveAssertions, findUnprovenAction, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -50,6 +54,9 @@ export interface DiscoverOptions {
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
+  /** Values for `{name}` placeholders the model types (from the intent, e.g. "log in as {user} / {password}"):
+   * the driver gets the value, the freeze keeps the placeholder (#174). */
+  secrets?: Secrets;
   /** Per-event trace scope (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
   /** Phase stamped on this discovery's events: "discover" normally, "heal" when it IS the
@@ -62,21 +69,36 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes } = opts;
+  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
 
-  // Emit the freeze: wait out any still-in-flight mutation, assign per-step expects retroactively,
-  // then propose+ground assertions. `truncated` marks a step-cap stop.
+  // Emit the freeze: observe pending mutations and short post-response redirects within one
+  // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
     // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
-    const evidence = await observeOutcomes(driver, firstCount);
+    const evidence = await observeOutcomes(driver, firstCount, marks, benign);
+    // Before expects are assigned: indices shift, and a pruned scroll's (empty) tail folds into
+    // the step that follows it. Each prune is a gate firing, not silence — the trace names the
+    // original index so a viewer can reconcile it with the `action` events already emitted.
+    for (const { index, step } of pruneIdleScrolls(steps, marks, evidence, benign)) {
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        stepRef: index,
+        payload: {
+          gate: "idle-scroll",
+          action: `scroll ${step.kind === "scroll" ? step.direction ?? "down" : ""}`.trim(),
+          reason: "no requests fired and the next target was already present, so replay does not need it",
+        },
+      });
+    }
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
@@ -86,15 +108,18 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
     );
-    const assertions = markVacuous(grounded, baseline, benign, { localePrefixes });
+    const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
     // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
     const wrote = (v: string | undefined) => v?.split("/").includes("*") ?? false;
     const wildcards =
-      assertions.some((a) => a.kind === "navigated" && wrote(a.to)) ||
+      baselineMarked.some((a) => a.kind === "navigated" && wrote(a.to)) ||
       steps.some((step) => wrote(step.expect?.url))
         ? { wildcards: true as const }
         : {};
+    const assertions = markObservedBeforeLastMutation(baselineMarked, marks, evidence, {
+      localePrefixes, benign, ...wildcards,
+    });
     // Record an action the freeze could not express a check for — advisory for now (see
     // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
     const unprovenRequest = findUnprovenAction(evidence, assertions, {
@@ -138,24 +163,40 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
   const pushFailure = (line: string): void => {
     if (!failures.includes(line)) failures.push(line);
   };
-  let prevRender = "";
   let consecutiveBlocks = 0;
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
-    const raw = await driver.snapshot();
-    const elements = perceive ? await perceive(raw) : raw;
+    const raw = await driver.snapshot({ perception: true });
+    const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
+    let page: PerceptionObservation;
+    try {
+      page = new PerceptionObservation(driver, raw, elements, intent);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      // Keep raw page content and rejected references out of the diagnostic stream.
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
+      pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
+      continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
+    }
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
-    const render = renderRankedElements(elements, intent);
-    const reply = await llm.complete(buildPrompt(intent, render, prevRender, steps, failures, currentUrl), {
+    const render = page.render;
+    const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
       system: SYSTEM,
     });
-    prevRender = render;
 
     let decision: Decision;
     try {
       decision = parseDecision(reply);
+      // A literal secret the model echoed becomes its `{name}` here, before the ambiguity and
+      // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
+      // below hands out this object, so it is sanitized once, at the source.
+      if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({
@@ -164,6 +205,19 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "parse-retry", reason: "reply was not a single valid JSON action object" },
       });
       pushFailure("your previous reply was not a single valid JSON action object");
+      continue;
+    }
+
+    try {
+      decision = page.bind(decision);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
+      });
+      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
       continue;
     }
 
@@ -219,8 +273,12 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       const mark: OutcomeMark = {
         url: beforeObs.execution.finalUrl,
         requestCount: beforeObs.logic.requests.length,
+        // Only a scroll needs its pre-step snapshot kept: the freeze asks whether the targets after
+        // it were already there (#177). Raw answers presence (what the driver locates against); the
+        // perceived list, when a hook exists, answers usability (the state it was installed to fix).
+        ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision);
+      const step = await applyDecision(driver, decision, secrets);
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -234,6 +292,9 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
       });
       onStep?.(decision, step);
     } catch (err) {
+      // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
+      // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
+      if (missingSecretOf(err) !== undefined) throw err;
       trace?.emit({
         kind: "action",
         phase: tracePhase,

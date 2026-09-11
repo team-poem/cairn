@@ -6,7 +6,11 @@
  */
 import type { CustomAction, Driver, StepHandler } from "./ports.js";
 import type { Step, WaitUntil } from "./types.js";
+import type { RequestMatchOptions } from "./requests.js";
 import { findRequestStatus } from "./requests.js";
+import { stepError } from "./errors.js";
+import { assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
+import type { Secrets } from "./secrets.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -30,6 +34,11 @@ export interface UrlMatchOptions {
   /** First-path-segment prefixes treated as locales in the stripping fallback.
    * Default: `DEFAULT_LOCALE_PREFIXES`. Pass `[]` to disable the fallback. */
   localePrefixes?: readonly string[];
+}
+
+/** Matching scope shared by explicit waits and per-step post-conditions. */
+export interface ConditionMatchOptions extends UrlMatchOptions {
+  requestMatch?: RequestMatchOptions;
 }
 
 interface HostPath {
@@ -108,32 +117,88 @@ export function urlReached(finalUrl: string, want: string, opts: UrlMatchOptions
   return boundaryMatch(strippedDest, strippedWant, wildcards);
 }
 
+/**
+ * Why a destination miss may be configuration rather than the app (#204): the one leading path
+ * segment that, added to `localePrefixes`, would have made `finalUrl` reach `want`. A frozen
+ * `shop.co/settings` against a run landing on `shop.co/de/settings` returns `"de"`; the frozen side
+ * is tried too (`shop.co/fr/settings` against `shop.co/settings` returns `"fr"`), and both are
+ * probed after the configured prefixes are stripped, so a skill frozen under `/en/` and replayed
+ * under `/de/` still names `"de"`. Three refusals keep it off real regressions: the stripped side
+ * must keep a path (a run bounced to the host root is not "missing a prefix"), a wildcard is never
+ * a prefix, and one segment only (a mount plus a locale is not guessed at). Advisory: `urlReached`
+ * alone decides the verdict.
+ */
+export function unrecognizedLeadingSegment(
+  finalUrl: string,
+  want: string,
+  opts: UrlMatchOptions = {},
+): string | undefined {
+  if (urlReached(finalUrl, want, opts)) return undefined;
+  const prefixes = opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES;
+  const wildcards = opts.wildcards ?? false;
+  const dest = stripLocale(splitHostPath(finalUrl), prefixes);
+  const w = stripLocale(splitHostPath(want), prefixes);
+  const candidate = (side: HostPath, other: HostPath, sideIsWant: boolean): string | undefined => {
+    const first = side.segs[0];
+    if (first === undefined || side.segs.length < 2 || (wildcards && first === WILDCARD)) return undefined;
+    const rest = { host: side.host, segs: side.segs.slice(1) };
+    const hit = sideIsWant ? boundaryMatch(other, rest, wildcards) : boundaryMatch(rest, other, wildcards);
+    return hit ? first : undefined;
+  };
+  return candidate(dest, w, false) ?? candidate(w, dest, true);
+}
+
 /** Handles cairn's built-in step vocabulary — every kind except product-defined `custom`. */
 export class BuiltinStepHandler implements StepHandler {
+  constructor(
+    private readonly secrets: Secrets = {},
+    private readonly urlMatch: ConditionMatchOptions = {},
+  ) {}
+
   supports(step: Step): boolean {
     return step.kind !== "custom";
   }
 
-  async execute(step: Step, driver: Driver): Promise<void> {
+  async execute(step: Step, driver: Driver, ref?: string, validateReference?: () => void): Promise<void> {
     switch (step.kind) {
       case "goto":
         return driver.goto(step.url);
       case "click":
-        return driver.click(step.target);
+        validateReference?.();
+        return driver.click(step.target, ref);
       case "doubleClick":
-        return driver.doubleClick(step.target);
+        validateReference?.();
+        return driver.doubleClick(step.target, ref);
       case "hover":
-        return driver.hover(step.target);
-      case "type":
-        return driver.type(step.target, step.text);
+        validateReference?.();
+        return driver.hover(step.target, ref);
+      case "type": {
+        // A `{name}` is filled for the driver only; the step (and so the skill, the trace, the
+        // progress event) keeps the placeholder. The page is observed only when there is one to
+        // fill, since a scoped secret is refused off its origin (#174).
+        // The ONE place a placeholder is filled. A text with only `{{escapes}}` still goes through
+        // `fillSecrets` so the literal braces come out; the page is observed only when a real
+        // placeholder needs scoping.
+        if (!mayCarryScopedSecret(step.text, this.secrets)) {
+          const output = fillSecrets(step.text, this.secrets);
+          validateReference?.();
+          return driver.type(step.target, output, ref);
+        }
+        const pageUrl = (await driver.observe()).execution.finalUrl;
+        const output = fillSecrets(step.text, this.secrets, pageUrl);
+        assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
+        validateReference?.();
+        return driver.type(step.target, output, ref);
+      }
       case "select":
-        return driver.select(step.target, step.value);
+        validateReference?.();
+        return driver.select(step.target, step.value, ref);
       case "pressKey":
         return driver.pressKey(step.key);
       case "scroll":
         return driver.scroll(step.direction);
       case "waitFor":
-        return waitForCondition(driver, step.until, step.timeoutMs);
+        return waitForCondition(driver, step.until, step.timeoutMs, this.urlMatch);
       case "custom":
         // Owned by CustomStepHandler; reaching here means a handler-ordering bug, not bad input.
         throw new Error(`built-in handler received custom step "${step.name}"`);
@@ -157,14 +222,18 @@ export class CustomStepHandler implements StepHandler {
   async execute(step: Step, driver: Driver): Promise<void> {
     if (step.kind !== "custom") throw new Error(`custom handler received "${step.kind}" step`);
     const action = this.actions[step.name];
-    if (!action) throw new Error(`no handler registered for custom action "${step.name}"`);
+    if (!action) throw stepError("handler", `no handler registered for custom action "${step.name}"`);
     await action(driver, step.params ?? {});
   }
 }
 
 /** The engine's default Execute-stage chain: built-ins first, then product `custom` actions. */
-export function defaultStepHandlers(actions: Record<string, CustomAction> = {}): StepHandler[] {
-  return [new BuiltinStepHandler(), new CustomStepHandler(actions)];
+export function defaultStepHandlers(
+  actions: Record<string, CustomAction> = {},
+  secrets: Secrets = {},
+  urlMatch: ConditionMatchOptions = {},
+): StepHandler[] {
+  return [new BuiltinStepHandler(secrets, urlMatch), new CustomStepHandler(actions)];
 }
 
 /**
@@ -177,9 +246,10 @@ export async function waitForCondition(
   driver: Driver,
   until: WaitUntil,
   timeoutMs = WAIT_TIMEOUT_MS,
+  urlMatch: ConditionMatchOptions = {},
 ): Promise<void> {
-  if (!(await pollCondition(driver, until, timeoutMs))) {
-    throw new Error(`waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
+  if (!(await pollCondition(driver, until, timeoutMs, { urlMatch }))) {
+    throw stepError("timeout", `waitFor timed out after ${timeoutMs}ms: ${JSON.stringify(until)}`);
   }
 }
 
@@ -195,7 +265,7 @@ export interface PollOptions {
    * per-step watermark, so an earlier step's request can't satisfy this step's post-condition. */
   sinceRequestIndex?: number;
   /** Consumer-injected URL-matching knobs (locale prefixes) for `until.url` (#86). */
-  urlMatch?: UrlMatchOptions;
+  urlMatch?: ConditionMatchOptions;
 }
 
 export async function pollCondition(
@@ -219,7 +289,7 @@ export async function conditionMet(
   driver: Driver,
   until: WaitUntil,
   sinceRequestIndex = 0,
-  urlMatch: UrlMatchOptions = {},
+  urlMatch: ConditionMatchOptions = {},
 ): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
     const { execution, logic } = await driver.observe();
@@ -228,7 +298,7 @@ export async function conditionMet(
       const { urlIncludes, status, method } = until.requestStatus;
       // Same predicate as the request-status assertion (core/requests.ts) — the step watermark
       // is applied by slicing the cumulative log before matching.
-      if (!findRequestStatus(logic.requests.slice(sinceRequestIndex), urlIncludes, status, method)) {
+      if (!findRequestStatus(logic.requests.slice(sinceRequestIndex), urlIncludes, status, method, urlMatch.requestMatch)) {
         return false;
       }
     }

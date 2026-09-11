@@ -1,0 +1,17 @@
+{
+  "name": "cairn-quickstart",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "^20.19.0 || ^22.12.0 || >=23" },
+  "scripts": {
+    "discover:scripted": "tsx quickstart.agentic.ts discover:scripted",
+    "discover": "tsx quickstart.agentic.ts discover",
+    "freeze": "tsx quickstart.agentic.ts freeze",
+    "replay": "tsx quickstart.agentic.ts replay",
+    "replay:broken": "tsx quickstart.agentic.ts replay:broken",
+    "typecheck": "tsc --noEmit",
+    "verify": "node verify.mjs"
+  },
+  "dependencies": { "cairn-engine": "^2.8.0" },
+  "devDependencies": { "@types/node": "^22.0.0", "tsx": "^4.19.0", "typescript": "^5.6.0" }
+}

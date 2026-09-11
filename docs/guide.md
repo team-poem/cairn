@@ -50,7 +50,7 @@ That middle column has a name now: agentic testing. Agent-authored, agent-healed
 Measured, not claimed. A real multi-step checkout, via cairn's [`bench/`](../bench):
 
 - 4/4 deterministic replays, 0 LLM calls on replay
-- discovery costs about $0.50 once, then every replay after is $0 (a full LLM agent runs about $15 to $30 per run)
+- discovery costs about $0.50 once, then every replay after is $0
 - a renamed button broke hand-written selectors, and cairn healed it and stayed green
 
 ## The loop
@@ -70,13 +70,15 @@ You need Node 20 or later, Chrome, and a model: an `ANTHROPIC_API_KEY`, `OPENAI_
 npm install -g cairn-engine
 
 cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
-cairn replay cart.skill.json            # deterministic, exit 1 on failure, a ready CI gate
+cairn replay cart.skill.json            # deterministic; exit 1 flow broke · 3 script aged · 4 environment (retry, or fix the setup)
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 
 Long flows and slow apps have knobs. `discover --max-steps=30` raises the exploration step cap, and `replay --expect-timeout=5000` gives a step's post-condition more time (ms) before it counts as diverged. These are the CLI names for the library's `maxSteps` and `expectTimeoutMs`.
 
 `discover --semantic` lets the freeze carry LLM-judged `expect` checks for outcomes no mechanical assertion captures. The trade-off is that replay then needs an LLM critic for those checks (everything else stays deterministic), so leave it off unless you need it.
+
+To replay an existing freeze against another origin, pair `--base-url` with `--allowed-hosts`. The [replay environment guide](replay-environments.md) covers the library option, suite cache reuse, and temporary healing.
 
 ## Explore it: a freeze-less UX survey
 
@@ -148,7 +150,7 @@ Hand cairn your QA cases, natural-language intents plus your own success criteri
 ```
 
 ```sh
-cairn suite cases.json --skills ./skills --report suite.md   # exit 1 if any case fails
+cairn suite cases.json --skills ./skills --report suite.md   # exit 1 · 3 · 4 by the worst failure class
 ```
 
 A healed case is re-frozen so the next run is clean again. A truncated discovery fails closed (nothing frozen, nothing trusted). From the library, `runSuite(cases, opts)` returns per-case verdicts plus whole-suite LLM usage, and `renderSuiteReport(result)` renders the markdown summary.
@@ -262,9 +264,24 @@ cairn is made to be built on, not scattered across your service as test code. A 
 
 You can call `runScenario` straight from a test file. Nothing stops you. But that is not the point: cairn is not a Jest or Playwright you write service tests in. It is the engine those kinds of tools are built from.
 
+## Secrets
+
+A `type` step's text can carry `{name}` placeholders. The run fills them for the driver and the skill keeps the placeholder, so a discovered login never commits the password:
+
+```sh
+cairn discover "log in as {user} with {password}, then open the cart" --url=https://your.app \
+  --secret user=alice --secret password="$APP_PASSWORD" --freeze=login.skill.json
+cairn replay login.skill.json --secret user=alice --secret password="$APP_PASSWORD"
+CAIRN_SECRET_PASSWORD=… cairn replay login.skill.json --secret user=alice      # the env works too
+```
+
+In the library, `secrets: { user: "alice", password: { value: "…", origin: "https://your.app" } }` on `runScenario`, `runSuite` or `discover`. A scoped secret is refused on any page outside its site (host or subdomain, and the port when you give one), during discovery and replay alike, so a flow that wanders to a payment provider's login form cannot type your app's credentials there (exit 3). A placeholder with no value fails the step and skips healing (exit 4: pass it). To type a literal `{word}`, write `{{word}}`. In CI prefer `CAIRN_SECRET_<NAME>`: a `--secret` on the command line shows in `ps` and in the job log.
+
 ## Extend it
 
 Every stage is a replaceable port. Bring your own `Driver` (for example Playwright), `Critic`, `Reporter`, `ContextProvider` (auth, fixtures), or `LlmClient` (any model).
+
+A Driver that throws can say why: `throw stepError("transport", msg)`, or any Error carrying a plain `kind` (`resolution`, `post-condition`, `timeout`, `transport`, `handler`), decides whether a red is the script's (exit 3, re-discover) or the environment's (exit 4, retry). An untyped throw counts as the script's.
 
 Discovery itself takes an `ActionPolicy`, a deterministic gate that vets each proposed action before it runs (block destructive controls, cap wandering, stop on a goal). It also takes a `perceive` hook (a `PerceptionAdapter`) to correct the state of widgets that keep it outside the a11y tree, such as a custom checkbox whose selection lives in a styled class rather than `aria-checked`. The model then sees the real state without the engine hacking app-specific DOM.
 

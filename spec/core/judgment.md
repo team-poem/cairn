@@ -68,6 +68,79 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   arms it — the product clears that by marking the endpoint
   `benign`, the seam for app-specific noise.
 
+### Naming the red (#173)
+
+A red means one of three next actions, and they are different people's jobs: the app did not do
+what the flow asserts (block the build), the frozen scenario no longer fits the app (re-discover),
+or neither — the run's machinery or the host's setup failed, or the app refused the caller (retry,
+or fix the setup). `Verdict.failure` names which, from signals the verdict already holds, and the
+CLI maps it to distinct exit codes (1 · 3 · 4; 2 stays usage, and a run that crashes after it
+started exits 4 on `replay` and `suite` alike). First match wins, in this order:
+
+- a blocked step → `script` (the frozen scenario no longer fits the page: the target went missing,
+  a post-condition never held, a `waitFor` timed out, or an untyped throw); unless its `errorKind`
+  is `transport` or `handler` → `environment`. Replay has the step list to read this from; an
+  outcome-heal re-discovery does not (its driver observation carries no actions), so a heal's red
+  is classed from its assertions;
+- failing closed because the freeze proves nothing (#69, #137), or a re-discovery ended before
+  `done` → `script`, on the bare run and the suite alike;
+- a goal assertion failed → `flow`; unless every failed goal is a request the app refused with
+  401/403/429 — every status the critic saw for it, a still-pending `0` included, not the first
+  to arrive → `environment`;
+- only the app-health guards failed → still `flow`: a 500 is the same 500 whether a goal or a guard
+  saw it, and #186's guard/goal split is about what a re-discovery can fix, not whose fault it is;
+  unless every failed request the guard saw was a refusal → `environment`;
+- every failure is the judge's own (an `expect` whose LLM failed, a `custom` check with no handler)
+  → `environment`. Last, not first: the app's own failures, goals and guards alike, are read before
+  a judge that could not judge is allowed to name the class, so LLM flakiness next to a real 500
+  still reads as the 500;
+- otherwise `flow`. A suite's own reds are classed too: a crashed case is `environment`, a
+  discovery cut at the step cap is `script`.
+
+The classifier reads fields, not `detail` (#212). The critics set `AssertionResult.statuses` (every
+status seen for a `request-status` or by the failed-requests guard, a pending request as `0`) and
+`AssertionResult.reason` (`judge-failed`, `no-handler`); `toVerdict` and the finalizer set
+`Verdict.failClosed`; and a step's cause is typed where it is thrown — `stepError(kind, message)`
+puts a plain `kind` on the Error, so a Driver written outside this package can say `transport` or
+`resolution` without importing anything, and `ExecutedAction.errorKind` carries it. The Chrome
+driver decides its own MCP envelope (`net::ERR_…`, `ECONNREFUSED`, `Target closed` → `transport`;
+anything else stays untyped and reads as the page's). An untyped throw is `script`: nothing says
+otherwise, and that is the loud direction.
+
+The lean is deliberate: when unsure, a red is a regression until shown otherwise, because a real
+regression filed under "retry" is the one outcome a CI gate exists to prevent. The mirror question
+for a green — how much a pass is worth — is #197.
+
+### Grading the green (#197)
+
+A green from a 2xx mutation and a green from "the final URL matched" are not worth the same, and
+a run that derives its checks from what it observed is uniquely exposed here: nobody wrote those
+checks with a failure mode in mind. So a green carries `Verdict.proof`, the mirror of `failure` on
+a red, graded from metadata the freeze already stamped. `work`: a non-vacuous `request-status` or
+`custom` check saw the action happen (the same predicate as `provesAnAction`, which is now
+implemented through it, blind spot included: a `request-status` on a GET counts, because the
+freeze cannot tell a page load from a read the flow needed, and narrowing it here would narrow the
+#184 gate too). `judged`: no mechanical proof, but an LLM `expect` judged the outcome — a claim
+about the work, not a measurement. `arrival`: only a destination held — the page was reached, the
+work is inferred. `none`: nothing speaks to the flow — the health guards still fire on an error,
+but a flow that quietly did nothing passes.
+
+Alongside the grade: how many flow checks could have failed at all, how many were vacuous, and the
+freeze's `unprovenAction` (#184), which until now never reached a replay's verdict. Guards are
+counted by kind and kept out of that arithmetic: #137 stamps them vacuous on a clean start so a
+guards-only scenario fails closed, yet a 500 mid-flow still trips them, so "could not fail" would
+be false for them. Two consequences of grading from stamps: `none` is a red when nothing *can* fail
+(#69, #137) and a green only when something can but nothing speaks to the flow (guards alone, a
+hand-written bare `navigated`); and a skill frozen before #137 carries no stamps, so its checks all
+count as discriminating and a landing-page GET reads as `work` — the freeze's word is taken as
+given.
+
+`proofOf` is pure over assertions, so `cairn discover` prints the grade of a freeze before any
+replay and a green replay carries the same grade after one; the finalizer stamps it, so replay and
+outcome-heal agree, and a heal is graded from the original assertions it was judged against.
+Advisory: `passed` is unchanged. A consumer that wants a stricter gate reads `proof.grade` and
+decides; a host rendering a run reads it and says what the green means.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):
@@ -81,8 +154,84 @@ When discover proposes assertions, it **grounds them in what actually happened**
   the run navigated somewhere unnameable, not that nothing changed. The notation is declared per
   file by `Scenario.wildcards`; without it a `*` is matched as the literal character it was frozen
   as, so a page whose real path contains one keeps its meaning under a newer engine.
+- A `navigated` miss says when the matcher, not the app, explains it (#204). Destination matching
+  strips one consumer-declared leading segment (`localePrefixes`, #86) before comparing; an app whose
+  prefix is outside that list gets a miss that reads exactly like landing on `/error`. When
+  stripping one unrecognised leading segment would have matched, the result detail names it
+  (`leading segment "de" is not in localePrefixes`), probing after the configured prefixes are
+  stripped so a skill frozen under `/en/` and replayed under `/de/` is explained too. A miss no
+  single segment explains carries no hint, a run bounced to the host root is not "missing a
+  prefix", and a wildcard is never offered as one, so it does not fire on a real regression.
+  Advisory only: the verdict value is `urlReached`'s, unchanged.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
+
+### Destination evidence before a mutation (#203)
+
+Before grounding, final observation uses one **2-second polling budget** for both in-flight flow
+mutations and a short post-response redirect. It keeps observing while the last qualifying
+mutation-bearing step's pre-action URL and the current URL still name the same host+path; a
+query/hash-only progress update is not a new destination. Qualification and request-tail ownership
+are shared with the advisory below, so trailing scroll/wait steps do not erase the boundary.
+Pending mutation polling retains its request watermark. Remaining time is passed to `Driver.settle`
+and caps polling sleeps; a newly observed URL gets another bounded settle/observation to collect
+the destination's evidence. Driver calls themselves can overrun their requested timeout, so this
+is an observation budget, not a strict wall-clock deadline. No-action runs, reads, entry traffic,
+failed responses, and successful benign/third-party traffic do not arm redirect waiting.
+
+A derived `navigated` carries `observedBeforeLastMutation: true` when its destination already
+matches the URL observed before the last executed step whose own request-log tail contains a
+successful (200–399), non-benign mutation on a visited page's site. Final observed request statuses
+and the consumer's locale/wildcard matching rules decide the stamp; entry traffic is excluded and
+later steps without a qualifying mutation do not erase it. This records evidence provenance: the
+URL proves arrival at that page, without proving navigation after the mutation. It does **not** say
+that navigation is pending, that the mutation caused a navigation, or that an on-page save failed.
+The stamp survives even when a request assertion proves the mutation, and the CLI warns separately
+so a consumer can inspect the freeze and add evidence for the intended outcome. **The marker alone
+MUST NOT become a failure gate without additional evidence:** a correct on-page save also consumes
+the bounded observation budget and carries it. User assertions are never stamped.
+The advisory stamp itself does not alter the destination, baseline `vacuous` flags, step expects,
+request proofs, or replay verdict semantics; the completed observation can ground a newly observed
+destination and its step expect. `SuiteVerdict.observedBeforeLastMutation` and the freeze trace payload summarize
+the marked destinations as an optional `string[]`, derived from the scenario's assertions and
+absent when none are marked. Fresh discovery, cached replay, outcome-heal re-freeze, `onCase`,
+the suite CLI and its report carry the same advisory. Outcome-heal retains the original goal
+assertions and their provenance, so its summary describes those preserved checks.
+
+The bounded wait mitigates short response-to-redirect races; it cannot establish navigation
+completion or causation. A redirect beyond the budget, or a later hop after reaching a different
+path, can still escape the observations. Locale/wildcard equivalence applies to the advisory,
+while the wait compares concrete host+path destinations. A different resource path can therefore
+end the wait yet still carry an advisory when the frozen generalized destination also matched
+before the mutation. These limits do not change replay verdict semantics.
+
+### A scroll the flow did not need (#177)
+
+Discover scrolls while wandering. Replayed verbatim, a trailing scroll makes the verdict depend on
+network speed and can push the verified content out of view, so the freeze drops a scroll when both
+hold: its own request tail is empty (benign traffic aside), and every step that follows it on the
+same page names a target that was already present, and usable, before the scroll — or nothing
+follows it. A scroll's viewport and DOM state persist for the rest of the page, so one step is not
+enough to ask: a toolbar button present before the scroll does not prove the list row three steps
+later was. The window ends at a page change or at the next surviving scroll; a step in it with no
+target to judge by (a key press, a wait) is undecidable and keeps the scroll. A scroll that fired a
+request (a lazy load) or that revealed a later target (a virtualized list, an IntersectionObserver,
+a control the page enables only once scrolled to) stays: zero requests alone is not dead weight.
+
+Presence follows the driver's own locate, not a looser copy: exact name plus role on the raw a11y
+rows, and when `nth` is absent an exact match that shares a role with another is refused, as the
+resolver refuses it (#127). Usability is read from the perceived rows when a `perceive` hook is
+installed — that hook exists to correct state a page exposes outside the a11y tree, and `disabled`
+is such state — so doubt keeps the scroll. A run of scrolls is judged from the end.
+
+Two limits. Name identity: a scroll that slides a virtualized window over a *different* element
+with the same accessible name (row 3 before, row 12 after) reads as "already present" and is
+dropped; that ambiguity is already in the frozen target, and only element identity (#198) closes
+it. Traffic identity: the driver reports no resource type, so a lazy image below the fold keeps a
+scroll as surely as an API call does; the rule therefore under-fires on the very trailing scroll
+that motivated it, in the safe direction, until `NetworkRequest.resourceType` is populated. Each
+drop is a `gate: idle-scroll` whose `stepRef` is the step's original index; the frozen file carries
+no marker because nothing is left to mark.
 
 ## Perception's role (P6)
 

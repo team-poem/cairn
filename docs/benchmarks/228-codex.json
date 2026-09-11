@@ -1,0 +1,1292 @@
+{
+  "description": "Generated subset of the original results.json reports. Absolute output paths, capture sidecars, stack traces and provider ledger entries are omitted. Source SHA-256 values identify the original files; all remaining fields retain their reported values. Cumulative costUsd zeros are unpriced accumulators, not measured money: costComplete is false and dollar comparisons are withheld.",
+  "measurements": [
+    {
+      "engine": {
+        "version": "2.8.0",
+        "commit": "ee4dfe3105360e7471ba14c77542177998267dcf",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "startedAt": "2026-09-11T01:26:09.251Z",
+      "finishedAt": "2026-09-11T01:40:20.262Z",
+      "requested": 36,
+      "attempted": 36,
+      "incomplete": false,
+      "stopReason": null,
+      "summaries": [
+        {
+          "tier": "navigation",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 35317,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 70632,
+                  "calls": 3
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 105951,
+                  "calls": 3
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 141276,
+                  "calls": 3
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 176595,
+                  "calls": 3
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 211901,
+                  "calls": 3
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 35319,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "form",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 47438,
+                  "calls": 4
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 94880,
+                  "calls": 4
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 143202,
+                  "calls": 4
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 190662,
+                  "calls": 4
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 238110,
+                  "calls": 4
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 285563,
+                  "calls": 4
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 4
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 47431,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 84903,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 169966,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 254033,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 338049,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 422103,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 506120,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 84088,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "sourceReportSha256": "ab0137e6a81058a8e5d1a439594a9330c69d074f69cf047fbe792d7f1f95ea1e",
+      "sourceConfigurationSha256": "3cc885046db5cd67b52df62bfb26cc74ca160ad5621468c14de9a1c2db705ba0",
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "navigation",
+          "form",
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v2",
+          "v2",
+          "v2"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "ee4dfe3105360e7471ba14c77542177998267dcf"
+      },
+      "records": [
+        {"tier":"navigation","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":35246,"outputTokens":71,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23268.368958,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":35244,"outputTokens":71,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":21515.452332999997,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":35248,"outputTokens":71,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":24267.912707999996,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":27692,"outputTokens":81,"cacheReadTokens":7552,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23123.596666000012,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":27696,"outputTokens":71,"cacheReadTokens":7552,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":21982.558082999996,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":35238,"outputTokens":68,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23700.205,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":20144,"outputTokens":71,"cacheReadTokens":15104,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":26120.128375,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2383.9807919999876,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2316.797749999998,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2562.8342909999774,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2291.490167000011,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"47c57b382dfcb2f930ac7ebe7d3ea24b74f26bee41e7b14278a3902f6a566775","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2402.717082999996,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":32232,"outputTokens":102,"cacheReadTokens":15104,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":38261.313375,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":39788,"outputTokens":102,"cacheReadTokens":7552,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":32484.85712500001,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":17981,"outputTokens":133,"cacheReadTokens":30208,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":34612.749375000014,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":17145,"outputTokens":107,"cacheReadTokens":30208,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":34276.59387499996,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":24691,"outputTokens":101,"cacheReadTokens":22656,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":33114.249542000005,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":24693,"outputTokens":104,"cacheReadTokens":22656,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":32233.10279100004,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":17123,"outputTokens":100,"cacheReadTokens":30208,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":39122.49704100005,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3638.775292000035,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3537.979417000024,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3517.211333000043,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3523.729082999984,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"aa4495f4e4070740b7eafcb67ec30edd1b71646c1a2d4eb99d5aa2d67c5fe1e6","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3514.923417000042,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":31802,"outputTokens":237,"cacheReadTokens":52864,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":55803.53908300004,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":54464,"outputTokens":391,"cacheReadTokens":30208,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":61486.59612499998,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":61165,"outputTokens":246,"cacheReadTokens":22656,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":56314.41358400008,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":46063,"outputTokens":193,"cacheReadTokens":37760,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":53180.248542000074,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":30949,"outputTokens":241,"cacheReadTokens":52864,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":53666.675708999974,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":30959,"outputTokens":194,"cacheReadTokens":52864,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":54698.93766699999,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":30961,"outputTokens":263,"cacheReadTokens":52864,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":56879.55283399997,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4184.290249999962,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4164.119708999991,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4382.820582999964,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4280.948250000016,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"c012b8a90a48432ba3dc833f1cfa37706ab87614a7d0c4f71afb9f77bb6505f7","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4187.485208999948,"fixtureCompleted":true,"error":null}
+      ]
+    },
+    {
+      "engine": {
+        "version": "2.8.0",
+        "commit": "ee4dfe3105360e7471ba14c77542177998267dcf",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "startedAt": "2026-09-11T01:26:07.407Z",
+      "finishedAt": "2026-09-11T01:39:42.104Z",
+      "requested": 36,
+      "attempted": 36,
+      "incomplete": false,
+      "stopReason": null,
+      "summaries": [
+        {
+          "tier": "navigation",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 35316,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 70624,
+                  "calls": 3
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 105936,
+                  "calls": 3
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 141246,
+                  "calls": 3
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 176552,
+                  "calls": 3
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 211858,
+                  "calls": 3
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 35310,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "form",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 47425,
+                  "calls": 4
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 94847,
+                  "calls": 4
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 143141,
+                  "calls": 4
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 190580,
+                  "calls": 4
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 238019,
+                  "calls": 4
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 285457,
+                  "calls": 4
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 4
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 47420,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 83999,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 168847,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 252871,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 336815,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 420758,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 504711,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 83956,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "sourceReportSha256": "87a57a17511e1253f05793fd2c478fe103fe806c397f09d267cd0167dd44aace",
+      "sourceConfigurationSha256": "91ebf9795e03f8d51df6cc46304fe9f348e5bc37715c4c01cd02858081754446",
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "navigation",
+          "form",
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v2",
+          "v2",
+          "v2"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-terra",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "ee4dfe3105360e7471ba14c77542177998267dcf"
+      },
+      "records": [
+        {"tier":"navigation","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":28337,"outputTokens":67,"cacheReadTokens":6912,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":22318.306458,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":35243,"outputTokens":65,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":22008.671416999998,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":8364,"outputTokens":68,"cacheReadTokens":26880,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":21013.156208,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":17321,"outputTokens":69,"cacheReadTokens":17920,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":22243.68525000001,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":17321,"outputTokens":65,"cacheReadTokens":17920,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23957.066917000004,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":8361,"outputTokens":65,"cacheReadTokens":26880,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":26369.021291000012,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":17321,"outputTokens":69,"cacheReadTokens":17920,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23199.404708999995,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2299.3342500000144,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2290.738458000007,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2443.489082999993,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2364.136583000014,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"6af9492463de02bf9da087af8cdd2a8a26c5198323f0873c1df798afeb788e05","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2577.796875,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11488,"outputTokens":97,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":34851.174499999994,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11487,"outputTokens":95,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":32519.111124999996,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":14383,"outputTokens":119,"cacheReadTokens":33792,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":35632.06274999998,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11502,"outputTokens":97,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":32059.465417,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11503,"outputTokens":96,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":33875.14120900002,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11502,"outputTokens":96,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":31761.193084000028,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":11485,"outputTokens":95,"cacheReadTokens":35840,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":29190.474916999985,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3636.1403750000172,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3544.3311669999966,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3722.8169159999816,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3522.1739170000073,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"e374e29b837b99c4d4787e990b04cbb7949951c737fbb19129ec0fcba4ea063b","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3519.509167000011,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":21097,"outputTokens":182,"cacheReadTokens":62720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":50031.96058299998,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":23980,"outputTokens":196,"cacheReadTokens":60672,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":55600.74841700005,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":39023,"outputTokens":201,"cacheReadTokens":44800,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":59616.468500000075,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":21061,"outputTokens":163,"cacheReadTokens":62720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":53856.29804200004,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":21055,"outputTokens":168,"cacheReadTokens":62720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":50909.43900000001,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":21057,"outputTokens":176,"cacheReadTokens":62720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":52256.913833,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":21082,"outputTokens":154,"cacheReadTokens":62720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":50402.18300000008,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4313.475957999937,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4134.152041999972,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4268.454334000009,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4121.15408300003,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"903720b6f1a48e68952678b818ae14a10438598e81456091e03e6c48a57e63a6","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4258.775625000009,"fixtureCompleted":true,"error":null}
+      ]
+    },
+    {
+      "engine": {
+        "version": "2.8.0",
+        "commit": "ee4dfe3105360e7471ba14c77542177998267dcf",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "startedAt": "2026-09-11T01:26:08.129Z",
+      "finishedAt": "2026-09-11T01:40:57.250Z",
+      "requested": 36,
+      "attempted": 36,
+      "incomplete": false,
+      "stopReason": null,
+      "summaries": [
+        {
+          "tier": "navigation",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 31886,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 62971,
+                  "calls": 3
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 94029,
+                  "calls": 3
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 125107,
+                  "calls": 3
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 156148,
+                  "calls": 3
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 187189,
+                  "calls": 3
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 3
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 31035,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "form",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 63123,
+                  "calls": 6
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 115574,
+                  "calls": 5
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 178639,
+                  "calls": 6
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 220505,
+                  "calls": 4
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 262346,
+                  "calls": 4
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 314858,
+                  "calls": 5
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 4
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 41760,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        },
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 75773,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 150724,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 225638,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 299745,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 374581,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 448690,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "failures": 0,
+              "runsWithCalls": 1,
+              "runsWithoutCalls": 5,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 0
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 74978,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "sourceReportSha256": "3425af6b9998697c0fe816585a0b711ca268bd02c6b54a5758791dbed54a3c51",
+      "sourceConfigurationSha256": "c762d016b3a59cb2317fb9edd89b9e2d60b8c580d238d455fb2f2cecbce7723c",
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "navigation",
+          "form",
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v2",
+          "v2",
+          "v2"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "ee4dfe3105360e7471ba14c77542177998267dcf"
+      },
+      "records": [
+        {"tier":"navigation","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":23880,"outputTokens":70,"cacheReadTokens":7936,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":22704.839333,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":23035,"outputTokens":114,"cacheReadTokens":7936,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":22691.342041000004,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":20225,"outputTokens":81,"cacheReadTokens":10752,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":23582.245916000007,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":22006,"outputTokens":112,"cacheReadTokens":8960,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":28421.461834,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":17147,"outputTokens":70,"cacheReadTokens":13824,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":30364.242625,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":23035,"outputTokens":70,"cacheReadTokens":7936,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":28802.456000000006,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","replayedScenarioHash":null,"fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":3,"measuredCalls":3,"partialCalls":0,"inputTokens":7158,"outputTokens":69,"cacheReadTokens":23808,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":26562.959457999998,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2308.397708000004,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","fixtureHash":"7b09b69105a14126c8a1530ae9e361a26a62b583f024b3652c78d844d3e8e33f","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2243.6508329999924,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2444.905208000011,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2247.6549589999777,"fixtureCompleted":true,"error":null},
+        {"tier":"navigation","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"847820272b6b14305b1b8aed4b1bfb7a1016b62404816fa26d887c2e9c4008e3","fixtureHash":"50e3036b88007b41b35bb971c2fba429f9cca4b4dddb2d8a4eb65a785b940e60","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":2347.313999999984,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":6,"measuredCalls":6,"partialCalls":0,"inputTokens":29129,"outputTokens":202,"cacheReadTokens":33792,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":47364.042042000015,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":5,"measuredCalls":5,"partialCalls":0,"inputTokens":26391,"outputTokens":204,"cacheReadTokens":25856,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":41519.58833299999,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":6,"measuredCalls":6,"partialCalls":0,"inputTokens":20427,"outputTokens":142,"cacheReadTokens":42496,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":52267.45999999996,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":16810,"outputTokens":224,"cacheReadTokens":24832,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":33630.65845799999,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":16812,"outputTokens":197,"cacheReadTokens":24832,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":33050.00320799998,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":5,"measuredCalls":5,"partialCalls":0,"inputTokens":12586,"outputTokens":246,"cacheReadTokens":39680,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":42749.95558300003,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","replayedScenarioHash":null,"fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":4,"measuredCalls":4,"partialCalls":0,"inputTokens":17821,"outputTokens":131,"cacheReadTokens":23808,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":31714.104374999995,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3605.410499999998,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","fixtureHash":"20b8575b6aaf3c8dc5f1a109b058e4d5a4af4436f1528ca7b78e3bc6705ad216","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3771.6550829999615,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3674.069750000024,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3744.6616669999785,"fixtureCompleted":true,"error":null},
+        {"tier":"form","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"11c26300505dea4972de67c25073d843e1daae20b3e1cc3b2d5b0a74dc5c4df9","fixtureHash":"6e37f19d4eb1b9e16fb321f20c439fa3c9ebca47afe72efc5aab9674e05942fb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":3607.6824999999953,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":44809,"outputTokens":244,"cacheReadTokens":30720,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":51216.13804199995,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":1,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":31921,"outputTokens":278,"cacheReadTokens":42752,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":55139.4993749999,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":2,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":29110,"outputTokens":236,"cacheReadTokens":45568,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":56038.72849999997,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":3,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":18273,"outputTokens":282,"cacheReadTokens":55552,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":52950.510958000086,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":4,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":20136,"outputTokens":172,"cacheReadTokens":54528,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":52059.83654099994,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"agent","index":5,"fixtureVersion":"v2","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":null,"fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":22356,"outputTokens":297,"cacheReadTokens":51456,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":51473.46012499998,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":0,"fixtureVersion":"v1","action":"discover","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","replayedScenarioHash":null,"fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":7,"measuredCalls":7,"partialCalls":0,"inputTokens":17101,"outputTokens":277,"cacheReadTokens":57600,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":53757.167457999894,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":1,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4259.033959000022,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":2,"fixtureVersion":"v1","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","fixtureHash":"cb613a86d967e6bf6cd4297dc03db1133fe45a5b72d3d106288a0a3fa71728d8","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4207.72183299996,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":3,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4210.264583000098,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":4,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":0,"api":0},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4015.1807500000577,"fixtureCompleted":true,"error":null},
+        {"tier":"stateful","arm":"cairn","index":5,"fixtureVersion":"v2","action":"replay","completed":true,"passed":true,"verdict":true,"healCount":0,"refrozen":false,"usageComplete":true,"scenarioHash":null,"replayedScenarioHash":"31c5d3a394692e0d79fc13e6aab7fb119f870fdbd5847740539340c38f9fca03","fixtureHash":"2866c5ef2b713996fb4acbbc19afe185eaf738b709a075b447444ed341a69ebb","requestedDelays":{"document":20,"api":40},"observedUsage":{"llmCalls":0,"measuredCalls":0,"partialCalls":0,"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheCreationTokens":0},"costUsd":null,"elapsedMs":4365.452250000089,"fixtureCompleted":true,"error":null}
+      ]
+    }
+  ]
+}

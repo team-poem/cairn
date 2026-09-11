@@ -22,19 +22,22 @@ export const EXPLORE_SYSTEM =
 export function buildExplorePrompt(
   charter: string,
   render: string,
-  prevRender: string,
   steps: Step[],
   failures: string[],
   visited: readonly string[],
   findings: readonly Finding[],
   currentUrl?: string,
+  references?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
     : "(none yet)";
-  // #15 — a stable page between steps doesn't need the whole list re-sent.
-  const elementsBlock =
-    render && render === prevRender ? "(unchanged from previous step)" : render || "(none)";
+  // The listing goes out every turn. `LlmClient` is one `complete(prompt)` with no conversation
+  // (core/ports.ts), and every shipped backend sends a standalone request per call, so a model has
+  // no previous turn to compare against: eliding the list left it with a sentence pointing at
+  // something it had never seen, and it concluded the controls did not exist (#225). The list is
+  // capped at ELEMENT_LIMIT and describes only the current page, so it does not grow with the run.
+  const elementsBlock = render || "(none)";
   return [
     `Charter: ${charter}`,
     `Current page: ${currentUrl ?? "(unknown)"}`,
@@ -63,6 +66,7 @@ export function buildExplorePrompt(
     ``,
     `Interactive elements now on the page:`,
     elementsBlock,
+    ...(references ? [``, references] : []),
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

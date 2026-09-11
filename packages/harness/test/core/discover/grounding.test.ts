@@ -364,6 +364,13 @@ describe("an action no check can express is recorded, not swallowed", () => {
     expect(findUnprovenAction(evWith([rootDelete]), navigated)).toEqual(rootDelete);
   });
 
+  it("a slash inside a kept query value still counts as host-only (#200 follow-up)", () => {
+    // hasStablePath used to see the "/" inside "?next=/dashboard" as a path and wave this through —
+    // silently disarming the unproven-action gate for a request that is really host-only.
+    const rootPostWithQuery = { method: "POST", url: "https://shop.co/?next=/dashboard", status: 200 };
+    expect(findUnprovenAction(evWith([rootPostWithQuery]), navigated)).toEqual(rootPostWithQuery);
+  });
+
   it("stays quiet once a real proof was frozen — the flow is verified either way", () => {
     const assertions: Assertion[] = [
       { kind: "request-status", urlIncludes: "shop.co/api/orders", status: 200, method: "POST" },
@@ -707,6 +714,28 @@ describe("query-dispatch endpoints keep their operation", () => {
         "POST",
       ),
     ).toBeUndefined();
+  });
+
+  it("a same-prefix variant of the op does not ground the check (#200) — grounding, not just replay, must refuse it", () => {
+    const drops: string[] = [];
+    const out = deriveAssertions(
+      [{ kind: "request-status", urlIncludes: "shop.co/graphql?op=AddToCart", status: 200 }],
+      {
+        execution: { actions: [], navigated: false, finalUrl: "https://shop.co/cart", blocked: false },
+        perception: {},
+        // Only a DIFFERENT operation fired (AddToCartV2) — grounding a substring match here would
+        // silently freeze the check onto the wrong action's request.
+        logic: {
+          requests: [{ method: "POST", url: "https://shop.co/graphql?op=AddToCartV2", status: 200 }],
+          console: [],
+        },
+      },
+      false,
+      [],
+      (_a, r) => drops.push(r),
+    );
+    expect(out.some((a) => a.kind === "request-status")).toBe(false);
+    expect(drops[0]).toMatch(/no captured request matched/);
   });
 
   it("still drops the run-specific value that motivated #172", () => {

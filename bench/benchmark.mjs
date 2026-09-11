@@ -7,9 +7,10 @@
 //
 // Split into two phases so neither invocation risks the shell timeout.
 
-import { discover, ChromeDevToolsDriver, runScenario } from "/Users/deliveredkorea/cairn/packages/harness/dist/index.js";
+import { discover, ChromeDevToolsDriver, runScenario } from "../packages/harness/dist/index.js";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 // A metered LLM client (claude -p --output-format json) that also captures real $ cost + turns.
 function meteredClaude(model) {
@@ -45,7 +46,7 @@ function meteredClaude(model) {
   };
 }
 
-const FROZEN_DIR = "/Users/deliveredkorea/cairn/bench/frozen";
+const FROZEN_DIR = fileURLToPath(new URL("./frozen/", import.meta.url));
 
 const FLOWS = [
   {

@@ -876,11 +876,11 @@ describe("ChromeDevToolsDriver audit coverage", () => {
   // chrome-connect-passes-command-and-args-to-transport.test.ts
   {
     describe("chrome ensureConnected", () => {
-      it("chromeConnectPassesCommandAndArgsToTransport: custom command/args reach the stdio transport; the default pins chrome-devtools-mcp@~1.3.0 --isolated", async () => {
+      it("chromeConnectPassesCommandAndArgsToTransport: custom command/args reach the stdio transport; the default pins chrome-devtools-mcp@1.8.0 with legacy page routing", async () => {
         await new ChromeDevToolsDriver({ command: "my-mcp", args: ["--flag"] }).goto("https://x/");
         expect(sdk.transports[0]!.params).toEqual({ command: "my-mcp", args: ["--flag"] });
         await new ChromeDevToolsDriver().goto("https://x/");
-        expect(sdk.transports[1]!.params).toEqual({ command: "npx", args: ["-y", "chrome-devtools-mcp@~1.3.0", "--isolated"] });
+        expect(sdk.transports[1]!.params).toEqual({ command: "npx", args: ["-y", "chrome-devtools-mcp@1.8.0", "--isolated", "--no-page-id-routing"] });
       });
     });
   }

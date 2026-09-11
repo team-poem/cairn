@@ -9,11 +9,18 @@
  */
 export * from "./core/types.js";
 export * from "./core/ports.js";
-export { runHarness } from "./core/pipeline.js";
+export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
+export type { ReplayEnvironment } from "./core/replay-environment.js";
+export type { RequestMatchOptions } from "./core/requests.js";
+export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
+export { stepError, errorKindOf } from "./core/errors.js";
+export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
+export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
 export type { TraceEvent, TraceEmission, TracePhase } from "./core/trace.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
+export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";
@@ -51,5 +58,6 @@ export type {
 } from "./core/explore/findings.js";
 export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { LlmStepHealer } from "./core/step-heal.js";
+export type { StepHealOptions } from "./core/step-heal.js";
 export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { TargetScore, ScoredTarget } from "./core/freeze.js";

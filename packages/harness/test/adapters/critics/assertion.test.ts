@@ -179,6 +179,25 @@ describe("request-status — any matching request, not the first (#68)", () => {
   });
 });
 
+describe("request-status — query-aware matching, not naive substring (#200)", () => {
+  it("a longer operation value does not satisfy a shorter frozen one, and the diagnostic doesn't call it near either", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "shop.co/graphql?op=AddToCart", status: 200 },
+      ev([{ method: "POST", url: "https://shop.co/graphql?op=AddToCartV2", status: 200 }]),
+    );
+    expect(r.passed).toBe(false);
+    expect(r.detail).toContain("no request matching");
+  });
+
+  it("extra params and reordering don't break a frozen query match", () => {
+    const r = checkAssertion(
+      { kind: "request-status", urlIncludes: "shop.co/api?action=checkout&mode=express", status: 200 },
+      ev([{ method: "POST", url: "https://shop.co/api?mode=express&trace=xy&action=checkout", status: 200 }]),
+    );
+    expect(r.passed).toBe(true);
+  });
+});
+
 describe("request-status — optional method scoping, parity with the step-level expect (#94)", () => {
   // A duplicate-application flow: a GET sharing the URL prefix answers 200, the real POST answers 409.
   const dup = ev([
@@ -348,3 +367,33 @@ import { resolveAssertion } from "../../../src/adapters/critics/assertion.js";
   }
 
 }
+
+describe("navigated: a miss says whether the prefix list explains it (#204)", () => {
+  const landed = (finalUrl: string): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const to: Assertion = { kind: "navigated", to: "shop.co/settings" };
+
+  it("appends the unrecognised leading segment when stripping it would have matched", () => {
+    const r = checkAssertion(to, landed("https://shop.co/de/settings"));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toBe('final url https://shop.co/de/settings did not reach shop.co/settings; leading segment "de" is not in localePrefixes');
+  });
+
+  it("says nothing extra when the app landed somewhere else", () => {
+    const r = checkAssertion(to, landed("https://shop.co/error"));
+    expect(r.passed).toBe(false);
+    expect(r.detail).toBe("final url https://shop.co/error did not reach shop.co/settings");
+  });
+
+  it("says nothing extra when the run bounced to the host root", () => {
+    const r = checkAssertion(to, landed("https://shop.co/"));
+    expect(r.detail).toBe("final url https://shop.co/ did not reach shop.co/settings");
+  });
+
+  it("passes, with no hint, once the prefix is configured", () => {
+    expect(checkAssertion(to, landed("https://shop.co/de/settings"), [], [], ["de"]).passed).toBe(true);
+  });
+});

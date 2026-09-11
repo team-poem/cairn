@@ -5,8 +5,8 @@
  * snapshot that races the step's own in-flight request. See spec/core/surgical-heal.md.
  */
 import type { Driver } from "../ports.js";
-import type { Evidence, NetworkRequest, Step, WaitUntil } from "../types.js";
-import { isBenignRequest, isMutation } from "../requests.js";
+import type { Evidence, NetworkRequest, PageElement, Step, Target, WaitUntil } from "../types.js";
+import { isBenignRequest, isMutation, onSiteOf } from "../requests.js";
 import { urlReached, WILDCARD } from "../steps.js";
 import type { UrlMatchOptions } from "../steps.js";
 
@@ -28,25 +28,151 @@ export function destinationKey(url: string): string {
 export interface OutcomeMark {
   url: string | undefined;
   requestCount: number;
+  /** The raw a11y snapshot taken before the step (before any `perceive` hook — what the driver's
+   * own locate sees at replay), recorded for a scroll step only, so the freeze can ask whether the
+   * targets after the scroll were already reachable before it (#177). */
+  elements?: readonly PageElement[];
+  /** The same snapshot after the host's `perceive` hook, when one is installed — the layer that
+   * corrects state a page exposes outside the a11y tree, so `disabled` is read from here. */
+  perceived?: readonly PageElement[];
 }
 
-// The one bounded wait left (#81): only the FINAL evidence observation may still see the last
-// step's mutation in flight (every earlier step's response resolved while later steps ran).
+/** Is `target` already present AND usable before a scroll, by the rules the driver's own locate
+ * applies at replay? Presence is read from the raw a11y rows (exact accessible name, `role` when
+ * given): the name must resolve, and when `nth` is absent an exact match that shares a role with
+ * another is refused, as `resolveTargetUid` refuses it (#127) — a presence the driver will not act
+ * on must not cost the scroll. Usability is read from the perceived rows when a `perceive` hook is
+ * installed (the layer that corrects state a page exposes outside the a11y tree), else from raw: a
+ * disabled match does not count, since a control the page enables only once scrolled to is in the
+ * tree before the scroll. `Target.index` is ignored: it is a position among same-role elements, not
+ * among name matches, and the Chrome driver stamps it on every frozen target. */
+export function targetPresent(
+  target: Target,
+  elements: readonly PageElement[],
+  perceived: readonly PageElement[] = elements,
+): boolean {
+  if (!target.text) return false;
+  const needle = target.text.trim().toLowerCase();
+  const named = (e: PageElement) => (!target.role || e.role === target.role) && e.name.trim().toLowerCase() === needle;
+  const matches = elements.filter(named);
+  const position = target.nth ?? 0;
+  if (matches.length <= position) return false;
+  if (target.nth === undefined && new Set(matches.map((e) => e.role)).size < matches.length) return false;
+  // Usability is positional, like the resolver's pick: the match at `nth` must itself be enabled —
+  // an enabled sibling further down does not make a disabled first one clickable.
+  const chosen = perceived.filter(named)[position];
+  return chosen !== undefined && !chosen.disabled;
+}
+
+const HAS_TARGET = new Set<Step["kind"]>(["click", "doubleClick", "hover", "type", "select"]);
+
+/**
+ * Drop scroll steps the frozen flow does not need (#177), in place, keeping `steps`/`marks`
+ * aligned. A scroll's viewport and DOM state persist for every step after it on the same page, so
+ * a scroll is idle only when its own request tail is empty (benign traffic aside) AND every step
+ * that follows it on that page names a target already present, and usable, before the scroll —
+ * the window ends at a page change (a `goto`, or a mark on another host+path) or at the next
+ * surviving scroll, whose own snapshot then answers for what follows. A step in the window with no
+ * target to judge by (a key press, a wait, a custom action) is undecidable, so the scroll stays. A
+ * scroll that fired a request (a lazy load — and, since the driver reports no resource type, a
+ * lazy image counts) or that revealed a later target (a virtualized list, an IntersectionObserver)
+ * stays: zero requests alone is not dead weight. Walked from the end. Returns the pruned steps
+ * with their original indices so the caller can name them on the trace.
+ */
+export function pruneIdleScrolls(
+  steps: Step[],
+  marks: (OutcomeMark | null)[],
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): { index: number; step: Step }[] {
+  const requests = evidence.logic.requests;
+  const pruned: { index: number; step: Step }[] = [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const step = steps[i]!;
+    const mark = marks[i];
+    if (step.kind !== "scroll" || !mark?.elements) continue;
+    const nextMark = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
+    const tail = requests.slice(mark.requestCount, nextMark?.requestCount ?? requests.length);
+    if (tail.some((r) => !isBenignRequest(r.url, benign))) continue;
+    let idle = true;
+    for (let k = i + 1; k < steps.length; k++) {
+      const later = steps[k]!;
+      const laterMark = marks[k];
+      const samePage = mark.url !== undefined && laterMark?.url !== undefined && destinationKey(laterMark.url) === destinationKey(mark.url);
+      if (later.kind === "goto" || later.kind === "scroll" || (laterMark && !samePage)) break;
+      if (!HAS_TARGET.has(later.kind) || !("target" in later) || !targetPresent(later.target, mark.elements, mark.perceived)) {
+        idle = false;
+        break;
+      }
+    }
+    if (!idle) continue;
+    pruned.unshift({ index: i, step });
+    steps.splice(i, 1);
+    marks.splice(i, 1);
+  }
+  return pruned;
+}
+
+// The final evidence shares one budget for pending responses and post-response redirects.
 const OUTCOME_SETTLE_TIMEOUT_MS = 2_000;
 const OUTCOME_SETTLE_POLL_MS = 200;
 
-/** Observe the freeze-time evidence, waiting (bounded) while a mutation fired during the run is
- * still in flight — so retroactive expect/assertion grounding sees resolved statuses, not a race. */
-export async function observeOutcomes(driver: Driver, firstRequestCount: number): Promise<Evidence> {
+/** Find the last executed step whose own request tail contains a successful, non-benign,
+ * same-site mutation. Shared by the bounded wait and the advisory's provenance attribution. */
+export function lastMutationMark(
+  marks: readonly (OutcomeMark | null)[],
+  evidence: Evidence,
+  benign: readonly string[] = [],
+): OutcomeMark | undefined {
+  const pages = [evidence.execution.finalUrl, ...marks.map((mark) => mark?.url)]
+    .filter((url): url is string => Boolean(url));
+  const requests = evidence.logic.requests;
+  let end = requests.length;
+  for (let i = marks.length - 1; i >= 0; i--) {
+    const mark = marks[i];
+    if (!mark) continue;
+    const hasMutation = requests.slice(mark.requestCount, end).some((request) =>
+      isMutation(request.method) && request.status >= 200 && request.status < 400 &&
+      !isBenignRequest(request.url, benign) && pages.some((page) => onSiteOf(page, request.url)),
+    );
+    end = mark.requestCount;
+    if (hasMutation) return mark;
+  }
+  return undefined;
+}
+
+/** Observe completed evidence within one budget: first pending flow mutations (#81), and also
+ * a short redirect after the last qualifying mutation (#203). Host+path equality controls waiting;
+ * query/hash progress updates do not count as reaching another destination. The later advisory
+ * uses the frozen destination's locale/wildcard matcher. This is mitigation,
+ * not proof that arbitrary late or multi-hop navigation has completed. */
+export async function observeOutcomes(
+  driver: Driver,
+  firstRequestCount: number,
+  marks: readonly (OutcomeMark | null)[] = [],
+  benign: readonly string[] = [],
+): Promise<Evidence> {
   const deadline = Date.now() + OUTCOME_SETTLE_TIMEOUT_MS;
+  let previous: Evidence | undefined;
   for (;;) {
-    await driver.settle();
+    const remaining = deadline - Date.now();
+    if (remaining > 0) await driver.settle({ timeoutMs: remaining });
     const evidence = await driver.observe();
+    if (Date.now() >= deadline) return evidence;
     const pending = evidence.logic.requests
       .slice(firstRequestCount)
       .some((r) => isMutation(r.method) && r.status === 0);
-    if (!pending || Date.now() >= deadline) return evidence;
-    await sleep(OUTCOME_SETTLE_POLL_MS);
+    const mark = lastMutationMark(marks, evidence, benign);
+    const finalUrl = evidence.execution.finalUrl;
+    const unchanged = mark?.url !== undefined && finalUrl !== undefined &&
+      destinationKey(mark.url) === destinationKey(finalUrl);
+    const moved = previous !== undefined && previous.execution.finalUrl !== evidence.execution.finalUrl;
+    previous = evidence;
+    // Give a newly observed destination a settle/observation with the remaining budget so its
+    // requests join the evidence, without imposing a quiet window on every successful action.
+    if (!pending && !unchanged && !moved) return evidence;
+    const sleepMs = Math.min(OUTCOME_SETTLE_POLL_MS, deadline - Date.now());
+    if (sleepMs > 0) await sleep(sleepMs);
   }
 }
 
@@ -122,10 +248,12 @@ export function freshMutationExpect(tail: NetworkRequest[], benign: readonly str
 }
 
 /** host + path cut at the first dynamic-looking segment (see `isDynamicSegment`) — a stable prefix
- * that still substring-matches the full request URL on a later replay, where a run-specific id
- * would never match again. Query and hash are dropped with the rest of the URL by `destinationKey`.
- * Shared with assertion grounding (#172) so a step expect and a `request-status` assertion freeze
- * the same endpoint identity. */
+ * that a later replay still matches, where a run-specific id would never match again. The path
+ * portion is matched by substring; a query-dispatch endpoint may keep a leading run of its query
+ * (`stableQuerySuffix`), matched as parsed key/value pairs instead (`urlMatchesFrozen`, #200) —
+ * see `groundingMatch`/matcher call sites, not a literal substring of the whole value. Hash is
+ * dropped with the rest of the URL by `destinationKey`. Shared with assertion grounding (#172) so
+ * a step expect and a `request-status` assertion freeze the same endpoint identity. */
 export function stableEndpointPrefix(url: string): string {
   const [host = "", ...segs] = destinationKey(url).split("/");
   const stable: string[] = [];
@@ -137,9 +265,12 @@ export function stableEndpointPrefix(url: string): string {
   // A cut path is a prefix of the URL, so nothing that follows the cut can be appended to it.
   if (stable.length < segs.length) return path;
   const withQuery = path + stableQuerySuffix(url);
-  // The frozen value is matched by substring, so it must actually occur in the URL — a trailing
-  // slash or an encoding difference between `destinationKey` and the raw URL would break that.
-  return url.includes(withQuery) ? withQuery : path;
+  // Only the PATH portion is matched by substring — the query is compared as parsed key/value
+  // pairs by `urlMatchesFrozen`, not as literal text — so only the path has to actually occur in
+  // the URL. Checking the whole `path + query` string here (#200) failed on a trailing slash before
+  // the query (`shop.co/rpc/?action=…` vs the frozen `shop.co/rpc?action=…`) and silently dropped
+  // the query, which is exactly the discriminator a query-dispatch endpoint needs.
+  return url.includes(path) ? withQuery : path;
 }
 
 /**
@@ -148,9 +279,12 @@ export function stableEndpointPrefix(url: string): string {
  * where the path alone names no action and any other POST to the endpoint would satisfy the check.
  * Stops at the first run-specific value (`?buyRequestIds=586738`), which is what #172 must drop.
  *
- * Leading run, not a filter: the frozen value is matched by substring, so the kept params have to
- * be contiguous from the start of the query — everything from the first run-specific value on is
- * dropped with it, since a frozen value cannot skip a param it does not know.
+ * Leading run, not a filter: the frozen value used to be matched by substring, so the kept params
+ * had to be contiguous from the start of the query — everything from the first run-specific value
+ * on is dropped with it, since a frozen value cannot skip a param it does not know. The query is
+ * now matched as parsed key/value pairs instead (`urlMatchesFrozen`, #200), which would tolerate a
+ * gap — but this function still stops at the first run-specific value; turning it into a filter
+ * that keeps every stable param is a separate change.
  */
 function stableQuerySuffix(url: string): string {
   const query = url.match(/\?([^#]*)/)?.[1];
@@ -326,7 +460,10 @@ export function namesAPage(destination: string): boolean {
 }
 
 /** Did any path survive the cut? A host-only prefix would be satisfied by every request to that
- * host, so it is refused rather than frozen — by the assertion path and the step expect alike. */
+ * host, so it is refused rather than frozen — by the assertion path and the step expect alike.
+ * Checked on the PATH half only (cut at the first `?`, #200) — a kept query value can itself
+ * contain a `/` (a `?next=/dashboard` redirect param), which is not a path and must not count. */
 export function hasStablePath(prefix: string): boolean {
-  return prefix.includes("/");
+  const path = prefix.split("?")[0] ?? prefix;
+  return path.includes("/");
 }

@@ -6,21 +6,35 @@
 import type { SuiteResult, SuiteVerdict } from "../../suite.js";
 
 function pathLabel(v: SuiteVerdict): string {
+  if (v.notRun) return `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})`;
   if (v.truncated) return "discovery truncated";
   if (v.discovered) return "discovered + replayed";
   return "replayed (cached)";
 }
 
-/** Same wording as the `cairn suite` line: a green with this note proved the page, not the action. */
-export function unprovenLabel(v: SuiteVerdict): string {
+/** The grade of a green (#197), so a pass column says what it is worth. */
+function proofLabel(v: SuiteVerdict): string {
+  const g = v.verdict.proof?.grade;
+  return g === "work" ? "" : g === "judged" ? " (LLM-judged)" : g === "arrival" ? " (arrival only)" : g === "none" ? " (proves nothing)" : "";
+}
+
+/** Same wording as the cairn suite line: a green with this note proved the page, not the action. */
+function unprovenLabel(v: SuiteVerdict): string {
   return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
+}
+
+/** Format the recorded destination evidence, independently of any surviving request proof. */
+function navigationEvidenceLabel(v: SuiteVerdict): string {
+  return v.observedBeforeLastMutation?.length
+    ? ` · ⚠ destination observed before last mutation: ${v.observedBeforeLastMutation.join(", ")} (advisory)`
+    : "";
 }
 
 export function renderSuiteReport(suite: SuiteResult): string {
   const passed = suite.verdicts.filter((v) => v.verdict.passed).length;
   const failed = suite.verdicts.length - passed;
   // The engine's economics, proven per run: cached cases that needed no LLM at all.
-  const freeReplays = suite.verdicts.filter((v) => !v.discovered && v.usage.llmCalls === 0).length;
+  const freeReplays = suite.verdicts.filter((v) => !v.notRun && !v.discovered && v.usage.llmCalls === 0).length;
 
   const lines: string[] = [
     `# Suite report`,
@@ -34,7 +48,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
   ];
   for (const v of suite.verdicts) {
     lines.push(
-      `| ${v.id} | ${v.verdict.passed ? "✓ pass" : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
+      `| ${v.id} | ${v.verdict.passed ? `✓ pass${proofLabel(v)}` : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
     );
   }
 
@@ -43,6 +57,7 @@ export function renderSuiteReport(suite: SuiteResult): string {
     for (const v of suite.verdicts.filter((x) => !x.verdict.passed)) {
       lines.push(``, `### ✗ ${v.id} — ${v.intent}`);
       if (v.verdict.detail) lines.push(``, `${v.verdict.detail}`);
+      if (v.verdict.failure) lines.push(``, `failure: ${v.verdict.failure}`);
       for (const r of v.verdict.results.filter((x) => !x.passed)) {
         lines.push(`- **${r.assertion.kind}**${r.detail ? `: ${r.detail}` : ""}`);
       }

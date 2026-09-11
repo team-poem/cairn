@@ -3,6 +3,8 @@
  * app, or CI all go through here). No LLM is constructed unless an `expect` critic or
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
+import { reanchorScenario, validateReplayEntry } from "./core/replay-environment.js";
+import type { ReplayEnvironment } from "./core/replay-environment.js";
 import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
@@ -25,8 +27,12 @@ import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
+import type { Secrets } from "./core/secrets.js";
 
 export interface RunScenarioOptions {
+  /** Replay at a different origin without modifying the frozen scenario. Heals repair the live
+   * run only; no healedScenario is returned for re-freezing while this option is configured. */
+  replayEnvironment?: ReplayEnvironment;
   driver?: Driver;
   /** Default: LlmCritic if the scenario has `expect`, else AssertionCritic. */
   critic?: Critic;
@@ -66,6 +72,10 @@ export interface RunScenarioOptions {
   actions?: Record<string, CustomAction>;
   /** How long a step's `expect` is polled (readiness) before it counts as diverged. Default 2000ms. */
   expectTimeoutMs?: number;
+  /** Values for `{name}` placeholders in `type` steps (#174): filled for the driver at run time,
+   * never written to a skill. `{ value, origin }` scopes a secret to one site; it is refused
+   * anywhere else, the same fail-closed stance as an empty assertion set. */
+  secrets?: Secrets;
   /** Gate for the outcome-heal re-discovery — the same ActionPolicy `discover()` takes, so an
    * unattended repair can't run actions the authoring policy would have blocked (#76). */
   policy?: ActionPolicy;
@@ -86,7 +96,8 @@ export interface RunScenarioResult {
   heals: Heal[];
   /** Surgical step repairs (empty unless `heal` was set and a step's `expect` diverged). */
   stepHeals: StepHeal[];
-  /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals. */
+  /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals
+   * or replayEnvironment is configured: environment repairs are temporary, never canonical. */
   healedScenario?: Scenario;
   /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
    * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
@@ -132,6 +143,10 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  if (opts.replayEnvironment) {
+    validateReplayEntry(scenario, opts.replayEnvironment);
+    scenario = reanchorScenario(scenario, opts.replayEnvironment);
+  }
   // Build the LLM lazily and once — only if the critic or heal needs it. The meter wraps
   // whichever client is used (host-injected included), so `result.usage` counts every call;
   // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.
@@ -148,11 +163,14 @@ export async function runScenario(
     complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
   };
 
+  const requestMatch = opts.replayEnvironment
+    ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
+    : undefined;
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards)
-      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards));
+      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch)
+      : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch));
 
   // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
   // sink opens its own trace — header, then one implicit case so every consumer reads one shape.
@@ -196,9 +214,9 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal }))
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
 
   try {
     const result = await runHarness(
@@ -218,6 +236,8 @@ export async function runScenario(
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
         localePrefixes: opts.localePrefixes,
+        requestMatch,
+        secrets: opts.secrets,
         usage,
         trace: scope,
       },
@@ -233,7 +253,12 @@ export async function runScenario(
     // Only when a re-discovery could fix it: a blocked step, or a goal assertion that failed. A red
     // made of guards alone (a 500, a console error) is the app's health, not the path — re-discovering
     // burns the LLM every run and can never turn it green (#186).
-    const healable = result.evidence.execution.blocked || goalFailures(result.verdict).length > 0;
+    // And never when the red is the environment's (#173): a missing secret, a dead browser, a
+    // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
+    // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
+    const healable =
+      result.verdict.failure !== "environment" &&
+      (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
     if (opts.heal && !result.verdict.passed && healable) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
       // the failed run's requests must not satisfy a request-status.
@@ -249,7 +274,9 @@ export async function runScenario(
         policy: opts.policy,
         perceive: opts.perceive,
         localePrefixes: opts.localePrefixes,
+        benign: opts.benign,
         maxSteps: opts.maxSteps,
+        secrets: opts.secrets,
         // The re-discovery's events ride out under phase "heal" — the phase says why it ran,
         // the kinds say what ran (spec/core/trace.md).
         trace: scope,
@@ -279,7 +306,9 @@ export async function runScenario(
       const missedGoal = !truncated && goalFailures(judged).length > 0;
       let verdict = finalizeVerdict(
         judged,
-        truncated ? "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" : undefined,
+        truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
+        evidence.execution.actions,
+        scenario, // the ORIGINAL: its assertions were judged, so its proof is what a green is worth
       );
       if (missedGoal) {
         const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
@@ -302,7 +331,7 @@ export async function runScenario(
         // results alone, before finalizeVerdict adds anything about the run itself — and on the goal
         // assertions only, so a guard tripping during the re-discovery does not discard a repair
         // that reached the goal.
-        healedScenario: truncated || missedGoal
+        healedScenario: opts.replayEnvironment || truncated || missedGoal
           ? undefined
           : {
               ...repaired,
@@ -326,13 +355,13 @@ export async function runScenario(
       result: final,
       heals,
       stepHeals,
-      healedScenario: heals.length || stepHeals.length ? rewritten : undefined,
+      healedScenario: !opts.replayEnvironment && (heals.length || stepHeals.length) ? rewritten : undefined,
     };
   } catch (err) {
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.
     // This keeps the bare-run stream in the same lifecycle shape as a suite's crashed case.
     closeOwnTrace(
-      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}` },
+      { passed: false, results: [], detail: `run crashed: ${err instanceof Error ? err.message : String(err)}`, failure: "environment" },
       usage(),
       (healer?.heals.length ?? 0) + (stepHealer?.heals.length ?? 0),
     );

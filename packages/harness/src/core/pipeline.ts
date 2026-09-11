@@ -4,9 +4,12 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict } from "./types.js";
+import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
+import { errorKindOf, stepError } from "./errors.js";
+import type { Secrets } from "./secrets.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
-import type { UrlMatchOptions } from "./steps.js";
+import type { RequestMatchOptions } from "./requests.js";
+import type { ConditionMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
 
@@ -28,7 +31,8 @@ export interface RunHarnessOptions {
   captureScreenshots?: boolean;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
-  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`. */
+  /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
+   * A custom chain fills `{name}` secrets only if it includes `new BuiltinStepHandler(secrets)` — `secrets` below is not applied to it. */
   stepHandlers?: StepHandler[];
   /** Repair a step whose `expect` fails (surgical self-heal); absent → a diverged step just fails. */
   stepHealer?: StepHealer;
@@ -42,19 +46,25 @@ export interface RunHarnessOptions {
    * conservative list (`DEFAULT_LOCALE_PREFIXES`); override it when the app serves other locales
    * or has real routes that look like locales (`/my`, `/tv`). `[]` disables stripping. */
   localePrefixes?: readonly string[];
+  /** API host scope shared by step expects and explicit waits. */
+  requestMatch?: RequestMatchOptions;
   /** Per-event trace scope (spec/core/trace.md) — `step`/`assertion`/`heal` kinds; absent → no emission. */
   trace?: TraceScope;
+  /** Values for `{name}` placeholders in `type` steps, filled at run time and never frozen (#174).
+   * A scoped secret (`{ value, origin }`) is refused on any page outside its origin. */
+  secrets?: Secrets;
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
 async function executeStep(handlers: StepHandler[], step: Step, driver: Driver): Promise<ExecutedAction> {
   try {
     const handler = handlers.find((h) => h.supports(step));
-    if (!handler) throw new Error(`no step handler for kind "${step.kind}"`);
+    if (!handler) throw stepError("handler", `no step handler for kind "${step.kind}"`);
     await handler.execute(step, driver);
     return { step, ok: true };
   } catch (err) {
-    return { step, ok: false, error: err instanceof Error ? err.message : String(err) };
+    const errorKind = errorKindOf(err);
+    return { step, ok: false, error: err instanceof Error ? err.message : String(err), ...(errorKind ? { errorKind } : {}) };
   }
 }
 
@@ -70,7 +80,7 @@ async function runStep(
   driver: Driver,
   index: number,
   expectTimeoutMs: number,
-  urlMatch: UrlMatchOptions,
+  urlMatch: ConditionMatchOptions,
   healer?: StepHealer,
   trace?: TraceScope,
 ): Promise<ExecutedAction> {
@@ -110,20 +120,18 @@ async function runStep(
       }
     }
   }
-  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}` };
+  return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}`, errorKind: "post-condition" };
 }
 
 /**
- * Fold step completion into the verdict: assertions only prove evidence that was *collected*, and a
- * blocked run stopped collecting partway — trailing steps never executed, so assertions satisfied by
- * the executed prefix must not read as a green (#90; same fail-closed stance as the empty-assertion
- * rule, #69). `detail` says which step blocked and why, so a CI gate can tell "run didn't finish"
- * apart from "assertions failed". A healed step is recorded ok, so a healed run is not penalized.
- */
-/**
- * How the run that produced the evidence ended. A replay is a fixed step list, so completion is
- * "every step ran"; a re-discovery (outcome-heal) is a loop, so completion is "the loop reached
- * `done`, not the step cap". Both feed one finalizer so a rule added there applies to both paths.
+ * Why a replay stopped collecting evidence partway, or `undefined` if every step ran. Assertions
+ * only prove evidence that was *collected*: trailing steps never executed, so assertions satisfied
+ * by the executed prefix must not read as a green (#90; same fail-closed stance as the
+ * empty-assertion rule, #69). The string names the step and why, so a CI gate can tell "run didn't
+ * finish" apart from "assertions failed"; a healed step is recorded ok, so a healed run is not
+ * penalized. Pass the result as `finalizeVerdict`'s `incomplete`. A re-discovery is a loop rather
+ * than a step list, so its "incomplete" is `Scenario.truncated` rendered as a reason — both feed
+ * the same finalizer so a rule added there applies to both paths.
  */
 export function blockedReason(actions: ExecutedAction[], totalSteps: number): string | undefined {
   const blockedAt = actions.findIndex((a) => !a.ok);
@@ -136,8 +144,8 @@ export function blockedReason(actions: ExecutedAction[], totalSteps: number): st
 }
 
 /** Fail a verdict for a reason the assertions could not see, keeping any detail the critic left. */
-function failClosed(verdict: Verdict, why: string): Verdict {
-  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
+function failClosed(verdict: Verdict, why: string, kind: "blocked" | "truncated"): Verdict {
+  return { ...verdict, passed: false, detail: verdict.detail ? `${verdict.detail}; ${why}` : why, failClosed: kind };
 }
 
 /** App-health guards: derived from the run's own traffic, not from what the flow set out to do. */
@@ -148,7 +156,9 @@ const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-cons
  * `request-status`, `custom`, `expect`), not the app-health guards. A 500 or a console error is
  * not a broken path — re-discovering cannot fix it, and a repair that reached the goal is still
  * the right path when a guard tripped on the way. Used on both ends of outcome-heal (#186): to
- * decide whether to re-discover at all, and whether to hand the repair back.
+ * decide whether to re-discover at all, and as one half of whether to hand the repair back — the
+ * other half is that the re-discovery reached `done` (`Scenario.truncated` unset), which this
+ * function does not see: it filters `results` and never reads `passed` or `detail`.
  */
 export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));
@@ -162,8 +172,97 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
  * rule of that shape belongs here, not at a call site: the heal path once returned the critic's
  * verdict raw and silently skipped every rule the replay path applied.
  */
-export function finalizeVerdict(judged: Verdict, incomplete?: string): Verdict {
-  return incomplete ? failClosed(judged, incomplete) : judged;
+export function finalizeVerdict(
+  judged: Verdict,
+  incomplete?: string | { reason: string; kind: "blocked" | "truncated" },
+  actions: readonly ExecutedAction[] = [],
+  scenario?: Pick<Scenario, "unprovenAction">,
+): Verdict {
+  // A bare string is what `blockedReason` returns, so it means a blocked replay; a re-discovery
+  // that ended before `done` says so with the object form.
+  const cut = typeof incomplete === "string" ? { reason: incomplete, kind: "blocked" as const } : incomplete;
+  const verdict = cut ? failClosed(judged, cut.reason, cut.kind) : judged;
+  // A green says how much it is worth (#197), a red says what to do next (#173): the same
+  // finalizer, so replay and outcome-heal never disagree about either. A host may finalize an
+  // already-finalized verdict (a completion check of its own on top of a green), so whichever
+  // colour the verdict ends up, the other colour's field is dropped — never both.
+  const { proof: _proof, failure: _failure, ...bare } = verdict;
+  if (verdict.passed) return { ...bare, proof: proofOf(verdict.results.map((r) => r.assertion), scenario?.unprovenAction) };
+  return { ...bare, failure: classifyFailure(verdict, actions) };
+}
+
+/**
+ * Grade what a set of checks can prove (#197), from the metadata the freeze already stamped:
+ * `vacuous` (#137) says whether a check could fail at all, the kind says what a check speaks to.
+ * Pure over assertions, so it grades a freeze before any replay (`cairn discover`) and a green
+ * verdict after one with the same rule. `work` needs one non-vacuous `request-status` or `custom`
+ * — the same test as `provesAnAction`, blind spot included: a `request-status` on a GET counts,
+ * because the freeze cannot tell a page load from a read the flow needed, and changing that here
+ * would silently change the #184 gate too. `judged` is an LLM `expect` with nothing mechanical
+ * behind it. `arrival` is a destination alone. `none` is a green that would also be green on a
+ * broken flow.
+ */
+export function proofOf(assertions: readonly Assertion[], unprovenAction?: string): VerdictProof {
+  // Guards are the app's health, not the flow: counted by kind, and kept out of the vacuity
+  // arithmetic — #137 stamps them vacuous on a clean start for its own gate, but a 500 mid-flow
+  // still trips them, so "could not fail" would be false for them.
+  const flow = assertions.filter((a) => !GUARD_KINDS.has(a.kind));
+  const live = flow.filter((a) => a.vacuous !== true);
+  const work = live.filter((a) => a.kind === "request-status" || a.kind === "custom").length;
+  // The critic checks a destination only when `to` is non-empty (`if (assertion.to && …)`), so an
+  // empty string is a bare `navigated`, not an arrival check — the same predicate on both sides.
+  const arrival = live.filter((a) => a.kind === "navigated" && Boolean(a.to)).length;
+  const judged = live.some((a) => a.kind === "expect");
+  return {
+    grade: work > 0 ? "work" : judged ? "judged" : arrival > 0 ? "arrival" : "none",
+    discriminating: live.length,
+    vacuous: flow.length - live.length,
+    work,
+    arrival,
+    guards: assertions.length - flow.length,
+    ...(unprovenAction ? { unprovenAction } : {}),
+  };
+}
+
+/** Statuses that say the app refused the caller (credentials, rate) rather than the flow. */
+const REFUSED: ReadonlySet<number> = new Set([401, 403, 429]);
+
+/** Every status the critic saw was a refusal — a still-pending `0` or any other status means the
+ * endpoint did something else too, and that is the flow's. */
+const refusedOnly = (r: AssertionResult) => r.statuses !== undefined && r.statuses.length > 0 && r.statuses.every((s) => REFUSED.has(s));
+
+/**
+ * Name the red (#173): which of three next actions a failed verdict calls for, read from the
+ * structured signals the verdict carries (#212) — never from `detail`, which is for people. First
+ * match wins, and the order is the priority a CI gate wants: a step that could not run outranks
+ * what the assertions say about a run that stopped early.
+ *
+ * - a blocked step → by its `errorKind`: `transport` or `handler` → `environment` (the run's
+ *   machinery, or the host's wiring); `resolution`, `post-condition`, `timeout`, or an untyped
+ *   throw → `script`. Read from `actions`, or from `failClosed: "blocked"` when a caller finalized
+ *   without them (then `script`: nothing says otherwise);
+ * - failing closed because the freeze proves nothing or the re-discovery ended before `done` →
+ *   `script`;
+ * - a goal assertion failed → `flow`, unless every failed goal is a `request-status` whose every
+ *   observed status was a refusal → `environment`;
+ * - only the app-health guards failed → still `flow` (a 500 is the same 500 whether a goal or a
+ *   guard saw it), unless every failed request the guard saw was a refusal → `environment`;
+ * - every failure is the judge's own (`reason` set: LLM failed, no handler) → `environment`. Last,
+ *   not first: the app's own failures, goals and guards, are read before a judge that could not
+ *   judge names the class, so LLM flakiness next to a real 500 still reads as the 500;
+ * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
+ */
+export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
+  const blocked = actions.find((a) => !a.ok);
+  if (blocked) return blocked.errorKind === "transport" || blocked.errorKind === "handler" ? "environment" : "script";
+  if (verdict.failClosed !== undefined) return "script";
+  const failed = verdict.results.filter((r) => !r.passed);
+  const app = failed.filter((r) => r.reason === undefined); // what the app itself did, judge failures set aside
+  const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
+  if (goals.length > 0) return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r)) ? "environment" : "flow";
+  if (app.length > 0) return app.every((r) => r.assertion.kind === "no-failed-requests" && refusedOnly(r)) ? "environment" : "flow";
+  if (failed.length > 0) return "environment";
+  return "flow";
 }
 
 export async function runHarness(
@@ -172,16 +271,17 @@ export async function runHarness(
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {});
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
   const scenario = await planner.plan(ctx);
   // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
   // segment" is a property of the file being replayed, and an older file predates the notation.
-  const urlMatch: UrlMatchOptions = {
+  const urlMatch: ConditionMatchOptions = {
     localePrefixes: opts.localePrefixes,
     wildcards: scenario.wildcards,
+    requestMatch: opts.requestMatch,
   };
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {}, urlMatch);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).
@@ -201,12 +301,12 @@ export async function runHarness(
         kind: "step",
         phase: "replay",
         stepRef: actions.length - 1,
-        payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error },
+        payload: { step: result.step, ok: result.ok, skipped: result.skipped, error: result.error, ...(result.errorKind ? { errorKind: result.errorKind } : {}) },
       },
       screenshot,
     );
     if (opts.onStep) {
-      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, skipped: result.skipped, screenshot });
+      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, errorKind: result.errorKind, skipped: result.skipped, screenshot });
     }
     if (!result.ok) break;
   }
@@ -223,7 +323,7 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length));
+  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions, scenario);
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

@@ -35,7 +35,8 @@ export type Step = StepMeta &
 export interface WaitUntil {
   /** the final URL includes this substring */
   url?: string;
-  /** a captured request whose URL includes `urlIncludes` reached `status` */
+  /** a captured request reached `status`, matched by `urlMatchesFrozen`: the part of `urlIncludes`
+   * before `?` is a URL substring, the part after `?` is a subset of the URL's parsed query */
   requestStatus?: { urlIncludes: string; status: number; method?: string };
   /** an element with this accessible name is present (optionally constrained by `role`) */
   text?: string;
@@ -88,11 +89,21 @@ export interface AssertionMeta {
  */
 export type Assertion = AssertionMeta &
   (
-  | { kind: "navigated"; to?: string }
+  | {
+      kind: "navigated";
+      to?: string;
+      /** Discovery already observed this destination before the last executed step whose request
+       * tail contains a successful, non-benign, same-site mutation (#203). Advisory provenance:
+       * reaching this URL does not prove post-mutation navigation, nor that navigation is pending.
+       * Stamped only on derived assertions; replay judgment is unchanged. Correct on-page saves
+       * also carry this marker: it must not become a failure gate without additional evidence. */
+      observedBeforeLastMutation?: true;
+    }
   | { kind: "no-console-errors" }
   | { kind: "no-failed-requests" }
-  /** `method` (optional) scopes the match, so a same-prefix GET can't satisfy a POST check —
-   * parity with the step-level `expect.requestStatus`. */
+  /** `urlIncludes` matches the same way as `WaitUntil.requestStatus` (`urlMatchesFrozen`): substring
+   * before `?`, parsed-query subset after. `method` (optional) scopes the match, so a same-prefix
+   * GET can't satisfy a POST check — parity with the step-level `expect.requestStatus`. */
   | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
@@ -103,8 +114,9 @@ export interface Scenario {
   name: string;
   steps: Step[];
   assertions: Assertion[];
-  /** Set by discover when it stopped at the step cap without reaching "done" — the path may be
-   * incomplete, so a host can warn before trusting the freeze. Absent on a normal finish. */
+  /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
+   * policy blocks — so the path may be incomplete and a host can warn before trusting the freeze.
+   * Absent on a normal finish. */
   truncated?: boolean;
   /** Set by discover when this freeze wrote a `*` for a segment the run minted, in a `navigated`
    * destination or a step's URL expect. Absent means the file predates the notation, so a `*` in it
@@ -120,9 +132,22 @@ export interface Scenario {
   unprovenAction?: string;
 }
 
-/** An interactive element the discover loop perceives and acts on. Form state rides along so
- * the LLM can see a checkbox it already ticked or a disabled submit instead of thrashing (#93). */
+/** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
+export interface SnapshotOptions {
+  perception?: boolean;
+}
+
+/** An observed candidate; accessible semantics remain separate from measured interaction facts. */
 export interface PageElement {
+  /** Opaque driver token. Never persisted or sent directly to the model. */
+  ref?: string;
+  /** Positive measured facts; absence means unknown. */
+  inActivePopup?: boolean;
+  occluded?: boolean;
+  /** A measured interaction candidate (for example cursor:pointer), not proof of action success. */
+  clickable?: boolean;
+  /** Driver-local measured clickable region identity, meaningful within this snapshot. */
+  clickableRegion?: string;
   role: string;
   name: string;
   checked?: boolean | "mixed";
@@ -138,6 +163,8 @@ export interface StepProgress {
   error?: string;
   /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
   skipped?: boolean;
+  /** Typed cause of `error`, when the thrower said (#212). */
+  errorKind?: StepErrorKind;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -174,10 +201,18 @@ export interface Evidence {
   };
 }
 
+/** Why a step could not run, typed where the error is thrown so a verdict never has to read the
+ * message (#212). `resolution`: the target did not resolve. `post-condition`: the step ran but its
+ * `expect` never held. `timeout`: a `waitFor` gave up. `transport`: the driver's own machinery
+ * failed (browser gone, a call that never returned). `handler`: the host registered no handler. */
+export type StepErrorKind = "resolution" | "post-condition" | "timeout" | "transport" | "handler";
+
 export interface ExecutedAction {
   step: Step;
   ok: boolean;
   error?: string;
+  /** Typed cause of `error`, when the thrower said (`stepError`); absent for an untyped throw. */
+  errorKind?: StepErrorKind;
   /** True when the step was not executed because its `expect` already held (idempotency pre-check).
    * Surfaced so a skip is always observable — a wrongly pre-satisfied expect must never hide as a
    * plain ok (#86). */
@@ -193,6 +228,56 @@ export interface AssertionResult {
   assertion: Assertion;
   passed: boolean;
   detail?: string;
+  /** Every distinct HTTP status the critic saw: for `request-status` the endpoint's responses (the
+   * matched one when it passed), for `no-failed-requests` each unrecovered failure; arrival order,
+   * `0` for a request still pending. Structured so a reader never parses `detail` (#212). */
+  statuses?: number[];
+  /** The critic could not judge this check at all: the LLM behind an `expect` failed, or no
+   * handler exists for the kind or the `custom` name. Not the app's failure. */
+  reason?: "judge-failed" | "no-handler";
+}
+
+/**
+ * What a red verdict asks the reader to do next (#173). `flow`: the app did not do what the flow
+ * asserts — block the build. `script`: the frozen scenario no longer fits the app (a step could not
+ * run, or the freeze proves nothing) — re-discover. `environment`: neither the app nor the script —
+ * the run's machinery (browser, transport, judge) or the host's setup (a handler nobody registered),
+ * or the app refusing the caller with 401/403/429 — retry, or fix the setup. Derived from evidence
+ * the verdict already holds; leans to `flow` when unsure, so a real regression is never filed
+ * under "retry".
+ */
+export type FailureClass = "flow" | "script" | "environment";
+
+/**
+ * What a green verdict actually proves (#197), the mirror of `failure` on a red. A green from a
+ * 2xx mutation and a green from "the final URL matched" are not worth the same, and a consumer
+ * rendering a run should be able to say which it got. Advisory: `passed` is unchanged.
+ */
+export interface VerdictProof {
+  /** The strongest thing the checks prove. `work`: a non-vacuous `request-status` or `custom`
+   * check saw the action happen. `judged`: no mechanical proof, but an LLM `expect` judged the
+   * outcome — a claim about the work, not a measurement of it. `arrival`: only a destination
+   * (`navigated` with `to`) held — the page was reached, the work is inferred. `none`: nothing
+   * here speaks to the flow — the health guards still fire on an error, but a flow that quietly
+   * did nothing passes. (Over a freeze, `none` also covers "every check vacuous"; on a green
+   * verdict that case never arrives, because #137 fails it closed.) */
+  grade: "work" | "judged" | "arrival" | "none";
+  /** Flow checks that could have gone red: not stamped `vacuous` at freeze (#137). Guards are
+   * counted apart, under `guards`. */
+  discriminating: number;
+  /** Flow checks the starting state already satisfied — they cannot fail, so they prove nothing. */
+  vacuous: number;
+  /** Non-vacuous flow checks by what they prove: `work` (`request-status`, `custom`), `arrival`
+   * (`navigated` with a destination). */
+  work: number;
+  arrival: number;
+  /** App-health guards present (`no-failed-requests`, `no-console-errors`), counted by kind, not
+   * by stamp: the freeze marks them vacuous on a clean start so a guards-only scenario fails
+   * closed, yet a flow can still trip them, so they are neither discriminating nor vacuous here. */
+  guards: number;
+  /** An action the freeze saw fire that none of these checks can express (#184), carried from
+   * the scenario so a replay's green says it too. */
+  unprovenAction?: string;
 }
 
 export interface Verdict {
@@ -200,6 +285,13 @@ export interface Verdict {
   results: AssertionResult[];
   /** Set when the verdict didn't come from the results alone — e.g. failing closed on an empty assertion set. */
   detail?: string;
+  /** Present only when `passed` is false: which of the three next actions this red calls for. */
+  failure?: FailureClass;
+  /** Present only when `passed` is true: how much this green is worth (#197). */
+  proof?: VerdictProof;
+  /** Why the verdict failed closed regardless of the results: no assertions (#69), every one
+   * vacuous (#137), a replay that blocked (#90), a re-discovery that ended before `done` (#186). */
+  failClosed?: "no-assertions" | "all-vacuous" | "blocked" | "truncated";
 }
 
 /** What one completion cost, reported by a backend that can measure (HTTP APIs report exact

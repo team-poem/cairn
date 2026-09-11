@@ -1,4 +1,69 @@
+import { hostAuthority, hostIsAllowed, parseReplayUrl } from "./hosts.js";
 import type { NetworkRequest } from "./types.js";
+
+/** Exact host[:port] scope for comparing frozen API paths across replay environments. */
+export interface RequestMatchOptions {
+  /** Explicit ports match effective HTTP(S) ports; omitted ports scope standard endpoints. */
+  allowedHosts?: readonly string[];
+}
+
+
+/** Raw key -> raw value pairs of a query string ("a=1&b=2"), last one wins on a duplicate key.
+ * No decoding — matched as literal text, same as the containment match this replaces. */
+function parseQueryPairs(query: string): Map<string, string> {
+  const pairs = new Map<string, string>();
+  for (const pair of query.split("&")) {
+    if (!pair) continue;
+    const eq = pair.indexOf("=");
+    const key = eq === -1 ? pair : pair.slice(0, eq);
+    pairs.set(key, eq === -1 ? "" : pair.slice(eq + 1));
+  }
+  return pairs;
+}
+
+/** Does `url` satisfy a frozen `urlIncludes`? The part before the first `?` is a plain substring
+ * match, exactly as `urlIncludes` has always worked. The part after `?`, if any, is compared as a
+ * SUBSET of the URL's own query: every frozen key=value pair must be present with an equal value —
+ * extra params on the URL are tolerated, order doesn't matter. Plain substring on the whole query
+ * let a longer operation name satisfy a shorter frozen one (`?op=AddToCart` matched by a replay
+ * firing `?op=AddToCartV2`, ordinary GraphQL versioning) and made the match order-sensitive
+ * (`?op=AddToCart` failing against `?trace=xy&op=AddToCart`). #200. Shared by every request-status
+ * call site (this predicate, discovery-time grounding, the assertion diagnostic) so a verdict and
+ * its diagnostic can never disagree. */
+export function urlMatchesFrozen(url: string, urlIncludes: string, opts: RequestMatchOptions = {}): boolean {
+  // Only an explicitly scoped frozen host enables fallback. Path/suffix checks and external
+  // checks keep their existing semantics. Never accept a hostname embedded in an actual query.
+  const allowedHosts = opts.allowedHosts;
+  const frozen = allowedHosts ? parseReplayUrl(urlIncludes) : undefined;
+  if (frozen && allowedHosts && hostIsAllowed(frozen.host, allowedHosts)) {
+    const actual = parseReplayUrl(url);
+    if (!actual?.absolute || !hostIsAllowed(actual.host, allowedHosts)) return false;
+    const observed = new URL(url);
+    const path = frozen.suffix.split(/[?#]/, 1)[0] ?? "";
+    if (path.startsWith("/") && path !== "/") {
+      // Dropping the host must keep its endpoint prefix anchored at the pathname start,
+      // never a nested endpoint or a URL carried in a query value.
+      // Reuse the original query-subset comparison below without broadening it.
+      if (!observed.pathname.startsWith(path)) return false;
+      return urlMatchesFrozen(observed.pathname + observed.search, frozen.suffix);
+    }
+    // No path means no cross-host fallback. Keep explicit default ports equivalent to the
+    // source URL's effective port, then require the original literal expectation as before.
+    const sourcePort = frozen.host.port ?? (frozen.host.protocol === "https:" ? "443" : frozen.host.protocol === "http:" ? "80" : undefined);
+    const sourceAuthority = hostAuthority({ ...frozen.host, port: sourcePort });
+    if (!hostIsAllowed(actual.host, [sourceAuthority])) return false;
+  }
+
+  const q = urlIncludes.indexOf("?");
+  if (q === -1) return url.includes(urlIncludes);
+  const path = urlIncludes.slice(0, q);
+  if (!url.includes(path)) return false;
+  const actual = parseQueryPairs(url.match(/\?([^#]*)/)?.[1] ?? "");
+  for (const [key, value] of parseQueryPairs(urlIncludes.slice(q + 1))) {
+    if (actual.get(key) !== value) return false;
+  }
+  return true;
+}
 
 /** The one request-status predicate: the first captured request matching url AND status (AND
  * method, when given — so a same-prefix GET can't satisfy a POST check on a status collision).
@@ -10,10 +75,11 @@ export function findRequestStatus(
   urlIncludes: string,
   status: number,
   method?: string,
+  opts: RequestMatchOptions = {},
 ): NetworkRequest | undefined {
   const m = method?.toUpperCase();
   return requests.find(
-    (r) => r.url.includes(urlIncludes) && r.status === status && (!m || r.method.toUpperCase() === m),
+    (r) => urlMatchesFrozen(r.url, urlIncludes, opts) && r.status === status && (!m || r.method.toUpperCase() === m),
   );
 }
 

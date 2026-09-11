@@ -1,0 +1,9 @@
+{
+  "mode": "cost",
+  "tiers": ["navigation"],
+  "arms": ["agent", "cairn"],
+  "fixtureVersions": ["v1", "v1", "v1", "v1"],
+  "latency": { "document": [0, 20], "api": [0, 40] },
+  "maxSteps": 20,
+  "llm": { "source": "scripted", "label": "local-cost-smoke" }
+}

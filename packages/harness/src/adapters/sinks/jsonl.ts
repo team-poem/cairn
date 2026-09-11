@@ -59,6 +59,7 @@ export class JsonlTraceSink implements TraceSink {
   #failures = 0;
   #path: string | undefined;
   #runId: string | undefined;
+  #closed = false;
 
   /**
    * The path is resolved from the header's own `runId` rather than supplied up front, so the run
@@ -93,6 +94,13 @@ export class JsonlTraceSink implements TraceSink {
 
   emit(event: TraceEvent): void {
     try {
+      // Closed means the run is over (see `close`'s doc comment). A write offered afterward is a
+      // caller contract violation, not a crash — drop it rather than racing an unawaited flush
+      // against whoever reads the sink next.
+      if (this.#closed) {
+        this.#failures += 1;
+        return;
+      }
       if (event.kind === "trace" && this.#runId === undefined) {
         this.#runId = event.payload.runId;
         this.#path = this.resolvePath(event.payload.runId);
@@ -113,6 +121,10 @@ export class JsonlTraceSink implements TraceSink {
    */
   attach(attachment: TraceAttachment): void {
     try {
+      if (this.#closed) {
+        this.#failures += 1;
+        return;
+      }
       this.#pendingAttachments.push(attachment);
       this.#schedule();
     } catch {
@@ -120,8 +132,12 @@ export class JsonlTraceSink implements TraceSink {
     }
   }
 
-  /** Flush everything still buffered. Call once, when the run is over. */
+  /** Flush everything still buffered. Call once, when the run is over — writes offered after are
+   * dropped (and counted), not scheduled. Closing before a header ever arrived finalizes nothing
+   * (there is no run yet — see `resolvePath`'s doc comment), so events may still buffer toward a
+   * header that arrives later. */
   async close(): Promise<void> {
+    if (this.#path !== undefined) this.#closed = true;
     this.#schedule();
     await this.#queue;
   }

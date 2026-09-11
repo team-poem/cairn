@@ -23,7 +23,7 @@ import { expect, it } from "vitest";
 
   // cli-missing-args-exit-1.test.ts
   {
-    it("cliMissingArgsExit1: run/replay/discover/explore/suite without their required input exit 1 with a usage hint — before any browser or LLM", async () => {
+    it("cliMissingArgsExit2: run/replay/discover/explore/suite without their required input exit 2 (usage, #173) with a usage hint — before any browser or LLM", async () => {
       const cases: [string[], string][] = [
         [["run"], "--scenario"],
         [["replay"], "usage: cairn replay"],
@@ -33,7 +33,7 @@ import { expect, it } from "vitest";
       ];
       for (const [args, hint] of cases) {
         const r = await cli(...args);
-        expect(r.code, args.join(" ")).toBe(1);
+        expect(r.code, args.join(" ")).toBe(2);
         expect(r.stderr, args.join(" ")).toContain(hint);
       }
     }, 30_000);

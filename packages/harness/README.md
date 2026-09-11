@@ -12,11 +12,68 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 [![types](https://img.shields.io/npm/types/cairn-engine.svg)](https://www.npmjs.com/package/cairn-engine)
 [![license](https://img.shields.io/npm/l/cairn-engine.svg)](https://github.com/team-poem/cairn/blob/main/LICENSE)
 
-An AI walks your app once to discover the flow and freezes it to plain JSON. From then on it replays deterministically, with no LLM and no hand-written selectors. When the UI changes and a step breaks, the AI returns to heal just that step, then re-freezes.
+cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
-> A cairn is a stack of stones that marks a trail. It is built once, so the path can be found again. That is the whole idea: find the path once, follow the marker forever, rebuild it when the trail shifts.
+![Claude — Sonnet 5 and Opus 5 each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-claude-calls.svg)
 
-cairn is an engine, not a product. The core is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
+![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
+
+The following cost tables show six runs per journey and approach. These rename-only runs needed no healing; a separate repair measurement follows below.
+
+**Claude reported costs**
+
+- **Journey:** The user flow being tested, such as login → cart → order.
+- **Discover:** AI performs the task and creates the steps to replay.
+- **Replay:** Run the saved steps again without LLM calls.
+- **Heal:** AI repairs a step that broke after a UI change, then saves the repair for later runs. See [measured self-heal](#measured-self-heal).
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| Sonnet 5 | Navigation | $0.109 · 18 calls | $0.018 · 3 calls |
+| Sonnet 5 | Form save | $0.151 · 24 calls | $0.025 · 4 calls |
+| Sonnet 5 | Login → cart → order | $0.269 · 42 calls | $0.046 · 7 calls |
+| Opus 5 | Navigation | $0.208 · 18 calls | $0.030 · 3 calls |
+| Opus 5 | Form save | $0.255 · 24 calls | $0.042 · 4 calls |
+| Opus 5 | Login → cart → order | $0.463 · 42 calls | $0.077 · 7 calls |
+
+**Codex estimated costs**
+
+Codex costs are estimates from recorded tokens assuming OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier.
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| GPT-5.6 Sol | Navigation | ~$0.8002 · 18 calls | ~$0.0880 · 3 calls |
+| GPT-5.6 Sol | Form save | ~$0.6905 · 24 calls | ~$0.0826 · 4 calls |
+| GPT-5.6 Sol | Login → cart → order | ~$1.1513 · 42 calls | ~$0.1502 · 7 calls |
+| GPT-5.6 Terra | Navigation | ~$0.2540 · 18 calls | ~$0.0391 · 3 calls |
+| GPT-5.6 Terra | Form save | ~$0.1935 · 24 calls | ~$0.0313 · 4 calls |
+| GPT-5.6 Terra | Login → cart → order | ~$0.3788 · 42 calls | ~$0.0566 · 7 calls |
+| GPT-5.6 Luna | Navigation | ~$0.0276 · 18 calls | ~$0.0020 · 3 calls |
+| GPT-5.6 Luna | Form save | ~$0.0297 · 30 calls | ~$0.0042 · 4 calls |
+| GPT-5.6 Luna | Login → cart → order | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
+
+## Measured self-heal
+
+In a separate six-run order journey, the **Place order button becomes a link on run 4**. The original test fails without healing. Each model repairs the target with one LLM call, saves the repair, and passes runs 5 and 6 with zero LLM calls.
+
+**Claude reported costs**
+
+| Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
+| --- | ---: | ---: | ---: |
+| Sonnet 5 | $0.042799 · 7 calls | $0.006370 · 1 call | 2/2 pass · 0 calls |
+| Opus 5 | $0.087434 · 7 calls | $0.013444 · 1 call | 2/2 pass · 0 calls |
+
+**Codex estimated costs**
+
+| Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
+| --- | ---: | ---: | ---: |
+| GPT-5.6 Sol | ~$0.237219 · 7 calls | ~$0.045860 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Terra | ~$0.056860 · 7 calls | ~$0.006834 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Luna | ~$0.008757 · 7 calls | ~$0.000582 · 1 call | 2/2 pass · 0 calls |
+
+Claude dollar amounts are provider-reported. Codex amounts are estimates from recorded tokens using OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier. In this schedule, each model uses **42 calls discovering every run, or 8 discovering once and healing once**. All five repairs succeed and all ten replays after repair use zero calls.
+
+This measures one locator change, with the order verified by the fixture's order count; it does not measure `waitFor` repair or a general repair success rate. [Claude evidence](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/230-claude.md) · [GPT evidence and reproduction](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/230-codex.md).
 
 ## Features
 
@@ -24,6 +81,7 @@ cairn is an engine, not a product. The core is model- and browser-agnostic, and 
 - Freeze it to a flat, readable, diffable `*.skill.json` file
 - Replay it deterministically, with zero LLM calls, and print the proof (`llm: 0 call(s)`)
 - Self-heal a broken step from its recorded intent, then re-freeze
+- Fill `{name}` secrets at run time, scoped to your site, never frozen into a skill
 - Multi-locator targets (accessible name, role and index, CSS) that survive redesigns
 - Three-layer judgment: did it act, what it looked like, what the requests and console said
 - Run a whole case list with `cairn suite`, with your own success criteria merged in
@@ -46,10 +104,11 @@ npm install -g cairn-engine     # as a CLI
 
 - as a [CLI](https://github.com/team-poem/cairn/blob/main/docs/guide.md#try-it-in-60-seconds)
 - as a [library](https://github.com/team-poem/cairn/blob/main/docs/guide.md#embed-it)
+- a standalone [npm/pnpm quickstart](https://github.com/team-poem/cairn/tree/main/examples/quickstart) with discovery, freeze, and zero-LLM replay
 
 ```sh
 cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
-cairn replay cart.skill.json            # deterministic, exit 1 on failure
+cairn replay cart.skill.json            # deterministic; exit 1 flow broke · 3 script aged · 4 environment (retry, or fix the setup)
 cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
 ```
 
@@ -67,13 +126,14 @@ if (!result.verdict.passed) process.exit(1)
 
 | Doc | What it covers |
 | --- | --- |
-| [User guide](https://github.com/team-poem/cairn/blob/main/docs/guide.md) | CLI, library, suites, explore, skill files, traces, extension points, FAQ |
-| [Design](https://github.com/team-poem/cairn/blob/main/docs/design.md) | the full design, end to end |
-| [The loop](https://github.com/team-poem/cairn/blob/main/spec/core/the-loop.md) | why discover, freeze, replay, heal |
-| [Surgical heal](https://github.com/team-poem/cairn/blob/main/spec/core/surgical-heal.md) | per-step divergence detection and repair |
-| [Targeting](https://github.com/team-poem/cairn/blob/main/spec/core/targeting.md) | multi-locator targets that survive redesigns |
-| [Judgment](https://github.com/team-poem/cairn/blob/main/spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
-| [Trace](https://github.com/team-poem/cairn/blob/main/spec/core/trace.md) | the versioned trace event contract |
+| [`docs/guide.md`](https://github.com/team-poem/cairn/blob/main/docs/guide.md) | the user guide: CLI, library, suites, explore, skill files, traces, extension points, FAQ |
+| [`docs/design.md`](https://github.com/team-poem/cairn/blob/main/docs/design.md) | the full design, end to end |
+| [`spec/core/the-loop.md`](https://github.com/team-poem/cairn/blob/main/spec/core/the-loop.md) | why discover, freeze, replay, heal |
+| [`spec/core/surgical-heal.md`](https://github.com/team-poem/cairn/blob/main/spec/core/surgical-heal.md) | per-step divergence detection and repair |
+| [`spec/core/targeting.md`](https://github.com/team-poem/cairn/blob/main/spec/core/targeting.md) | multi-locator targets that survive redesigns |
+| [`spec/core/judgment.md`](https://github.com/team-poem/cairn/blob/main/spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
+| [`spec/core/trace.md`](https://github.com/team-poem/cairn/blob/main/spec/core/trace.md) | the versioned trace event contract |
+| [`spec/core/secrets.md`](https://github.com/team-poem/cairn/blob/main/spec/core/secrets.md) | `{name}` secrets: filled at run time, scoped to a site, never frozen |
 
 ## LLM backends
 
@@ -93,7 +153,7 @@ If your model is not supported, implement the `LlmClient` port or open an [issue
 
 ## Contributing
 
-cairn takes pull requests. See [CONTRIBUTING.md](https://github.com/team-poem/cairn/blob/main/CONTRIBUTING.md) for the workflow.
+cairn takes pull requests. See [`CONTRIBUTING.md`](https://github.com/team-poem/cairn/blob/main/CONTRIBUTING.md) for the workflow (Conventional Commits, an issue link per PR, the `spec/architecture.md` invariants).
 
 ## License
 

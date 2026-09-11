@@ -1,10 +1,16 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
-export { runHarness } from "./core/pipeline.js";
+export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
+export type { ReplayEnvironment } from "./core/replay-environment.js";
+export type { RequestMatchOptions } from "./core/requests.js";
+export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
+export { stepError, errorKindOf } from "./core/errors.js";
+export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
+export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES } from "./core/steps.js";
-export type { UrlMatchOptions } from "./core/steps.js";
+export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
 export { runSuite } from "./suite.js";
@@ -14,6 +20,7 @@ export { ENGINE_VERSION } from "./version.js";
 export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
 export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
+export type { StepHealOptions } from "./core/step-heal.js";
 
 export { InlineContextProvider } from "./adapters/context/inline.js";
 export { StaticPlanner } from "./adapters/planners/static.js";
@@ -64,3 +71,7 @@ export { renderExploreReport } from "./adapters/reporters/markdown.js";
 export { guessedKeyRuns, scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { GuessedKeyRun, TargetScore, ScoredTarget } from "./core/freeze.js";
 export { UsageMeter, emptyUsage } from "./core/usage.js";
+
+/** Shared diagnostics for hosts displaying discovery and freeze evidence (see docs/package-boundaries.md). */
+export { describeAction } from "./core/discover/decision.js";
+export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";

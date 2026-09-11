@@ -1,0 +1,49 @@
+<svg width="1200" height="390" viewBox="0 0 1200 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Claude: cumulative LLM calls over six checkout runs</title>
+  <desc id="desc">Sonnet 5 · Opus 5. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model counts, not a sum or average across models. Each cumulative count was reported by the PR author from the original recorded runs. Both provider charts use the same scale.</desc>
+  <rect width="1200" height="390" rx="20" fill="#0b1019"/>
+  <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+    <text x="40" y="45" fill="#ffffff" font-size="30" font-weight="600">Claude</text>
+    <text x="40" y="75" fill="#8fa0b8" font-size="20">Sonnet 5 · Opus 5</text>
+    <text x="1160" y="47" text-anchor="end" fill="#8fa0b8" font-size="21">Cumulative LLM calls / model</text>
+    <line x1="80" y1="315" x2="1070" y2="315" stroke="#263043"/>
+    <text x="64" y="321" text-anchor="end" fill="#8fa0b8" font-size="18">0</text>
+    <line x1="80" y1="280" x2="1070" y2="280" stroke="#263043"/>
+    <text x="64" y="286" text-anchor="end" fill="#8fa0b8" font-size="18">7</text>
+    <line x1="80" y1="210" x2="1070" y2="210" stroke="#263043"/>
+    <text x="64" y="216" text-anchor="end" fill="#8fa0b8" font-size="18">21</text>
+    <line x1="80" y1="105" x2="1070" y2="105" stroke="#263043"/>
+    <text x="64" y="111" text-anchor="end" fill="#8fa0b8" font-size="18">42</text>
+
+    <polyline points="80,315 245,280 410,245 575,210 740,175 905,140 1070,105" fill="none" stroke="#e0aa6e" stroke-width="4"/>
+    <circle cx="80" cy="315" r="5" fill="#e0aa6e"/>
+    <circle cx="245" cy="280" r="5" fill="#e0aa6e"/>
+    <circle cx="410" cy="245" r="5" fill="#e0aa6e"/>
+    <circle cx="575" cy="210" r="5" fill="#e0aa6e"/>
+    <circle cx="740" cy="175" r="5" fill="#e0aa6e"/>
+    <circle cx="905" cy="140" r="5" fill="#e0aa6e"/>
+    <circle cx="1070" cy="105" r="5" fill="#e0aa6e"/>
+
+    <polyline points="80,315 245,280 410,280 575,280 740,280 905,280 1070,280" fill="none" stroke="#7ddab0" stroke-width="4"/>
+    <circle cx="80" cy="315" r="5" fill="#7ddab0"/>
+    <circle cx="245" cy="280" r="5" fill="#7ddab0"/>
+    <circle cx="410" cy="280" r="5" fill="#7ddab0"/>
+    <circle cx="575" cy="280" r="5" fill="#7ddab0"/>
+    <circle cx="740" cy="280" r="5" fill="#7ddab0"/>
+    <circle cx="905" cy="280" r="5" fill="#7ddab0"/>
+    <circle cx="1070" cy="280" r="5" fill="#7ddab0"/>
+    <text x="1090" y="115" fill="#e0aa6e" font-size="30" font-weight="600">42</text>
+    <text x="805" y="185" fill="#e0aa6e" font-size="21">Discover every run</text>
+    <text x="1090" y="290" fill="#7ddab0" font-size="30" font-weight="600">7</text>
+    <text x="835" y="262" fill="#7ddab0" font-size="21">Discover + replay</text>
+    <text x="80" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">0</text>
+    <text x="245" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">1</text>
+    <text x="410" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">2</text>
+    <text x="575" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">3</text>
+    <text x="740" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">4</text>
+    <text x="905" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">5</text>
+    <text x="1070" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">6</text>
+    <text x="1110" y="345" fill="#8fa0b8" font-size="18">Run</text>
+
+  </g>
+</svg>

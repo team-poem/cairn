@@ -10,8 +10,10 @@
   - [the-loop](core/the-loop.md) — discover → freeze → replay → self-heal; economics · determinism · the flexibility dial.
   - [judgment](core/judgment.md) — three-layer evidence judgment.
   - [targeting](core/targeting.md) — multi-locator + freeze stability.
+  - [perception](core/perception.md) — driver observations, shared selection, and temporary element references.
   - [surgical-heal](core/surgical-heal.md) — per-step outcome verification + surgical self-heal.
   - [trace](core/trace.md) — unified lifecycle event contract (draft, #138): envelope · header versioning · per-phase payloads.
+  - [secrets](core/secrets.md) — `{name}` placeholders filled at run time, scoped to a site, never frozen (#174).
 - **[journal/](journal/)** — **current state · dev log** (Korean, internal): [state](journal/state.md) · [history](journal/history.md).
 
 ## Roles (don't duplicate across them)

@@ -9,6 +9,7 @@
  * Assembly layer like `run.ts`: composes core + adapters behind the ports; a host can inject
  * every seam (store, driver factory, llm, policy, reporter).
  */
+import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
 import type { ActionPolicy } from "./core/discover/index.js";
@@ -70,11 +71,13 @@ export interface SuiteOptions
     | "benign"
     | "benignConsole"
     | "localePrefixes"
+    | "secrets"
     | "custom"
     | "actions"
     | "signal"
     | "expectTimeoutMs"
     | "screenshots"
+    | "replayEnvironment"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -105,13 +108,18 @@ export interface SuiteVerdict {
   intent: string;
   verdict: Verdict;
   skillRef: string;
-  /** True when this run had to discover the case (cache miss); false = pure replay. */
+  /** True when the case needed discovery; false for cached replay or a preflight refusal. */
   discovered: boolean;
+  /** Preflight refused this case before any browser/LLM execution. */
+  notRun?: "cache-miss" | "invalid-entry";
   /** True when discovery hit its step cap — the case failed closed and nothing was frozen. */
   truncated?: boolean;
   /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
    * was reached", not "the work was done". Advisory: the verdict does not fail on it. */
   unprovenAction?: string;
+  /** Destinations already observed before the last qualifying mutation (#203). Advisory only:
+   * correct on-page saves also carry it; it must not alone become a failure gate. */
+  observedBeforeLastMutation?: string[];
   /** Locator + surgical step heals the replay needed (0 on a clean replay). */
   heals: number;
   /** Discovery + replay combined. A cached mechanical-only case shows llmCalls: 0. */
@@ -152,6 +160,7 @@ function validateCases(cases: SuiteCase[], opts: SuiteOptions): void {
 
 export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Promise<SuiteResult> {
   validateCases(cases, opts);
+  if (opts.replayEnvironment) validateReplayEnvironment(opts.replayEnvironment);
   const {
     store = new FileSkillStore(),
     skillDir = "skills",
@@ -198,13 +207,31 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
+    ...navigationEvidenceSummary(s),
   };
+}
+
+/** Summarize the assertions actually frozen/judged, including a cached or healed skill. The
+ * assertion owns provenance; a duplicate Scenario field would drift when assertions are merged. */
+function navigationEvidenceSummary(scenario: Scenario): Pick<SuiteVerdict, "observedBeforeLastMutation"> {
+  const destinations = scenario.assertions.flatMap((assertion) =>
+    assertion.kind === "navigated" && assertion.observedBeforeLastMutation && assertion.to !== undefined
+      ? [assertion.to]
+      : [],
+  );
+  return destinations.length ? { observedBeforeLastMutation: [...new Set(destinations)] } : {};
 }
 
 async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
   const scope = ctx.tracer?.scope(c.id);
+  const notRun = (reason: NonNullable<SuiteVerdict["notRun"]>, detail: string): SuiteVerdict => {
+    const verdict: Verdict = { passed: false, results: [], failure: "script", detail };
+    const usage = emptyUsage();
+    scope?.emit({ kind: "case-end", payload: { verdict, usage, discovered: false, heals: 0 } });
+    return { ...base, verdict, usage, discovered: false, heals: 0, notRun: reason };
+  };
   try {
     // 1. Cache: any load failure (missing, malformed artifact) is a miss — re-discovering IS the
     // repair for a broken skill file.
@@ -226,6 +253,15 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       kind: "case-start",
       payload: { id: c.id, intent: c.intent, skillRef: ref, cached: !!scenario },
     });
+    // Environment replay consumes the canonical freeze only. A miss must be repaired by
+    // discovery in the canonical environment, never persisted from a temporary target.
+    if (!scenario && ctx.replayEnvironment) {
+      return notRun("cache-miss", "replayEnvironment requires a current frozen cache; discover this case in its canonical environment first");
+    }
+    if (scenario && ctx.replayEnvironment) {
+      try { validateReplayEntry(scenario, ctx.replayEnvironment); }
+      catch (err) { return notRun("invalid-entry", err instanceof Error ? err.message : String(err)); }
+    }
     let discovered = false;
     let discoveryUsage = emptyUsage();
 
@@ -243,6 +279,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           policy: ctx.policy,
           signal: ctx.signal,
           benign: ctx.benign,
+        secrets: ctx.secrets,
           trace: scope,
         });
       } finally {
@@ -258,6 +295,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           passed: false,
           results: [],
           detail: "discovery truncated at the step cap — unverified path, nothing frozen",
+          failClosed: "truncated",
+          failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap
         };
         scope?.emit({
           kind: "case-end",
@@ -288,6 +327,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     try {
       const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
         driver,
+        replayEnvironment: ctx.replayEnvironment,
         heal: ctx.heal,
         llm: ctx.llm,
         model: ctx.model,
@@ -297,6 +337,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         benign: ctx.benign,
         benignConsole: ctx.benignConsole,
         localePrefixes: ctx.localePrefixes,
+        secrets: ctx.secrets,
         custom: ctx.custom,
         actions: ctx.actions,
         expectTimeoutMs: ctx.expectTimeoutMs,
@@ -342,6 +383,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         // The flag rides on the frozen skill, so a cached replay reports it too — that is the path
         // people actually run (#190).
         ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : {}),
+        ...navigationEvidenceSummary(healedScenario ?? scenario),
       };
     } finally {
       await driver.close().catch(() => {});
@@ -354,6 +396,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       passed: false,
       results: [],
       detail: `case crashed: ${err instanceof Error ? err.message : String(err)}`,
+      failure: "environment", // the run's machinery died, not the app (#173): retry
     };
     // A crashed case still ENDED — the trace records it rather than falling silent.
     scope?.emit({

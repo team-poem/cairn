@@ -77,6 +77,12 @@ async action that doesn't navigate, a fresh successful mutation request it fired
 so a submit is verifiable/healable, not just a URL jump (#64). `settle` is a heuristic that only reduces
 the race; the polled `expect` is what gates readiness deterministically.
 
+Final discovery observation also gives short post-response redirects the remaining part of a
+shared 2-second polling budget before freezing (#203; [judgment](judgment.md#destination-evidence-before-a-mutation-203)).
+The fallback destination marker records limited evidence and is never itself a failure gate.
+Outcome-heal re-discovery receives the same consumer `benign` rules as initial discovery, so
+incidental successful mutations do not add redirect waits or become step proofs during repair.
+
 `requestStatus` matching is guarded on both sides. At **freeze**: only the step's own requests (the
 appended tail of the run's log) qualify, benign noise is excluded, the **method** is frozen for exact
 matching (a same-path GET must not satisfy a submit), and the path stops before a run-specific id

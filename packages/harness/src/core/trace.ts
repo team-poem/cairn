@@ -5,14 +5,18 @@
  * is fire-and-forget: a sink that throws is swallowed, a trace must never change a verdict.
  */
 import type { TraceSink } from "./ports.js";
-import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict } from "./types.js";
+import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
  * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it.
- * 1.2 — `freeze.payload.unprovenAction` (#190), same rule. */
-export const TRACE_VERSION = "1.2";
+ * 1.2 — `freeze.payload.unprovenAction` (#190), same rule.
+ * 1.3 — `freeze.payload.observedBeforeLastMutation` (#203), destination advisory summary.
+ * 1.4 — `gate: idle-scroll` (#177), a scroll step dropped at freeze; `stepRef` is its original index.
+ * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from.
+ * 1.6 — perception/reference binding gates and the explore phase (#221). */
+export const TRACE_VERSION = "1.6";
 
-export type TracePhase = "discover" | "replay" | "heal";
+export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
 interface Envelope {
   /** Total order, monotonic per trace; 0 is always the `trace` header. */
@@ -41,7 +45,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "unproven-action"; action?: string; reason: string };
+        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll"; action?: string; reason: string };
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {
@@ -53,17 +57,23 @@ export type TraceEvent = Envelope &
           truncated?: boolean;
           /** `METHOD url` of a flow action no frozen check can prove (#184) — advisory. */
           unprovenAction?: string;
+          /** Destinations observed before the last qualifying mutation (#203); advisory, not failure. */
+          observedBeforeLastMutation?: string[];
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's
      * own `seq`, so call sites hand `emit` the bytes and never the id. */
-    | { kind: "step"; payload: { step: Step; ok: boolean; skipped?: boolean; error?: string; attachment?: string } }
+    | { kind: "step"; payload: { step: Step; ok: boolean; skipped?: boolean; error?: string; errorKind?: StepErrorKind; attachment?: string } }
     | {
         kind: "assertion";
         payload: {
           assertion: Assertion;
           passed: boolean;
           detail?: string;
+          /** 1.5 (#212): the structured signals behind the verdict's class, so a viewer can
+           * reproduce `classifyFailure` from the trace without reading `detail`. */
+          statuses?: number[];
+          reason?: "judge-failed" | "no-handler";
           origin: "user" | "derived" | "unknown";
           checkedBy: "code" | "model";
         };
@@ -89,6 +99,8 @@ export function assertionPayload(r: AssertionResult): Extract<TraceEvent, { kind
     assertion: r.assertion,
     passed: r.passed,
     detail: r.detail,
+    ...(r.statuses ? { statuses: r.statuses } : {}),
+    ...(r.reason ? { reason: r.reason } : {}),
     origin: r.assertion.origin ?? "unknown",
     checkedBy: r.assertion.kind === "expect" ? "model" : "code",
   };

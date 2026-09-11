@@ -4,7 +4,15 @@
 > **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
 
 ## 지금 상태
-- 단계: **`latest = 2.8.0` (2026-09-03 배포, PR #194 → main → release.yml 자동 publish·태그, 노트 발행).** breaking 0.
+- 단계: **2.9.0 릴리즈 대기 (PR #207 → main). develop 준비 완료: 버전 범프·저널·state.** breaking 0.
+  - **2.9.0 내용 ("판정이 근거를 들고 다닌다, 그리고 주장 대신 측정"):** PR 21개·232파일·17,832줄 추가,
+    트레이스 1.2 → 1.6, 2.8.0 freeze 그대로 재생. 판정 쪽 = `Verdict.proof` 등급(#197) · `Verdict.failure`와
+    종료코드 1/3/4(#173) · 구조화 신호(#212) · `observedBeforeLastMutation`(#203) · 쿼리 부분집합 매칭(#200).
+    측정 쪽 = `bench:local cost`로 다섯 모델 두 제공자 세 여정 각 6실행, 매번 탐색 42호출 대 한 번 탐색 후
+    재생 7호출, 재생 전부 호출 0, 180시도 실패 0(#214·#169·#170). 그 밖 = 비밀값 슬롯(#174) ·
+    replayEnvironment(#171) · 관찰 참조와 준비 대기(#198) · 목록 매턴 전송(#225) · PR 성능 비교 CI(#220).
+    상세 = entries/2026-09-11-290-release.md.
+  - **2.8.0 (2026-09-03 배포, PR #194):** 아래 내용 유지.
   - **2.8.0 내용 ("다음 런에도 살아남는 freeze"):** **grounding이 재생 가능한 URL을 얼림**(#172/#178/#183 —
     stable endpoint prefix·id 형상 컷·쿼리 접두 보존·구분력 잃은 체크 드랍, 반례 코퍼스 동반) ·
     **목적지 와일드카드**(#182 — `*` 토큰, leaf 규칙, `Scenario.wildcards` 마커, `localePrefixes` 전 경로 배선) ·
@@ -39,15 +47,62 @@
   **소비자 승격 슬레이트(#171–#177):** #172(→#178)·#176(→#181) 2.8.0에 종결. 잔여 #171 재앵커·#173 실패분류·#174 비밀값
   ·#175 settle·#177 스크롤 = **2.9.0**. #173은 #189의 `goalFailures`(가드=환경 / 목표=경로) + `blockedReason`(=대본)으로
   재료가 갖춰져 "세 신호에 이름 붙이기"로 작아짐. 상세 = entries/2026-08-26-consumer-promotion-candidates.md.
-  **2.9.0 후보(소비자 2차 제보, 2026-09-03):** 신규 이슈 4 — 지각 계층/요소 정체성(Driver 위, 포털·cap·role 없는 위젯),
-  초록의 강도(verdict provability 요약; #173의 반대편), 계약 지문(`hashCase` export / verdict fingerprint), heal 헬퍼
-  export(`goalFailures`·`finalizeVerdict` — 소비자가 `verdict.passed`로 재구현해 틀림). 기존 이슈에 합류 2 — 자격증명
-  origin 스코프→#174, 폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음; 남는 건 substring→key/value
-  파싱 매칭), 환경 박제(=#171), benign→step expect(=#192/#193). #184 advisory→fail-closed 전환은 #169 벤치 뒤.
+  **2.9.0 슬레이트(소비자 2차 제보 → #195–#200 등록, 2026-09-04):** #195 heal 헬퍼 export(소비자가 `verdict.passed`로
+  재구현해 틀림 — #189가 거부한 그 술어) · #196 계약 지문(`hashCase` 미export, 체크가 강해지면 이력이 회귀로 읽힘) ·
+  #197 초록의 강도(verdict provability 요약; #173의 반대편, 같은 신호) · #198 지각 계층/요소 정체성(`ELEMENT_LIMIT=60`
+  랭킹이 포털을 잘라냄, `PageElement`에 핸들 없음 — 논의 선행) · #199 jsonl 플레이크 · #200 요청 매칭 substring
+  (`?op=AddToCart`가 `AddToCartV2`에 매칭 — PR #179 실측분). 기존 이슈 합류 2 — 자격증명 origin 스코프→#174,
+  폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음), 환경 박제(=#171), benign→step expect(=#193).
+  **3차 제보 추가(2026-09-04):** #203 리다이렉트 진행 중 URL을 도착지로 굳힘(`observeOutcomes`가 in-flight
+  mutation은 기다리는데 네비게이션은 안 기다림 — 로그인 흐름이 폼 도착만으로 영구 초록) · #204 목적지 미스가
+  앱 탓인지 설정 탓인지 구분 불가(`DEFAULT_LOCALE_PREFIXES` 기본값이 형질, stage 2가 아무것도 못 벗기면 bare
+  false; 같은 "고정 선두 세그먼트" 개념이 `namesAPage`에도 절반만 있음).
+  **진행(2026-09-07):** 종결 = #199(PR #202) · #200(PR #201, `urlMatchesFrozen` 쿼리 부분집합 + `hasStablePath`
+  `?` 앞 절단) · #203(PR #205, 2초 예산 안 리다이렉트 대기 + `observedBeforeLastMutation` 마커, 트레이스 1.3) ·
+  #8(PR #206, 내부 경계 + `check:boundaries` + quickstart/consumer CI) · #195(PR #208, heal 헬퍼 3종 export) ·
+  #204(PR #209, `unrecognizedLeadingSegment` → "is not in localePrefixes" 힌트). #177(PR #210, idle 스크롤 prune — 같은 페이지의 뒤 타겟 스텝 전부가 스크롤 전에
+  있어야, 리졸버의 #127 중복 거부 거울, `perceive`로 활성 판단; `gate: idle-scroll`, 트레이스 1.4) ·
+  #173(PR #211, `Verdict.failure` flow/script/environment + CLI 종료코드 1·3·4, 2=사용법, 런 시작 후 크래시 4;
+  두 차례 리뷰 11건 전부 "렌더된 문자열을 자유 텍스트째 검사"가 원인 → 단언 종류로 검사 범위 고정, 드라이버 문구
+  앵커, 상태 전체 파싱 — 구조화 신호는 #212로). #212(PR #213, 분류 신호를 필드로 — `AssertionResult.statuses`·`reason`,
+  `Verdict.failClosed`, `ExecutedAction.errorKind`, `stepError`/`errorKindOf` export, Chrome 드라이버가 자기 MCP 봉투를
+  판정하고 다이얼로그 차단은 전송 검사 전에 제외, 트레이스 1.5; 코어에 자유 텍스트 정규식 0). #197(PR #217, `Verdict.proof` — work/judged/arrival/none, `proofOf`가 freeze와 replay를 같은 규칙으로,
+  가드는 vacuity 산수 밖, `provesAnAction`은 `proofOf`로 구현) · #174(PR #218, `{name}` 비밀값 — 결정 시점 슬롯 → 단일
+  채움 핸들러 → 출력에 대한 범위 검사(`onSiteOf`+포트), 프롬프트 value 마스킹, `{{escape}}`, environment 등급이면 heal
+  안 함; 두 차례 리뷰 10건 전부 반영). #171(PR #215, `replayEnvironment { baseUrl, allowedHosts }` — 실행 시점 URL 재앵커,
+  프리즌 파일 불변, 요청 매칭은 양쪽 호스트가 scope에 있을 때만, heal은 임시, suite는 정식 캐시 필수; 리뷰 3건
+  (루트 종료 흐름 영구 빨강·미선언 진입 호스트 무음 no-op·미실행 케이스가 "replayed"로 표기) 반영). 남은 것 =
+  #198(PR #216, 포트 변경을 순수 랭킹/quota 조각으로 좁힘 — `promotedClickableNames` export 여부가 곧 "clickable이
+  공개 어휘냐"라 이슈 198의 두 질문 답 대기 → PR #221로 완료(관찰 참조 + 준비 대기; 리뷰 4라운드에서
+  차단 3건 + 후속 9건 반영. 역할은 보존하고 `clickable`은 표시로만, `ref`는 관찰 범위 전용이라 얼리지
+  않는 것으로 198의 두 질문에 사실상 답함 — 198 자체는 아직 열려 있음).
+  #214는 PR #223으로 완료(`cost` 모드 — agent/cairn 두 갈래, 실행별 버전 일정, 예약 포트로 replayEnvironment
+  없이 heal 재동결, 교차점은 측정이 아닌 경우 내지 않음). #225는 PR #226으로 완료(두 루프가 요소 목록을
+  `(unchanged from previous step)`으로 생략했는데 `LlmClient`에 대화가 없어 모델이 그 턴을 본 적이 없다.
+  페이지를 안 바꾸는 동작 하나면 다음 턴이 눈이 멀고 회복이 안 된다. 매 턴 목록을 보낸다).
+  #220은 PR #227로 완료(CI가 workspace/bench 테스트를 분리하고 PR마다 단계별 재생 중앙값·패키지 크기를
+  base와 비교, 포크는 코멘트 미게시). #170은 PR #228로 완료(다섯 모델 두 제공자 실측 + 리드미 둘).
+  #198·#220은 닫혔다. **2.9.0 슬레이트는 비었다.** 다음 사이클 = #229(정확 일치가 없으면 `nth`가 다른
+  풀로 내려가 이름이 다른 요소를 반환) · #230(self-heal 실측용 v3 픽스처 — 지금 수치는 다중 로케이터를
+  잰 것이고 복구는 한 번도 안 걸렸다) · #231(연결 메모·능력 증폭·iframe ref·CI 테스트 공백) · 2.10.0으로
+  미뤄둔 #196·#175. #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
+  벤치가 #184·#203 게이트화의 전제" 답변 후 응답 대기. 후속 이슈 후보(저널 참조): 조합 가능한 `outcomeHeal`(#195
+  저널) · CLI `localePrefixes` 플래그·스텝 expect.url 미스 힌트(#204 저널) · 요소 정체성(#177 한계, =#198).
   벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.
   good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
-- **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0, ~5000배 저렴) ·
-  UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`.
+- **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0) ·
+  UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`. `~5000배 저렴`은 지웠다 — 측정한 적 없는
+  "풀 에이전트 $15–30/run"을 나눈 값이고, 그 비교는 이제 `bench:local cost`가 재는 것이다(#214).
+- **비용 축 실측(2026-09-11, #221·#226·#227 반영 develop, 로컬 픽스처, 세 단계 6실행 두 갈래, 72시도
+  실패 0):** 매번 탐색 대 한 번 탐색 후 재생이 이동 $0.109→$0.018, 폼 $0.151→$0.025, 상태 $0.269→$0.046
+  (소넷5) · 이동 $0.208→$0.030, 폼 $0.255→$0.042, 상태 $0.463→$0.077(오퍼스5). 여섯 경우 모두 두 번째
+  실행에서 교차하고 배수가 6 근처에서 안 움직인다. 절감이 호출 단가가 아니라 호출 수에서 나오기
+  때문이다(상태 42호출 대 7호출, 6실행 중 5회가 호출 0). 총비용 소넷 $0.617, 오퍼스 $1.076.
+  구독으로 돌려도 제공자가 `costBasis: "list"`로 정가 계산해 주므로 API 환산이 곧 이 값이다.
+  **이 수치가 재는 것은 다중 로케이터이지 self-heal이 아니다.** v2가 라벨을 실제로 바꾸는데도(상태는
+  다섯 동작 중 넷) 얼린 타겟이 역할·인덱스로 살아남아 복구가 한 번도 안 걸렸다. 픽스처가 역할·위치로
+  흡수 못 하는 변경을 만들지 못해 self-heal은 실측된 적이 없다 — 후속 이슈 후보(v3에 얼린 `waitFor`
+  텍스트가 깨지는 변경). #221 이후 같은 파일럿이 21% 싸졌다($0.167→$0.132).
 - **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
 - 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters).
 - **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.

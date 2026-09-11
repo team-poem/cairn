@@ -10,43 +10,62 @@
  *   cairn explore "<charter>" --url <u>        LLM survey the app for UX problems (freeze-less, #102)
  *                                              [--model m] [--max-steps n] [--report out.md] [--json out.json]
  *   cairn suite <cases.json>                   run a case list: replay cached skills, discover+freeze misses
- *                                              [--skills dir] [--base-url u] [--no-heal] [--model m]
+ *                                              [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m]
  *                                              [--report out.md] [--json out.json]
  *
  * All orchestration lives in the library (`runScenario` / `discover` / `explore` / `runSuite`). This file
- * only parses args, composes reporters, and maps the verdict to an exit code (1 = fail → CI
+ * only parses args, composes reporters, and maps the verdict to an exit code (0 pass · 1 flow broke · 3 script aged · 4 environment failed, see cli-exit.ts → CI
  * gate). A desktop app or CI job imports the same library functions instead of this CLI.
  */
 import { readFile, writeFile } from "node:fs/promises";
-import { runScenario, needsLlmCritic } from "./run.js";
-import { discover } from "./core/discover/index.js";
-import { explore } from "./core/explore/index.js";
-import type { ExploreReport } from "./core/explore/index.js";
-import { describeAction } from "./core/discover/decision.js";
-import { renderExploreReport } from "./adapters/reporters/markdown.js";
-import { runSuite } from "./suite.js";
-import type { SuiteCase, SuiteResult } from "./suite.js";
-import { renderSuiteReport, unprovenLabel } from "./adapters/reporters/suite.js";
 import {
+  ChromeDevToolsDriver,
+  ConsoleReporter,
+  ENGINE_VERSION,
+  FileSkillStore,
+  JsonReporter,
+  Tracer,
+  createLlmClient,
+  describeAction,
+  discover,
   droppedProofReason,
+  explore,
   guessedKeyRuns,
   hasSemanticCriterion,
+  needsLlmCritic,
   provesAnAction,
+  renderExploreReport,
+  renderSuiteReport,
+  runScenario,
+  runSuite,
+  validateReplayEntry,
   weakTargets,
-} from "./core/freeze.js";
-import { Tracer } from "./core/trace.js";
-import { ConsoleReporter } from "./adapters/reporters/console.js";
-import { JsonReporter } from "./adapters/reporters/json.js";
-import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
-import { FileSkillStore } from "./adapters/skills/file-store.js";
-import { createLlmClient } from "./adapters/llm/factory.js";
-import { flagNum, flagStr, parseArgs } from "./cli-args.js";
-import { ENGINE_VERSION } from "./version.js";
-import type { Reporter, Scenario } from "./index.js";
+  proofOf,
+} from "./index.js";
+import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
+import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
+import { secretsFromFlags } from "./cli-secrets.js";
+import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
 /** One SkillStore for every CLI load/freeze — refs are paths relative to the cwd. */
 const skills = new FileSkillStore();
+
+/** A green's grade on the per-case line (#197); a red carries its class in the same slot. */
+function proofTag(v: SuiteVerdict): string {
+  const g = v.verdict.proof?.grade;
+  return g && g !== "work" ? ` [${g}]` : "";
+}
+
+function unprovenLabel(v: SuiteVerdict): string {
+  return v.unprovenAction ? ` · ⚠ unproven action: ${v.unprovenAction}` : "";
+}
+
+function navigationEvidenceLabel(v: SuiteVerdict): string {
+  return v.observedBeforeLastMutation?.length
+    ? ` · ⚠ destination observed before last mutation: ${v.observedBeforeLastMutation.join(", ")} (advisory)`
+    : "";
+}
 
 /** Reproduces the manual MCP verification: example.com → "Learn more" → observe network. */
 const DOGFOOD: Scenario = {
@@ -67,17 +86,32 @@ function reporterFor(flags: Flags): Reporter {
 
 /** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
+  const replayEnvironment = flagReplayEnvironment(flags);
+  if (replayEnvironment) validateReplayEntry(scenario, replayEnvironment);
   if (needsLlmCritic(scenario)) console.log("scenario has 'expect' criteria → judging with LlmCritic");
 
-  const { result, heals, healedScenario, truncated } = await runScenario(scenario, {
-    reporter: reporterFor(flags),
-    model: flagStr(flags, "model"),
-    heal: Boolean(flags.get("heal")),
-    // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
-    // a slow app (3-5s list loads) needs more than the 2s default (#95).
-    expectTimeoutMs: flagNum(flags, "expect-timeout"),
-    maxSteps: flagNum(flags, "max-steps"),
-  });
+  let run: Awaited<ReturnType<typeof runScenario>>;
+  try {
+    run = await runScenario(scenario, {
+      replayEnvironment,
+      reporter: reporterFor(flags),
+      model: flagStr(flags, "model"),
+      heal: Boolean(flags.get("heal")),
+      // --expect-timeout: how long a step's `expect` is polled before it counts as diverged —
+      // a slow app (3-5s list loads) needs more than the 2s default (#95).
+      expectTimeoutMs: flagNum(flags, "expect-timeout"),
+      maxSteps: flagNum(flags, "max-steps"),
+      secrets: secretsFromFlags(flags),
+    });
+  } catch (err) {
+    // The run started and died (browser gone, driver never came up): that is the environment,
+    // the same class the suite stamps on a crashed case and the trace already carries, so the
+    // exit code agrees with both. Errors before the run (bad args, unreadable skill) stay usage.
+    console.error(`run crashed: ${err instanceof Error ? err.message : String(err)}`);
+    return FAIL_EXIT_CODE.environment;
+  }
+  const { result, heals, healedScenario, truncated } = run;
 
   if (heals.length) {
     console.log(`\nself-healed ${heals.length} step(s):`);
@@ -94,12 +128,18 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   if (!truncated && !healedScenario && !result.verdict.passed && Boolean(flags.get("heal")) && result.verdict.detail) {
     console.log(`\n${result.verdict.detail}`);
   }
+  if (replayEnvironment && flags.get("heal")) {
+    // Temporary outcome repairs have no artifact; report their final verdict and evidence
+    // independently so both console and JSON agree with the exit code after healing.
+    console.log("\nfinal replay environment result (repairs are temporary):");
+    await reporterFor(flags).emit(result);
+  }
   const freeze = flagStr(flags, "freeze");
   if (freeze && healedScenario) {
     await skills.freeze(freeze, healedScenario);
     console.log(`  re-frozen → ${freeze}`);
   }
-  return result.verdict.passed ? 0 : 1;
+  return exitCodeFor(result.verdict);
 }
 
 async function cmdRun(flags: Flags): Promise<number> {
@@ -118,7 +158,7 @@ async function cmdRun(flags: Flags): Promise<number> {
 
 async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
-  if (!file) throw new Error("usage: cairn replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
+  if (!file) throw new Error("usage: cairn replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]");
   const scenario = await skills.load(file);
   const mode = flags.get("heal") ? "self-heal on" : "deterministic, no LLM";
   console.log(`replaying frozen skill "${scenario.name}" — ${mode}`);
@@ -144,10 +184,12 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
   // `navigated` still passes the scenario. Collect the reasons through the shipped sink seam; what
   // decides the warning is the frozen result, not these.
   const droppedProofs: string[] = [];
+  let prunedScrolls = 0;
   const trace = new Tracer({
     emit: (event) => {
       const reason = droppedProofReason(event);
       if (reason) droppedProofs.push(reason);
+      if (event.kind === "gate" && event.payload.gate === "idle-scroll") prunedScrolls++;
     },
   }).scope("discover");
 
@@ -161,6 +203,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
       baseUrl: url,
       maxSteps: flagNum(flags, "max-steps"),
       semanticChecks: Boolean(flags.get("semantic")),
+      secrets: secretsFromFlags(flags),
       trace,
     });
   } finally {
@@ -203,6 +246,10 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     }
   }
 
+  // What the freeze is worth (#197): the same grade a green replay will carry.
+  const proof = proofOf(scenario.assertions, scenario.unprovenAction);
+  console.log(`\nproof: ${proof.grade} — ${proof.discriminating} discriminating check(s), ${proof.vacuous} vacuous`);
+
   // Warn on what the freeze CARRIES: a scenario with a live request check proves its action even if
   // another proposal was dropped along the way, and one with none needs saying so even if nothing
   // was proposed to drop. A read-only flow has no action to prove and is warned about anyway.
@@ -217,6 +264,19 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // One line per distinct reason: the same refusal repeats once per proposal, and a wall of
     // identical lines reads as many problems instead of one.
     for (const reason of [...new Set(droppedProofs)]) console.log(`  · proposed check dropped: ${reason}`);
+  }
+  if (prunedScrolls) console.log(`\n${prunedScrolls} scroll step(s) left out of the freeze: no requests fired and every target after them was already on the page (trace: gate idle-scroll).`);
+  // #203: a request proof can establish the mutation while the URL still proves only arrival at
+  // the form. Warn independently of provesAnAction so the stronger claim is never implied.
+  for (const assertion of scenario.assertions) {
+    if (assertion.kind === "navigated" && assertion.observedBeforeLastMutation) {
+      console.log(
+        `\n⚠ ${assertion.to} was already reached before the last mutation — this URL check ` +
+          `does not prove post-mutation navigation. You can refuse this freeze or accept the weaker ` +
+          `claim that the page was reached; add a check of the intended outcome to prove more. ` +
+          `Correct on-page saves also carry this advisory: do not fail on it alone without additional evidence.`,
+      );
+    }
   }
   // #184: the flow DID fire a state change, and no check could be written for it — so this is not a
   // read-only flow, and the warning above is not fine to wave through.
@@ -300,22 +360,25 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   const file = positionals[0];
   if (!file) {
     throw new Error(
-      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]",
+      "usage: cairn suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]",
     );
   }
+  const replayEnvironment = flagReplayEnvironment(flags, "replay-base-url");
   const { cases, baseUrl } = await loadCasesFile(file);
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    replayEnvironment,
     skillDir: flagStr(flags, "skills"),
     baseUrl: flagStr(flags, "base-url") ?? baseUrl,
     heal: !flags.get("no-heal"),
     model: flagStr(flags, "model"),
     expectTimeoutMs: flagNum(flags, "expect-timeout"),
+    secrets: secretsFromFlags(flags),
     onCase: (v) =>
       console.log(
-        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
-          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}`,
+        `  ${v.verdict.passed ? "✓" : "✗"} ${v.id} — ${v.notRun ? `not run (${v.notRun === "cache-miss" ? "cache miss" : "invalid entry"})` : v.truncated ? "discovery truncated" : v.discovered ? "discovered + replayed" : "replayed"}` +
+          `${v.heals ? ` · ${v.heals} heal(s)` : ""} · llm ${v.usage.llmCalls} call(s)${unprovenLabel(v)}${navigationEvidenceLabel(v)}${v.verdict.failure ? ` [${v.verdict.failure}]` : proofTag(v)}`,
       ),
   });
 
@@ -332,21 +395,30 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
     await writeFile(jsonPath, JSON.stringify(suite, null, 2), "utf8");
     console.log(`json → ${jsonPath}`);
   }
-  return suite.passed ? 0 : 1;
+  return suiteExitCode(suite.verdicts.map((v) => v.verdict));
 }
 
 const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 
 usage: cairn <command> [options]
 
-  run --dogfood | --scenario <file.json> [--json out]
-  replay <skill.json> [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms]
-  discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic]
+  run --dogfood | --scenario <file.json> [--base-url u --allowed-hosts hosts] [--json out]
+  replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms] [--secret name=value…]
+  discover "<intent>" --url <u> [--freeze f] [--model m] [--max-steps n] [--semantic] [--secret name=value…]
   explore "<charter>" --url <u> [--model m] [--max-steps n] [--report out.md] [--json out.json]
-  suite <cases.json> [--skills dir] [--base-url u] [--no-heal] [--model m] [--report out.md] [--json out.json]
+  suite <cases.json> [--skills dir] [--base-url u] [--replay-base-url u --allowed-hosts hosts] [--no-heal] [--model m] [--report out.md] [--json out.json]
 
+  --secret name=value        fill {name} in type steps at run time; repeatable; or CAIRN_SECRET_<NAME> in the env
+  --secret-origin name=url   refuse to type {name} on any page outside that origin
   --help, -h       print this message
   --version, -v    print the engine version
+
+replay environment: pair the runtime base flag with --allowed-hosts (comma-separated exact hosts).
+  The base is an HTTP(S) origin; original paths are preserved. Environment heals are temporary;
+  --freeze cannot be combined with a runtime base. Suite --replay-base-url requires a cached skill;
+  suite --base-url remains the canonical discovery URL.
+
+exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup)
 
 discover once with an LLM → freeze to plain JSON → replay forever with zero LLM calls → heal only when it breaks.
 Docs: https://github.com/team-poem/cairn`;
@@ -392,6 +464,8 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  // No verdict was reached: a bad argument, a missing file, a driver that never started. That is
+  // setup, not an app regression — 1 now means "the flow broke" (#173), so this must not be 1.
   console.error(err instanceof Error ? err.stack ?? err.message : err);
-  process.exit(1);
+  process.exit(USAGE_EXIT_CODE);
 });

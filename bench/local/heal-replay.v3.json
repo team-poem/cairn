@@ -1,0 +1,6 @@
+{
+  "tiers": ["stateful"],
+  "fixtureVersion": "v3",
+  "latency": { "document": [0, 20], "api": [0, 40] },
+  "maxSteps": 20
+}

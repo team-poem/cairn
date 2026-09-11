@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.2**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.6**.
 > Field names bind.
 
 ## One line
@@ -12,7 +12,7 @@ it live, store it, replay it in a viewer, and *audit* what a green actually prov
 
 ## Model (agreed in #125)
 
-- Lifecycle: **run → case → phase** (`discover` · `replay` · `heal`).
+- Lifecycle: **run → case → phase** (`discover` · `explore` · `replay` · `heal`).
 - Events are **flat**. Correlation is by reference (`caseRef`, `stepRef`), never containment —
   heal events are not children of replay steps; presentation builds trees, the contract doesn't.
 - Attach where it belongs: **usage** at run/case end · **verdict** at case end · **evidence**
@@ -31,7 +31,7 @@ it live, store it, replay it in a viewer, and *audit* what a green actually prov
 |---|---|---|
 | `seq` | total order | monotonic per trace |
 | `ts` | wall clock | epoch ms |
-| `phase?` | phase scoping | `discover · replay · heal` — **absent on lifecycle events** (trace/run/case start·end) |
+| `phase?` | phase scoping | `discover · explore · replay · heal` — **absent on lifecycle events** (trace/run/case start·end) |
 | `kind` | event typing | dispatch key; unknown kinds are skippable (compat rule below) |
 | `caseRef?` | correlation | `SuiteCase.id`; absent on run-level events |
 | `stepRef?` | correlation | step index in the (frozen) scenario |
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.2", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.6", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -65,11 +65,21 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-start` | `id`, `intent`, `skillRef`, `cached` (hit vs. discover) | `SuiteCase` + cache check |
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
-| discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) |
-| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184) | `SkillStore.freeze` |
+| discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
+| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these two diagnostics only |
+| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
 | heal | `heal` | `layer: locator \| step`, `broke` → `became`, `judgedBy: original` | locator `Heal` (`onHeal`) · `StepHeal` |
+
+**Replay environments describe the executed copy.** When `replayEnvironment` is set,
+`step` URLs and page-assertion destinations (including root destinations) use the target
+origin. Request expectation strings remain canonical, while observed URLs and evidence
+come from the actual execution environment. The original assertions used to judge a heal
+are the original goal assertions after this runtime page-URL transformation; the stored
+skill is unchanged. Suite `skillRef` and `caseHash` still identify the canonical freeze.
+A cache miss or invalid entry ends the case without step events; `cached` on `case-start`
+records cache presence, not whether replay happened. No trace schema change is required.
 
 **Heal is three layers, one phase.** Locator heal (a target substitution) and surgical step heal
 (a corrective step) each emit a `heal` event — `broke → became` is a target pair or a step pair,
@@ -128,12 +138,54 @@ truncated run already wrote stays readable.
 the engine never captures a screenshot for the trace at all (same zero-cost stance as an absent
 sink) and the field stays off the payload — a ref nothing can resolve is worse than no ref.
 
+## Binding diagnostics (#221, version 1.6)
+
+Each rejected observation construction emits `gate: perception-binding`. A valid JSON decision
+whose observation reference cannot bind emits `gate: reference-binding`, not `parse-retry`.
+These events have no `stepRef`: a rejected attempt did not produce a frozen step. They do not
+fabricate an `action`, invoke `onStep`, or become an explore page finding. Messages are fixed
+engine-owned descriptions, with no rejected ref, value, description, or model reason echoed.
+A sequence of rejected captures remains observable even if it exhausts the loop before any
+model decision. Fresh-capture recovery and original snapshot/callback error propagation remain
+unchanged, and the existing Tracer isolates sink failures.
+
+Discover preserves its supplied phase, including `heal` during outcome re-discovery. Standalone
+explore accepts optional `trace: TraceScope` using the public `startTrace(...).scope(...)` API;
+it emits these binding diagnostics under `phase: explore`, including an invalid final outcome
+capture. This is limited diagnostic coverage, not a full explore lifecycle event stream. Hosts
+own the scope and trace lifecycle as they do for standalone discovery. The 1.6 addition extends
+two gate values and one phase value; the envelope is unchanged.
+
 ## Versioning — header `major.minor`
 
-- **minor** = additive: a new `kind`, a new optional payload field. Viewer rule: skip unknown
-  kinds/fields *but count them* ("3 events this viewer doesn't render") — never silently drop.
+- **minor** = additive: a new `kind`, a new optional payload field, a new value of an existing
+  enumerated field (a `gate` reason). Viewer rule: skip unknown kinds/fields *but count them*
+  ("3 events this viewer doesn't render"), render an unknown enum value generically — never
+  silently drop.
 - **major** = envelope or semantics change. Viewer rule: refuse with a clear message, don't
   guess.
+
+## Decided in review (#173)
+
+- **`Verdict.failure`** (`flow` · `script` · `environment`) rides wherever a `Verdict` already does:
+  `case-end.payload.verdict` on the bare run and the suite. No header bump — the payload is the
+  verdict object itself, a viewer renders it generically, and the next bump folds the field into
+  the contract text. `run-end` stays `passed` + `usage`; a run-level class is `suiteExitCode`'s
+  business, not the trace's.
+
+## Decided in review (#212)
+
+- **`step.payload.errorKind`** and **`assertion.payload.statuses` / `reason`** carry the typed
+  signals `classifyFailure` reads (`Verdict.failure`, #173), so a viewer can reproduce the class
+  from the trace without parsing `detail`. `case-end.payload.verdict` already carried
+  `results[].statuses`/`reason` and `failClosed` by virtue of being the verdict object; the live
+  events now say the same. Header goes to **1.5**: optional payload fields, minor rule.
+
+## Decided in review (#197)
+
+- **`Verdict.proof`** rides wherever a `Verdict` already does (`case-end.payload.verdict`, the JSON
+  reporter, `SuiteVerdict`), the way `Verdict.failure` does since #173. No header bump: the payload
+  is the verdict object itself. `run-end` stays `passed` + `usage`.
 
 ## Out of contract (separate tracks)
 
@@ -144,8 +196,9 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
 ## Decided in review (#140)
 
 - **Per-assertion live events stay** — the `case-end` rollup needs them anyway.
-- **`explore` gets no phase value yet** — it earns one when someone actually asks for explore
-  traces (invariant #7 spirit: vocabulary is earned, not added speculatively).
+- **Explore phase was deferred until requested.** Version 1.6 (#221) adds `explore` for the
+  requested binding-rejection diagnostics described above. Full explore lifecycle tracing
+  remains outside this change (vocabulary is earned, not added speculatively).
 
 ## Decided in implementation (#143)
 
@@ -180,6 +233,30 @@ sink) and the field stays off the payload — a ref nothing can resolve is worse
   event — and `SuiteVerdict` carries the same field for the reporter line. Header goes to
   **1.2**: an additive optional field, minor rule.
 
+## Decided in review (#203)
+
+- **`freeze.payload.observedBeforeLastMutation`** summarizes destinations whose frozen `navigated`
+  assertions carry the same-named provenance marker. The optional `string[]` is absent when no
+  destination is marked. Both fresh discovery and outcome-heal re-freeze emit it; a heal summarizes
+  the original goal assertions it preserves, not the re-discovery's discarded proposals.
+- **`SuiteVerdict.observedBeforeLastMutation`** carries the same summary on fresh and cached runs,
+  including `onCase` and suite CLI/report output. Individual assertion events/results retain the
+  assertion marker. It is advisory: **do not use the marker alone as a failure gate without
+  additional evidence**, because legitimate on-page saves match it too.
+- Header goes to **1.3**: additive optional freeze payload and assertion metadata fields under the
+  minor rule. No duplicate scenario-level field or new failure/gate event is introduced.
+
 ## Open
 
 - *(none — the attachment id scheme was the last one, closed in #160.)*
+
+## Decided in review (#177)
+
+- **`gate: idle-scroll`** — a scroll step discover took while wandering, dropped at freeze because
+  its request tail was empty and the step after it (or nothing, for a trailing scroll) did not need
+  the position. The event's `stepRef` is the step's index as the `action` events emitted it, so a
+  viewer can reconcile the frozen file's shorter step list with the actions it saw (subtract the
+  `idle-scroll` gates before an `action`'s `stepRef` to find its frozen index). Header goes to
+  **1.4**: a new value in an existing enumerated field, minor rule — a 1.3 viewer renders the gate
+  generically, a typed consumer with an exhaustive switch on `gate` sees a compile-time break, not
+  a runtime one.

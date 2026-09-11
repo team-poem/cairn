@@ -1,0 +1,3690 @@
+{
+  "description": "Generated subset of raw bench/results reports for #230. Absolute paths, stack traces and provider ledger entries are omitted; every kept field has its reported value. `sources` holds the SHA-256 of each original file. A cost run's records carry the hash of the scenario they replayed and the hash of the scenario they saved, so a run after a repair can be matched to the repair it used.",
+  "generatedBy": "docs/benchmarks/230-evidence.mjs distill",
+  "measurements": [
+    {
+      "label": "sol",
+      "kind": "cost-comparison",
+      "directory": "heal-sol-1",
+      "sources": {
+        "results.json": "13fd1f21cfbfe04f16a88f65c570599d4afa3c10935a563b164e85050257b66b",
+        "results.md": "ef33ad07886519215a12239880cb041e686a38a750baff917ec52b94429b3c72"
+      },
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "configHash": "b5d951e37aa8815b877d899abc82613de3f50627637e88d4a67a79560238cd77",
+      "startedAt": "2026-09-11T09:04:22.369Z",
+      "finishedAt": "2026-09-11T09:11:13.394Z",
+      "requested": 12,
+      "attempted": 12,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v3",
+          "v3",
+          "v3"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-sol",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": {
+        "calls": 50,
+        "measuredCostUsd": 0,
+        "costComplete": false,
+        "stopReason": null
+      },
+      "summaries": [
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 6,
+                  "passed": 6,
+                  "calls": 42,
+                  "tokens": 505949,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null,
+                  "refrozen": 0
+                },
+                "replay": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 84865,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 168882,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 252966,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 336988,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 421078,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 505949,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 7,
+                  "tokens": 85720,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 1,
+                  "tokens": 11417,
+                  "costUsd": null,
+                  "refrozen": 1
+                },
+                "replay": {
+                  "runs": 4,
+                  "passed": 4,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 2,
+              "runsWithoutCalls": 4,
+              "repairs": 1,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 85720,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 85720,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 85720,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 97137,
+                  "calls": 1
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 97137,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 97137,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 77122,
+            "outputTokens": 191,
+            "cacheReadTokens": 7552,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 53029.738542,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 83825,
+            "outputTokens": 192,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 53077.739792,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 83840,
+            "outputTokens": 244,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 53806.467791999996,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 61173,
+            "outputTokens": 193,
+            "cacheReadTokens": 22656,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 62082.11587499999,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 38513,
+            "outputTokens": 265,
+            "cacheReadTokens": 45312,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 51637.91824999999,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 77126,
+            "outputTokens": 193,
+            "cacheReadTokens": 7552,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 60786.412082999945,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 55319,
+            "outputTokens": 193,
+            "cacheReadTokens": 30208,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 49592.88200000004,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4197.694583999983,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4089.035916999972,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 1,
+          "refrozen": true,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "841cd267d3b9a70325036c66cc84e2bebfc6a5670582f0e15fd49848a98de8e0",
+          "replayedScenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "inputTokens": 11405,
+            "outputTokens": 12,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "partialCalls": 0,
+            "inputTokens": 11405,
+            "outputTokens": 12,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 10430.890584000037,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "841cd267d3b9a70325036c66cc84e2bebfc6a5670582f0e15fd49848a98de8e0",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4024.8111250000075,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "841cd267d3b9a70325036c66cc84e2bebfc6a5670582f0e15fd49848a98de8e0",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4261.542292000027,
+          "error": null
+        }
+      ],
+      "captures": [
+        {
+          "name": "stateful.repair-3.skill.json",
+          "scenarioHash": "841cd267d3b9a70325036c66cc84e2bebfc6a5670582f0e15fd49848a98de8e0",
+          "tier": "stateful",
+          "fixtureVersion": "v3",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureOrigin": "http://127.0.0.1:55051",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55051/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55051/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/done"
+              }
+            }
+          ]
+        },
+        {
+          "name": "stateful.skill.json",
+          "scenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "tier": "stateful",
+          "fixtureVersion": "v1",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureOrigin": "http://127.0.0.1:55051",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55051/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55051/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55051/done"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "sol-replay-v1",
+      "kind": "reliability",
+      "directory": "heal-sol-1-replay-v1",
+      "sources": {
+        "results.json": "68d372133b64da6a63041ec2ab8e31d8ce23ace9516e0632320db9f185a7e4de",
+        "results.md": "380e6f81b23da31bc40d27727dd4e8c0d94066ab068d628c019078ff0c7f1d9a"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "e9d2a6f7fc60f72967821e4fb3d6d1504fad3b355b9e0cdaa70f3c7f88a3aea9",
+      "startedAt": "2026-09-11T09:11:06.598Z",
+      "finishedAt": "2026-09-11T09:11:10.639Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v1",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 0,
+          "failureRate": 0
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": true,
+          "journey": true,
+          "verdict": true,
+          "proof": {
+            "grade": "arrival",
+            "discriminating": 1,
+            "vacuous": 0,
+            "work": 0,
+            "arrival": 1,
+            "guards": 2
+          },
+          "failure": null,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 4040.6294579999994,
+          "error": null,
+          "engineVerdict": {
+            "passed": true,
+            "proof": {
+              "grade": "arrival",
+              "discriminating": 1,
+              "vacuous": 0,
+              "work": 0,
+              "arrival": 1,
+              "guards": 2
+            }
+          }
+        }
+      ],
+      "captures": []
+    },
+    {
+      "label": "sol-replay-v3",
+      "kind": "reliability",
+      "directory": "heal-sol-1-replay-v3",
+      "sources": {
+        "results.json": "fe650fbf0e7bf5a7067b7ecd17fe09b292a737d79462170e5258f79d94990b7a",
+        "results.md": "48b10d788c445d789ab77abca0af3538982df48d07649ad0ab1d0a93d24ae6bf"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "23e3d21c591215d8340f914507ab0bcb602d7b4028bf26253c6d38a9accda0e6",
+      "startedAt": "2026-09-11T09:11:07.549Z",
+      "finishedAt": "2026-09-11T09:11:12.380Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v3",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 1,
+          "failureRate": 1
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": false,
+          "journey": false,
+          "verdict": false,
+          "proof": null,
+          "failure": "script",
+          "oracle": {
+            "complete": false,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 0
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "92f9db92e9fffce4eb365fdd75eeb86df14f531a33ccc441e87afeefd45680b6",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-sol",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 4830.214958,
+          "error": null,
+          "engineVerdict": {
+            "passed": false,
+            "detail": "step 6/6 blocked: no element matching {\"text\":\"Place order\",\"role\":\"button\",\"index\":0}",
+            "failure": "script"
+          }
+        }
+      ],
+      "captures": []
+    },
+    {
+      "label": "terra",
+      "kind": "cost-comparison",
+      "directory": "heal-terra-1",
+      "sources": {
+        "results.json": "e9c4296d5c3fd588877d025ffd793c894acabd9ea5794e7fa12d231a4112d1f9",
+        "results.md": "5bea39ef4df8eaa45da97cf1c019126db55638ae2c285a09fea05dc52bb67aae"
+      },
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "configHash": "868acb3015b4358839ab6987d82ed384150d47e30f4a805260d6669b663f7a89",
+      "startedAt": "2026-09-11T09:04:26.544Z",
+      "finishedAt": "2026-09-11T09:10:46.363Z",
+      "requested": 12,
+      "attempted": 12,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v3",
+          "v3",
+          "v3"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-terra",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": {
+        "calls": 50,
+        "measuredCostUsd": 0,
+        "costComplete": false,
+        "stopReason": null
+      },
+      "summaries": [
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 6,
+                  "passed": 6,
+                  "calls": 42,
+                  "tokens": 506453,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null,
+                  "refrozen": 0
+                },
+                "replay": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 85676,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 169702,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 254573,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 338687,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 422641,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 506453,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 7,
+                  "tokens": 83988,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 1,
+                  "tokens": 11421,
+                  "costUsd": null,
+                  "refrozen": 1
+                },
+                "replay": {
+                  "runs": 4,
+                  "passed": 4,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 2,
+              "runsWithoutCalls": 4,
+              "repairs": 1,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 83988,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 83988,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 83988,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 95409,
+                  "calls": 1
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 95409,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 95409,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 76539,
+            "outputTokens": 177,
+            "cacheReadTokens": 8960,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 51169.958000000006,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 39276,
+            "outputTokens": 206,
+            "cacheReadTokens": 44544,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 51347.153249999996,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 48829,
+            "outputTokens": 202,
+            "cacheReadTokens": 35840,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 48322.85900000001,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 32100,
+            "outputTokens": 302,
+            "cacheReadTokens": 51712,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 51083.717000000004,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 21081,
+            "outputTokens": 153,
+            "cacheReadTokens": 62720,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 53578.74124999999,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 22948,
+            "outputTokens": 192,
+            "cacheReadTokens": 60672,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 48816.281666999974,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 21090,
+            "outputTokens": 178,
+            "cacheReadTokens": 62720,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 48693.10587499995,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4252.4312079999945,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4088.44299999997,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 1,
+          "refrozen": true,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "0962485a120f98caddfef73412dd70ec7934cea63c03f8736c0a8a6f9e43e248",
+          "replayedScenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "inputTokens": 2449,
+            "outputTokens": 12,
+            "cacheReadTokens": 8960
+          },
+          "observedUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "partialCalls": 0,
+            "inputTokens": 2449,
+            "outputTokens": 12,
+            "cacheReadTokens": 8960,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 10122.149791000003,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "0962485a120f98caddfef73412dd70ec7934cea63c03f8736c0a8a6f9e43e248",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4135.770709000004,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "0962485a120f98caddfef73412dd70ec7934cea63c03f8736c0a8a6f9e43e248",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4200.558416999993,
+          "error": null
+        }
+      ],
+      "captures": [
+        {
+          "name": "stateful.repair-3.skill.json",
+          "scenarioHash": "0962485a120f98caddfef73412dd70ec7934cea63c03f8736c0a8a6f9e43e248",
+          "tier": "stateful",
+          "fixtureVersion": "v3",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureOrigin": "http://127.0.0.1:55096",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-terra",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55096/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55096/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/done"
+              }
+            }
+          ]
+        },
+        {
+          "name": "stateful.skill.json",
+          "scenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "tier": "stateful",
+          "fixtureVersion": "v1",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureOrigin": "http://127.0.0.1:55096",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-terra",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55096/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55096/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55096/done"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "terra-replay-v1",
+      "kind": "reliability",
+      "directory": "heal-terra-1-replay-v1",
+      "sources": {
+        "results.json": "f6fb7f6c27b060a63d0cd45feb3c11aa34b16deb677acc0e0ce4eaf3878a2064",
+        "results.md": "03b543881b7d64943ffefe94b32412be6dcaae49a55b7ca1ff8658ba60297547"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "9e1ecbb3766ac31fa9be08795342a3a83c7e8eed545cce6434b5b278e9981107",
+      "startedAt": "2026-09-11T09:10:38.911Z",
+      "finishedAt": "2026-09-11T09:10:43.060Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v1",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 0,
+          "failureRate": 0
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": true,
+          "journey": true,
+          "verdict": true,
+          "proof": {
+            "grade": "arrival",
+            "discriminating": 1,
+            "vacuous": 0,
+            "work": 0,
+            "arrival": 1,
+            "guards": 2
+          },
+          "failure": null,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-terra",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 4147.883417,
+          "error": null,
+          "engineVerdict": {
+            "passed": true,
+            "proof": {
+              "grade": "arrival",
+              "discriminating": 1,
+              "vacuous": 0,
+              "work": 0,
+              "arrival": 1,
+              "guards": 2
+            }
+          }
+        }
+      ],
+      "captures": []
+    },
+    {
+      "label": "terra-replay-v3",
+      "kind": "reliability",
+      "directory": "heal-terra-1-replay-v3",
+      "sources": {
+        "results.json": "0750873e4bd2e9f835f91faee27426fe315f6db372d4a2f60728a42ef920c45d",
+        "results.md": "eac50d01710b5f38ad29326a20ce9d77129f66bb2fcefe3a302cf357a2995f65"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "561ea0a3b9da3d26cf708f7c69e4b82f65e9f0da1887b25a180b30286a2f3640",
+      "startedAt": "2026-09-11T09:10:39.904Z",
+      "finishedAt": "2026-09-11T09:10:45.718Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v3",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 1,
+          "failureRate": 1
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": false,
+          "journey": false,
+          "verdict": false,
+          "proof": null,
+          "failure": "script",
+          "oracle": {
+            "complete": false,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 0
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "ed9d0150e9e39ffcbb274c3dd51d7364a840da3c81281c73cafa44b82173b556",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-terra",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 5812.630625,
+          "error": null,
+          "engineVerdict": {
+            "passed": false,
+            "detail": "step 6/6 blocked: no element matching {\"text\":\"Place order\",\"role\":\"button\",\"index\":0}",
+            "failure": "script"
+          }
+        }
+      ],
+      "captures": []
+    },
+    {
+      "label": "luna",
+      "kind": "cost-comparison",
+      "directory": "heal-luna-1",
+      "sources": {
+        "results.json": "68386eecdf7439cf91a99829fca768971ee6283885d87985f1b6fe7a1fb184c0",
+        "results.md": "2f7a59e47e7b0548730351102c905cecdf57d33d8b1caf1d7fd0a7970b2972e4"
+      },
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": "codex-cli 0.146.0"
+      },
+      "configHash": "a8f9fc3969110f6fcbe23cc016681a219b5e673bd1bb6bbedaf4ddf72130afaa",
+      "startedAt": "2026-09-11T09:04:31.782Z",
+      "finishedAt": "2026-09-11T09:10:48.503Z",
+      "requested": 12,
+      "attempted": 12,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "mode": "cost",
+        "tiers": [
+          "stateful"
+        ],
+        "arms": [
+          "agent",
+          "cairn"
+        ],
+        "fixtureVersions": [
+          "v1",
+          "v1",
+          "v1",
+          "v3",
+          "v3",
+          "v3"
+        ],
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "llm": {
+          "source": "llm",
+          "backend": "codex",
+          "model": "gpt-5.6-luna",
+          "reasoningEffort": "medium",
+          "budgetMode": "calls",
+          "maxCalls": 160
+        },
+        "runs": 6,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": {
+        "calls": 50,
+        "measuredCostUsd": 0,
+        "costComplete": false,
+        "stopReason": null
+      },
+      "summaries": [
+        {
+          "tier": "stateful",
+          "arms": {
+            "agent": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 6,
+                  "passed": 6,
+                  "calls": 42,
+                  "tokens": 445270,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null,
+                  "refrozen": 0
+                },
+                "replay": {
+                  "runs": 0,
+                  "passed": 0,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 6,
+              "runsWithoutCalls": 0,
+              "repairs": 0,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 74048,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 148148,
+                  "calls": 7
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 222310,
+                  "calls": 7
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 296347,
+                  "calls": 7
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 371232,
+                  "calls": 7
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 445270,
+                  "calls": 7
+                }
+              ]
+            },
+            "cairn": {
+              "attempted": 6,
+              "models": null,
+              "phases": {
+                "discovery": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 7,
+                  "tokens": 74028,
+                  "costUsd": null
+                },
+                "repair": {
+                  "runs": 1,
+                  "passed": 1,
+                  "calls": 1,
+                  "tokens": 9994,
+                  "costUsd": null,
+                  "refrozen": 1
+                },
+                "replay": {
+                  "runs": 4,
+                  "passed": 4,
+                  "calls": 0,
+                  "tokens": 0,
+                  "costUsd": null
+                }
+              },
+              "failures": 0,
+              "runsWithCalls": 2,
+              "runsWithoutCalls": 4,
+              "repairs": 1,
+              "costComplete": false,
+              "tokensComplete": true,
+              "cumulative": [
+                {
+                  "index": 0,
+                  "costUsd": 0,
+                  "tokens": 74028,
+                  "calls": 7
+                },
+                {
+                  "index": 1,
+                  "costUsd": 0,
+                  "tokens": 74028,
+                  "calls": 0
+                },
+                {
+                  "index": 2,
+                  "costUsd": 0,
+                  "tokens": 74028,
+                  "calls": 0
+                },
+                {
+                  "index": 3,
+                  "costUsd": 0,
+                  "tokens": 84022,
+                  "calls": 1
+                },
+                {
+                  "index": 4,
+                  "costUsd": 0,
+                  "tokens": 84022,
+                  "calls": 0
+                },
+                {
+                  "index": 5,
+                  "costUsd": 0,
+                  "tokens": 84022,
+                  "calls": 0
+                }
+              ]
+            }
+          },
+          "crossover": null,
+          "costMeasured": true,
+          "comparable": false,
+          "comparableNote": "a run's cost was never reported",
+          "runs": 6
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 73835,
+            "outputTokens": 213,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 48279.674625,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 64095,
+            "outputTokens": 277,
+            "cacheReadTokens": 9728,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 48047.599167,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 50021,
+            "outputTokens": 333,
+            "cacheReadTokens": 23808,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 53580.93716700001,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 30306,
+            "outputTokens": 211,
+            "cacheReadTokens": 43520,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 52710.179250000016,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 43946,
+            "outputTokens": 219,
+            "cacheReadTokens": 30720,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 46518.835290999996,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "agent",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": null,
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 48994,
+            "outputTokens": 212,
+            "cacheReadTokens": 24832,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 47104.23104100002,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 0,
+          "fixtureVersion": "v1",
+          "action": "discover",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "replayedScenarioHash": null,
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": null,
+          "observedUsage": {
+            "llmCalls": 7,
+            "measuredCalls": 7,
+            "partialCalls": 0,
+            "inputTokens": 38994,
+            "outputTokens": 218,
+            "cacheReadTokens": 34816,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 52050.82066700002,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 1,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4286.145041999989,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 2,
+          "fixtureVersion": "v1",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4104.259083000012,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 3,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 1,
+          "refrozen": true,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": "d12ad9f543bc61bf500f9df1d2d36e571c3fbc80bec12ba97e9f86de3d166697",
+          "replayedScenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "inputTokens": 2046,
+            "outputTokens": 12,
+            "cacheReadTokens": 7936
+          },
+          "observedUsage": {
+            "llmCalls": 1,
+            "measuredCalls": 1,
+            "partialCalls": 0,
+            "inputTokens": 2046,
+            "outputTokens": 12,
+            "cacheReadTokens": 7936,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 10892.843625000038,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 4,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "d12ad9f543bc61bf500f9df1d2d36e571c3fbc80bec12ba97e9f86de3d166697",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4923.755541999999,
+          "error": null
+        },
+        {
+          "tier": "stateful",
+          "arm": "cairn",
+          "index": 5,
+          "fixtureVersion": "v3",
+          "action": "replay",
+          "completed": true,
+          "passed": true,
+          "verdict": true,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "healCount": 0,
+          "refrozen": false,
+          "usageComplete": true,
+          "models": null,
+          "scenarioHash": null,
+          "replayedScenarioHash": "d12ad9f543bc61bf500f9df1d2d36e571c3fbc80bec12ba97e9f86de3d166697",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "requestedDelays": {
+            "document": 20,
+            "api": 40
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "partialCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "costUsd": null,
+          "measuredCostUsd": 0,
+          "elapsedMs": 4211.539083999989,
+          "error": null
+        }
+      ],
+      "captures": [
+        {
+          "name": "stateful.repair-3.skill.json",
+          "scenarioHash": "d12ad9f543bc61bf500f9df1d2d36e571c3fbc80bec12ba97e9f86de3d166697",
+          "tier": "stateful",
+          "fixtureVersion": "v3",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureOrigin": "http://127.0.0.1:55149",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55149/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55149/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/done"
+              }
+            }
+          ]
+        },
+        {
+          "name": "stateful.skill.json",
+          "scenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "tier": "stateful",
+          "fixtureVersion": "v1",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureOrigin": "http://127.0.0.1:55149",
+          "source": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "assertions": [
+            {
+              "kind": "no-failed-requests",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "no-console-errors",
+              "origin": "derived",
+              "vacuous": true
+            },
+            {
+              "kind": "navigated",
+              "to": "127.0.0.1:55149/done",
+              "origin": "derived"
+            }
+          ],
+          "steps": [
+            {
+              "kind": "goto",
+              "url": "http://127.0.0.1:55149/login"
+            },
+            {
+              "kind": "type",
+              "target": {
+                "text": "Username ",
+                "role": "textbox",
+                "index": 0
+              },
+              "text": "alice"
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Log in",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/products"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Add to cart",
+                "role": "button",
+                "index": 0
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Cart",
+                "role": "link",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/cart"
+              }
+            },
+            {
+              "kind": "click",
+              "target": {
+                "text": "Place order",
+                "role": "button",
+                "index": 0
+              },
+              "expect": {
+                "url": "127.0.0.1:55149/done"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "label": "luna-replay-v1",
+      "kind": "reliability",
+      "directory": "heal-luna-1-replay-v1",
+      "sources": {
+        "results.json": "3ea28c47eda4ddd4e3405351f33a3e5fdcaa1bd8eab4545008414775e1e4472e",
+        "results.md": "a5c0ad437a0e3a67f171dfc05b254731c4a5959fe5fa9705e06bfa6e84740da2"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "9d19e6f1d251d361ac107e6596856576e649e06c700068c0f6e920b9c8497425",
+      "startedAt": "2026-09-11T09:10:39.880Z",
+      "finishedAt": "2026-09-11T09:10:44.847Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v1",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 0,
+          "failureRate": 0
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": true,
+          "journey": true,
+          "verdict": true,
+          "proof": {
+            "grade": "arrival",
+            "discriminating": 1,
+            "vacuous": 0,
+            "work": 0,
+            "arrival": 1,
+            "guards": 2
+          },
+          "failure": null,
+          "oracle": {
+            "complete": true,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 1
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "fixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 4966.1005829999995,
+          "error": null,
+          "engineVerdict": {
+            "passed": true,
+            "proof": {
+              "grade": "arrival",
+              "discriminating": 1,
+              "vacuous": 0,
+              "work": 0,
+              "arrival": 1,
+              "guards": 2
+            }
+          }
+        }
+      ],
+      "captures": []
+    },
+    {
+      "label": "luna-replay-v3",
+      "kind": "reliability",
+      "directory": "heal-luna-1-replay-v3",
+      "sources": {
+        "results.json": "1e49da332d2afe87b3208a8e42e29ed26e3817a122b70c94d1f3d96b89a942bf",
+        "results.md": "72562356f820a3832d1171bfb541881f71c57ddd0949bd9152d4320530ada17b"
+      },
+      "captureDir": "captures",
+      "engine": {
+        "version": "2.9.0",
+        "commit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4",
+        "dirty": false,
+        "buildHash": "034a7e7131559cef2fdf52fd80f4b88ccbdc06334caf2ec2f3a0c9fd65232c47"
+      },
+      "runtime": {
+        "node": "v26.5.1",
+        "platform": "darwin",
+        "arch": "arm64",
+        "driverArgs": [
+          "-y",
+          "chrome-devtools-mcp@1.8.0",
+          "--isolated",
+          "--no-page-id-routing",
+          "--headless"
+        ],
+        "chrome": "Google Chrome 153.0.8010.36",
+        "llmCli": null
+      },
+      "configHash": "3b56f271d198f4bf0c71d8bd4c920f408b24ea4ae2d49c6a241f54d10099c788",
+      "startedAt": "2026-09-11T09:10:39.932Z",
+      "finishedAt": "2026-09-11T09:10:45.739Z",
+      "requested": 1,
+      "attempted": 1,
+      "incomplete": false,
+      "stopReason": null,
+      "configuration": {
+        "tiers": [
+          "stateful"
+        ],
+        "fixtureVersion": "v3",
+        "latency": {
+          "document": [
+            0,
+            20
+          ],
+          "api": [
+            0,
+            40
+          ]
+        },
+        "maxSteps": 20,
+        "mode": "replay",
+        "runs": 1,
+        "engineCommit": "45adbb87b1507c1569771f2af1cb0891fc8d3cc4"
+      },
+      "budget": null,
+      "summaries": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "requested": 1,
+          "attempted": 1,
+          "completed": 1,
+          "failures": 1,
+          "failureRate": 1
+        }
+      ],
+      "records": [
+        {
+          "tier": "stateful",
+          "mode": "replay",
+          "index": 0,
+          "completed": true,
+          "passed": false,
+          "journey": false,
+          "verdict": false,
+          "proof": null,
+          "failure": "script",
+          "oracle": {
+            "complete": false,
+            "savedValue": null,
+            "cartCount": 1,
+            "orderCount": 0
+          },
+          "usage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "engineUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0
+          },
+          "observedUsage": {
+            "llmCalls": 0,
+            "measuredCalls": 0,
+            "inputTokens": 0,
+            "outputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0
+          },
+          "healCount": 0,
+          "scenarioHash": "bb26c6fb617c612a6c5ef22b24c6d3751ce711ba55f25e5c6843588455c21462",
+          "fixtureHash": "f9b459bbcfd871fc904ce49319dd54ea84909a0441bccef7c6e16c3a59c84825",
+          "captureFixtureVersion": "v1",
+          "captureFixtureHash": "62a54b68c644cf8e7b96e7b7b077830f2b63b2f8d3721bcae4a3a3b075178ff2",
+          "captureSource": {
+            "source": "llm",
+            "backend": "codex",
+            "model": "gpt-5.6-luna",
+            "reasoningEffort": "medium",
+            "budgetMode": "calls",
+            "maxCalls": 160,
+            "kind": "llm"
+          },
+          "requestedDelays": {
+            "document": 0,
+            "api": 0
+          },
+          "elapsedMs": 5807.226583000001,
+          "error": null,
+          "engineVerdict": {
+            "passed": false,
+            "detail": "step 6/6 blocked: no element matching {\"text\":\"Place order\",\"role\":\"button\",\"index\":0}",
+            "failure": "script"
+          }
+        }
+      ],
+      "captures": []
+    }
+  ]
+}

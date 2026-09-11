@@ -1,6 +1,6 @@
 {
   "name": "cairn-engine",
-  "version": "2.8.0",
+  "version": "2.9.0",
   "description": "An agentic-testing engine \u2014 browser tests an AI discovers once, replays deterministically with zero LLM calls, and heals when they break.",
   "keywords": [
     "agentic-testing",
@@ -51,12 +51,13 @@
     "node": ">=20"
   },
   "scripts": {
-    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc -p tsconfig.build.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "dev": "tsx src/cli.ts",
     "prepublishOnly": "npm run build",
-    "test:browser": "vitest run --config vitest.browser.config.ts"
+    "test:browser": "vitest run --config vitest.browser.config.ts",
+    "check:boundaries": "node --import tsx scripts/check-boundaries.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

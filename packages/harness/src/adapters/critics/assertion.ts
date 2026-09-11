@@ -1,8 +1,9 @@
 /** Deterministic Critic for the replay path — checks assertions against evidence, no LLM (invariant #4). */
 import type { AssertionHandler, Critic } from "../../core/ports.js";
 import type { Assertion, AssertionResult, Context, Evidence, Verdict } from "../../core/types.js";
-import { findRequestStatus, isBenignRequest, isRecoveredFailure } from "../../core/requests.js";
-import { urlReached } from "../../core/steps.js";
+import type { RequestMatchOptions } from "../../core/requests.js";
+import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFrozen } from "../../core/requests.js";
+import { unrecognizedLeadingSegment, urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
 export type CustomCheck = (
@@ -21,13 +22,18 @@ export function checkAssertion(
   localePrefixes?: readonly string[],
   /** Does the scenario being judged use `*` for a run-minted segment (`Scenario.wildcards`)? */
   wildcards?: boolean,
+  requestMatch: RequestMatchOptions = {},
 ): AssertionResult {
   switch (assertion.kind) {
     case "navigated": {
       const { navigated, finalUrl } = evidence.execution;
       if (!navigated) return { assertion, passed: false, detail: "no navigation occurred" };
       if (assertion.to && !urlReached(finalUrl ?? "", assertion.to, { localePrefixes, wildcards })) {
-        return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}` };
+        // A miss the matcher's prefix list explains reads differently from the app landing elsewhere
+        // (#204), so the reader knows whether to configure `localePrefixes` or debug the app.
+        const segment = unrecognizedLeadingSegment(finalUrl ?? "", assertion.to, { localePrefixes, wildcards });
+        const hint = segment === undefined ? "" : `; leading segment "${segment}" is not in localePrefixes`;
+        return { assertion, passed: false, detail: `final url ${finalUrl} did not reach ${assertion.to}${hint}` };
       }
       return { assertion, passed: true, detail: finalUrl };
     }
@@ -49,29 +55,34 @@ export function checkAssertion(
       );
       return failed.length === 0
         ? { assertion, passed: true }
-        : { assertion, passed: false, detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}` };
+        : {
+            assertion,
+            passed: false,
+            detail: `${failed.length} failed request(s): ${failed[0]?.status} ${failed[0]?.url}`,
+            statuses: [...new Set(failed.map((r) => r.status))],
+          };
     }
     case "request-status": {
       // Any matching request satisfies the assertion (same predicate as conditionMet) — the
       // verdict must not depend on arrival order when an endpoint responds more than once.
       // An optional `method` scopes both the match and the failure detail (#94).
       const method = assertion.method?.toUpperCase();
-      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method);
-      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}` };
+      const hit = findRequestStatus(evidence.logic.requests, assertion.urlIncludes, assertion.status, method, requestMatch);
+      if (hit) return { assertion, passed: true, detail: `${hit.status} ${hit.url}`, statuses: [hit.status] };
       const near = evidence.logic.requests.filter(
-        (r) => r.url.includes(assertion.urlIncludes) && (!method || r.method.toUpperCase() === method),
+        (r) => urlMatchesFrozen(r.url, assertion.urlIncludes, requestMatch) && (!method || r.method.toUpperCase() === method),
       );
       if (near.length === 0) {
         const scope = method ? `${method} ` : "";
         return { assertion, passed: false, detail: `no ${scope}request matching ${assertion.urlIncludes}` };
       }
-      const seen = [...new Set(near.map((r) => r.status))].join(", ");
-      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${seen} for ${near[0]?.url}` };
+      const statuses = [...new Set(near.map((r) => r.status))];
+      return { assertion, passed: false, detail: `expected ${assertion.status}, got ${statuses.join(", ")} for ${near[0]?.url}`, statuses };
     }
     case "expect":
-      return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic" };
+      return { assertion, passed: false, detail: "'expect' is judged by LlmCritic, not the deterministic critic", reason: "no-handler" };
     case "custom":
-      return { assertion, passed: false, detail: `custom check "${assertion.name}" needs a registered handler` };
+      return { assertion, passed: false, detail: `custom check "${assertion.name}" needs a registered handler`, reason: "no-handler" };
   }
 }
 
@@ -82,6 +93,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
     private readonly benignConsole: readonly string[] = [],
     private readonly localePrefixes?: readonly string[],
     private readonly wildcards?: boolean,
+    private readonly requestMatch: RequestMatchOptions = {},
   ) {}
 
   supports(assertion: Assertion): boolean {
@@ -89,7 +101,7 @@ export class MechanicalAssertionHandler implements AssertionHandler {
   }
 
   judge(assertion: Assertion, evidence: Evidence): AssertionResult {
-    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes, this.wildcards);
+    return checkAssertion(assertion, evidence, this.benign, this.benignConsole, this.localePrefixes, this.wildcards, this.requestMatch);
   }
 }
 
@@ -104,7 +116,7 @@ export class CustomAssertionHandler implements AssertionHandler {
   async judge(assertion: Assertion, evidence: Evidence): Promise<AssertionResult> {
     if (assertion.kind !== "custom") throw new Error(`custom handler received "${assertion.kind}" assertion`);
     const check = this.custom[assertion.name];
-    if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"` };
+    if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"`, reason: "no-handler" };
     const r = await check(assertion.params ?? {}, evidence);
     return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
   }
@@ -114,7 +126,7 @@ export class CustomAssertionHandler implements AssertionHandler {
  * verifies nothing must not look green (#69). Shared by both critics so the semantics can't drift. */
 export function toVerdict(results: AssertionResult[]): Verdict {
   if (results.length === 0) {
-    return { passed: false, results, detail: "scenario has no assertions to verify" };
+    return { passed: false, results, detail: "scenario has no assertions to verify", failClosed: "no-assertions" };
   }
   // #137: every check was already true before the flow ran (stamped at freeze) — the scenario
   // cannot go red, so a green would mean nothing. Same fail-closed stance as the empty set.
@@ -125,6 +137,7 @@ export function toVerdict(results: AssertionResult[]): Verdict {
     return {
       passed: false,
       results,
+      failClosed: "all-vacuous",
       detail: pageless
         ? "the run navigated, but no destination could be frozen for it, and nothing else here can fail — the scenario cannot detect a broken flow"
         : "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
@@ -141,7 +154,7 @@ export async function judgeAssertion(
   ctx?: Context,
 ): Promise<AssertionResult> {
   const handler = handlers.find((h) => h.supports(assertion));
-  if (!handler) return { assertion, passed: false, detail: `no critic handles "${assertion.kind}"` };
+  if (!handler) return { assertion, passed: false, detail: `no critic handles "${assertion.kind}"`, reason: "no-handler" };
   return handler.judge(assertion, evidence, ctx);
 }
 
@@ -174,9 +187,10 @@ export class AssertionCritic implements Critic {
     benignConsole: readonly string[] = [],
     localePrefixes?: readonly string[],
     wildcards?: boolean,
+    requestMatch: RequestMatchOptions = {},
   ) {
     this.handlers = [
-      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards),
+      new MechanicalAssertionHandler(benign, benignConsole, localePrefixes, wildcards, requestMatch),
       new CustomAssertionHandler(custom),
     ];
   }

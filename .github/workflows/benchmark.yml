@@ -1,0 +1,50 @@
+name: PR benchmarks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: benchmarks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: baseline
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: candidate
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - name: Install baseline dependencies and build
+        working-directory: baseline
+        run: npm ci && npm run build
+      - name: Install candidate dependencies and build
+        working-directory: candidate
+        run: npm ci && npm run build
+      - name: Install fixed browser driver for both engines
+        run: npm install --prefix "$RUNNER_TEMP/cairn-tools" --ignore-scripts --no-audit --no-fund chrome-devtools-mcp@1.3.0
+      - name: Compare sizes and local replay by tier
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: node candidate/bench/ci-compare.mjs baseline candidate "$RUNNER_TEMP/cairn-benchmarks"
+      - name: Preserve raw attempts and comparison
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: cairn-benchmarks-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/cairn-benchmarks
+          if-no-files-found: warn
+          retention-days: 14

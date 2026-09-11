@@ -56,15 +56,22 @@ Codex costs are estimates from recorded tokens assuming OpenAI Standard short-co
 
 In a separate six-run order journey, the **Place order button becomes a link on run 4**. The original test fails without healing. Each model repairs the target with one LLM call, saves the repair, and passes runs 5 and 6 with zero LLM calls.
 
+**Claude reported costs**
+
 | Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
 | --- | ---: | ---: | ---: |
 | Sonnet 5 | $0.042799 · 7 calls | $0.006370 · 1 call | 2/2 pass · 0 calls |
 | Opus 5 | $0.087434 · 7 calls | $0.013444 · 1 call | 2/2 pass · 0 calls |
-| GPT-5.6 Sol | 85,720 tokens · 7 calls | 11,417 tokens · 1 call | 2/2 pass · 0 calls |
-| GPT-5.6 Terra | 83,988 tokens · 7 calls | 11,421 tokens · 1 call | 2/2 pass · 0 calls |
-| GPT-5.6 Luna | 74,028 tokens · 7 calls | 9,994 tokens · 1 call | 2/2 pass · 0 calls |
 
-Claude dollar amounts are provider-reported; GPT token counts are observed usage, with dollar cost unreported. In this schedule, each model uses **42 calls discovering every run, or 8 discovering once and healing once**. All five repairs succeed and all ten replays after repair use zero calls.
+**Codex estimated costs**
+
+| Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
+| --- | ---: | ---: | ---: |
+| GPT-5.6 Sol | ~$0.237219 · 7 calls | ~$0.045860 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Terra | ~$0.056860 · 7 calls | ~$0.006834 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Luna | ~$0.008757 · 7 calls | ~$0.000582 · 1 call | 2/2 pass · 0 calls |
+
+Claude dollar amounts are provider-reported. Codex amounts are estimates from recorded tokens using OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier. In this schedule, each model uses **42 calls discovering every run, or 8 discovering once and healing once**. All five repairs succeed and all ten replays after repair use zero calls.
 
 This measures one locator change, with the order verified by the fixture's order count; it does not measure `waitFor` repair or a general repair success rate. [Claude evidence](docs/benchmarks/230-claude.md) · [GPT evidence and reproduction](docs/benchmarks/230-codex.md).
 

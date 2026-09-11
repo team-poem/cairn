@@ -50,6 +50,19 @@ async function readEntries() {
 
 const label = (entry) => [entry.meta.issue && `#${entry.meta.issue}`, entry.meta.pr && `PR #${entry.meta.pr}`].filter(Boolean).join(" · ");
 
+/**
+ * An entry is a document with its own headings; in an archive it is a section under the entry title,
+ * so every heading below it moves down one level. Fenced blocks are left alone, where a leading # is
+ * a comment rather than a heading.
+ */
+function demote(body) {
+  let fenced = false;
+  return body.split("\n").map((line) => {
+    if (/^\s*(```|~~~)/.test(line)) fenced = !fenced;
+    return !fenced && /^#{1,5} /.test(line) ? `#${line}` : line;
+  }).join("\n");
+}
+
 /** What is in flight, derived rather than remembered. Printed, never committed, so it cannot rot. */
 function status(entries) {
   if (!entries.length) return "The current cycle has no entries yet.";
@@ -77,7 +90,7 @@ async function archive(version, entries) {
     // An entry's own H1 repeats the summary, which becomes the section heading here.
     const head = `## ${entry.meta.summary}`;
     const meta = [label(entry), entry.meta.status !== "landed" ? entry.meta.status : null].filter(Boolean).join(" · ");
-    return [head, meta ? `*${meta}*` : null, "", entry.body.replace(/^# .*\n+/, "")].filter((part) => part !== null).join("\n");
+    return [head, meta ? `*${meta}*` : null, "", demote(entry.body.replace(/^# .*\n+/, ""))].filter((part) => part !== null).join("\n");
   }).join("\n\n---\n\n");
   await mkdir(dirs.archive, { recursive: true });
   await writeFile(path, `# ${version}\n\nArchived ${date}. ${entries.length} entries from the ${version} cycle.\n\n${body}\n`, { flag: "wx" });

@@ -92,3 +92,18 @@ test("journalArchiveRefusesAnEmptyCycle", async (t) => {
   const dir = await sandbox(t);
   assert.match(fails(dir, ["scripts/journal.mjs", "archive", "2.10.0"]) ?? "", /entries\/ is empty/);
 });
+
+test("journalArchiveMovesAnEntrysOwnHeadingsUnderItsTitle", async (t) => {
+  const body = "# Top\n\n## A section\n\nText.\n\n### Deeper\n\n```sh\n# not a heading\n```\n\n#hashtag\n";
+  const dir = await sandbox(t, { "2026-01-01-a.md": `---\nissue: 42\npr: 99\nstatus: landed\nsummary: First thing\nnext: null\n---\n\n${body}` });
+  run(dir, ["scripts/journal.mjs", "archive", "2.10.0"]);
+  const archived = await readFile(join(dir, "spec/journal/archive/2.10.0.md"), "utf8");
+  // The entry title owns ##, so its sections sit below it rather than beside it.
+  assert.match(archived, /\n## First thing\n/);
+  assert.match(archived, /\n### A section\n/);
+  assert.match(archived, /\n#### Deeper\n/);
+  assert.doesNotMatch(archived, /\n## A section\n/);
+  // A leading # inside a fence is a shell comment, and a word after # is not a heading at all.
+  assert.match(archived, /\n# not a heading\n/);
+  assert.match(archived, /\n#hashtag\n/);
+});

@@ -251,6 +251,51 @@ A crossover is not a general saving. How often an application breaks a freeze is
 the variable that decides the answer, and a schedule fixes it by construction.
 Report the schedule with the number.
 
+## Measure a repair
+
+The v2 renames never reach self-heal: a frozen target carries role and index
+beside its name, so a renamed control still resolves without the model, and the
+published cost runs recorded zero repairs ([#230](https://github.com/team-poem/cairn/issues/230)).
+Fixture version `v3` exists for the `stateful` tier only and changes one thing:
+the cart page's `Place order` control is a link instead of a button. Its name,
+the `/api/order` request it makes and the `/done` arrival that completes the
+fixture are unchanged; the login, product and cart labels keep their v1 names.
+A frozen `{text, role: "button", index}` finds no button by name and no button
+by index on that page, so the replay has to repair or fail. Whether a given
+model repairs it is what the run measures.
+
+`heal.claude-sonnet-5.json`, `heal.claude-opus-5.json` and the three
+`heal.gpt-5.6-*.json` schedules run the stateful journey six times per arm with
+the app changing to v3 on run 4, the same latency, step limit and budgets as the
+`cost.*.json` schedules, so a repair on run 4 and the replays on runs 5 and 6
+sit next to the published rows. `heal.pilot.claude-sonnet-5.json` is the small
+cairn-only pilot that checks the fixture actually breaks a real freeze before
+the schedule is paid for; keep its result apart from the schedule's.
+
+```sh
+ENGINE_COMMIT=$(git rev-parse HEAD)
+npm run bench:local -- cost --config bench/local/heal.claude-sonnet-5.json --runs 6 \
+  --engine-commit "$ENGINE_COMMIT" --out bench/results/heal-sonnet-1
+npm run bench:local -- replay --config bench/local/heal-replay.v3.json --runs 1 \
+  --engine-commit "$ENGINE_COMMIT" --captures bench/results/heal-sonnet-1/captures \
+  --out bench/results/heal-sonnet-1-replay-v3
+```
+
+The second command replays the cost run's freeze against v3 with the model
+forbidden, which is what shows the change defeats the locator fallback rather
+than being absorbed by it; `heal-replay.v1.json` does the same against v1 and
+must pass. The cost report's per-arm lines split discovery, repair and replay:
+how many replay runs called the model, how many came back re-frozen, and what
+those calls cost apart from discovery. A repair attempt that could not be
+verified still paid, and is counted. `captures/` keeps the freeze and every
+repair under its own name, and each run records the hash of the scenario it
+replayed, so the run after a repair can be checked against the repair it used.
+Runs 5 and 6 each open a fresh server, browser and application state.
+
+A nonzero repair count on this fixture says the model repaired this break on
+this page; it is not a self-heal success rate for other changes or other
+applications.
+
 ## Interpret results
 
 JSON preserves engine verdict/proof/failure detail, fixture oracle, observed

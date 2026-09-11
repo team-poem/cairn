@@ -226,9 +226,29 @@ function summarize(report, config) {
           for (const key of BILLED) entry[key] += usage[key] ?? 0;
         }
       }
+      // Discovery, repair and replay are three different spends (#230), and the acceptance question
+      // is what a repair costs on its own. A replay run that called the model is a repair attempt
+      // whether or not it came back re-frozen: a heal that could not be verified still paid.
+      const phase = (select) => {
+        const subset = records.filter(select);
+        return {
+          runs: subset.length,
+          passed: subset.filter((record) => record.passed).length,
+          calls: subset.reduce((sum, record) => sum + (record.observedUsage?.llmCalls ?? 0), 0),
+          tokens: subset.reduce((sum, record) => sum + BILLED.reduce((total, key) => total + (record.observedUsage?.[key] ?? 0), 0), 0),
+          costUsd: subset.length && subset.every((record) => record.costUsd !== null) ? subset.reduce((sum, record) => sum + record.costUsd, 0) : null,
+        };
+      };
+      const called = (record) => (record.observedUsage?.llmCalls ?? 0) > 0;
+      const phases = {
+        discovery: phase((record) => record.action === "discover"),
+        repair: { ...phase((record) => record.action === "replay" && called(record)), refrozen: records.filter((record) => record.action === "replay" && record.refrozen).length },
+        replay: phase((record) => record.action === "replay" && !called(record)),
+      };
       return [arm, {
         attempted: records.length,
         models: Object.keys(models).length ? models : null,
+        phases,
         failures: records.filter((record) => !record.passed).length,
         runsWithCalls: records.filter((record) => (record.observedUsage?.llmCalls ?? 0) > 0).length,
         runsWithoutCalls: records.filter((record) => record.passed && (record.observedUsage?.llmCalls ?? 0) === 0).length,

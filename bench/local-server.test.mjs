@@ -212,3 +212,27 @@ test("localReservedPortIsFreeAndFailsLoudly: the probe releases the port and a t
   t.after(() => holder.close());
   await assert.rejects(startFixture({ tier: "navigation", version: "v1", runIndex: 1, latency: immediate, port }), (error) => error.code === "EADDRINUSE");
 });
+
+test("localV3TurnsTheOrderButtonIntoALink: the control's role changes while its name, the order API and completion stay (#230)", { timeout: 5000 }, async (t) => {
+  const v1 = await fixture(t, { tier: "stateful", version: "v1" });
+  const v3 = await fixture(t, { tier: "stateful", version: "v3" });
+  assert.notEqual(fixtureInfo("stateful", "v1").hash, fixtureInfo("stateful", "v3").hash);
+  assert.throws(() => fixtureInfo("navigation", "v3"), /stateful/);
+  assert.throws(() => fixtureInfo("form", "v3"), /stateful/);
+  // Every label v2 renames keeps its v1 name at v3: the only change is the order control's role.
+  assert.match((await request(v3, "/login")).text, /<button>Log in<\/button>/);
+  const carts = {};
+  for (const [version, server] of [["v1", v1], ["v3", v3]]) {
+    const login = await request(server, "/api/login", { username: "alice" });
+    await request(server, "/api/cart", { sku: "book", quantity: 1 }, login.cookie);
+    carts[version] = (await request(server, "/cart", undefined, login.cookie)).text;
+    assert.equal((await request(server, "/api/order", {}, login.cookie)).status, 200);
+    assert.equal((await request(server, "/done", undefined, login.cookie)).status, 200);
+    assert.equal(server.snapshot().complete, true);
+  }
+  assert.match(carts.v1, /<button>Place order<\/button>/);
+  assert.match(carts.v3, /<a href="\/done">Place order<\/a>/);
+  assert.doesNotMatch(carts.v3, /<button/);
+  assert.match(carts.v3, /preventDefault\(\)/);
+  assert.match(carts.v3, /fetch\('\/api\/order'/);
+});

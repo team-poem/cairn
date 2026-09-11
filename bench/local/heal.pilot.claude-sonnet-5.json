@@ -1,0 +1,9 @@
+{
+  "mode": "cost",
+  "tiers": ["stateful"],
+  "arms": ["cairn"],
+  "fixtureVersions": ["v1", "v3", "v3"],
+  "latency": { "document": [0, 20], "api": [0, 40] },
+  "maxSteps": 20,
+  "llm": { "source": "llm", "backend": "claude-code", "model": "claude-sonnet-5", "maxCalls": 40, "maxCostUsd": 1 }
+}

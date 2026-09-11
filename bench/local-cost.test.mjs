@@ -213,7 +213,9 @@ test("costConfigurationRefusesASchedulItCannotCompare: runs versions arms and a 
   rejects({ runs: 1 }, /at least 2/);
   rejects({ fixtureVersions: ["v1", "v1", "v2"] }, /every run/);
   rejects({ fixtureVersions: ["v2", "v1", "v2", "v2"] }, /first run must be v1/);
-  rejects({ fixtureVersions: ["v1", "v1", "v3", "v2"] }, /every run/);
+  rejects({ fixtureVersions: ["v1", "v1", "v4", "v2"] }, /every run/);
+  rejects({ fixtureVersions: ["v1", "v1", "v3", "v3"] }, /v3 exists only for the stateful tier/);
+  assert.deepEqual(validateCostConfig({ ...base, tiers: ["stateful"], fixtureVersions: ["v1", "v1", "v3", "v3"] }).fixtureVersions, ["v1", "v1", "v3", "v3"]);
   rejects({ arms: ["agent", "agent"] }, /arms/);
   rejects({ arms: ["cairn", "browser"] }, /arms/);
   rejects({ tiers: [] }, /tiers/);
@@ -500,4 +502,34 @@ test("costCallOnlyScheduleKeepsUnknownMoneyAndWithholdsDollarCharts", async (t) 
   assert.doesNotMatch(markdown, /Reported provider cost: \$0/);
   const paths = await writeReport(report, h.config.outputDir, renderCostMarkdown);
   assert.equal(paths.charts, undefined);
+});
+
+test("costSplitsDiscoveryRepairAndReplay: a repair's cost and calls are reported apart from discovery, and replays without a call are counted (#230)", async (t) => {
+  const { runCostComparison } = await load();
+  const { renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { tiers: ["stateful"], fixtureVersions: ["v1", "v1", "v3", "v3"] });
+  const report = await runCostComparison(h.config, h.runtime);
+  assert.equal(report.incomplete, false);
+  const { agent, cairn } = report.summaries[0].arms;
+  // Cumulative ledger differences are floating point; the report prints six decimals.
+  const rounded = (phase) => ({ ...phase, costUsd: phase.costUsd === null ? null : Number(phase.costUsd.toFixed(6)) });
+  for (const arm of [agent, cairn]) for (const key of Object.keys(arm.phases)) arm.phases[key] = rounded(arm.phases[key]);
+  assert.deepEqual(cairn.phases, {
+    discovery: { runs: 1, passed: 1, calls: 1, tokens: 135, costUsd: 0.1 },
+    repair: { runs: 1, passed: 1, calls: 1, tokens: 135, costUsd: 0.02, refrozen: 1 },
+    replay: { runs: 2, passed: 2, calls: 0, tokens: 0, costUsd: 0 },
+  });
+  assert.equal(cairn.repairs, 1);
+  assert.deepEqual(agent.phases.discovery, { runs: 4, passed: 4, calls: 4, tokens: 540, costUsd: 0.4 });
+  assert.deepEqual(agent.phases.repair, { runs: 0, passed: 0, calls: 0, tokens: 0, costUsd: null, refrozen: 0 });
+  const repaired = report.records.find((record) => record.arm === "cairn" && record.refrozen);
+  assert.equal(repaired.index, 2);
+  assert.equal(repaired.fixtureVersion, "v3");
+  assert.notEqual(repaired.scenarioHash, repaired.replayedScenarioHash);
+  assert.equal(report.records.find((record) => record.arm === "cairn" && record.index === 3).replayedScenarioHash, repaired.scenarioHash);
+  const markdown = renderCostMarkdown(report);
+  assert.match(markdown, /cairn · discovery: 1 run\(s\), 1 call\(s\), 135 tokens, \$0\.100000/);
+  assert.match(markdown, /cairn · repair: 1 replay run\(s\) called the model, 1 re-frozen, 1 call\(s\), 135 tokens, \$0\.020000/);
+  assert.match(markdown, /cairn · replay without a call: 2 of 2 passed/);
+  assert.match(markdown, /agent · repair: 0 replay run\(s\) called the model, 0 re-frozen, 0 call\(s\), 0 tokens, cost unknown/);
 });

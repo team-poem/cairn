@@ -190,7 +190,7 @@ A step's `expect` is its post-condition. Replay waits for it deterministically (
 
 Each frozen assertion also records its `origin`: `user` (your own criterion, merged at freeze) or `derived` (grounded by the engine from observed evidence). A report can therefore say which greens were verified against your spec, not the engine's guess.
 
-> **Text matches one accessibility node at a time.** `text`, in a `target` or a `waitFor`, is matched as a substring of a single node's accessible name. Text composed at render time is often several nodes. JSX interpolation like `팀 명단 ({n}/{cap})` renders as separate StaticText nodes, so `waitFor { "text": "팀 명단 (1/3)" }` can never match, even though a human sees that combined string on screen. Wait on a stable substring that lives in one node (here `"팀 명단"`), or fall back to `role` or `selector`.
+> **Text matches one accessibility node at a time.** `text`, in a `target` or a `waitFor`, is matched as a substring of a single node's accessible name. Text composed at render time is often several nodes. JSX interpolation like `Roster ({n}/{cap})` renders as separate StaticText nodes, so `waitFor { "text": "Roster (1/3)" }` can never match, even though a human sees that combined string on screen. Wait on a stable substring that lives in one node, here `"Roster"`, or fall back to `role` or `selector`.
 
 ## The run is just data, too
 

@@ -1,314 +1,86 @@
-# state — 현재 상태 (세션 시작 시 먼저 읽기)
+# state — what outlives a release cycle
 
-> 작게 유지. 사실·결정·다음 스텝만. 상세 기록은 `entries/`로.
-> **갱신은 develop에서만** — 작업 브랜치/PR에서 이 파일을 수정하지 않는다(병합 충돌 방지). 작업의 state 변화는 entry에 적고 머지 후 반영.
+> Standing decisions, the release procedure, environment notes. Short and slow-moving.
+>
+> **This is not a status board.** What is in flight comes from `npm run journal:status`, derived from
+> `spec/journal/entries/`. Nothing here is regenerated, so nothing here should need updating weekly.
+> Per-cycle history lives in `spec/journal/archive/<version>.md`.
 
-## 지금 상태
-- 단계: **2.9.0 릴리즈 대기 (PR #207 → main). develop 준비 완료: 버전 범프·저널·state.** breaking 0.
-  - **2.9.0 내용 ("판정이 근거를 들고 다닌다, 그리고 주장 대신 측정"):** PR 21개·232파일·17,832줄 추가,
-    트레이스 1.2 → 1.6, 2.8.0 freeze 그대로 재생. 판정 쪽 = `Verdict.proof` 등급(#197) · `Verdict.failure`와
-    종료코드 1/3/4(#173) · 구조화 신호(#212) · `observedBeforeLastMutation`(#203) · 쿼리 부분집합 매칭(#200).
-    측정 쪽 = `bench:local cost`로 다섯 모델 두 제공자 세 여정 각 6실행, 매번 탐색 42호출 대 한 번 탐색 후
-    재생 7호출, 재생 전부 호출 0, 180시도 실패 0(#214·#169·#170). 그 밖 = 비밀값 슬롯(#174) ·
-    replayEnvironment(#171) · 관찰 참조와 준비 대기(#198) · 목록 매턴 전송(#225) · PR 성능 비교 CI(#220).
-    상세 = entries/2026-09-11-290-release.md.
-  - **2.8.0 (2026-09-03 배포, PR #194):** 아래 내용 유지.
-  - **2.8.0 내용 ("다음 런에도 살아남는 freeze"):** **grounding이 재생 가능한 URL을 얼림**(#172/#178/#183 —
-    stable endpoint prefix·id 형상 컷·쿼리 접두 보존·구분력 잃은 체크 드랍, 반례 코퍼스 동반) ·
-    **목적지 와일드카드**(#182 — `*` 토큰, leaf 규칙, `Scenario.wildcards` 마커, `localePrefixes` 전 경로 배선) ·
-    **검증 안 된 경로는 heal이 아님**(#186/#189 — `finalizeVerdict` 하나로 재생·heal 판정 마무리, truncated/목표
-    미달 재발견은 돌려주지 않음, 가드는 목표가 아님 = `goalFailures`, `maxSteps`가 heal에 도달) ·
-    **항진 단언 도장**(#137/#165) · **증명 못 한 행위 기록**(#184/#190/#191 — `unprovenAction` advisory, 벤치 뒤
-    fail-closed 전환) · **동명 해석 hit-test**(#176/#181/#185 — 양성 폐색만 증거, 실제 크롬 픽스처 CI job) ·
-    **감사 픽스 7 + 커버리지**(#192/#193 — benign→step expect, lazy LLM, crash trace 종결 등) ·
-    CLI(#146/#147/#167/#180) · 레포 위생(#148/#151/#152/#156/#166) · README 랜딩화(#187/#188).
-    review 주기 = PR 하나씩 코멘트→수정→검증→머지(2026-08-28~09-03, 14 PR). 상세 = entries/2026-09-03-2.8.0-release-and-queue.md.
-  - **2.7.0 내용 ("trace 계약 완결"):** **JsonlTraceSink 엔진 편입**(#160/#161 — 러너 모듈 verbatim, browser 엔트리 제외) ·
-    **attachment id 확정**(#160/#163 — id=seq·Tracer 스탬프·bytes→라인 순서·`onStep||acceptsAttachments` 캡처 게이트,
-    계약 1.0→1.1 additive) · **agentic-testing 네이밍**(README 2벌·npm description/keywords — E2E는 검색 키워드로만).
-    러너(cairn-desktop)는 이제 자기 sink 사본을 엔진 import로 교체하면 됨.
-  - **2.6.0 내용 ("run is data"):** **TraceSink 7번째 포트**(#143/#155 — lifecycle 이벤트 스트림, gate 4종 1급,
-    outcome-heal은 phase: heal, sink 미지정 시 비용 0·throw는 verdict 불변) · **단언 provenance**(#142/#144 —
-    `origin: user|derived|unknown`, freeze 시 기록) · **suite 캐시 staleness 픽스 2**(#131/#157 유효 시작 URL 지문 ·
-    #153/#154 heal 재동결 caseHash 유지) · PR 자동 클로즈 가드(#141/#145) · README 재구성(루프 다이어그램
-    docs/loop.svg·"run is just data" 섹션·애니메이션 배너).
-  - **2.5.0 (2026-07-13):** explore(#102) · suite(#122) · select a11y-native(#129, 불변식 #7 신설) ·
-    중복이름 addressing(#127) · perception(#132). 상세 = entries.
-  - 계보: 2.0.0 surgical self-heal(breaking) → 2.1 → 2.2.x → 2.3.0 → 2.4.0 → 2.5.0 → 2.6.0 → 2.7.0 → 2.8.0. 상세 = history + entries.
-  - **릴리스 자동화 가동(#135, main 머지 = 배포):** `release.yml`이 npm publish → **머지 커밋에 태그** → draft
-    릴리스 생성. 수동 잔여 = draft 노트 다듬고 발행. 옛 "태그 함정" 사고는 자동화로 구조적 해소(태그가 항상 main HEAD).
-    유일 리스크 = `NPM_TOKEN` 만료(publish 스텝 빨강이면 시크릿 갱신 후 re-run).
-- **다음 사이클(피벗 — #158 닫음, 디스커션 #168):** first-party 러너 중단(데스크탑 러너 범용화로 뷰어는
-  이길 자리 아님 — 엔진이 제품). 새 방향 3트랙(amazon과의 대화 산물, 고정 스코프 아님 — #168에서 형성 중):
-  ① **레포 재구조화**(CLI/패키지 격리; 분리 패키지 vs 내부 경계+린트가 갈림길, #8이 종료 조건 후보)
-  ② **스토리지 1급화**(#114 위에 caseHash 인덱싱·re-freeze 계보·suite staleness의 거처)
-  ③ **discover/freeze 신뢰성**(#103 측정 선행 → settle·파싱·truncation·flake). #101은 ③ 뒤.
-  러너 트랙 유산 = trace 계약 전체(#140→#155→#160, 상세는 entries)와 JsonlTraceSink.
-  **소비자 승격 슬레이트(#171–#177):** #172(→#178)·#176(→#181) 2.8.0에 종결. 잔여 #171 재앵커·#173 실패분류·#174 비밀값
-  ·#175 settle·#177 스크롤 = **2.9.0**. #173은 #189의 `goalFailures`(가드=환경 / 목표=경로) + `blockedReason`(=대본)으로
-  재료가 갖춰져 "세 신호에 이름 붙이기"로 작아짐. 상세 = entries/2026-08-26-consumer-promotion-candidates.md.
-  **2.9.0 슬레이트(소비자 2차 제보 → #195–#200 등록, 2026-09-04):** #195 heal 헬퍼 export(소비자가 `verdict.passed`로
-  재구현해 틀림 — #189가 거부한 그 술어) · #196 계약 지문(`hashCase` 미export, 체크가 강해지면 이력이 회귀로 읽힘) ·
-  #197 초록의 강도(verdict provability 요약; #173의 반대편, 같은 신호) · #198 지각 계층/요소 정체성(`ELEMENT_LIMIT=60`
-  랭킹이 포털을 잘라냄, `PageElement`에 핸들 없음 — 논의 선행) · #199 jsonl 플레이크 · #200 요청 매칭 substring
-  (`?op=AddToCart`가 `AddToCartV2`에 매칭 — PR #179 실측분). 기존 이슈 합류 2 — 자격증명 origin 스코프→#174,
-  폴링 앱 idle 미도래→#175. 기각 3 — 요청 매칭 실행값(#178이 닫음), 환경 박제(=#171), benign→step expect(=#193).
-  **3차 제보 추가(2026-09-04):** #203 리다이렉트 진행 중 URL을 도착지로 굳힘(`observeOutcomes`가 in-flight
-  mutation은 기다리는데 네비게이션은 안 기다림 — 로그인 흐름이 폼 도착만으로 영구 초록) · #204 목적지 미스가
-  앱 탓인지 설정 탓인지 구분 불가(`DEFAULT_LOCALE_PREFIXES` 기본값이 형질, stage 2가 아무것도 못 벗기면 bare
-  false; 같은 "고정 선두 세그먼트" 개념이 `namesAPage`에도 절반만 있음).
-  **진행(2026-09-07):** 종결 = #199(PR #202) · #200(PR #201, `urlMatchesFrozen` 쿼리 부분집합 + `hasStablePath`
-  `?` 앞 절단) · #203(PR #205, 2초 예산 안 리다이렉트 대기 + `observedBeforeLastMutation` 마커, 트레이스 1.3) ·
-  #8(PR #206, 내부 경계 + `check:boundaries` + quickstart/consumer CI) · #195(PR #208, heal 헬퍼 3종 export) ·
-  #204(PR #209, `unrecognizedLeadingSegment` → "is not in localePrefixes" 힌트). #177(PR #210, idle 스크롤 prune — 같은 페이지의 뒤 타겟 스텝 전부가 스크롤 전에
-  있어야, 리졸버의 #127 중복 거부 거울, `perceive`로 활성 판단; `gate: idle-scroll`, 트레이스 1.4) ·
-  #173(PR #211, `Verdict.failure` flow/script/environment + CLI 종료코드 1·3·4, 2=사용법, 런 시작 후 크래시 4;
-  두 차례 리뷰 11건 전부 "렌더된 문자열을 자유 텍스트째 검사"가 원인 → 단언 종류로 검사 범위 고정, 드라이버 문구
-  앵커, 상태 전체 파싱 — 구조화 신호는 #212로). #212(PR #213, 분류 신호를 필드로 — `AssertionResult.statuses`·`reason`,
-  `Verdict.failClosed`, `ExecutedAction.errorKind`, `stepError`/`errorKindOf` export, Chrome 드라이버가 자기 MCP 봉투를
-  판정하고 다이얼로그 차단은 전송 검사 전에 제외, 트레이스 1.5; 코어에 자유 텍스트 정규식 0). #197(PR #217, `Verdict.proof` — work/judged/arrival/none, `proofOf`가 freeze와 replay를 같은 규칙으로,
-  가드는 vacuity 산수 밖, `provesAnAction`은 `proofOf`로 구현) · #174(PR #218, `{name}` 비밀값 — 결정 시점 슬롯 → 단일
-  채움 핸들러 → 출력에 대한 범위 검사(`onSiteOf`+포트), 프롬프트 value 마스킹, `{{escape}}`, environment 등급이면 heal
-  안 함; 두 차례 리뷰 10건 전부 반영). #171(PR #215, `replayEnvironment { baseUrl, allowedHosts }` — 실행 시점 URL 재앵커,
-  프리즌 파일 불변, 요청 매칭은 양쪽 호스트가 scope에 있을 때만, heal은 임시, suite는 정식 캐시 필수; 리뷰 3건
-  (루트 종료 흐름 영구 빨강·미선언 진입 호스트 무음 no-op·미실행 케이스가 "replayed"로 표기) 반영). 남은 것 =
-  #198(PR #216, 포트 변경을 순수 랭킹/quota 조각으로 좁힘 — `promotedClickableNames` export 여부가 곧 "clickable이
-  공개 어휘냐"라 이슈 198의 두 질문 답 대기 → PR #221로 완료(관찰 참조 + 준비 대기; 리뷰 4라운드에서
-  차단 3건 + 후속 9건 반영. 역할은 보존하고 `clickable`은 표시로만, `ref`는 관찰 범위 전용이라 얼리지
-  않는 것으로 198의 두 질문에 사실상 답함 — 198 자체는 아직 열려 있음).
-  #214는 PR #223으로 완료(`cost` 모드 — agent/cairn 두 갈래, 실행별 버전 일정, 예약 포트로 replayEnvironment
-  없이 heal 재동결, 교차점은 측정이 아닌 경우 내지 않음). #225는 PR #226으로 완료(두 루프가 요소 목록을
-  `(unchanged from previous step)`으로 생략했는데 `LlmClient`에 대화가 없어 모델이 그 턴을 본 적이 없다.
-  페이지를 안 바꾸는 동작 하나면 다음 턴이 눈이 멀고 회복이 안 된다. 매 턴 목록을 보낸다).
-  #220은 PR #227로 완료(CI가 workspace/bench 테스트를 분리하고 PR마다 단계별 재생 중앙값·패키지 크기를
-  base와 비교, 포크는 코멘트 미게시). #170은 PR #228로 완료(다섯 모델 두 제공자 실측 + 리드미 둘).
-  #198·#220은 닫혔다. **2.9.0 슬레이트는 비었다.** 다음 사이클 = #229(정확 일치가 없으면 `nth`가 다른
-  풀로 내려가 이름이 다른 요소를 반환) · #230(self-heal 실측용 v3 픽스처 — 지금 수치는 다중 로케이터를
-  잰 것이고 복구는 한 번도 안 걸렸다) · #231(연결 메모·능력 증폭·iframe ref·CI 테스트 공백) · 2.10.0으로
-  미뤄둔 #196·#175. #184 advisory→fail-closed 전환은 #169 벤치 뒤; #169는 amazon의 "구조 수정 더 기다려야 하나" 질문에 "반대,
-  벤치가 #184·#203 게이트화의 전제" 답변 후 응답 대기. 후속 이슈 후보(저널 참조): 조합 가능한 `outcomeHeal`(#195
-  저널) · CLI `localePrefixes` 플래그·스텝 expect.url 미스 힌트(#204 저널) · 요소 정체성(#177 한계, =#198).
-  벤치는 #169(amazon 주도, hermetic 픽스처+지연 축 합의). 트랙①·②는 2.8.0 사이클 동안 이동 0.
-  good-first 슬레이트(#146–#152·#156)는 R(#166)·E(#167)로 전부 머지 완료. 상세 = entries/2026-08-25-post-runner-pivot.md.
-- **벤치 실측:** 실전 다단계 replay 4/4 결정적·LLM0 · discover $0.4–0.6 1회(replay $0) ·
-  UI rename 생존 0→4/4(LLM 2→0). 벤치 도구는 `bench/`. `~5000배 저렴`은 지웠다 — 측정한 적 없는
-  "풀 에이전트 $15–30/run"을 나눈 값이고, 그 비교는 이제 `bench:local cost`가 재는 것이다(#214).
-- **비용 축 실측(2026-09-11, #221·#226·#227 반영 develop, 로컬 픽스처, 세 단계 6실행 두 갈래, 72시도
-  실패 0):** 매번 탐색 대 한 번 탐색 후 재생이 이동 $0.109→$0.018, 폼 $0.151→$0.025, 상태 $0.269→$0.046
-  (소넷5) · 이동 $0.208→$0.030, 폼 $0.255→$0.042, 상태 $0.463→$0.077(오퍼스5). 여섯 경우 모두 두 번째
-  실행에서 교차하고 배수가 6 근처에서 안 움직인다. 절감이 호출 단가가 아니라 호출 수에서 나오기
-  때문이다(상태 42호출 대 7호출, 6실행 중 5회가 호출 0). 총비용 소넷 $0.617, 오퍼스 $1.076.
-  구독으로 돌려도 제공자가 `costBasis: "list"`로 정가 계산해 주므로 API 환산이 곧 이 값이다.
-  **이 수치가 재는 것은 다중 로케이터이지 self-heal이 아니다.** v2가 라벨을 실제로 바꾸는데도(상태는
-  다섯 동작 중 넷) 얼린 타겟이 역할·인덱스로 살아남아 복구가 한 번도 안 걸렸다. 픽스처가 역할·위치로
-  흡수 못 하는 변경을 만들지 못해 self-heal은 실측된 적이 없다 — 후속 이슈 후보(v3에 얼린 `waitFor`
-  텍스트가 깨지는 변경). #221 이후 같은 파일럿이 21% 싸졌다($0.167→$0.132).
-- **유연성(핵심):** custom 단언/액션 + 6포트 → "성공·인터랙션·구동·판정"을 *제품이* 정의(우리가 정한 것만 흐르지 않음).
-- 토대: 코어 루프(discover→freeze→replay→self-heal) · 헥사고날(core/adapters).
-- **경계 원칙(중요):** 앱 기능(UI/타임라인/Stop)은 데스크탑 앱에 위임, 엔진엔 *포트(발신/캡처/수용) + 엔진 능력*만.
-- **배포 방법(재현):** unscoped라 org 불필요. `cd packages/harness && npm publish`. 인증은 granular 토큰
-  (`"--//registry.npmjs.org/:_authToken=npm_…"`)이 기본이나 **granular 토큰은 만료됨** — 만료 시 E404(권한 없음을
-  404로 반환)가 뜨면 토큰 없이 `npm publish`하면 브라우저 CLI 인증(`npmjs.com/auth/cli/…`)으로 붙는다. 버전 올리고 →
-  publish → `git tag vX & push` → GitHub Releases 웹에서 노트.
-- **⚠ 이중 채널 규칙(안전장치 — beta 채널을 다시 열 때):** `latest`=안정선, `beta`=실험선.
-  **prerelease(`X.Y.0-beta.N`)는 반드시 `npm publish --tag beta`** — `--tag` 빠뜨리면 npm이 `latest`를 prerelease로
-  밀어버림(`-beta.N` 접미사는 `^` 범위만 막고 `latest` 이름표는 별개). **안정 패치는 main에서 hotfix 브랜치**로
-  (develop 안 거침 → 실험선 안 섞임). **`develop → main` 머지 = 정식화 결심 때만** — bare 버전으로 publish(기본 latest)
-  후 `npm dist-tag rm cairn-engine beta`. bare 버전이 develop에 있는 동안 beta를 내려면 반드시 `-beta.N+1`로 bump
-  (같은 버전 재publish 불가). 소비자 opt-in = `npm install cairn-engine@beta`. (2.5.0-beta 채널로 실증, 2.5.0 정식화로 종료.)
-- **정체성(확정):** cairn = 임베드 엔진(`cairn-engine`), CLI 제품 아님. 프로젝트1=엔진+얇은 CLI(배포됨),
-  프로젝트2(별도·나중)=이를 install하는 데스크탑 앱. 상세 → 메모리 `cairn-identity`.
-- **알려진 한계(v0.2.x 후속):** 클릭發 다이얼로그(confirm/alert) 완전처리 X(MCP per-click 훅 없음) ·
-  hover 실효성 실측 미검증 · settle은 휴리스틱(아주 늦은 단일 요청 놓칠 수 있음).
-- 핵심 가설 증명됨: discover→freeze→replay(LLM 발견 → 굳힘 → LLM 없는 결정적 재생 + critic 판정) + self-heal.
-- **브랜치 전략(확정): git-flow.** `develop`=통합(여기서 `feat/*` 브랜치 → PR), `develop → main` 머지 = **릴리스(메인테이너만)** → 수동 태그 + `npm publish`. 정본 `CONTRIBUTING.md`. (옛 'main→develop→feature' 표기는 폐기.)
-- **cairn-bot 운영:** PR은 issue link가 필수이며, `develop`에 머지된 PR의 `Closes/Fixes/Resolves #N` 이슈는 `cairn-bot`이 자동 close한다. `develop → main` 릴리스 머지는 수동이며 issue close 기준이 아니다.
-- **파일명 컨벤션:** cairn 임베드 runner 파일은 `*.agentic.ts`, frozen bare Scenario는 `*.skill.json`으로 문서화한다. 예: `checkout.agentic.ts` + `checkout.skill.json`. → #7
-- 확정: 이름 `cairn`, 모노레포(`packages/harness` + `packages/qa`), TS/Node/ESM, 라이선스 MIT.
-- 설계 정본: `docs/design.md` (시각 버전: `docs/design.html`).
+## Standing decisions
 
-## 2.3.0 — 완료 (배포됨)
+- Architecture invariants live in `spec/architecture.md`.
+- **Ports and adapters.** `src/core/` holds the domain and the ports (types, ports, pipeline,
+  discover, steps); `src/adapters/` holds implementations; `run.ts` is the composition root. The
+  dependency direction is adapters to core. The public API is the `src/index.ts` barrel.
+- **Execute and judge dispatch through ports.** Kind-specific branching routes through `StepHandler`
+  and `AssertionHandler` (`supports()` then `execute()`/`judge()`). The built-in `switch` is
+  encapsulated in `BuiltinStepHandler`, which keeps the exhaustiveness check. A new action or
+  assertion is a registered handler, not a change to core. Default handlers live in
+  `core/steps.ts`, depending only on the Driver port and Step types.
+- **A frozen skill file is a bare `Scenario`.** No `{ name, scenario }` wrapper and no duplicated
+  name. `SkillStore.resolve(name)` and `loadSkillFile(path)` both return a `Scenario`, and saving
+  goes through `saveSkillFile(path, scenario)` rather than a raw `writeFileSync`.
+- The default driver is Chrome DevTools MCP.
+- The shape is an embeddable engine plus a thin CLI. The desktop app is a separate project that
+  installs the engine. Environment-specific behaviour arrives through `ContextProvider` and
+  `Reporter` connectors.
 
-> 스코프였던 #64–#69 전부 PR #70–#75로 develop 머지 → main 머지·태그·npm 배포. 과정·설계 근거는
-> history 2026-07-02/03 + entries(`2026-07-03-*`)로 이관. 이 섹션의 옛 계획 상세는 git 이력에 있음.
+## Rule candidates — promote when they repeat
 
-## 2.4.0 계획 — 이슈 슬레이트 #96–#105 (2026-07-06 등록, 미착수)
+- A driver observation the core depends on (an in-flight status of 0, for example) must exist in the
+  reference driver's parser fixtures **in the driver's real output format**. Green through an
+  injected `FakeDriver` alone leaves the contract unverified. Proven by #97.
+- **Trait or fact.** When promoting an application's pain into the engine, decide whether the
+  knowledge is a universal fact or a trait of that application. A trait must not become a universal
+  heuristic; it arrives through a seam and injection, as `benign` and `ActionPolicy` did. Learned
+  from #56's locale stripping causing the #86 and #87 regressions.
+- Changing a heuristic zone (URL matching, dynamic segment cutting) requires a table-driven
+  counterexample corpus. One fix plus one test does not break the chain in that territory.
+- **A stacked pull request runs CI zero times.** `verify` triggers only on pull requests targeting
+  main or develop, so one based on a feature branch never typechecks, builds or tests. Retargeting
+  after the parent merges does not trigger it either, since that is an `edited` event. Merge the
+  base, retarget, **confirm verify is green**, then merge.
+- **A stacked merge needs a look, not a second click.** After the parent merges and its branch is
+  deleted, confirm the child's base switched to develop and its diff carries only its own commits
+  before merging. Happened twice: #107 with #109, and #162.
+- **Make a review claim reproducible.** Function name, input, output, file and line. "I counted N"
+  cannot be checked by the person reading it. When reproduction is expensive, as with a real Chrome
+  measurement, hand over the whole fixture.
+- **Judge a heal by its goal assertions.** Guards (`no-failed-requests`, `no-console-errors`) describe
+  application health, not the path. Whether to re-discover, and whether to hand the result back, both
+  go through `goalFailures`; judging on the whole verdict discards a correct repair over a transient
+  500. From #189.
+- **Split a loop-generated pull request into logical units before review.** A hundred commits and
+  nine thousand lines carrying loop artifacts cannot be reviewed. Behaviour fixes go separately;
+  coverage goes into the existing per-module test files. From #193.
 
-> 계기: 외부 관점 평가(Slack agentic-testing·에이전트 비용 구조) + 코어 전소스 재리뷰 + 익스텐션
-> next-steps 리포트 교차. 기존 오픈 19건과 겹침 전수 확인 후 신규만 등록. 상세 =
-> `entries/2026-07-06-issue-slate-2.4.0.md`.
+## Release procedure
 
-- **신규 버그(판정 신뢰성):**
-  - **#96 🔴** freeze가 쿼리/해시-only 이동에 URL expect 오배정(풀URL로 감지, host+path로 얼림) →
-    replay 사전체크가 스텝을 조용히 skip. #86·#87과 "expect URL 가족" — 묶어 처리 권장.
-  - **#97 🔴** `parseNetwork`가 `[pending]` 드랍 → 레퍼런스 드라이버에서 #81의 mutation 대기가 dead code.
-    영향 = MCP 드라이버 사용자(CLI·신규 임베더); CDP-직결 드라이버는 무관.
-  - **#98 🟠** outcome-heal 드라이버 수명주기(close된 드라이버 재사용·재발견 후 누수·`close()` 부분 리셋).
-    **⚠ #88과 동반 설계 필수** — #88(재연결 fatal화) 단독 구현 시 outcome-heal이 깨짐. 기존 이월
-    `Driver.reset` 포트 아이디어는 여기로 흡수.
-- **잔손질:** #99(프롬프트-grounding vocabulary 드리프트 — no-console-errors) · #105(request-status
-  단언 method 파리티, #94 잔여 — #94는 2.3.0 `459315c`로 기해소되어 close).
-- **방향성(리포트 유래):** #100(LLM usage/비용 리포팅 — 측정은 `LlmClient` seam이 소유, 호스트 클라이언트
-  주입 호환) · #101(look-ahead 배치 플래닝 — 익스텐션 수요 확정, 프롬프트 캐싱과 곱 효과) ·
-  #102(freeze-less 탐색 모드) · #103(벤치 복잡도축·대수 — replay 반복 $0 이점 활용) ·
-  #104(vision — 결정적 스크린샷 diff 게이트 + 발산 시에만 opt-in vision, surgical-heal 패턴 반복).
-- **스코프 제안:** 2.4.0(minor, breaking 0) = 신뢰성 버그(#85–#87·#90–#91·#96–#98) + 이월(#76·#78·#79)
-  + 잔손질(#95·#99·#105) + 헤드라인 #100. need-to-discussion(#92·#101·#102·#104)은 합의 후 편입,
-  #103은 릴리스 무관. 도그푸딩 막히면 #96·#97만 **2.3.1 패치** 선행 옵션.
-- **착수 묶음(같은 파일 = 한 브랜치, A·B·C 파일 비겹침 → 병렬 가능):** A=#96·#86·#87(expect URL,
-  capture/steps) · B=#97·#85·#91(chrome.ts, +#89 합류 가능) · C=#98·#78·#76(run.ts outcome-heal,
-  #88 의미론 동반 결정) · D=#93·#99(discover 프롬프트/grounding, #61은 재트리아지) ·
-  E=#90·#105(critic 소품) · F=#2·#13(타입 위생).
-- **설계 장치(이번 사이클 완료 조건에 포함 — 꼬리물기 근본 차단):** ① 묶음 A는 **URL 매칭 반례
-  코퍼스 테스트**(테이블 주도)와 함께 출고 — #86은 로케일 리스트 정교화(휴리스틱↑)가 아니라
-  **주입 seam**(benign 패턴)으로. ② #97은 **실물 픽스처 규칙**과 함께(규칙 후보 승격). ③ 체인 위
-  이슈(#96·#86·#87·#97)는 "이전 수정이 왜 못 잡았나"를 커버하는 회귀 테스트 포함 — 단 **#96의
-  계보는 #56이 아니라 #81**(assignStepExpects, `8f696bc`)이므로 테스트 위치 주의. ④ 회귀 체인
-  분석 중 "#68 불완전 수정" 주장은 오류(PR #70이 critic까지 수정, #94는 2.2.2 버전 랙 제보)로 판명.
-- **담당 분배(파일 소유권 기준, 2.3.0 방식 — 총 21건 확정):** 우리(solp721) = **#97·#85·#91·#89(chrome.ts)
-  → #98·#78·#76·#88(run.ts+연결 의미론) → #93·#77(discover 실행측) → #100·#13(usage/Result 표면)**
-  (+#61 재트리아지). 팀원(amazon7737) = **#96·#86·#87(steps/capture URL 판정) → #99·#79(grounding.ts)
-  → #90·#105(critics/pipeline 판정) → #95·#2(소품)** (+#103 여유 시). ⚠ ports.ts는 #100(우리)·#2(팀원)가
-  스치므로 머지 순서만 조율. 논의 트랙 #92·#101·#102·#104는 별도 합의, #8 보류.
-- **기존 이슈 보강:** #76 코멘트(outcome-heal이 `actions`도 미상속) · #89 코멘트(followNewTab 동사 커버리지).
+1. Run the **Prepare release** workflow with the version. It bumps the manifest and the lockfile,
+   writes the release entry, folds the cycle's entries into `spec/journal/archive/<version>.md`,
+   runs the full checks, pushes that to develop and opens the release pull request as a draft.
+   `npm run release:prepare <version>` makes the same file changes locally without pushing.
+2. Write the release notes into the pull request body and take it out of draft. Merging it triggers
+   `release.yml`, which publishes to npm, pushes the tag and drafts the GitHub release. Update this
+   file only if a standing decision changed.
+3. The npm token is the usual failure. A **Classic Automation** token is required: it bypasses two
+   factor authentication, which a granular or publish token does not. An expired token fails with
+   `E404` on the PUT, because npm reports missing permission as not found; a token that requires a
+   one-time password fails with `EOTP`. Both are fixed by replacing the `NPM_TOKEN` repository secret
+   and re-running the failed job.
+4. **Two-channel rule, if the beta channel reopens.** `latest` is the stable line and `beta` is the
+   experimental one. A prerelease must publish with `npm publish --tag beta`; without the tag npm
+   moves `latest` onto the prerelease, since the `-beta.N` suffix only constrains `^` ranges and says
+   nothing about the tag. A stable patch branches from main as a hotfix so it never passes through
+   the experimental line. Merging develop into main is the decision to make a line official.
 
-### 후속(계속 이월)
-- **뷰포트/레이아웃 강제 · refine gate** — 익스텐션서 해결됨(드라이버 줌/탐색 전 1콜). 범용화 시 엔진.
-- 파라미터 슬롯 · setup chain semantics · `mustProve` seam. (`Driver.reset`은 #98로, look-ahead·vision은 #101·#104로 승격.)
+## Environment
 
-## 이번 작업 — Closes #17 + #14 (브랜치 `feat/robustness-17-14`, 구현·검증 완료)
-
-> 소비자 QA 도그푸딩이 드러낸 한계. 상세 = 익스텐션 `cairn-feedback.md`(커밋X). **1.2.0으로 배포·소비 완료.**
-
-- ✅ **`waitFor` 스텝** — `{kind:"waitFor", until:{url?|requestStatus?|text?/role?}, timeoutMs?}`. `observe`/`snapshot` 폴링, LLM 0(불변식 #4). `core/steps.ts` + 테스트.
-- ✅ **#14 freeze 점수+경고** — `scoreTarget`/`weakTargets`/`scoreScenario`(`core/freeze.ts`, 순수). CLI(`cmdDiscover`)가 freeze 시 약한(text-only) 타겟 경고. index·browser export. → **Closes #14**
-- ✅ **#17 settle** — 이미 activity-정적 + `SettleOptions` 노출 + 새 `waitFor`가 "event-based 대기" 항목 충족.
-- ✅ **#17 dialogs** — 클릭發 confirm/alert: MCP가 "open dialog" 에러 → `chrome.ts` `clickAccepting`이 `handle_dialog(accept)`로 처리. **세션 chrome-devtools MCP로 흐름 직접 검증**(click→에러→handle→confirm=true).
-- ✅ **#17 hover** — 기존 구현이 실제로 `:hover` flyout 메뉴를 드러냄. **MCP로 검증**(코드 변경 없음). → **Closes #17**
-- **CSS 로케이터(자연스러운 동반):** `Target.selector` 타입 이미 존재 + #14 점수가 selector를 최고로 보상. *실제 resolution은 CDP-direct 드라이버(익스텐션 `ConsumerDriver`) 몫* — MCP 텍스트 인터페이스는 CSS→uid 매핑이 어려움(레퍼런스 드라이버는 selector 미해석).
-- 검증: typecheck·build·**79 테스트**(+11)·browser 번들(node 0).
-
-## 이번 작업 — 1.3.0 (브랜치 `feat/discover-judge-heal-15-16`, 구현·검증 완료)
-
-> QA 도그푸딩 PoC(별도 레포 `qa-extension`)가 매핑한 실앱 갭을 엔진에서 해소. `Closes #15, #16` + outcome-aware heal(피드백). 상세·근거 = 익스텐션 `cairn-feedback.md`(커밋X).
-
-- ✅ **#16 grounded 단언 제안** — discover 끝에 LLM이 intent 기반 단언을 제안해 freeze에 박음. 기본은 *mechanical*: 제안된 `request-status`를 **실제 캡처 요청과 대조 검증**해야 보존(환각 드롭) + `navigated{to}`. 약한 기본판정("passed but wrong")을 결정적으로 메움. `expect`(LLM판정)는 `semanticChecks` opt-in — 아니면 AssertionCritic이 FAIL시키므로(invariant #4 재생 결정성 유지). `core/discover.ts`. → **Closes #16**
-- ✅ **#15 discover 프롬프트 비용** — `slice(0,60)` → **relevance ranking**(인터랙티브+intent 관련 우선)으로 무거운 페이지서 타겟 누락 방지(비용 아닌 *정확성* 효과). 스텝 간 스냅샷 *unchanged* 시 재전송 생략. system 프롬프트 **caching**(`anthropic.ts` cache_control). `core/discover.ts` + adapter. → **Closes #15**
-- ✅ **outcome-aware heal (피드백)** — replay verdict가 FAIL(스텝은 다 돌았는데 결과가 틀림 — locate-heal이 못 잡는 break)이면 시작점부터 **re-discover로 복구**(invariant #4 sanctioned use (b); 성공 replay는 LLM 0 유지). `run.ts`(`runScenario`) + CLI re-freeze. *self-heal이 진짜 도는* 견고 replay 완성.
-- 검증: typecheck·build·**83 테스트**(+4)·browser 번들(node 0).
-
-## 다음 스텝
-1. **(완료 ✔) 1.3.0 배포** (#15·#16 + outcome-aware heal, npm·익스텐션 소비) · **#5 frozen 포맷 정리(PR #27 머지)** — frozen 파일=bare Scenario. *다음 릴리스 버전/체인지로그에 breaking 표기.*
-2. **(✅ perception은 익스텐션서 해결) → cairn 엔진의 진짜 과제 = "수술적 자가치료":**
-   - 익스텐션이 *이름없는 요소 합성라벨 노출* + *시작 앵커(goto)* 로 perception·시작-페이지 의존을 풀어 discover·replay 안정화. **그 위에서 cairn 갭이 깨끗이 드러남.**
-   - **목표(설계 합의):** "적용된 케이스는 LLM 0 + 필요시에만 자가치료로 LLM" — 결정적 replay와 유연성을 *동시에*. **토대 = freeze가 *스텝별 의도*(목적·기대)를 담아 → replay가 스텝 단위로 어긋남 감지 → *그 스텝만* LLM 적응 → re-freeze 수렴.** 현 self-heal(로케이터만)·outcome-heal(통째 재발견)은 거친 1차 근사 — #14·#6·stateful 적응형 replay가 *이 한 방향으로 수렴*.
-   - **설계 정식화 완료 →** [`spec/core/surgical-heal.md`](../core/surgical-heal.md). 1.3.0 코드 직접 진단 + A급 평가로 *뿌리 = 스텝 단위 결과 검증 부재*로 재정의, P1~P10 인벤토리, **키스톤 = `expect`(감지)+`intent`(수정) 쌍**(순서 아님), `skip`은 post-condition 게이트. 흡수: #7(통째→스텝수술)·#6(스텝 expect)·#14 심화.
-   - **v1 구현 완료** (`feat/surgical-heal`, **87 테스트·빌드 OK**): `Step += {intent, expect}`(expect=`WaitUntil` 재활용, `conditionMet`으로 결정적 검증) · discover가 intent(=reason)+expect(nav) 캡처 · 파이프라인 per-step 검증(*이미 hold면 결정적 skip*=idempotency, 어긋나면 detect) · `StepHealer` 포트+`LlmStepHealer`(intent 기반 수선) · `applyStepHeals` re-freeze · **P2 false-green 픽스**(outcome-heal이 *원래* 단언으로 판정).
-   - **P1~P10 전부 구현 완료** (`feat/surgical-heal`, 93 테스트·build OK): P3 positional 모호-폴백 거부 · P4 discover waitFor 생성 · P5 heal role/index 보존 · P6 perception 정직화 · P7 benign 주입 · P8 한국어 토큰화 · P10 truncation 신호 · P9 identity-keying.
-   - **✅ 2.0.0 배포** (develop→main #42, tag v2.0.0, npm, GitHub Release). 익스텐션 재도그푸딩으로 실앱 검증 — 깨끗한 replay LLM 0 확인.
-   - **✅ 2.1.0 작업 중** (`feat/action-grounding`): 재도그푸딩이 *false green*을 드러냄(/payment 도착했지만 체크아웃 안 함 → 끝-단언만 보니 PASS). → **action-grounding**(단언을 *행위 POST*에 ground) + **no-failed-requests grounding**(탐색 중 실패 없을 때만 박음) + #28 keywords · #3 Planner doc. 95 테스트·build. breaking 0(minor).
-   - **✅ 2.1.0 배포 + 익스텐션 실앱 검증 완료.** action-grounding 동작 확인 — 재탐색 시 단언이 *체크아웃 POST*(`buy-request/validation`, buyRequestIds 담김)·로그인 POST에 ground됨(전엔 `/payment` GET만). 🩹데모가 *진짜 체크아웃*(cartid 있음)하고 통과 — `/payment` 직접 점프는 그 POST가 안 떠서 이제 FAIL = **false-green 구조적 해소.** no-failed-requests grounding도 동작(/me 404 봐서 안 박음). 사람 하드코딩 0.
-   - **다음:** 더 깊은 실앱 케이스 누적(상태 divergence·3층 판정). 당장 급한 엔진 갭은 없음.
-   - 안전(검토 후보): cairn 차원의 origin 경계/boundary(자동화가 외부 PG로 넘어가는 것 방지) — 익스텐션선 가드 추가됨.
-
-## spec 재구성 (2026-06-26)
-
-- **`spec/core/`** (영문) = 핵심 메커니즘 스펙: `the-loop`·`judgment`·`targeting`·`surgical-heal`. **`spec/journal/`** (한국어) = `state`·`history`. **`spec/README.md`** = 트리 인덱스. `architecture.md`·`docs/design.md` 영문화.
-- 역할 분리: **core**=메커니즘(왜/어떻게) · **architecture**=불변식(규칙) · **design**=제품 · **journal**=현재·기록.
-
-## 살아있는 계약/결정
-- 아키텍처 불변식 → `spec/architecture.md`.
-- **코드 구조: Ports & Adapters(헥사고날).** `src/core/`(도메인+포트: types·ports·pipeline·discover·steps) ↔
-  `src/adapters/`(구현). `run.ts`=조립(루트). 의존방향 adapters→core. 공개 API=`src/index.ts` 배럴.
-- **Execute/Judge 디스패치:** 종류별 분기는 `StepHandler`/`AssertionHandler` 포트로 라우팅(`supports()→execute()/judge()`).
-  built-in `switch`는 `BuiltinStepHandler`에 캡슐화(타입 누락검사 유지), custom 레지스트리는 핸들러로 흡수. 새 액션·단언=핸들러 등록(core 불변).
-  기본 핸들러는 `core/steps.ts`(Driver포트·Step타입만 의존 → 의존방향 유지).
-- **Frozen skill 포맷:** 파일 자체가 bare `Scenario`다. wrapper `{name, scenario}`와 이중 `name`은 쓰지 않는다.
-  `SkillStore.resolve(name)`와 `loadSkillFile(path)`도 `Scenario`를 반환한다.
-  저장도 도메인 API로: `saveSkillFile(path, scenario)`(mkdir 재귀 + bare Scenario JSON) — README에서 raw `writeFileSync` 노출 금지.
-- 기본 드라이버: Chrome DevTools MCP.
-- 형태: **임베드 엔진 + 얇은 CLI.** 데스크탑은 별도 프로젝트(엔진 install).
-- 환경별 적용은 커넥터(`ContextProvider`/`Reporter`) 플러그인으로.
-
-## 다음 스텝
-1. **(완료 ✔) chrome-devtools-mcp 검증** — 첫 테스트 통과.
-   example.com → "Learn more" 클릭 → iana.org 전환, 유발된 네트워크 요청 7개 캡처.
-   탐색(navigate)·조작(snapshot→uid→click)·관찰(network) 모두 실재 확인 =
-   harness Driver/Evidence 기반 OK.
-2. **(완료 ✔) `packages/harness` v0** — 최소 파이프라인 standalone 동작.
-   - 단계: Context → Plan → Execute → Judge → Report (결정적, 재생 경로 LLM 없음).
-   - 6 인터페이스(`ContextProvider·Planner·Driver·SkillStore·Critic·Reporter`)로만 확장.
-   - 구현: InlineContext / StaticPlanner / **ChromeDevToolsDriver(내장 MCP client)** /
-     AssertionCritic / Console+JsonReporter / FakeDriver(테스트).
-   - 검증: typecheck + vitest 3/3 + **도그푸딩** `cairn run --dogfood` =
-     수동 테스트(example.com→Learn more→네트워크 단언)를 코드로 재현, exit 0.
-   - 산출 계약: `Result{scenario,context,evidence(3층),verdict}` JSON.
-
-## PoC 종료선 (확정)
-- **poc/harness-v0 = discover→freeze→replay 한 바퀴를 통과시키면 끝.** 그 후 develop 졸업.
-- 통과 정의: NL 의도 → (LLM) 시나리오 발견 → freeze(파일로 굳힘) →
-  **LLM 없이** 결정적 재생, 동일 verdict → (보너스) 주입 버그 critic 검출.
-- 그 너머(시각 리플레이·GitHub Action·self-heal·추가 ContextProvider)는 v1 정식 작업.
-
-## PoC 완주 결과 (3) — discover→freeze→replay ✔
-- **discover**: `cairn discover "<intent>" --url … [--model] [--freeze f]` —
-  observe→act→adapt 루프(불변식 #3). LLM은 `LlmClient` 뒤에 주입(불변식 #5).
-  - 기본 백엔드 = **로컬 Claude Code**(`claude -p --model …`, 키 불필요, 기존 인증 재사용).
-  - 올바른 기본값 = `ANTHROPIC_API_KEY` → `AnthropicLlmClient`. `createLlmClient` 팩토리가
-    env로 선택(키 있으면 Anthropic, 없으면 ClaudeCode) → **교체 용이**.
-- **freeze**: 발견된 Scenario → JSON(`FileSkillStore`/`loadSkillFile`).
-- **replay**: `cairn replay <skill>` — `StaticPlanner` 결정적 재생, **LLM 0**(불변식 #4).
-- **검증(도그푸딩)**: NL 의도 → Claude Code(haiku)가 example.com에서 "Learn more" 클릭 발견 →
-  freeze → replay 2회 **동일 출력**(경로 결정성) · pass exit 0 ·
-  **주입 회귀(엉뚱한 목적지 단언) → critic 검출 → exit 1**(CI 게이트). 실서버 503도 logic층에서 잡힘.
-- 단위테스트 10/10(파서·팩토리·skill 라운드트립·discover 루프 scripted).
-
-## 다음 스텝 (v1)
-1. **(완료 ✔)** `poc/harness-v0` → `develop` 졸업 머지.
-2. v1: ~~self-heal~~ ✔ · ~~LLM Critic~~ ✔ · ~~Execute settle~~ ✔ — **cairn 루프 완성**
-   (discover→freeze→replay→self-heal). 남음: 입력 ContextProvider(git diff·티켓), 시각 리플레이.
-3. **(해결 ✔)** `navigated` 불리언 trailing-slash 오판 → `normalizeUrl`/`isNavigation`로 정규화 비교.
-   브랜치 `fix/navigated-normalize`. 단위테스트 +4(총 30/30).
-
-## 한계 / 후속(v1)
-- **(해결 ✔) Execute 자동대기(settle)** — `Driver.settle()`(네트워크 카운트 안정까지 폴링) 추가,
-  파이프라인 Execute에서 observe 전 호출. 기본 idleMs=1000(Chrome이 favicon/font를 지연 로드 → 500은 짧음).
-  도그푸딩 7/7 req 캡처(이전 5). MCP 파서 단위테스트 8개 추가. 브랜치 `feat/execute-settle`(develop 머지됨).
-  - *잔여*: settle은 휴리스틱 — 지연 리소스가 idleMs 넘게 늦으면 가끔 조기 종료(7 대신 5). SettleOptions로 튜닝.
-- **(해결 ✔) LLM Critic** — `LlmCritic`(design §8 v0 "LLM+텍스트 단언"). 자연어 단언 `{kind:"expect",criterion}` 추가.
-  LLM은 `expect`가 있을 때만 호출(없으면 LLM 0 → 결정성 유지, 불변식 #4). 기계적 단언은 `checkAssertion` 재사용.
-  CLI가 expect 유무로 critic 자동 선택. 증거 3층 요약을 LLM에 제공(design §6). 브랜치 `feat/llm-critic`.
-  - 도그푸딩: expect "IANA 문서 도달" → ✓ pass / "쇼핑 카트" → ✗ fail(exit 1). 단위테스트 +3.
-- **(해결 ✔) self-heal** — `SelfHealingDriver`(Driver 데코레이터). 재생 중 target 해석 실패 시
-  LLM이 현재 요소로 매핑→재시도→`heals` 기록(불변식 #4의 sanctioned 예외; 안 깨지면 LLM 0).
-  CLI `replay --heal [--freeze f]`로 복구·재freeze. 브랜치 `feat/self-heal`.
-  - 도그푸딩: 깨진 스킬("Read more") → heal없으면 ✗(exit 1) / `--heal`로 "Learn more" 매핑 → ✓ + 재freeze. 단위테스트 +5.
-
-## 환경 메모
-- harness 내장 Driver는 `npx -y chrome-devtools-mcp@latest --isolated`로 자기 브라우저를 spawn
-  (세션 MCP의 기본 프로필과 충돌 방지). Node 25, Chrome 설치 확인.
-- 빌드: `npm run build -w cairn-engine`. CLI: `node packages/harness/dist/cli.js <run|replay|discover>`.
-  - `discover "<intent>" --url <u> [--model haiku] [--freeze f]` / `replay <skill.json>` / `run --dogfood`.
-- LLM 백엔드: 키 없으면 로컬 `claude -p`(기본), `ANTHROPIC_API_KEY` 있으면 API. `--model`로 모델 지정.
-
-## 규칙 후보 (반복되면 승격)
-- 코드 작성 직전 Spec Reference Disclosure 1줄(§3)을 실제로 지킴 — 유지.
-- **(승격 확정 — #97이 증명)** 코어 로직이 의존하는 드라이버 관측값(예: in-flight status 0)은
-  레퍼런스 드라이버 파서 픽스처에 **실물 출력 포맷**으로 존재해야 한다. FakeDriver 주입만으로 green이면 계약 미검증.
-- **형질/사실 검문(불변식 #1 운영판):** 앱 통증→엔진 승격 시 "이 수정의 지식은 보편 사실인가,
-  이 앱의 형질인가"를 판별 — 형질이면 보편 휴리스틱 금지, seam+주입으로(benign/ActionPolicy 선례).
-  근거 = #56 로케일 스트리핑이 #86·#87 회귀를 낳은 교훈.
-- 휴리스틱 존(URL 매칭·동적 세그먼트 컷 등)을 변경할 땐 반례 코퍼스(테이블 주도) 테스트 동반 —
-  픽스 1개+테스트 1개 방식은 이 지대에서 체인을 못 끊는다.
-- **스택 PR은 CI가 0회다(2.8.0 사이클, #179/#182/#183/#184):** `ci.yml`의 `verify`는 main/develop 타겟 PR에만
-  트리거되므로 feature 브랜치를 base로 둔 PR은 typecheck·build·test가 한 번도 안 돈다. 부모 머지 후 리타겟만으로는
-  안 돌고(`edited` 이벤트) 닫았다 열거나 푸시해야 돈다. 스택은 base 머지 → 리타겟 → **verify 초록 확인** → 머지.
-- **리뷰 주장은 상대가 재현 가능한 형태로(2.8.0 사이클):** 함수 이름·입력·출력, 파일:줄. "내가 N개 세어봤다"는
-  상대가 검증 못 한다. 실제 크롬 실측처럼 재현이 비싼 건 HTML 픽스처를 통째로 준다.
-- **heal 판정은 목표 단언으로(#189 설계 장치):** 가드(`no-failed-requests`·`no-console-errors`)는 앱 건강이지 경로가
-  아니다. 재발견을 돌릴지·돌려줄지 둘 다 `goalFailures`로 — 전체 verdict로 판단하면 일시적 500이 올바른 수리를 버린다.
-- **루프 생성 PR은 논리 단위로 쪼갠 뒤 리뷰(#193):** 100커밋·9k줄·루프 산출물(`spec.md`/`failed-test.md`/AGENTS.md
-  블록) 동승은 리뷰 불가. 동작 수정은 각각, 커버리지는 모듈별로 기존 테스트 파일에.
-- **스택 PR 머지 절차(2회 발생 — #107/#109, #162):** 부모 머지·브랜치 삭제 후 자식 PR의 base가
-  develop으로 자동 전환되고 diff가 자기 커밋만 남은 것을 **확인한 뒤에만** 머지한다. 연달아 누르면
-  커밋이 이미 머지된 부모 브랜치로 들어가 develop에 도달하지 못한다.
+- The bundled driver spawns its own browser with `npx -y chrome-devtools-mcp@<pinned> --isolated`,
+  so it does not collide with an editor session's MCP profile. Node 20 or later and an installed
+  Chrome are required.
+- Build with `npm run build -w cairn-engine`; the CLI is `node packages/harness/dist/cli.js`.
+- With no key set, the local `claude` CLI is the default backend; `ANTHROPIC_API_KEY` selects the
+  HTTP API. `--model` picks the model.
+- `bench/results/` and `dist/` are generated and gitignored. Benchmark schedules that produced a
+  published number are committed beside the bench so a measurement can be repeated.

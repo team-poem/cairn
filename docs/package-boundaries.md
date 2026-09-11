@@ -1,47 +1,54 @@
-# 패키지 경계
+# Package boundaries
 
-`cairn-engine`은 엔진과 `cairn` CLI를 한 npm 패키지로 배포한다. 공개 entry는
-`cairn-engine`과 `cairn-engine/browser`이며, 기존 export·타입·bin 경로를 유지한다.
-별도 패키지 분리나 설치 의존성 축소는 이 경계 검사의 범위가 아니다.
+`cairn-engine` ships the engine and the `cairn` CLI as one npm package. The public entries are
+`cairn-engine` and `cairn-engine/browser`, and the existing exports, types and bin path are kept.
+Splitting the package or reducing install dependencies is outside the scope of this check.
 
-CLI는 소스 실행(`tsx src/cli.ts`)과 배포 실행(`dist/cli.js`)에서 같은 공개 Node entry를
-사용하도록 `./index.js`만 통해 엔진을 소비한다. 인자 파서와 CLI 표시 문구는 CLI 소유다. 엔진을
-임베드할 때는 공개 entry를 import하고 내부 `src/`나 `dist/core/` 경로는 사용하지 않는다.
+The CLI consumes the engine only through `./index.js`, so running from source (`tsx src/cli.ts`) and
+running the built output (`dist/cli.js`) use the same public Node entry. The argument parser and the
+CLI's display wording belong to the CLI. When embedding the engine, import a public entry and never
+an internal `src/` or `dist/core/` path.
 
-`npm run check:boundaries`는 TypeScript parser로 모든 소스의 정적 import, type import,
-재수출, 동적 import, 직접 `require()` 및 TypeScript `import = require()`를 검사한다.
-문자열·주석 안의 예제 코드는 의존성이 아니다. 계산된 모듈 경로는 정적으로 검사할 수
-없으므로 거부한다. 실제 소스에서는 tsconfig의 module resolution을 적용한다.
-패키지의 `#imports` 별칭이 `dist/*.d.ts`로 해석되어도 같은 패키지의 내부 파일로
-분류하므로, 별칭을 통한 내부 모듈 접근이나 CLI 역참조도 거부한다.
+`npm run check:boundaries` uses the TypeScript parser to inspect every source file's static imports,
+type imports, re-exports, dynamic imports, direct `require()` calls and `import = require()` forms.
+Example code inside strings and comments is not a dependency. A computed module path cannot be
+checked statically, so it is rejected. Real sources are resolved with the tsconfig's module
+resolution. A package `#imports` alias that resolves to `dist/*.d.ts` is still classified as an
+internal file of the same package, so reaching an internal module through an alias, or the CLI being
+reached in reverse, is rejected too.
 
-- CLI는 공개 entry와 CLI 모듈에만 접근한다. Node builtin과 CLI의 외부 의존성은 허용한다.
-- `core/`는 다른 core 모듈에만 의존한다. 버전 조회(`version.ts`)는 Node 조립 계층 소유다. adapter·CLI·run·suite·
-  공개 barrel·외부 패키지·Node builtin을 직접 import하지 않는다.
-- 엔진은 CLI를 import하지 않는다. adapter는 core의 포트를 구현하며, reporter의 기존
-  suite 결과 타입 참조는 유지한다.
-- harness는 QA 앱에 의존하지 않는다. `packages/qa` 경로 및 `@cairn/qa`, `cairn-qa`와
-  그 하위 경로를 거부한다. 새 QA 패키지 이름을 도입하면 검사 규칙도 함께 갱신한다.
+- The CLI reaches only public entries and CLI modules. Node builtins and the CLI's own external
+  dependencies are allowed.
+- `core/` depends only on other core modules. Version lookup (`version.ts`) belongs to the Node
+  assembly layer. Core does not directly import adapters, the CLI, `run`, `suite`, the public barrel,
+  external packages or Node builtins.
+- The engine does not import the CLI. Adapters implement core's ports, and a reporter's existing
+  reference to the suite result type is kept.
+- The harness does not depend on the QA app. The `packages/qa` path and the `@cairn/qa` and
+  `cairn-qa` names, including their subpaths, are rejected. Introducing a new QA package name means
+  updating the check as well.
 
-이 검사는 직접 의존 방향을 고정한다. 브라우저 호환성과 배포 파일의 완전성은 별도의
-브라우저 번들·tarball 소비자 검증으로 확인한다.
+This check fixes the direct dependency direction. Browser compatibility and the completeness of the
+published files are confirmed separately by the browser bundle and tarball consumer checks.
 
-## 추가된 Node 진단 API
+## Node diagnostic API
 
-CLI가 사용하던 다음 함수를 공개 Node entry에서 재수출한다. 기존 구현을 그대로
-공유하므로 판정 로직을 CLI에 복제하지 않는다. browser entry의 계약은 변경하지 않는다.
+The following functions the CLI already used are re-exported from the public Node entry. They share
+the existing implementation, so judgment logic is not duplicated into the CLI. The browser entry's
+contract is unchanged.
 
-| 함수 | 소유권·사용 계약 |
+| Function | Ownership and usage contract |
 | --- | --- |
-| `describeAction(decision)` | discovery가 소유하는 `Decision`의 사람이 읽는 짧은 설명. 임베더의 진행 로그에 사용한다. |
-| `provesAnAction(scenario)` | freeze가 소유하는 진단 술어. vacuous가 아닌 `request-status` 또는 `custom` 단언의 존재를 검사한다. 시나리오 성공 판정 자체는 아니다. |
-| `hasSemanticCriterion(scenario)` | freeze에 vacuous가 아닌 `expect` 단언이 남아 있는지 확인한다. 기계적 증명과 구별한다. |
-| `droppedProofReason(traceEvent)` | grounding gate가 `request-status` 단언을 버린 이유. 관련 이벤트가 아니거나 action JSON이 잘못되면 `undefined`다. |
+| `describeAction(decision)` | A short human-readable description of a `Decision`, owned by discovery. Use it in an embedder's progress log. |
+| `provesAnAction(scenario)` | A diagnostic predicate owned by freeze. It checks for a non-vacuous `request-status` or `custom` assertion. It is not itself a verdict on the scenario. |
+| `hasSemanticCriterion(scenario)` | Whether a non-vacuous `expect` assertion survives in the freeze, distinguishing a model-judged criterion from a mechanical proof. |
+| `droppedProofReason(traceEvent)` | Why a grounding gate discarded a `request-status` assertion. It returns `undefined` for an unrelated event or malformed action JSON. |
 
-함수명·타입·위 의미는 공개 API 계약이다. 표시 문자열은 사람이 읽는 진단이며 정확한
-문구를 파싱하는 프로토콜은 아니다. 구조화된 처리는 `TraceEvent`, `Scenario`,
-`SuiteVerdict` 필드를 사용한다. 이 함수들이 성공 여부나 freeze 보존 여부를 새로 결정하지는 않는다.
+The function names, types and the meanings above are a public API contract. The strings they return
+are human-readable diagnostics, not a protocol whose exact wording should be parsed. For structured
+handling, read the `TraceEvent`, `Scenario` and `SuiteVerdict` fields. None of these functions
+introduces a new decision about success or about whether a freeze is kept.
 
-행위 미증명·목적지 관측 경고는 공개 `SuiteVerdict` 필드를 각 표시 계층에서 문자열로
-꾸민다. CLI와 Markdown reporter는 각자의 비공개 포맷 함수를 가지며, 엔진 판정 로직을
-복제하거나 reporter가 CLI에 의존하지 않는다.
+The unproven-action and observed-destination warnings are formatted from public `SuiteVerdict` fields
+by each display layer. The CLI and the Markdown reporter each keep their own private formatting
+function, so neither duplicates engine judgment nor makes the reporter depend on the CLI.

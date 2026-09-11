@@ -1,3 +1,4 @@
+// language-check: non-English by design — the ranking fixtures prove CJK tokenization (P8).
 import { describe, expect, it } from "vitest";
 import { SYSTEM, buildPrompt, rankElements } from "../../../src/core/discover/prompt.js";
 

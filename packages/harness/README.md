@@ -12,26 +12,22 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 [![types](https://img.shields.io/npm/types/cairn-engine.svg)](https://www.npmjs.com/package/cairn-engine)
 [![license](https://img.shields.io/npm/l/cairn-engine.svg)](https://github.com/team-poem/cairn/blob/main/LICENSE)
 
-cairn turns a browser task into a reusable JSON test.
-
-1. **Discover:** AI runs the task and saves the steps.
-2. **Replay:** Run those saved steps again, with no LLM calls.
-3. **Repair:** If the UI changes and a step breaks, AI can fix that step and save the updated test.
-
-Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
-
-**Six checkout runs, for each tested model:**
-
-- Discover every time: **42 LLM calls**.
-- Discover once, then replay five times: **7 LLM calls total**. The replays used **0**.
+cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
 ![Claude — cumulative calls finish at 42 versus 7 per model. Dashed discovery line connects known endpoints only; intermediate counts are unavailable.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-claude-calls.svg)
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
 
+- **Journey:** The user flow being tested, such as login → cart → order.
+- **Discover:** AI performs the task and creates the steps to replay.
+- **Replay:** Run the saved steps again without LLM calls.
+- **Heal:** AI repairs a step that broke after a UI change. This did not occur in these measurements.
+
+Each table shows the total cost and LLM calls for six runs of the same journey, using each approach.
+
 **Claude reported costs**
 
-The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model. Each cell totals six runs of that approach.
+The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model.
 
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |

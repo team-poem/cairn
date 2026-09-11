@@ -167,9 +167,13 @@ gives repo-specific guidelines for agent contributors.
 
 ## Everything here is English
 
-Source, comments, error messages, specs, docs, commit messages and journal entries are English.
-`npm run check:language` runs in CI and fails on anything else. Entries written before that rule are
-kept verbatim in `spec/journal/archive/` and are exempt.
+Source, comments, error messages, specs, docs and journal entries are English. `npm run
+check:language` runs in CI and fails on anything else in a tracked file. Commit messages and pull
+request bodies are English too, by convention rather than by check.
+
+Exempt: `spec/journal/archive/` and `spec/journal/history.md`, since a record rewritten after the
+fact is a worse record, and `docs/design.md`, which is still Korean and is on the list to translate.
+A test or fixture that must carry non-English text opts out with a marker on its own comment line.
 
 ## Where things live
 

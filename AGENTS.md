@@ -3,9 +3,15 @@
 Rules an AI coding agent follows before changing this repository, and a router telling it which
 document to read. Read the smallest document the task needs, never a large one whole.
 
-Everything a contributor reads is English: source, comments, error messages, specs, docs, commit
-messages, journal entries. `npm run check:language` enforces it in CI. Conversation with a maintainer
-can be in any language; the repository cannot.
+Everything a contributor reads is English: source, comments, error messages, specs, docs and journal
+entries. `npm run check:language` fails `verify` on anything else in a tracked file. Commit messages
+and pull request bodies are English too, by convention rather than by check. Conversation with a
+maintainer can be in any language; the repository cannot.
+
+Two exemptions, both recorded in the check itself: `spec/journal/archive/` and `history.md`, because
+a record rewritten after the fact is a worse record, and `docs/design.md`, which is still Korean and
+is on the list to translate. A test or fixture that must carry non-English text to do its job opts
+out with `language-check: non-English by design` on its own comment line.
 
 ## 0. Start of session
 

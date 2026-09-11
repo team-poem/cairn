@@ -19,7 +19,11 @@
     "test:workspace": "npm run test --workspaces --if-present",
     "test:bench": "node --test bench/portability.test.mjs bench/local-*.test.mjs bench/ci-*.test.mjs scripts/benchmark-comment.test.mjs",
     "bench:ci": "node bench/ci-compare.mjs",
-    "test:compatibility": "node bench/ci-smoke.mjs"
+    "test:compatibility": "node bench/ci-smoke.mjs",
+    "check:language": "node scripts/check-language.mjs",
+    "journal:status": "node scripts/journal.mjs status",
+    "journal:check": "node scripts/journal.mjs check",
+    "journal:archive": "node scripts/journal.mjs archive"
   },
   "devDependencies": {
     "esbuild": "0.28.1"

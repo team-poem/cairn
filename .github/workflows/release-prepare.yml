@@ -28,9 +28,6 @@ jobs:
       - name: Check the version shape before anything moves
         env:
           VERSION: ${{ inputs.version }}
-          STANDING_DAYS: ${{ steps.standing.outputs.days }}
-          STANDING_LAST: ${{ steps.standing.outputs.last }}
-          PREVIOUS: ${{ steps.prepare.outputs.previous }}
         run: |
           case "$VERSION" in
             [0-9]*.[0-9]*.[0-9]*) ;;

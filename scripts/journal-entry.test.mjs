@@ -1,7 +1,7 @@
 // language-check: non-English by design — these fixtures prove a non-English body is not carried into develop.
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { draftEntry, entryName, issueOf, summaryOf } from "./journal-entry.mjs";
+import { draftEntry, entryName, issueOf, recordsPullRequest, summaryOf } from "./journal-entry.mjs";
 
 const pr = (patch = {}) => ({ number: 240, title: "fix(core): stop the retry from switching pools", body: "## What\n\nScope the verbose retry.\n\n## Related issue\n\nCloses #229\n\n## Checklist\n\n- [x] tests pass\n", mergedAt: "2026-09-20T10:00:00Z", author: "solp721", ...patch });
 
@@ -60,4 +60,20 @@ test("journalEntryHandlesAnEmptyBody", () => {
   assert.match(entry.body, /could not be carried over/);
   assert.equal(entry.issue, null);
   assert.equal(entryName(entry.date, entry.issue, 240), "2026-09-20-pr-240.md");
+});
+
+test("journalEntryFindsAHandWrittenEntryByItsPullRequest", () => {
+  const handWritten = "---\nissue: null\npr: 234\nstatus: landed\nsummary: Written before the merge\nnext: null\n---\n\n# Written before the merge\n";
+  // The filename carries a merge date the author could not have known, so the match is on pr:.
+  assert.equal(recordsPullRequest(handWritten, 234), true);
+  assert.equal(recordsPullRequest(handWritten, 23), false);
+  assert.equal(recordsPullRequest(handWritten, 2340), false);
+  assert.equal(recordsPullRequest("---\npr: null\n---\n", 234), false);
+  // pr: outside front matter is prose, not a declaration.
+  assert.equal(recordsPullRequest("---\nstatus: landed\n---\n\npr: 234\n", 234), false);
+  assert.equal(recordsPullRequest("no front matter\n", 234), false);
+});
+
+test("journalEntryDraftDeclaresItsOwnPullRequestSoARerunFindsIt", () => {
+  assert.equal(recordsPullRequest(draftEntry(pr()).body, 240), true);
 });

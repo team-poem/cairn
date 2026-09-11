@@ -1,6 +1,6 @@
 ---
 issue: null
-pr: null
+pr: 234
 status: landed
 summary: The journal became append-only, English is enforced in CI, and state.md stopped being a status board
 next: null

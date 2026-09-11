@@ -71,3 +71,13 @@ export function draftEntry({ number, title, body, mergedAt, author }) {
 }
 
 export const entryName = (date, issue, number) => `${date}-${issue ? `${issue}-` : ""}pr-${number}.md`;
+
+/**
+ * Whether an entry already on disk records this pull request. A hand-written entry is the better
+ * record, and it cannot be named after a merge date it does not know yet, so the match is on the
+ * pull request the entry declares rather than on the filename the draft would have taken.
+ */
+export function recordsPullRequest(text, number) {
+  const front = /^---\n([\s\S]*?)\n---/.exec(text ?? "");
+  return Boolean(front) && new RegExp(`^pr:[ \\t]*${number}[ \\t]*$`, "m").test(front[1]);
+}

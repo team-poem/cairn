@@ -84,8 +84,9 @@ An entry is for work that carries a decision. A typo fix does not need one.
 **You usually do not write one by hand.** When a pull request merges into develop, a bot drafts the
 entry on develop from the pull request itself: the summary from its title, the issue from its
 closing keyword, the prose from its body. Edit that draft in place to say what the diff cannot. An
-entry already present is never overwritten, so writing one yourself in the branch is still the way
-to control exactly what it says.
+entry that already names the pull request in its `pr:` field is left alone, so writing one yourself
+in the branch, with `pr:` set to the number you are about to open, is still the way to control
+exactly what it says.
 
 The draft drops a body that is not English rather than carrying it, because the entry lands on
 develop and would otherwise fail the repository's own language check. An outside contributor is

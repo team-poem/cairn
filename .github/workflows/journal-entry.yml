@@ -51,7 +51,7 @@ jobs:
         with:
           github-token: ${{ steps.token.outputs.token }}
           script: |
-            const { draftEntry, entryName } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/journal-entry.mjs`);
+            const { draftEntry, entryName, recordsPullRequest } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/journal-entry.mjs`);
             const message = context.payload.head_commit.message;
             const found = /^Merge pull request #(\d+)/.exec(message) ?? /\(#(\d+)\)/.exec(message.split('\n')[0]);
             const number = Number(found?.[1]);
@@ -59,11 +59,16 @@ jobs:
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
             if (pr.base.ref !== 'develop' || !pr.merged) return core.setOutput('wrote', '');
             const entry = draftEntry({ number, title: pr.title, body: pr.body, mergedAt: pr.merged_at, author: pr.user.login });
-            const path = `spec/journal/entries/${entryName(entry.date, entry.issue, number)}`;
+            const dir = 'spec/journal/entries';
             const fs = await import('node:fs/promises');
-            // An entry already written by hand is the better record; never overwrite it.
-            if (await fs.stat(path).then(() => true, () => false)) return core.setOutput('wrote', '');
-            await fs.writeFile(path, entry.body);
+            // An entry already written by hand is the better record; never add a second one beside it.
+            // It is found by the pull request it declares, because it cannot be named after a merge
+            // date that had not happened when it was written.
+            for (const name of (await fs.readdir(dir)).filter((n) => n.endsWith('.md'))) {
+              if (recordsPullRequest(await fs.readFile(`${dir}/${name}`, 'utf8'), number)) return core.setOutput('wrote', '');
+            }
+            const path = `${dir}/${entryName(entry.date, entry.issue, number)}`;
+            await fs.writeFile(path, entry.body, { flag: 'wx' });
             core.setOutput('wrote', path);
             core.setOutput('number', String(number));
       - name: Verify the draft passes the repository's own checks

@@ -35,7 +35,8 @@ async function distillOne(label, directory) {
       const scenario = await readFile(path);
       const meta = JSON.parse(await readFile(`${path}.meta.json`, "utf8"));
       if (meta.scenarioHash !== sha256(scenario)) throw new Error(`Capture hash mismatch: ${path}`);
-      captures.push({ name: `${prefix}${entry.name}`, scenarioHash: meta.scenarioHash, ...pick(meta, ["tier", "fixtureVersion", "fixtureHash", "captureOrigin", "source"]), steps: JSON.parse(scenario).steps.map((step) => pick(step, ["kind", "url", "target", "text", "until", "expect"])) });
+      const parsed = JSON.parse(scenario);
+      captures.push({ name: `${prefix}${entry.name}`, scenarioHash: meta.scenarioHash, ...pick(meta, ["tier", "fixtureVersion", "fixtureHash", "captureOrigin", "source"]), assertions: parsed.assertions, steps: parsed.steps.map((step) => pick(step, ["kind", "url", "target", "text", "until", "expect"])) });
     }
   };
   await scan(join(directory, "captures"), "");
@@ -43,7 +44,7 @@ async function distillOne(label, directory) {
   const { signal: _signal, outputDir: _out, captureDir, ...configuration } = report.configuration;
   const records = report.records.map((record) => ({
     ...pick(record, cost
-      ? ["tier", "arm", "index", "fixtureVersion", "action", "completed", "passed", "verdict", "oracle", "healCount", "refrozen", "usageComplete", "models", "scenarioHash", "replayedScenarioHash", "fixtureHash", "requestedDelays", "observedUsage", "costUsd", "measuredCostUsd", "elapsedMs"]
+      ? ["tier", "arm", "index", "fixtureVersion", "action", "completed", "passed", "verdict", "oracle", "healCount", "refrozen", "usageComplete", "models", "scenarioHash", "replayedScenarioHash", "fixtureHash", "requestedDelays", "engineUsage", "observedUsage", "costUsd", "measuredCostUsd", "elapsedMs"]
       : ["tier", "mode", "index", "completed", "passed", "journey", "verdict", "proof", "failure", "oracle", "usage", "engineUsage", "observedUsage", "healCount", "scenarioHash", "fixtureHash", "captureFixtureVersion", "captureFixtureHash", "captureSource", "requestedDelays", "costUsd", "elapsedMs"]),
     error: error(record.error),
     ...(record.engineVerdict ? { engineVerdict: pick(record.engineVerdict, ["passed", "detail", "failure", "proof"]) } : {}),

@@ -255,7 +255,7 @@ Report the schedule with the number.
 
 The v2 renames never reach self-heal: a frozen target carries role and index
 beside its name, so a renamed control still resolves without the model, and the
-published cost runs recorded zero repairs ([#230](https://github.com/team-poem/cairn/issues/230)).
+published v1/v2 cost runs recorded zero repairs ([#230](https://github.com/team-poem/cairn/issues/230)).
 Fixture version `v3` exists for the `stateful` tier only and changes one thing:
 the cart page's `Place order` control is a link instead of a button. Its name,
 the `/api/order` request it makes and the `/done` arrival that completes the
@@ -295,6 +295,12 @@ Runs 5 and 6 each open a fresh server, browser and application state.
 A nonzero repair count on this fixture says the model repaired this break on
 this page; it is not a self-heal success rate for other changes or other
 applications.
+
+The [Claude results](../../docs/benchmarks/230-claude.md) and
+[GPT results](../../docs/benchmarks/230-codex.md) use the same source commit.
+Each of the five models repaired the target with one call and replayed the
+saved repair twice with zero calls. The linked evidence keeps discovery and
+repair usage separate, with dollar cost unknown when the provider omitted it.
 
 ## Interpret results
 

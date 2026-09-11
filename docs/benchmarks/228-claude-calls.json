@@ -3,6 +3,8 @@
   "source": "https://github.com/team-poem/cairn/blob/8e61a82e29540d327c4b053008838265365e27b1/README.md",
   "tier": "stateful",
   "runsPerArm": 6,
+  "replaysPerModel": 5,
+  "replayCallsPerModel": 0,
   "models": [
     { "model": "claude-sonnet-5", "agentCalls": 42, "cairnCalls": 7 },
     { "model": "claude-opus-5", "agentCalls": 42, "cairnCalls": 7 }

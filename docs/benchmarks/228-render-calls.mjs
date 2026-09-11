@@ -34,32 +34,50 @@ for (const row of claude.models) {
   assert.equal(row.cairnCalls, 7);
 }
 
+assert.equal(claude.replaysPerModel, 5);
+assert.equal(claude.replayCallsPerModel, 0);
 const groups = [
-  { file: "228-claude-calls.svg", provider: "Claude", names: "Sonnet 5 · Opus 5", agent: claude.models[0].agentCalls, cairn: claude.models[0].cairnCalls, basis: "Totals reported in the PR author's original README." },
-  { file: "228-calls.svg", provider: "Codex", names: "Sol · Terra · Luna", agent: agent.at(-1), cairn: cairn.at(-1), basis: "Totals summed from the recorded runs." },
+  {
+    file: "228-claude-calls.svg", provider: "Claude", names: "Sonnet 5 · Opus 5",
+    // Only the baseline and six-run discovery total are known. The dashed connector is a guide.
+    agent: [[0, 0], [6, claude.models[0].agentCalls]],
+    cairn: [[0, 0], ...Array.from({ length: 6 }, (_, i) => [i + 1, claude.models[0].cairnCalls])],
+    sparse: true,
+    basis: "The author reported the six-run totals and zero calls on all five replays. Intermediate discovery counts are unavailable; the dashed line only connects the baseline and final total.",
+  },
+  {
+    file: "228-calls.svg", provider: "Codex", names: "Sol · Terra · Luna",
+    agent: [[0, 0], ...agent.map((value, i) => [i + 1, value])],
+    cairn: [[0, 0], ...cairn.map((value, i) => [i + 1, value])],
+    sparse: false, basis: "Each point is summed from the recorded runs.",
+  },
 ];
-const maximum = Math.max(...groups.flatMap((group) => [group.agent, group.cairn]));
+const x = (run) => 80 + run * 165;
+const y = (calls) => 315 - calls / 42 * 210;
+const line = (points, color, dashed) => `
+    <polyline points="${points.map(([run, calls]) => `${x(run)},${y(calls)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="4"${dashed ? ' stroke-dasharray="8 7"' : ""}/>
+    ${points.map(([run, calls]) => `<circle cx="${x(run)}" cy="${y(calls)}" r="5" fill="${color}"/>`).join("\n    ")}`;
 for (const group of groups) {
-  const bars = [
-    { label: "Discover every run", calls: group.agent, y: 113, color: "#e0aa6e" },
-    { label: "Discover + replay", calls: group.cairn, y: 183, color: "#7ddab0" },
-  ];
-  await writeFile(new URL(`./${group.file}`, import.meta.url), `<svg width="1200" height="260" viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">${group.provider}: ${group.agent} LLM calls versus ${group.cairn} over six checkout runs</title>
-  <desc id="desc">${group.names}. Each model used ${group.agent} calls for six discoveries and ${group.cairn} calls for one discovery followed by five replays. These are per-model totals, not a sum or average across models. ${group.basis} Both provider charts use the same zero-based scale.</desc>
-  <rect width="1200" height="260" rx="20" fill="#0b1019"/>
+  await writeFile(new URL(`./${group.file}`, import.meta.url), `<svg width="1200" height="390" viewBox="0 0 1200 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">${group.provider}: cumulative LLM calls over six checkout runs</title>
+  <desc id="desc">${group.names}. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model counts, not a sum or average across models. ${group.basis} Both provider charts use the same scale.</desc>
+  <rect width="1200" height="390" rx="20" fill="#0b1019"/>
   <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
-    <text x="40" y="49" fill="#ffffff" font-size="30" font-weight="600">${group.provider}</text>
-    <text x="40" y="80" fill="#8fa0b8" font-size="20">${group.names}</text>
-    <text x="1160" y="52" text-anchor="end" fill="#8fa0b8" font-size="21">LLM calls / model · 6 runs</text>
-    <line x1="310" y1="105" x2="310" y2="231" stroke="#8fa0b8"/>
-    ${bars.map((bar) => {
-      const width = bar.calls / maximum * 760;
-      return `<text x="40" y="${bar.y + 31}" fill="#dce4ef" font-size="24">${bar.label}</text>
-    <rect x="310" y="${bar.y}" width="${width}" height="44" rx="5" fill="${bar.color}"/>
-    <text x="${310 + width + 18}" y="${bar.y + 32}" fill="${bar.color}" font-size="30" font-weight="600">${bar.calls}</text>`;
-    }).join("\n    ")}
+    <text x="40" y="45" fill="#ffffff" font-size="30" font-weight="600">${group.provider}</text>
+    <text x="40" y="75" fill="#8fa0b8" font-size="20">${group.names}</text>
+    <text x="1160" y="47" text-anchor="end" fill="#8fa0b8" font-size="21">Cumulative LLM calls / model</text>
+    ${[0, 7, 21, 42].map((calls) => `<line x1="80" y1="${y(calls)}" x2="1070" y2="${y(calls)}" stroke="#263043"/>
+    <text x="64" y="${y(calls) + 6}" text-anchor="end" fill="#8fa0b8" font-size="18">${calls}</text>`).join("\n    ")}
+    ${line(group.agent, "#e0aa6e", group.sparse)}
+    ${line(group.cairn, "#7ddab0", false)}
+    <text x="1090" y="115" fill="#e0aa6e" font-size="30" font-weight="600">42</text>
+    <text x="805" y="185" fill="#e0aa6e" font-size="21">Discover every run</text>
+    <text x="1090" y="290" fill="#7ddab0" font-size="30" font-weight="600">7</text>
+    <text x="835" y="262" fill="#7ddab0" font-size="21">Discover + replay</text>
+    ${Array.from({ length: 7 }, (_, run) => `<text x="${x(run)}" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">${run}</text>`).join("\n    ")}
+    <text x="1110" y="345" fill="#8fa0b8" font-size="18">Run</text>
+    ${group.sparse ? '<text x="80" y="376" fill="#8fa0b8" font-size="17">Dashed: endpoints only; intermediate discovery counts unavailable.</text>' : ""}
   </g>
 </svg>
-`);
+`.replace(/[ \t]+\n/g, "\n"));
 }

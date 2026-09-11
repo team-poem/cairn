@@ -22,9 +22,9 @@ Six login → cart → order runs: **42 LLM calls → 7 per model**, with zero c
 
 Multi-locator targeting survived the label changes. Self-heal handles changes it cannot absorb; that repair remains [unmeasured](https://github.com/team-poem/cairn/issues/230).
 
-![Claude — Sonnet 5 and Opus 5 each used 42 LLM calls for six discoveries versus 7 for one discovery and five replays.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-claude-calls.svg)
+![Claude — cumulative calls finish at 42 versus 7 per model. Dashed discovery line connects known endpoints only; intermediate counts are unavailable.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-claude-calls.svg)
 
-![Codex — Sol, Terra and Luna each used 42 LLM calls for six discoveries versus 7 for one discovery and five replays.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
+![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
 
 ## Features
 

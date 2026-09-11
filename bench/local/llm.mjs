@@ -1,4 +1,7 @@
 import { execFile } from "node:child_process";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /**
  * One CLI call can bill more than one model: the tool runs a small helper model of its own beside
@@ -73,8 +76,58 @@ export function createScriptedClient(config, { tier, version, origin }) {
   } };
 }
 
+/** Codex reports tokens, not dollars. Unknown money remains unknown in the shared ledger. */
+export function createCodexClient(config, { budget, signal, command = "codex" }) {
+  return {
+    id: `codex:${config.model}`,
+    async complete(prompt, options = {}) {
+      budget.reserve();
+      let directory, recorded = false;
+      try {
+        directory = await mkdtemp(join(tmpdir(), "cairn-bench-codex-"));
+        const args = ["exec", "--ignore-user-config", "--ephemeral", "--skip-git-repo-check", "--sandbox", "read-only", "--json", "--color", "never", "-m", config.model, "-c", "features.shell_tool=false", "-c", 'web_search="disabled"', "-c", "project_doc_max_bytes=0", ...(config.reasoningEffort ? ["-c", `model_reasoning_effort="${config.reasoningEffort}"`] : []), "-"];
+        const { error, stdout } = await new Promise((resolve) => {
+          const child = execFile(command, args, { cwd: directory, signal, timeout: 120000, maxBuffer: 16 * 1024 * 1024 }, (error, stdout) => resolve({ error, stdout }));
+          child.stdin.on("error", () => {});
+          child.stdin.end(options.system ? `<system>\n${options.system}\n</system>\n\n${prompt}` : prompt);
+        });
+        const events = stdout.split(/\r?\n/).filter((line) => line.trim()).map((line) => JSON.parse(line));
+        const completed = events.filter((event) => event.type === "turn.completed");
+        const messages = events.filter((event) => event.type === "item.completed" && event.item?.type === "agent_message");
+        const failed = events.find((event) => event.type === "turn.failed");
+        const diagnostics = events.filter((event) => event.type === "error").map((event) => event.message);
+        const rerouted = events.find((event) => event.type === "item.completed" && event.item?.type === "error" && event.item.message?.startsWith("model rerouted:"));
+        const answer = messages.at(-1)?.item.text;
+        const failure = error || failed || rerouted || completed.length !== 1 || typeof answer !== "string" || !answer.trim();
+        const detail = String(error?.message ?? failed?.error?.message ?? rerouted?.item.message ?? diagnostics.at(-1) ?? "Codex returned no completed answer");
+        budget.record({ costUsd: null, ...(diagnostics.length ? { providerDiagnostics: diagnostics } : {}), ...(failed ? { providerSubtype: failed.type } : {}), error: failure ? detail : null });
+        recorded = true;
+        const usage = completed.length === 1 ? completed[0].usage : null;
+        if (usage && typeof usage === "object") {
+          const valid = (key) => Number.isFinite(usage[key]) && usage[key] >= 0;
+          const measured = {};
+          // Codex input includes cache reads and writes; the benchmark's fields are disjoint.
+          if (valid("input_tokens") && valid("cached_input_tokens") && valid("cache_write_input_tokens") && usage.cached_input_tokens + usage.cache_write_input_tokens <= usage.input_tokens) measured.inputTokens = usage.input_tokens - usage.cached_input_tokens - usage.cache_write_input_tokens;
+          if (valid("cached_input_tokens")) measured.cacheReadTokens = usage.cached_input_tokens;
+          if (valid("cache_write_input_tokens")) measured.cacheCreationTokens = usage.cache_write_input_tokens;
+          if (valid("output_tokens")) measured.outputTokens = usage.output_tokens;
+          options.onUsage?.(measured);
+        }
+        if (failure) throw new Error(`Codex completion failed: ${detail}`);
+        return answer;
+      } catch (error) {
+        if (!recorded) budget.record({ costUsd: null, error: String(error.message ?? error) });
+        throw error;
+      } finally {
+        if (directory) await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 export function createLlm(config, context) {
   if (config.source === "scripted") return createScriptedClient(config, context);
+  if (config.backend === "codex") return createCodexClient(config, context);
   if (config.backend !== "claude-code") throw new Error("Only the explicit claude-code paid backend is supported");
   return createClaudeClient(config, context);
 }

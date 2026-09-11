@@ -53,3 +53,28 @@ test("costChartEscapesWhatItPrints", () => {
   assert.doesNotMatch(svg, /<script>/);
   assert.match(svg, /a &quot;model&quot; &lt;script&gt;/);
 });
+
+test("costChartSaysNoCrossoverWhenTheMeasuredArmsNeverCross", () => {
+  const tied = report();
+  tied.summaries[0].crossover = null;
+  tied.summaries[0].arms.cairn.cumulative = structuredClone(tied.summaries[0].arms.agent.cumulative);
+  const svg = renderCostChart(tied);
+  assert.match(svg, /no crossover/);
+  assert.doesNotMatch(svg, /cheaper from run|stroke-dasharray/);
+});
+
+test("costReportWritesAnHonestChartForAMeasuredScheduleWithoutACrossover", async (t) => {
+  const { mkdtemp, readFile, rm } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { writeReport } = await import("./local/report.mjs");
+  const directory = await mkdtemp(join(tmpdir(), "cairn-no-crossover-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const slower = report();
+  slower.summaries[0].crossover = null;
+  slower.summaries[0].arms.cairn.cumulative = [point(0, 0.2), point(1, 0.3), point(2, 0.4), point(3, 0.5)];
+  const paths = await writeReport(slower, directory, () => "measured schedule");
+  const svg = await readFile(paths.charts[0], "utf8");
+  assert.match(svg, /no crossover/);
+  assert.doesNotMatch(svg, /cheaper from run|stroke-dasharray/);
+});

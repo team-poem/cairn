@@ -1,0 +1,39 @@
+{
+  "mode": "cost",
+  "tiers": [
+    "navigation",
+    "form",
+    "stateful"
+  ],
+  "arms": [
+    "agent",
+    "cairn"
+  ],
+  "fixtureVersions": [
+    "v1",
+    "v1",
+    "v1",
+    "v2",
+    "v2",
+    "v2"
+  ],
+  "latency": {
+    "document": [
+      0,
+      20
+    ],
+    "api": [
+      0,
+      40
+    ]
+  },
+  "maxSteps": 20,
+  "llm": {
+    "source": "llm",
+    "backend": "codex",
+    "model": "gpt-5.6-terra",
+    "reasoningEffort": "medium",
+    "budgetMode": "calls",
+    "maxCalls": 160
+  }
+}

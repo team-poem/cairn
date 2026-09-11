@@ -36,7 +36,9 @@ export function renderCostChart(report, { tier, width = 1200, height = 520 } = {
     <text x="${(x(runs - 1) - 12).toFixed(1)}" y="${(y(last.costUsd) - 18).toFixed(1)}" text-anchor="end" fill="${PALETTE[arm.name]}" font-family="${FONT}" font-size="19" font-weight="600">${escape(arm.name)} ${money(last.costUsd)}</text>`;
   }).join("\n    ");
   // Kept inside the plot: above it the label runs into the subtitle.
-  const crossover = `<line x1="${x(summary.crossover).toFixed(1)}" y1="${box.top}" x2="${x(summary.crossover).toFixed(1)}" y2="${box.bottom}" stroke="${PALETTE.muted}" stroke-width="1.5" stroke-dasharray="5 6"/>
+  const crossover = summary.crossover === null
+    ? `<text x="${box.left + 12}" y="${box.top + 22}" fill="${PALETTE.muted}" font-family="${FONT}" font-size="15">no crossover</text>`
+    : `<line x1="${x(summary.crossover).toFixed(1)}" y1="${box.top}" x2="${x(summary.crossover).toFixed(1)}" y2="${box.bottom}" stroke="${PALETTE.muted}" stroke-width="1.5" stroke-dasharray="5 6"/>
     <text x="${(x(summary.crossover) + 12).toFixed(1)}" y="${box.top + 22}" fill="${PALETTE.muted}" font-family="${FONT}" font-size="15">cheaper from run ${summary.crossover + 1}</text>`;
 
   const model = report.configuration.llm?.model ?? "unknown model";

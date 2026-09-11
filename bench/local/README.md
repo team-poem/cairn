@@ -108,6 +108,33 @@ usage, returned model IDs and reported cost are retained even on provider failur
 transport timeout stops further paid work with incomplete cost accounting.
 There is no automatic retry. `maxSteps` limits browser decisions, not billing.
 
+Codex CLI is also supported with an explicit call-only budget:
+
+```json
+{
+  "source": "llm",
+  "backend": "codex",
+  "model": "YOUR_EXPLICIT_MODEL",
+  "reasoningEffort": "medium",
+  "budgetMode": "calls",
+  "maxCalls": 100
+}
+```
+
+`budgetMode: "calls"` requires `maxCalls` and forbids `maxCostUsd`: it limits
+completion calls, not money. Codex CLI 0.146.0 reports usage but no dollar cost;
+the ledger retains unknown cost while this explicitly selected mode continues.
+Reports show unknown money and withhold dollar crossovers and SVGs. No API price
+is inferred from a subscription run. Codex runs in a fresh temporary directory
+with user configuration, project instructions, shell tools, web search, and
+session persistence disabled. The adapter accepts JSONL terminal results, keeps
+reported usage on process failures, propagates cancellation, and times out each
+completion after 120 seconds without retrying. `reasoningEffort` can explicitly
+select `low`, `medium`, or `high`; use the same setting across compared models.
+Input tokens exclude the separately reported cache-read and cache-write shares; reasoning
+tokens are already included in output. A missing usage field stays unknown,
+including cache creation. Token totals and call counts are distinct measurements.
+
 The dollar value is a **post-call stopping threshold**, not a strict billing cap.
 Claude can exceed it by a final call; actual returned cost is retained. The
 adapter passes the remaining threshold to each CLI call. See the

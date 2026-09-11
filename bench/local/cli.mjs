@@ -20,7 +20,7 @@ if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
     const merged = { ...JSON.parse(await readFile(resolve(configPath), "utf8")), ...options, outputDir: resolve(options.outputDir), ...(options.captureDir ? { captureDir: resolve(options.captureDir) } : {}) };
     const config = merged.mode === "cost" ? validateCostConfig(merged) : validateConfig(merged);
     if (config.mode === "discover" && config.fixtureVersion !== "v1") throw new Error("Canonical discovery requires fixtureVersion v1");
-    if (config.mode !== "replay" && config.llm.source === "llm" && config.llm.backend !== "claude-code") throw new Error("Supported paid backend: claude-code");
+    if (config.mode !== "replay" && config.llm.source === "llm" && !["claude-code", "codex"].includes(config.llm.backend)) throw new Error("Supported LLM backends: claude-code, codex");
     try { await stat(config.outputDir); throw new Error("Output directory already exists; use a fresh directory"); } catch (error) { if (error.code !== "ENOENT") throw error; }
     const git = (...arguments_) => execFileSync("git", arguments_, { cwd: root, encoding: "utf8" }).trim();
     const commit = git("rev-parse", "HEAD");
@@ -45,7 +45,7 @@ if (args.length === 1 && ["--help", "-h"].includes(args[0])) {
       const run = config.mode === "cost" ? runCostComparison : runBenchmark;
       const report = await run({ ...config, signal: controller.signal }, {
         engine: { version: ENGINE_VERSION, commit, dirty: Boolean(git("status", "--porcelain")), buildHash: hash.digest("hex") },
-        info: { driverArgs, chrome: version(process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome", ["--version"]), llmCli: config.mode !== "replay" && config.llm?.source === "llm" ? version("claude", ["--version"]) : null },
+        info: { driverArgs, chrome: version(process.platform === "darwin" ? "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" : "google-chrome", ["--version"]), llmCli: config.mode !== "replay" && config.llm?.source === "llm" ? version(config.llm.backend === "codex" ? "codex" : "claude", ["--version"]) : null },
         fixtureInfo, startFixture, reservePort, createDriver: () => new ChromeDevToolsDriver({ args: driverArgs }), createLlm, discover, runScenario, saveSkillFile,
       });
       const paths = await writeReport(report, config.outputDir, config.mode === "cost" ? renderCostMarkdown : undefined);

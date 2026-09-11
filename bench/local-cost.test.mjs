@@ -478,3 +478,26 @@ test("costWritesAChartForEveryTierItCompared: a withheld comparison gets no pict
   assert.match(svg, /<svg /);
   assert.match(svg, /cheaper from run 2/);
 });
+
+test("costCallOnlyScheduleKeepsUnknownMoneyAndWithholdsDollarCharts", async (t) => {
+  const { runCostComparison } = await load();
+  const { writeReport, renderCostMarkdown } = await import("./local/report.mjs");
+  const h = await harness(t, { runs: 2, fixtureVersions: ["v1", "v1"], llm: { source: "llm", backend: "codex", model: "explicit-model", budgetMode: "calls", maxCalls: 50 } });
+  h.runtime.createLlm = (_config, { budget }) => ({ id: "fake", async complete(_prompt, options = {}) {
+    budget.reserve();
+    budget.record({ costUsd: null });
+    options.onUsage?.({ inputTokens: 70, outputTokens: 20, cacheReadTokens: 30, cacheCreationTokens: 0 });
+    return "{}";
+  } });
+  const report = await runCostComparison(h.config, h.runtime);
+  assert.equal(report.incomplete, false);
+  assert.equal(report.attempted, report.requested);
+  assert.equal(report.summaries[0].comparable, false);
+  assert.equal(report.summaries[0].crossover, null);
+  assert.equal(report.budget.costComplete, false);
+  const markdown = renderCostMarkdown(report);
+  assert.match(markdown, /Reported provider cost: unknown/);
+  assert.doesNotMatch(markdown, /Reported provider cost: \$0/);
+  const paths = await writeReport(report, h.config.outputDir, renderCostMarkdown);
+  assert.equal(paths.charts, undefined);
+});

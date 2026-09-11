@@ -1,6 +1,21 @@
 const TIERS = ["navigation", "form", "stateful"];
 const ARMS = ["agent", "cairn"];
 
+function validateBudget(llm, fail) {
+  if (!Number.isSafeInteger(llm.maxCalls) || llm.maxCalls < 1) fail("maxCalls");
+  if (llm.budgetMode === "calls") {
+    if (llm.backend !== "codex") fail("call-only budgets require the codex backend");
+    if (llm.maxCostUsd !== undefined) fail("call-only budgets cannot declare maxCostUsd");
+  } else {
+    if (llm.budgetMode !== undefined) fail("budgetMode");
+    if (!Number.isFinite(llm.maxCostUsd) || llm.maxCostUsd <= 0) fail("maxCostUsd stopping threshold");
+  }
+  if (llm.reasoningEffort !== undefined) {
+    if (llm.backend !== "codex") fail("reasoningEffort requires the codex backend");
+    if (!["low", "medium", "high"].includes(llm.reasoningEffort)) fail("reasoningEffort");
+  }
+}
+
 /**
  * The cost comparison (#214) shares the reliability config's fixtures and latency, and adds the
  * two things a comparison needs: which arms to run, and when the app changes. `fixtureVersions`
@@ -27,8 +42,7 @@ export function validateCostConfig(config) {
     if (typeof llm.label !== "string" || !llm.label.trim()) fail("scripted source label");
   } else {
     if (llm?.source !== "llm" || typeof llm.backend !== "string" || !llm.backend.trim() || typeof llm.model !== "string" || !llm.model.trim()) fail("explicit LLM backend and model");
-    if (!Number.isSafeInteger(llm.maxCalls) || llm.maxCalls < 1) fail("maxCalls");
-    if (!Number.isFinite(llm.maxCostUsd) || llm.maxCostUsd <= 0) fail("maxCostUsd stopping threshold");
+    validateBudget(llm, fail);
   }
   return config;
 }
@@ -53,8 +67,7 @@ export function validateConfig(config) {
       if (typeof llm.label !== "string" || !llm.label.trim()) fail("scripted source label");
     } else {
       if (llm?.source !== "llm" || typeof llm.backend !== "string" || !llm.backend.trim() || typeof llm.model !== "string" || !llm.model.trim()) fail("explicit LLM backend and model");
-      if (!Number.isSafeInteger(llm.maxCalls) || llm.maxCalls < 1) fail("maxCalls");
-      if (!Number.isFinite(llm.maxCostUsd) || llm.maxCostUsd <= 0) fail("maxCostUsd stopping threshold");
+      validateBudget(llm, fail);
     }
   }
   return config;

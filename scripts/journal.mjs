@@ -33,7 +33,7 @@ function parseEntry(name, text) {
   for (const key of REQUIRED) if (meta[key] === undefined || meta[key] === null) throw new Error(`${name}: front matter needs ${key}`);
   if (!STATUSES.includes(meta.status)) throw new Error(`${name}: status must be one of ${STATUSES.join(", ")}`);
   if (!/^\d{4}-\d{2}-\d{2}-/.test(name)) throw new Error(`${name}: filename must start YYYY-MM-DD-`);
-  return { name, meta, body: text.slice(match[0].length).trimEnd() };
+  return { name, meta, body: text.slice(match[0].length).trim() };
 }
 
 async function readEntries() {
@@ -71,9 +71,10 @@ async function archive(version, entries) {
   const path = join(dirs.archive, `${version}.md`);
   const date = new Date().toISOString().slice(0, 10);
   const body = entries.map((entry) => {
+    // An entry's own H1 repeats the summary, which becomes the section heading here.
     const head = `## ${entry.meta.summary}`;
     const meta = [label(entry), entry.meta.status !== "landed" ? entry.meta.status : null].filter(Boolean).join(" · ");
-    return [head, meta && `*${meta}*`, "", entry.body.replace(/^# .*\n+/, "")].filter((part) => part !== "").join("\n");
+    return [head, meta ? `*${meta}*` : null, "", entry.body.replace(/^# .*\n+/, "")].filter((part) => part !== null).join("\n");
   }).join("\n\n---\n\n");
   await mkdir(dirs.archive, { recursive: true });
   await writeFile(path, `# ${version}\n\nArchived ${date}. ${entries.length} entries from the ${version} cycle.\n\n${body}\n`, { flag: "wx" });

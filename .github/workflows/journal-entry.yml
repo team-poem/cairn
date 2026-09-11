@@ -20,16 +20,20 @@ jobs:
   draft:
     # Skip our own commits, or the workflow would answer itself forever. A release preparation
     # writes its own entry and folds the cycle, so it must not be drafted over either.
+    # A merge commit says "Merge pull request #N"; a squash or rebase merge says "Title (#N)". Both
+    # are drafted. The bot's own commits match neither, so this cannot answer itself.
     if: >-
-      startsWith(github.event.head_commit.message, 'Merge pull request #')
-      && !contains(github.event.head_commit.message, 'chore(release)')
+      (startsWith(github.event.head_commit.message, 'Merge pull request #')
+      || contains(github.event.head_commit.message, '(#'))
+      && !startsWith(github.event.head_commit.message, 'docs(journal): draft the entry')
+      && !startsWith(github.event.head_commit.message, 'chore(release)')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3.2.0
         id: token
         with:
-          app-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
           private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: read
@@ -48,7 +52,9 @@ jobs:
           github-token: ${{ steps.token.outputs.token }}
           script: |
             const { draftEntry, entryName } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/journal-entry.mjs`);
-            const number = Number(/^Merge pull request #(\d+)/.exec(context.payload.head_commit.message)?.[1]);
+            const message = context.payload.head_commit.message;
+            const found = /^Merge pull request #(\d+)/.exec(message) ?? /\(#(\d+)\)/.exec(message.split('\n')[0]);
+            const number = Number(found?.[1]);
             if (!Number.isSafeInteger(number)) return core.setOutput('wrote', '');
             const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
             if (pr.base.ref !== 'develop' || !pr.merged) return core.setOutput('wrote', '');
@@ -62,7 +68,13 @@ jobs:
             core.setOutput('number', String(number));
       - name: Verify the draft passes the repository's own checks
         if: ${{ steps.draft.outputs.wrote != '' }}
-        run: npm run journal:check && npm run check:language
+        env:
+          WROTE: ${{ steps.draft.outputs.wrote }}
+        # The language check enumerates tracked files, so an unstaged draft is invisible to it.
+        run: |
+          git add --intent-to-add -- "$WROTE"
+          npm run journal:check
+          npm run check:language
       - name: Commit to develop
         if: ${{ steps.draft.outputs.wrote != '' }}
         env:

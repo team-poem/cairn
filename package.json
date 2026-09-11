@@ -17,7 +17,7 @@
     "bench:churn": "npm run build -w cairn-engine && node bench/churn.mjs",
     "bench:local": "npm run build -w cairn-engine && node bench/local/cli.mjs",
     "test:workspace": "npm run test --workspaces --if-present",
-    "test:bench": "node --test bench/portability.test.mjs bench/local-*.test.mjs bench/ci-*.test.mjs scripts/benchmark-comment.test.mjs scripts/journal-entry.test.mjs",
+    "test:bench": "node --test bench/portability.test.mjs bench/local-*.test.mjs bench/ci-*.test.mjs scripts/*.test.mjs",
     "bench:ci": "node bench/ci-compare.mjs",
     "test:compatibility": "node bench/ci-smoke.mjs",
     "check:language": "node scripts/check-language.mjs",

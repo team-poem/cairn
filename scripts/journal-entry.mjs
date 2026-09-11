@@ -12,7 +12,7 @@
  * if it would break the repository's English rule, in favour of a link. Both would otherwise turn
  * develop's own CI red, which is a worse outcome than a thin entry.
  */
-const NON_ENGLISH = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
+const NON_ENGLISH = /[\u0400-\u04ff\u1100-\u11ff\u3000-\u303f\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff01-\uff60\uff65-\uff9f]/;
 const CLOSES = /(?:closes|fixes|resolves)\s+#(\d+)/i;
 const REFS = /\brefs?\s+#(\d+)/i;
 const TRAILERS = [/^🤖 Generated with .*$/gim, /^https:\/\/claude\.ai\/code\/session_\S*$/gim, /^Assisted-by:.*$/gim, /^Co-Authored-By:.*$/gim];
@@ -52,7 +52,9 @@ export function draftEntry({ number, title, body, mergedAt, author }) {
   const summary = summaryOf(title);
   const issue = issueOf(body, title);
   const prose = cleanBody(body);
-  const usable = prose && !NON_ENGLISH.test(prose) && !NON_ENGLISH.test(summary);
+  // Judged separately: a title in another language says nothing about the body, and discarding a
+  // good English body over it would make the fallback sentence a lie.
+  const usable = Boolean(prose) && !NON_ENGLISH.test(prose);
   const front = [
     "---",
     `issue: ${issue ?? "null"}`,

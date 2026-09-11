@@ -17,11 +17,16 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-const CHECKED = /\.(ts|tsx|js|mjs|cjs|json|md|yml|yaml|html|svg)$/;
+const CHECKED = /\.(ts|tsx|js|mjs|cjs|json|md|yml|yaml|html|svg|sh)$/;
 const EXEMPT = [/^spec\/journal\/archive\//, /^spec\/journal\/history\.md$/, /^docs\/design\.(md|html)$/, /^package-lock\.json$/];
-const OPT_OUT = "language-check: non-English by design";
-// CJK, Hangul, Hiragana, Katakana. Latin accents and emoji are fine.
-const NON_ENGLISH = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
+// Scoped to a test or fixture path: the escape hatch exists for a fixture that must carry the text
+// it proves the engine handles, not as a way for any file to exempt itself. It must also be the
+// whole of a line, so a document can quote the marker without exempting itself.
+const OPT_OUT = /^\s*(?:\/\/|#)\s*language-check: non-English by design\b.*$/m;
+const MAY_OPT_OUT = /(^|\/)(test|tests|fixtures|__tests__)\//;
+// CJK ideographs, kana and their halfwidth forms, CJK punctuation, Hangul syllables and both jamo
+// blocks, and Cyrillic. Latin accents and emoji are fine.
+const NON_ENGLISH = /[\u0400-\u04ff\u1100-\u11ff\u3000-\u303f\u3040-\u30ff\u3130-\u318f\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uff01-\uff60\uff65-\uff9f]/;
 
 const files = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
   .split("\0").filter((path) => path && CHECKED.test(path) && !EXEMPT.some((rule) => rule.test(path)));
@@ -34,7 +39,7 @@ for (const path of files) {
   // than crash, since the check is about what the repository will hold, not what git still lists.
   try { text = readFileSync(join(root, path), "utf8"); } catch (error) { if (error.code === "ENOENT") continue; throw error; }
   read++;
-  if (text.includes(OPT_OUT)) continue;
+  if (OPT_OUT.test(text) && (MAY_OPT_OUT.test(path) || path.endsWith(".test.mjs") || path.endsWith(".test.ts"))) continue;
   text.split("\n").forEach((line, index) => {
     if (NON_ENGLISH.test(line)) found.push(`${path}:${index + 1}: ${line.trim().slice(0, 70)}`);
   });

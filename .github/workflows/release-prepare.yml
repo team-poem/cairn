@@ -30,15 +30,16 @@ jobs:
           VERSION: ${{ inputs.version }}
           STANDING_DAYS: ${{ steps.standing.outputs.days }}
           STANDING_LAST: ${{ steps.standing.outputs.last }}
+          PREVIOUS: ${{ steps.prepare.outputs.previous }}
         run: |
           case "$VERSION" in
             [0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "::error::Version must look like 2.10.0, got '$VERSION'"; exit 1 ;;
           esac
-      - uses: actions/create-github-app-token@v1
+      - uses: actions/create-github-app-token@v3.2.0
         id: token
         with:
-          app-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
           private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
@@ -52,9 +53,12 @@ jobs:
           node-version: "20"
       - run: npm ci
       - name: Bump, write the release entry, fold the cycle
+        id: prepare
         env:
           VERSION: ${{ inputs.version }}
-        run: npm run release:prepare -- "$VERSION"
+        run: |
+          echo "previous=$(node -p "require('./packages/harness/package.json').version")" >> "$GITHUB_OUTPUT"
+          npm run release:prepare -- "$VERSION"
       - name: The result must pass the same checks as any other change
         run: |
           npm run check:language
@@ -95,7 +99,7 @@ jobs:
               ``,
               `\`spec/journal/state.md\` was last touched ${process.env.STANDING_DAYS} days ago, on ${process.env.STANDING_LAST}. It holds only what outlives a cycle: standing decisions, the release procedure, environment notes. Nothing updates it automatically, so if this cycle changed one of those, change it now. If it did not, leave it alone.`,
               ``,
-              `Full diff: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/v${version.replace(/\.\d+$/, '')}...develop`,
+              `Full diff: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/v${process.env.PREVIOUS}...develop`,
             ].join('\n');
             if (open.length) {
               await github.rest.pulls.update({ ...context.repo, pull_number: open[0].number, title: `Release cairn-engine ${version}`, body });

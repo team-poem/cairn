@@ -1,0 +1,30 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Cumulative cost over 6 runs of the stateful journey with claude-sonnet-5: discovering every run reaches $0.269, while discovering once and replaying stays at $0.046. the app changed at run 4.">
+  <rect width="1200" height="520" fill="#0b1019"/>
+  <text x="96" y="46" fill="#ffffff" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="25" font-weight="600">Cumulative LLM cost, stateful journey</text>
+  <text x="96" y="72" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="16">claude-sonnet-5 · the app changed at run 4 · cost as the provider priced it</text>
+  <line x1="96" y1="444.0" x2="1160" y2="444.0" stroke="#1c2434" stroke-width="1"/>
+    <text x="82" y="449.0" text-anchor="end" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">$0.000</text>
+    <line x1="96" y1="357.0" x2="1160" y2="357.0" stroke="#1c2434" stroke-width="1"/>
+    <text x="82" y="362.0" text-anchor="end" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">$0.067</text>
+    <line x1="96" y1="270.0" x2="1160" y2="270.0" stroke="#1c2434" stroke-width="1"/>
+    <text x="82" y="275.0" text-anchor="end" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">$0.134</text>
+    <line x1="96" y1="183.0" x2="1160" y2="183.0" stroke="#1c2434" stroke-width="1"/>
+    <text x="82" y="188.0" text-anchor="end" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">$0.202</text>
+    <line x1="96" y1="96.0" x2="1160" y2="96.0" stroke="#1c2434" stroke-width="1"/>
+    <text x="82" y="101.0" text-anchor="end" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">$0.269</text>
+  <line x1="308.8" y1="96" x2="308.8" y2="444" stroke="#8fa0b8" stroke-width="1.5" stroke-dasharray="5 6"/>
+    <text x="320.8" y="118" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">cheaper from run 2</text>
+  <path d="M96.0 384.8 L308.8 325.8 L521.6 266.6 L734.4 213.4 L947.2 155.0 L1160.0 96.0" fill="none" stroke="#e0aa6e" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="96.0" cy="384.8" r="5" fill="#e0aa6e"/><circle cx="308.8" cy="325.8" r="5" fill="#e0aa6e"/><circle cx="521.6" cy="266.6" r="5" fill="#e0aa6e"/><circle cx="734.4" cy="213.4" r="5" fill="#e0aa6e"/><circle cx="947.2" cy="155.0" r="5" fill="#e0aa6e"/><circle cx="1160.0" cy="96.0" r="5" fill="#e0aa6e"/>
+    <text x="1148.0" y="78.0" text-anchor="end" fill="#e0aa6e" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="19" font-weight="600">agent $0.269</text>
+    <path d="M96.0 385.0 L308.8 385.0 L521.6 385.0 L734.4 385.0 L947.2 385.0 L1160.0 385.0" fill="none" stroke="#7ddab0" stroke-width="3.5" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="96.0" cy="385.0" r="5" fill="#7ddab0"/><circle cx="308.8" cy="385.0" r="5" fill="#7ddab0"/><circle cx="521.6" cy="385.0" r="5" fill="#7ddab0"/><circle cx="734.4" cy="385.0" r="5" fill="#7ddab0"/><circle cx="947.2" cy="385.0" r="5" fill="#7ddab0"/><circle cx="1160.0" cy="385.0" r="5" fill="#7ddab0"/>
+    <text x="1148.0" y="367.0" text-anchor="end" fill="#7ddab0" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="19" font-weight="600">cairn $0.046</text>
+  <text x="96.0" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">1</text>
+    <text x="308.8" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">2</text>
+    <text x="521.6" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">3</text>
+    <text x="734.4" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">4</text>
+    <text x="947.2" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">5</text>
+    <text x="1160.0" y="478" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">6</text>
+  <text x="628.0" y="498" text-anchor="middle" fill="#8fa0b8" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="15">run</text>
+</svg>

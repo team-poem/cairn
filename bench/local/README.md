@@ -108,6 +108,33 @@ usage, returned model IDs and reported cost are retained even on provider failur
 transport timeout stops further paid work with incomplete cost accounting.
 There is no automatic retry. `maxSteps` limits browser decisions, not billing.
 
+Codex CLI is also supported with an explicit call-only budget:
+
+```json
+{
+  "source": "llm",
+  "backend": "codex",
+  "model": "YOUR_EXPLICIT_MODEL",
+  "reasoningEffort": "medium",
+  "budgetMode": "calls",
+  "maxCalls": 100
+}
+```
+
+`budgetMode: "calls"` requires `maxCalls` and forbids `maxCostUsd`: it limits
+completion calls, not money. Codex CLI 0.146.0 reports usage but no dollar cost;
+the ledger retains unknown cost while this explicitly selected mode continues.
+Reports show unknown money and withhold dollar crossovers and SVGs. The runner
+does not infer API prices from a subscription run. Codex runs in a fresh temporary directory
+with user configuration, project instructions, shell tools, web search, and
+session persistence disabled. The adapter accepts JSONL terminal results, keeps
+reported usage on process failures, propagates cancellation, and times out each
+completion after 120 seconds without retrying. `reasoningEffort` can explicitly
+select `low`, `medium`, or `high`; use the same setting across compared models.
+Input tokens exclude the separately reported cache-read and cache-write shares; reasoning
+tokens are already included in output. A missing usage field stays unknown,
+including cache creation. Token totals and call counts are distinct measurements.
+
 The dollar value is a **post-call stopping threshold**, not a strict billing cap.
 Claude can exceed it by a final call; actual returned cost is retained. The
 adapter passes the remaining threshold to each CLI call. See the
@@ -137,6 +164,18 @@ ENGINE_COMMIT=$(git rev-parse HEAD)
 npm run bench:local -- cost --config bench/local/cost.example.json --runs 4 \
   --engine-commit "$ENGINE_COMMIT" --out bench/results/cost-1
 ```
+
+`cost.claude-sonnet-5.json` and `cost.claude-opus-5.json` are the two schedules the published
+README numbers came from: three tiers, six runs, the app changing on run 4. Reuse them unchanged to
+add a model, so the rows stay comparable, and change only the `model` and the spending threshold.
+`cost.example.json` is the offline smoke instead.
+
+`cost.gpt-5.6-sol.json`, `cost.gpt-5.6-terra.json`, and `cost.gpt-5.6-luna.json`
+keep that fixture and latency schedule and select Codex with medium reasoning and
+a 160-call limit. Their [measured results and recorded data](../../docs/benchmarks/228-codex.md)
+retain tokens and calls and separately publish dated Standard API-price estimates;
+the CLI did not report dollars. A call is a benchmark
+completion invocation, not a count of provider-internal requests or reconnects.
 
 `--runs` must equal the number of entries in `fixtureVersions`. The shipped
 example is an offline smoke: it changes nothing under the freeze and its
@@ -175,7 +214,18 @@ carried forward, and the crossover: the first run where the cairn arm has cost
 less and stayed there. A token total counts every billed field, cache
 creation included, and reads as a lower bound once a call reported no usage or
 reported only some of those fields. It is a count, and the runner records no
-per-model price, so a dollar figure cannot be derived from it. A tie is not a crossing.
+per-model price, so the total alone cannot determine a dollar figure. A separate
+publication calculation requires disjoint token buckets and explicit model rates.
+A tie is not a crossing.
+
+One CLI call can bill more than one model: the tool runs a small helper model
+of its own beside the model under test. An arm's cost column is everything the
+run spent, and a per-model line under each tier says what each model's share
+was. Where that line says a model was priced at list, the provider computed its
+share from published API rates, so it is what an API caller would have paid for
+the same tokens even when the run itself went through a subscription. A model
+the provider priced on some other basis, or did not price, says so instead of
+reading as free.
 
 The crossover is withheld rather than guessed whenever it would be a claim: a
 scripted source makes no paid call, an arm that stopped short of the schedule
@@ -189,6 +239,13 @@ scenario came back or the fixture never completed; a replay run additionally has
 to satisfy the frozen assertions, so the two arms' failure counts are not the
 same measurement. Regenerate the Markdown with `renderCostMarkdown` in place of
 `renderMarkdown`.
+
+A cost run also writes `cost-<tier>.svg` beside its report: cumulative spend
+against the run index, one line per arm, with the crossover marked. It is drawn
+from the JSON and nothing else, so the picture can be regenerated from the data
+that produced it instead of being redrawn by hand, and a tier whose comparison
+the report withheld gets no chart rather than a drawn one. Regenerate one with
+`renderCostChart(report, { tier })` from `bench/local/chart.mjs`.
 
 A crossover is not a general saving. How often an application breaks a freeze is
 the variable that decides the answer, and a schedule fixes it by construction.

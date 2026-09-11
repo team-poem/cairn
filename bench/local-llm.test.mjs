@@ -26,7 +26,10 @@ test("localLlmRecordsCostAndEveryBilledTokenField", async () => {
     result: "ok",
     total_cost_usd: 0.0125,
     subtype: "success",
-    modelUsage: { "claude-sonnet": {} },
+    modelUsage: {
+      "claude-sonnet": { inputTokens: 11, outputTokens: 22, cacheReadInputTokens: 30, cacheCreationInputTokens: 40, costUSD: 0.0115, costBasis: "list" },
+      "claude-haiku-helper": { inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 3, cacheCreationInputTokens: 4, costUSD: 0.001, costBasis: "list" },
+    },
     usage: { input_tokens: 11, output_tokens: 22, cache_read_input_tokens: 33, cache_creation_input_tokens: 44 },
   });
   const seen = [];
@@ -38,7 +41,18 @@ test("localLlmRecordsCostAndEveryBilledTokenField", async () => {
   assert.equal(snapshot.calls, 1);
   assert.equal(snapshot.measuredCostUsd, 0.0125);
   assert.equal(snapshot.costComplete, true);
-  assert.deepEqual(snapshot.records, [{ costUsd: 0.0125, error: null, modelIds: ["claude-sonnet"], providerSubtype: "success" }]);
+  // One call can bill more than one model, so the ledger keeps the split: a per-model number that
+  // silently included the tool's own helper model would not be a number about the model under test.
+  assert.deepEqual(snapshot.records, [{
+    costUsd: 0.0125,
+    error: null,
+    modelIds: ["claude-sonnet", "claude-haiku-helper"],
+    models: {
+      "claude-sonnet": { costUsd: 0.0115, costBasis: "list", inputTokens: 11, outputTokens: 22, cacheReadTokens: 30, cacheCreationTokens: 40 },
+      "claude-haiku-helper": { costUsd: 0.001, costBasis: "list", inputTokens: 0, outputTokens: 0, cacheReadTokens: 3, cacheCreationTokens: 4 },
+    },
+    providerSubtype: "success",
+  }]);
 });
 
 test("localLlmKeepsPartialUsageAndSurvivesAMissingField", async () => {
@@ -126,4 +140,15 @@ test("localScriptedClientRefusesToSimulateARepair", async () => {
   await assert.rejects(scripted.complete("x", { system: "You repair a broken step" }), /does not simulate LLM repair/);
   assert.equal(JSON.parse(await scripted.complete("x", { system: decide })).action, "done");
   await assert.rejects(scripted.complete("x", { system: decide }), /exhausted/);
+});
+
+test("localLlmKeepsAnUnpricedModelVisible", async () => {
+  const budget = createBudget(config);
+  // A model the provider priced on some other basis, or did not price at all, must not silently
+  // read as free: the record keeps the basis so a report can say the total is not list price.
+  const command = await fakeCli({ result: "ok", total_cost_usd: 0.02, modelUsage: { "claude-sonnet": { inputTokens: 5, costUSD: 0.02, costBasis: "list" }, "some-model": { inputTokens: 9 } } });
+  await client(command, budget).complete("hi");
+  const [record] = budget.snapshot().records;
+  assert.equal(record.models["claude-sonnet"].costBasis, "list");
+  assert.deepEqual(record.models["some-model"], { costUsd: null, costBasis: null, inputTokens: 9 });
 });

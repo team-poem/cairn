@@ -69,6 +69,7 @@ export async function runCostComparison(config, runtime) {
         const discovering = arm === "agent" || frozen === null;
         const started = performance.now();
         const before = budget.snapshot().measuredCostUsd;
+        const recordsBefore = budget.snapshot().records.length;
         // `partialCalls` is what keeps a token total honest. The adapter reports whatever fields the
         // provider returned, and a call can report a cost with no usage at all, so summing blindly
         // would present an under-count as a complete total of every billed field.
@@ -76,7 +77,7 @@ export async function runCostComparison(config, runtime) {
         const record = {
           tier, arm, index, fixtureVersion: version, action: discovering ? "discover" : "replay",
           completed: false, passed: false, verdict: null, oracle: null, error: null,
-          healCount: 0, refrozen: false, usageComplete: false, scenarioHash: null, replayedScenarioHash: discovering ? null : frozenHash,
+          healCount: 0, refrozen: false, usageComplete: false, models: null, scenarioHash: null, replayedScenarioHash: discovering ? null : frozenHash,
           fixtureHash: info.hash, requestedDelays: Object.fromEntries(["document", "api"].map((kind) => [kind, delayFor(config.latency, index, kind)])),
           usage: null, engineUsage: null, observedUsage: null, costUsd: null, measuredCostUsd: null, elapsedMs: null,
         };
@@ -149,6 +150,7 @@ export async function runCostComparison(config, runtime) {
           record.usage = { ...observedUsage };
           record.usageComplete = observedUsage.measuredCalls === observedUsage.llmCalls && observedUsage.partialCalls === 0;
           const measured = budget.snapshot();
+          record.models = splitByModel(measured.records.slice(recordsBefore));
           record.measuredCostUsd = measured.measuredCostUsd - before;
           record.costUsd = measured.costComplete ? record.measuredCostUsd : null;
           record.elapsedMs = performance.now() - started;
@@ -173,6 +175,26 @@ export async function runCostComparison(config, runtime) {
   return report;
 }
 
+/**
+ * What each model billed over one run. The tool runs a helper model of its own beside the model
+ * under test, so a per-model number is the only way to say what the model under test cost. The
+ * arm totals stay the full amount: that is what the run actually spent.
+ */
+function splitByModel(records) {
+  const models = {};
+  for (const record of records) {
+    for (const [id, usage] of Object.entries(record.models ?? {})) {
+      const entry = (models[id] ??= { costUsd: 0, costComplete: true, listPriced: true, calls: 0, ...Object.fromEntries(BILLED.map((key) => [key, 0])) });
+      entry.calls++;
+      if (Number.isFinite(usage.costUsd)) entry.costUsd += usage.costUsd;
+      else entry.costComplete = false;
+      if (usage.costBasis !== "list") entry.listPriced = false;
+      for (const key of BILLED) entry[key] += usage[key] ?? 0;
+    }
+  }
+  return Object.keys(models).length ? models : null;
+}
+
 /** Every scenario a record names is written the same way and hashed over the same bytes, so two
  * records' hashes can be compared to tell whether the scenario actually changed. */
 async function keep(config, runtime, name, scenario, { tier, version, info, fixture, record }) {
@@ -194,8 +216,19 @@ function summarize(report, config) {
         tokens += BILLED.reduce((sum, key) => sum + (record.observedUsage?.[key] ?? 0), 0);
         return { index: record.index, costUsd: cost, tokens, calls: record.observedUsage?.llmCalls ?? 0 };
       });
+      const models = {};
+      for (const record of records) {
+        for (const [id, usage] of Object.entries(record.models ?? {})) {
+          const entry = (models[id] ??= { costUsd: 0, costComplete: true, listPriced: true, calls: 0, ...Object.fromEntries(BILLED.map((key) => [key, 0])) });
+          entry.calls += usage.calls;
+          if (usage.costComplete) entry.costUsd += usage.costUsd; else entry.costComplete = false;
+          if (!usage.listPriced) entry.listPriced = false;
+          for (const key of BILLED) entry[key] += usage[key] ?? 0;
+        }
+      }
       return [arm, {
         attempted: records.length,
+        models: Object.keys(models).length ? models : null,
         failures: records.filter((record) => !record.passed).length,
         runsWithCalls: records.filter((record) => (record.observedUsage?.llmCalls ?? 0) > 0).length,
         runsWithoutCalls: records.filter((record) => record.passed && (record.observedUsage?.llmCalls ?? 0) === 0).length,

@@ -1,0 +1,52 @@
+{
+  "basis": "Cumulative per-run call counts reported by the PR author in the linked comment; original raw results remain gitignored",
+  "source": "https://github.com/team-poem/cairn/pull/228#issuecomment-5629476331",
+  "tier": "stateful",
+  "runsPerArm": 6,
+  "replaysPerModel": 5,
+  "replayCallsPerModel": 0,
+  "models": [
+    {
+      "model": "claude-sonnet-5",
+      "agentCalls": 42,
+      "cairnCalls": 7,
+      "cumulativeAgentCalls": [
+        7,
+        14,
+        21,
+        28,
+        35,
+        42
+      ],
+      "cumulativeCairnCalls": [
+        7,
+        7,
+        7,
+        7,
+        7,
+        7
+      ]
+    },
+    {
+      "model": "claude-opus-5",
+      "agentCalls": 42,
+      "cairnCalls": 7,
+      "cumulativeAgentCalls": [
+        7,
+        14,
+        21,
+        28,
+        35,
+        42
+      ],
+      "cumulativeCairnCalls": [
+        7,
+        7,
+        7,
+        7,
+        7,
+        7
+      ]
+    }
+  ]
+}

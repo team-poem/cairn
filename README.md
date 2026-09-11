@@ -12,11 +12,45 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 [![types](https://img.shields.io/npm/types/cairn-engine.svg)](https://www.npmjs.com/package/cairn-engine)
 [![license](https://img.shields.io/npm/l/cairn-engine.svg)](LICENSE)
 
-An AI walks your app once to discover the flow and freezes it to plain JSON. From then on it replays deterministically, with no LLM and no hand-written selectors. When the UI changes and a step breaks, the AI returns to heal just that step, then re-freezes.
+cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
-> A cairn is a stack of stones that marks a trail. It is built once, so the path can be found again. That is the whole idea: find the path once, follow the marker forever, rebuild it when the trail shifts.
+![Claude — Sonnet 5 and Opus 5 each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-claude-calls.svg)
 
-cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
+![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-calls.svg)
+
+Each table shows the total cost and LLM calls for six runs of the same journey, using each approach.
+
+**Claude reported costs**
+
+- **Journey:** The user flow being tested, such as login → cart → order.
+- **Discover:** AI performs the task and creates the steps to replay.
+- **Replay:** Run the saved steps again without LLM calls.
+- **Heal:** AI repairs a step that broke after a UI change. This did not occur in these measurements.
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| Sonnet 5 | Navigation | $0.109 · 18 calls | $0.018 · 3 calls |
+| Sonnet 5 | Form save | $0.151 · 24 calls | $0.025 · 4 calls |
+| Sonnet 5 | Login → cart → order | $0.269 · 42 calls | $0.046 · 7 calls |
+| Opus 5 | Navigation | $0.208 · 18 calls | $0.030 · 3 calls |
+| Opus 5 | Form save | $0.255 · 24 calls | $0.042 · 4 calls |
+| Opus 5 | Login → cart → order | $0.463 · 42 calls | $0.077 · 7 calls |
+
+**Codex estimated costs**
+
+Codex costs are estimates from recorded tokens assuming OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier.
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| GPT-5.6 Sol | Navigation | ~$0.8002 · 18 calls | ~$0.0880 · 3 calls |
+| GPT-5.6 Sol | Form save | ~$0.6905 · 24 calls | ~$0.0826 · 4 calls |
+| GPT-5.6 Sol | Login → cart → order | ~$1.1513 · 42 calls | ~$0.1502 · 7 calls |
+| GPT-5.6 Terra | Navigation | ~$0.2540 · 18 calls | ~$0.0391 · 3 calls |
+| GPT-5.6 Terra | Form save | ~$0.1935 · 24 calls | ~$0.0313 · 4 calls |
+| GPT-5.6 Terra | Login → cart → order | ~$0.3788 · 42 calls | ~$0.0566 · 7 calls |
+| GPT-5.6 Luna | Navigation | ~$0.0276 · 18 calls | ~$0.0020 · 3 calls |
+| GPT-5.6 Luna | Form save | ~$0.0297 · 30 calls | ~$0.0042 · 4 calls |
+| GPT-5.6 Luna | Login → cart → order | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
 
 ## Features
 

@@ -1,0 +1,27 @@
+{
+  "checkedOn": "2026-09-11",
+  "source": "https://developers.openai.com/api/docs/pricing",
+  "basis": "Standard short-context API list-price estimate",
+  "currency": "USD",
+  "unit": "per 1,000,000 tokens",
+  "shortContextInputLimit": 272000,
+  "assumptions": [
+    "Standard processing is a pricing assumption; the CLI did not report a service tier or dollar cost.",
+    "No Batch, Flex, Fast, regional-processing uplift, tax or negotiated pricing is applied.",
+    "The recorded cache-read and cache-write shares are priced as observed; this does not predict caching in a separate API run."
+  ],
+  "models": {
+    "gpt-5.6-sol": {
+      "contextSource": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "usdPerMillionTokens": { "inputTokens": 4, "cacheReadTokens": 0.4, "cacheCreationTokens": 5, "outputTokens": 20 }
+    },
+    "gpt-5.6-terra": {
+      "contextSource": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "usdPerMillionTokens": { "inputTokens": 2, "cacheReadTokens": 0.2, "cacheCreationTokens": 2.5, "outputTokens": 12 }
+    },
+    "gpt-5.6-luna": {
+      "contextSource": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "usdPerMillionTokens": { "inputTokens": 0.2, "cacheReadTokens": 0.02, "cacheCreationTokens": 0.25, "outputTokens": 1.2 }
+    }
+  }
+}

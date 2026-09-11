@@ -1,0 +1,260 @@
+{
+  "basis": "Standard short-context API list-price estimate",
+  "checkedOn": "2026-09-11",
+  "pricingSource": "https://developers.openai.com/api/docs/pricing",
+  "observationsSha256": "2c07f167a3a47ea2bcf0c5d088da73451f570adcf111d17112866e6f778ff8df",
+  "priceSnapshotSha256": "6e5269b5e081f89c440d7175ce484c4d4d09011a85e6af970c7c0809060335b8",
+  "formula": "sum(disjoint reported token count * matching USD-per-million rate) / 1000000",
+  "note": "Derived estimates only. The source report's unknown cost, comparability flags and token counts are unchanged.",
+  "estimates": [
+    {
+      "model": "gpt-5.6-sol",
+      "maxRunInputTokens": 85527,
+      "phases": {
+        "discovery": {
+          "calls": 7,
+          "usage": {
+            "inputTokens": 55319,
+            "cacheReadTokens": 30208,
+            "cacheCreationTokens": 0,
+            "outputTokens": 193
+          },
+          "estimatedCostUsd": "0.237219200"
+        },
+        "repair": {
+          "calls": 1,
+          "usage": {
+            "inputTokens": 11405,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "outputTokens": 12
+          },
+          "estimatedCostUsd": "0.045860000"
+        },
+        "replay": {
+          "calls": 0,
+          "usage": {
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "outputTokens": 0
+          },
+          "estimatedCostUsd": "0.000000000"
+        }
+      },
+      "tiers": [
+        {
+          "tier": "stateful",
+          "agent": {
+            "calls": 42,
+            "usage": {
+              "inputTokens": 421599,
+              "cacheReadTokens": 83072,
+              "cacheCreationTokens": 0,
+              "outputTokens": 1278
+            },
+            "estimatedCostUsd": "1.745184800"
+          },
+          "cairn": {
+            "calls": 8,
+            "usage": {
+              "inputTokens": 66724,
+              "cacheReadTokens": 30208,
+              "cacheCreationTokens": 0,
+              "outputTokens": 205
+            },
+            "estimatedCostUsd": "0.283079200"
+          }
+        }
+      ],
+      "totals": {
+        "agent": {
+          "calls": 42,
+          "usage": {
+            "inputTokens": 421599,
+            "cacheReadTokens": 83072,
+            "cacheCreationTokens": 0,
+            "outputTokens": 1278
+          },
+          "estimatedCostUsd": "1.745184800"
+        },
+        "cairn": {
+          "calls": 8,
+          "usage": {
+            "inputTokens": 66724,
+            "cacheReadTokens": 30208,
+            "cacheCreationTokens": 0,
+            "outputTokens": 205
+          },
+          "estimatedCostUsd": "0.283079200"
+        }
+      }
+    },
+    {
+      "model": "gpt-5.6-terra",
+      "maxRunInputTokens": 85499,
+      "phases": {
+        "discovery": {
+          "calls": 7,
+          "usage": {
+            "inputTokens": 21090,
+            "cacheReadTokens": 62720,
+            "cacheCreationTokens": 0,
+            "outputTokens": 178
+          },
+          "estimatedCostUsd": "0.056860000"
+        },
+        "repair": {
+          "calls": 1,
+          "usage": {
+            "inputTokens": 2449,
+            "cacheReadTokens": 8960,
+            "cacheCreationTokens": 0,
+            "outputTokens": 12
+          },
+          "estimatedCostUsd": "0.006834000"
+        },
+        "replay": {
+          "calls": 0,
+          "usage": {
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "outputTokens": 0
+          },
+          "estimatedCostUsd": "0.000000000"
+        }
+      },
+      "tiers": [
+        {
+          "tier": "stateful",
+          "agent": {
+            "calls": 42,
+            "usage": {
+              "inputTokens": 240773,
+              "cacheReadTokens": 264448,
+              "cacheCreationTokens": 0,
+              "outputTokens": 1232
+            },
+            "estimatedCostUsd": "0.549219600"
+          },
+          "cairn": {
+            "calls": 8,
+            "usage": {
+              "inputTokens": 23539,
+              "cacheReadTokens": 71680,
+              "cacheCreationTokens": 0,
+              "outputTokens": 190
+            },
+            "estimatedCostUsd": "0.063694000"
+          }
+        }
+      ],
+      "totals": {
+        "agent": {
+          "calls": 42,
+          "usage": {
+            "inputTokens": 240773,
+            "cacheReadTokens": 264448,
+            "cacheCreationTokens": 0,
+            "outputTokens": 1232
+          },
+          "estimatedCostUsd": "0.549219600"
+        },
+        "cairn": {
+          "calls": 8,
+          "usage": {
+            "inputTokens": 23539,
+            "cacheReadTokens": 71680,
+            "cacheCreationTokens": 0,
+            "outputTokens": 190
+          },
+          "estimatedCostUsd": "0.063694000"
+        }
+      }
+    },
+    {
+      "model": "gpt-5.6-luna",
+      "maxRunInputTokens": 74666,
+      "phases": {
+        "discovery": {
+          "calls": 7,
+          "usage": {
+            "inputTokens": 38994,
+            "cacheReadTokens": 34816,
+            "cacheCreationTokens": 0,
+            "outputTokens": 218
+          },
+          "estimatedCostUsd": "0.008756720"
+        },
+        "repair": {
+          "calls": 1,
+          "usage": {
+            "inputTokens": 2046,
+            "cacheReadTokens": 7936,
+            "cacheCreationTokens": 0,
+            "outputTokens": 12
+          },
+          "estimatedCostUsd": "0.000582320"
+        },
+        "replay": {
+          "calls": 0,
+          "usage": {
+            "inputTokens": 0,
+            "cacheReadTokens": 0,
+            "cacheCreationTokens": 0,
+            "outputTokens": 0
+          },
+          "estimatedCostUsd": "0.000000000"
+        }
+      },
+      "tiers": [
+        {
+          "tier": "stateful",
+          "agent": {
+            "calls": 42,
+            "usage": {
+              "inputTokens": 311197,
+              "cacheReadTokens": 132608,
+              "cacheCreationTokens": 0,
+              "outputTokens": 1465
+            },
+            "estimatedCostUsd": "0.066649560"
+          },
+          "cairn": {
+            "calls": 8,
+            "usage": {
+              "inputTokens": 41040,
+              "cacheReadTokens": 42752,
+              "cacheCreationTokens": 0,
+              "outputTokens": 230
+            },
+            "estimatedCostUsd": "0.009339040"
+          }
+        }
+      ],
+      "totals": {
+        "agent": {
+          "calls": 42,
+          "usage": {
+            "inputTokens": 311197,
+            "cacheReadTokens": 132608,
+            "cacheCreationTokens": 0,
+            "outputTokens": 1465
+          },
+          "estimatedCostUsd": "0.066649560"
+        },
+        "cairn": {
+          "calls": 8,
+          "usage": {
+            "inputTokens": 41040,
+            "cacheReadTokens": 42752,
+            "cacheCreationTokens": 0,
+            "outputTokens": 230
+          },
+          "estimatedCostUsd": "0.009339040"
+        }
+      }
+    }
+  ]
+}

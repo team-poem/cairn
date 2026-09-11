@@ -1,5 +1,12 @@
+import { VERSIONS } from "./server.mjs";
+
 const TIERS = ["navigation", "form", "stateful"];
 const ARMS = ["agent", "cairn"];
+
+/** v3 changes one control of one journey (#230); a schedule that puts another tier on v3 asks for a change that does not exist. */
+function validateVersionTiers(tiers, versions, fail) {
+  if (versions.includes("v3") && tiers.some((tier) => tier !== "stateful")) fail("fixture version v3 exists only for the stateful tier");
+}
 
 function validateBudget(llm, fail) {
   if (!Number.isSafeInteger(llm.maxCalls) || llm.maxCalls < 1) fail("maxCalls");
@@ -28,8 +35,9 @@ export function validateCostConfig(config) {
   if (!Number.isSafeInteger(config.runs) || config.runs < 2) fail("runs must be at least 2; one run cannot show a crossover");
   if (!Array.isArray(config.tiers) || !config.tiers.length || new Set(config.tiers).size !== config.tiers.length || config.tiers.some((tier) => !TIERS.includes(tier))) fail("tiers");
   if (!Array.isArray(config.arms) || !config.arms.length || new Set(config.arms).size !== config.arms.length || config.arms.some((arm) => !ARMS.includes(arm))) fail("arms");
-  if (!Array.isArray(config.fixtureVersions) || config.fixtureVersions.length !== config.runs || config.fixtureVersions.some((version) => !["v1", "v2"].includes(version))) fail("fixtureVersions must name a version for every run");
+  if (!Array.isArray(config.fixtureVersions) || config.fixtureVersions.length !== config.runs || config.fixtureVersions.some((version) => !VERSIONS.includes(version))) fail("fixtureVersions must name a version for every run");
   if (config.fixtureVersions[0] !== "v1") fail("the first run must be v1: it is the canonical discovery both arms start from");
+  validateVersionTiers(config.tiers, config.fixtureVersions, fail);
   if (!/^[a-f0-9]{40}$/.test(config.engineCommit ?? "")) fail("engineCommit must be a full commit hash");
   for (const kind of ["document", "api"]) {
     const values = config.latency?.[kind];
@@ -52,7 +60,8 @@ export function validateConfig(config) {
   if (!config || !["discover", "replay", "heal"].includes(config.mode)) fail("mode");
   if (!Number.isSafeInteger(config.runs) || config.runs < 1) fail("runs must be a positive safe integer");
   if (!Array.isArray(config.tiers) || !config.tiers.length || new Set(config.tiers).size !== config.tiers.length || config.tiers.some((tier) => !["navigation", "form", "stateful"].includes(tier))) fail("tiers");
-  if (!["v1", "v2"].includes(config.fixtureVersion)) fail("fixtureVersion");
+  if (!VERSIONS.includes(config.fixtureVersion)) fail("fixtureVersion");
+  validateVersionTiers(config.tiers, [config.fixtureVersion], fail);
   if (!/^[a-f0-9]{40}$/.test(config.engineCommit ?? "")) fail("engineCommit must be a full commit hash");
   for (const kind of ["document", "api"]) {
     const values = config.latency?.[kind];

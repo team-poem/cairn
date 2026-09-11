@@ -18,14 +18,14 @@ cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cai
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
 
-Each table shows the total cost and LLM calls for six runs of the same journey, using each approach.
+The following cost tables show six runs per journey and approach. These rename-only runs needed no healing; a separate repair measurement follows below.
 
 **Claude reported costs**
 
 - **Journey:** The user flow being tested, such as login → cart → order.
 - **Discover:** AI performs the task and creates the steps to replay.
 - **Replay:** Run the saved steps again without LLM calls.
-- **Heal:** AI repairs a step that broke after a UI change. This did not occur in these measurements.
+- **Heal:** AI repairs a step that broke after a UI change, then saves the repair for later runs. See [measured self-heal](#measured-self-heal).
 
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |
@@ -51,6 +51,29 @@ Codex costs are estimates from recorded tokens assuming OpenAI Standard short-co
 | GPT-5.6 Luna | Navigation | ~$0.0276 · 18 calls | ~$0.0020 · 3 calls |
 | GPT-5.6 Luna | Form save | ~$0.0297 · 30 calls | ~$0.0042 · 4 calls |
 | GPT-5.6 Luna | Login → cart → order | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
+
+## Measured self-heal
+
+In a separate six-run order journey, the **Place order button becomes a link on run 4**. The original test fails without healing. Each model repairs the target with one LLM call, saves the repair, and passes runs 5 and 6 with zero LLM calls.
+
+**Claude reported costs**
+
+| Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
+| --- | ---: | ---: | ---: |
+| Sonnet 5 | $0.042799 · 7 calls | $0.006370 · 1 call | 2/2 pass · 0 calls |
+| Opus 5 | $0.087434 · 7 calls | $0.013444 · 1 call | 2/2 pass · 0 calls |
+
+**Codex estimated costs**
+
+| Model | Discovery (run 1) | Repair (run 4) | Replays after repair (runs 5–6) |
+| --- | ---: | ---: | ---: |
+| GPT-5.6 Sol | ~$0.237219 · 7 calls | ~$0.045860 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Terra | ~$0.056860 · 7 calls | ~$0.006834 · 1 call | 2/2 pass · 0 calls |
+| GPT-5.6 Luna | ~$0.008757 · 7 calls | ~$0.000582 · 1 call | 2/2 pass · 0 calls |
+
+Claude dollar amounts are provider-reported. Codex amounts are estimates from recorded tokens using OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier. In this schedule, each model uses **42 calls discovering every run, or 8 discovering once and healing once**. All five repairs succeed and all ten replays after repair use zero calls.
+
+This measures one locator change, with the order verified by the fixture's order count; it does not measure `waitFor` repair or a general repair success rate. [Claude evidence](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/230-claude.md) · [GPT evidence and reproduction](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/230-codex.md).
 
 ## Features
 

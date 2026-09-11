@@ -2,8 +2,13 @@ import { createServer } from "node:http";
 import { readFileSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 
+export const VERSIONS = ["v1", "v2", "v3"];
+
 export function fixtureInfo(tier, version) {
-  if (!["navigation", "form", "stateful"].includes(tier) || !["v1", "v2"].includes(version)) throw new Error("Unknown fixture tier or version");
+  if (!["navigation", "form", "stateful"].includes(tier) || !VERSIONS.includes(version)) throw new Error("Unknown fixture tier or version");
+  // v3 (#230) changes only the order control, so only the journey that has one can change at v3.
+  // A v3 that rendered the other tiers byte-for-byte as v1 would read as "the app changed" with nothing changed.
+  if (version === "v3" && tier !== "stateful") throw new Error("Fixture version v3 exists only for the stateful tier");
   return { hash: createHash("sha256").update(readFileSync(new URL(import.meta.url))).update(`${tier}:${version}`).digest("hex"), entryPath: tier === "stateful" ? "/login" : "/", intent: tier === "navigation" ? "Click the link to reach the destination" : tier === "form" ? "Enter alice in the name field and save it" : "Log in as alice, add one book to the cart, open the cart and place the order" };
 }
 
@@ -76,7 +81,13 @@ export async function startFixture({ tier, version, runIndex, latency, port = 0 
         session.cartCount++; send("Added"); return;
       }
       if (path === "/cart") {
-        send(`<!doctype html><html lang="en"><title>Cart</title><p>Books: ${session.cartCount}</p><button>Place order</button><script>document.querySelector('button').onclick=async()=>{const r=await fetch('/api/order',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});if(r.ok)location.href='/done';};</script></html>`); return;
+        // v3 (#230): the order control is a link, not a button. Its name is unchanged, and so are the
+        // /api/order POST it makes and the /done arrival that completes the fixture. A frozen target
+        // `{text, role: "button", index}` resolves by name within its role and falls back to role and
+        // index; a cart page with no button defeats both, which is the break v2's renames never made.
+        const control = version === "v3" ? '<a href="/done">Place order</a>' : "<button>Place order</button>";
+        const handler = version === "v3" ? "document.querySelector('a').onclick=async(e)=>{e.preventDefault();" : "document.querySelector('button').onclick=async()=>{";
+        send(`<!doctype html><html lang="en"><title>Cart</title><p>Books: ${session.cartCount}</p>${control}<script>${handler}const r=await fetch('/api/order',{method:'POST',headers:{'content-type':'application/json'},body:'{}'});if(r.ok)location.href='/done';};</script></html>`); return;
       }
       if (path === "/api/order" && req.method === "POST") {
         if (session.cartCount !== 1 || session.orderCount) { res.statusCode = 409; send("A new one-book cart is required"); return; }

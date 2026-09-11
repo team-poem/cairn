@@ -12,6 +12,15 @@ trust boundary; schema and SHA checks do not authenticate measurement truth.
 Artifacts are scoped to the exact rerun attempt, so an early failure cannot
 reuse an earlier attempt's successful measurements.
 
+If the exact base commit has no `bench/local` tree (for example, the first
+release PR after introducing these benchmarks), CI compares package and bundle
+sizes and explicitly reports **Replay unavailable**. It records no replay
+times, pass counts or LLM usage. The decision comes from the base Git tree,
+not a caught import error: a partial harness, missing checkout file or actual
+measurement failure still fails CI. Once the base includes the harness, the
+ordinary full comparison runs automatically. The bot also reports this limited
+result explicitly, and only after a successful workflow.
+
 The comment starts with a short briefing: package and browser-gzip changes,
 observed replay-median changes by tier, passed attempts and LLM call counts.
 Expand **Detailed measurements** for the three comparison tables. Extended
@@ -110,9 +119,11 @@ All PR target branches trigger validation, including stacked feature PRs.
 
 ## Run locally
 
-Install dependencies and build both checkouts first. The baseline must include
-the local runner from #169 and support the public APIs used by it. The command
-fails explicitly if that prerequisite or a canonical capture is missing.
+Install dependencies and build both checkouts first. Replay comparison requires
+the baseline local runner from #169 and the public APIs used by it. A baseline
+without the entire local harness receives the size-only result described above;
+that path does not require Chrome or MCP. A present but broken harness, missing
+public API or missing canonical capture fails explicitly.
 
 Install the fixed MCP tool outside the checkouts, install Chrome, and set
 `CAIRN_MCP_ENTRY` to its executable JavaScript file. For example on macOS/Linux:

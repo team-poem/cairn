@@ -1,4 +1,5 @@
 import { readFile, stat } from "node:fs/promises";
+import { renderSizeOnlyComparison } from "../bench/ci-size-only.mjs";
 import { compareReports, renderComparison } from "../bench/ci-report.mjs";
 
 const marker = "<!-- cairn-pr-benchmarks -->";
@@ -49,11 +50,16 @@ export async function postBenchmarkComment({ github, context, core, appSlug }) {
     if ((await stat(path)).size > 1000000) throw new Error("Oversized measurement data");
     const pair = JSON.parse(await readFile(path, "utf8"));
     if (pair.base?.commit !== pr.base.sha || pair.head?.commit !== pr.head.sha) { core.info("Stale base/head comparison"); return; }
-    if (pair.warmupFailed !== false) throw new Error("Warmup did not complete successfully");
-    const comparison = compareReports(pair.base, pair.head);
-    if (run.conclusion !== "success" && comparison.tiers.every(row => row.status !== "invalid")) throw new Error("Workflow failed despite successful samples; timing comparison withheld");
-    text = `${renderBriefing(comparison)}\n<details>\n<summary>Detailed measurements</summary>\n\n${renderComparison(comparison, { includeContext: false, includeP95: false })}\n</details>\n`;
-    if (run.conclusion !== "success") text += "\n**The measurement check failed. Inspect the raw attempts before drawing conclusions.**\n";
+    if (pair.kind === "size-only") {
+      if (run.conclusion !== "success") throw new Error("Workflow failed; size-only comparison withheld");
+      text = `## 🐧 Performance briefing\n\n${renderSizeOnlyComparison(pair, { includeContext: false })}`;
+    } else {
+      if (pair.warmupFailed !== false) throw new Error("Warmup did not complete successfully");
+      const comparison = compareReports(pair.base, pair.head);
+      if (run.conclusion !== "success" && comparison.tiers.every(row => row.status !== "invalid")) throw new Error("Workflow failed despite successful samples; timing comparison withheld");
+      text = `${renderBriefing(comparison)}\n<details>\n<summary>Detailed measurements</summary>\n\n${renderComparison(comparison, { includeContext: false, includeP95: false })}\n</details>\n`;
+      if (run.conclusion !== "success") text += "\n**The measurement check failed. Inspect the raw attempts before drawing conclusions.**\n";
+    }
   } catch (error) {
     core.warning(`Comparison unavailable: ${error.message}`);
   }

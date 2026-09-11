@@ -96,11 +96,7 @@ export function compareReports(base, head) {
       baseDirty: base.dirty ?? null, headDirty: head.dirty ?? null,
       baseBuildHash: base.buildHash ?? null, headBuildHash: head.buildHash ?? null,
     },
-    sizes: Object.fromEntries(SIZE_METRICS.map(metric => [metric, {
-      base: base.sizes[metric], head: head.sizes[metric],
-      delta: head.sizes[metric] - base.sizes[metric],
-      percent: percentChange(base.sizes[metric], head.sizes[metric]),
-    }])),
+    sizes: compareSizes(base.sizes, head.sizes),
   };
 }
 
@@ -116,11 +112,6 @@ const usage = value => value === null ? "unknown" : number(value);
 
 /** Render only a comparison freshly derived by compareReports, never artifact Markdown. */
 export function renderComparison(comparison, { includeContext = true, includeP95 = true } = {}) {
-  const labels = { packageBytes: "Package tarball", unpackedBytes: "Package unpacked", browserBytes: "Browser bundle", browserGzipBytes: "Browser bundle gzip" };
-  const sizes = SIZE_METRICS.map(metric => {
-    const row = comparison.sizes[metric];
-    return `| ${labels[metric]} | ${number(row.base)} | ${number(row.head)} | ${signed(row.delta)} | ${percentage(row.percent)} |`;
-  });
   const statuses = { improved: "lower median (informational)", regressed: "higher median (informational)", unchanged: "unchanged", invalid: "invalid: failed or LLM-tainted" };
   const timings = comparison.tiers.map(row => {
     requireValid(TIERS.includes(row.tier) && Object.hasOwn(statuses, row.status), "rendered tier status");
@@ -136,8 +127,7 @@ export function renderComparison(comparison, { includeContext = true, includeP95
       ? "Invalid timing comparison: measured failures or LLM calls cannot establish a speed improvement."
       : "All measured attempts passed with zero engine-reported and observed LLM calls.", "",
     "## Package size", "",
-    "| Size | Before bytes | After bytes | Delta bytes | Change |",
-    "| --- | ---: | ---: | ---: | ---: |", ...sizes, "",
+    ...renderSizeTable(comparison.sizes), "",
     "## Replay elapsed time", "",
     `| Tier | N before / after | Median before ms | Median after ms | Delta ms | Change |${includeP95 ? " p95 before / after ms |" : ""} Status |`,
     `| --- | ---: | ---: | ---: | ---: | ---: |${includeP95 ? " ---: |" : ""} --- |`, ...timings, "",
@@ -153,4 +143,21 @@ export function renderComparison(comparison, { includeContext = true, includeP95
       `Fixture: ${cell(comparison.workload.fixtureHash)}`, `Captures: ${captures}`, "",
     ] : []),
   ].join("\n");
+}
+
+export function compareSizes(base, head) {
+  return Object.fromEntries(SIZE_METRICS.map(metric => [metric, {
+      base: base[metric], head: head[metric],
+      delta: head[metric] - base[metric],
+      percent: percentChange(base[metric], head[metric]),
+    }]));
+}
+
+export function renderSizeTable(sizes) {
+  const labels = { packageBytes: "Package tarball", unpackedBytes: "Package unpacked", browserBytes: "Browser bundle", browserGzipBytes: "Browser bundle gzip" };
+  const rows = SIZE_METRICS.map(metric => {
+    const row = sizes[metric];
+    return `| ${labels[metric]} | ${number(row.base)} | ${number(row.head)} | ${signed(row.delta)} | ${percentage(row.percent)} |`;
+  });
+  return ["| Size | Before bytes | After bytes | Delta bytes | Change |", "| --- | ---: | ---: | ---: | ---: |", ...rows];
 }

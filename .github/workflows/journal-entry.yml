@@ -1,0 +1,88 @@
+name: Journal entry
+
+# Drafts a journal entry on develop for each merged pull request.
+#
+# It triggers on push rather than on a closed pull request, so it always runs in the base repository
+# with the base repository's own token. A fork's pull request never reaches this workflow with write
+# access; by the time it runs, the code is already merged and the event is ours.
+on:
+  push:
+    branches: [develop]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: journal-entry
+  cancel-in-progress: false
+
+jobs:
+  draft:
+    # Skip our own commits, or the workflow would answer itself forever. A release preparation
+    # writes its own entry and folds the cycle, so it must not be drafted over either.
+    # A merge commit says "Merge pull request #N"; a squash or rebase merge says "Title (#N)". Both
+    # are drafted. The bot's own commits match neither, so this cannot answer itself.
+    if: >-
+      (startsWith(github.event.head_commit.message, 'Merge pull request #')
+      || contains(github.event.head_commit.message, '(#'))
+      && !startsWith(github.event.head_commit.message, 'docs(journal): draft the entry')
+      && !startsWith(github.event.head_commit.message, 'chore(release)')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/create-github-app-token@v3.2.0
+        id: token
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: read
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 2
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - name: Draft the entry
+        id: draft
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const { draftEntry, entryName } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/journal-entry.mjs`);
+            const message = context.payload.head_commit.message;
+            const found = /^Merge pull request #(\d+)/.exec(message) ?? /\(#(\d+)\)/.exec(message.split('\n')[0]);
+            const number = Number(found?.[1]);
+            if (!Number.isSafeInteger(number)) return core.setOutput('wrote', '');
+            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
+            if (pr.base.ref !== 'develop' || !pr.merged) return core.setOutput('wrote', '');
+            const entry = draftEntry({ number, title: pr.title, body: pr.body, mergedAt: pr.merged_at, author: pr.user.login });
+            const path = `spec/journal/entries/${entryName(entry.date, entry.issue, number)}`;
+            const fs = await import('node:fs/promises');
+            // An entry already written by hand is the better record; never overwrite it.
+            if (await fs.stat(path).then(() => true, () => false)) return core.setOutput('wrote', '');
+            await fs.writeFile(path, entry.body);
+            core.setOutput('wrote', path);
+            core.setOutput('number', String(number));
+      - name: Verify the draft passes the repository's own checks
+        if: ${{ steps.draft.outputs.wrote != '' }}
+        env:
+          WROTE: ${{ steps.draft.outputs.wrote }}
+        # The language check enumerates tracked files, so an unstaged draft is invisible to it.
+        run: |
+          git add --intent-to-add -- "$WROTE"
+          npm run journal:check
+          npm run check:language
+      - name: Commit to develop
+        if: ${{ steps.draft.outputs.wrote != '' }}
+        env:
+          WROTE: ${{ steps.draft.outputs.wrote }}
+          NUMBER: ${{ steps.draft.outputs.number }}
+        run: |
+          git config user.name "pingu-cairn[bot]"
+          git config user.email "pingu-cairn[bot]@users.noreply.github.com"
+          git add -- "$WROTE"
+          git commit -m "docs(journal): draft the entry for #${NUMBER}" -m "Drafted from the pull request. Edit it in place; entries are append-only."
+          git push origin HEAD:develop

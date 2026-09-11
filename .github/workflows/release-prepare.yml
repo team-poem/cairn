@@ -1,0 +1,111 @@
+name: Prepare release
+
+# Bumps the version on develop, writes the release entry, folds the cycle's journal entries into one
+# archive, and opens the release pull request. Run it manually with the version to cut.
+#
+# It never touches main and never publishes. Merging the pull request it opens is what starts
+# release.yml, so a human still decides that a release happens.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to cut, for example 2.10.0"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-prepare
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check the version shape before anything moves
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          case "$VERSION" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::Version must look like 2.10.0, got '$VERSION'"; exit 1 ;;
+          esac
+      - uses: actions/create-github-app-token@v3.2.0
+        id: token
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          token: ${{ steps.token.outputs.token }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Bump, write the release entry, fold the cycle
+        id: prepare
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          echo "previous=$(node -p "require('./packages/harness/package.json').version")" >> "$GITHUB_OUTPUT"
+          npm run release:prepare -- "$VERSION"
+      - name: The result must pass the same checks as any other change
+        run: |
+          npm run check:language
+          npm run journal:check
+          npm run typecheck
+          npm run build
+          npm run test:workspace
+          npm run test:bench
+          npm run check:boundaries
+      - name: Commit and push to develop
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          git config user.name "pingu-cairn[bot]"
+          git config user.email "pingu-cairn[bot]@users.noreply.github.com"
+          git add packages/harness/package.json package-lock.json spec/journal
+          git commit -m "chore(release): ${VERSION}" -m "Version bump, release entry and the cycle's journal entries folded into spec/journal/archive/${VERSION}.md."
+          git push origin HEAD:develop
+      - name: How long since a standing decision was written down
+        id: standing
+        run: |
+          # Nothing updates state.md automatically, so the release is the moment to ask whether a
+          # standing decision moved this cycle.
+          SECONDS_AT=$(git log -1 --format=%ct -- spec/journal/state.md)
+          echo "days=$(( ( $(date +%s) - SECONDS_AT ) / 86400 ))" >> "$GITHUB_OUTPUT"
+          echo "last=$(git log -1 --format=%cs -- spec/journal/state.md)" >> "$GITHUB_OUTPUT"
+      - name: Open the release pull request
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.token.outputs.token }}
+          script: |
+            const version = process.env.VERSION;
+            const { data: open } = await github.rest.pulls.list({ ...context.repo, base: 'main', head: `${context.repo.owner}:develop`, state: 'open' });
+            const body = [
+              `Prepared by \`Prepare release\`. The version bump, the release entry and the archive fold are already on develop.`,
+              ``,
+              `Write the release notes into this body before merging. Merging it publishes ${version} to npm, pushes the tag and drafts the GitHub release.`,
+              ``,
+              `\`spec/journal/state.md\` was last touched ${process.env.STANDING_DAYS} days ago, on ${process.env.STANDING_LAST}. It holds only what outlives a cycle: standing decisions, the release procedure, environment notes. Nothing updates it automatically, so if this cycle changed one of those, change it now. If it did not, leave it alone.`,
+              ``,
+              `Full diff: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/v${process.env.PREVIOUS}...develop`,
+            ].join('\n');
+            if (open.length) {
+              await github.rest.pulls.update({ ...context.repo, pull_number: open[0].number, title: `Release cairn-engine ${version}`, body });
+              core.notice(`Updated existing release pull request #${open[0].number}`);
+              return;
+            }
+            const { data: created } = await github.rest.pulls.create({ ...context.repo, base: 'main', head: 'develop', title: `Release cairn-engine ${version}`, body, draft: true });
+            core.notice(`Opened release pull request #${created.number} as a draft`);
+        env:
+          VERSION: ${{ inputs.version }}
+          STANDING_DAYS: ${{ steps.standing.outputs.days }}
+          STANDING_LAST: ${{ steps.standing.outputs.last }}

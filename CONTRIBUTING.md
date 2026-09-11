@@ -165,11 +165,26 @@ noise:
 Agents working *inside* this repo should also read `AGENTS.md` — its anti-slop section
 gives repo-specific guidelines for agent contributors.
 
+## Everything here is English
+
+Source, comments, error messages, specs, docs and journal entries are English. `npm run
+check:language` runs in CI and fails on anything else in a tracked file. Commit messages and pull
+request bodies are English too, by convention rather than by check.
+
+Exempt: `spec/journal/archive/` and `spec/journal/history.md`, since a record rewritten after the
+fact is a worse record, and `docs/design.md`, which is still Korean and is on the list to translate.
+A test or fixture that must carry non-English text opts out with a marker on its own comment line.
+
 ## Where things live
 
 - `README.md` — the loop, the interfaces, the quickstart.
 - `AGENTS.md` — rules and doc-routing for AI coding agents editing this repo
   (`CLAUDE.md` points here).
 - `spec/architecture.md` — the invariants above, in full.
-- `spec/journal/state.md` — the living state and next steps.
+- `spec/journal/state.md` — standing decisions, the release procedure, environment notes.
+- `spec/journal/entries/` — one file per work item in the current cycle, append-only. Folded into
+  `spec/journal/archive/<version>.md` at each release. `npm run journal:status` shows what is in
+  flight. You are not expected to add an entry. When your pull request merges, a bot drafts one on
+  develop from the pull request itself, and a maintainer edits it if the change carries a decision
+  worth keeping.
 - `docs/design.md` — the product design in full.

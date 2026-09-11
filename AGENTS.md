@@ -1,71 +1,123 @@
-# AGENTS.md — cairn 개발 하네스
+# AGENTS.md — the cairn development harness
 
-AI 코딩 에이전트가 이 레포를 수정하기 전에 따르는 규칙과, 어떤 문서를 읽을지
-라우팅한다. 큰 문서를 통째로 읽지 말고 **작업에 맞는 가장 작은 문서만** 읽는다.
+Rules an AI coding agent follows before changing this repository, and a router telling it which
+document to read. Read the smallest document the task needs, never a large one whole.
 
-## 0. 세션 시작 — 먼저 읽기
-- `spec/journal/state.md` — 현재 상태·결정·다음 스텝(살아있는 핸드오프). 항상 먼저.
-- `spec/journal/entries/` 최근 파일 몇 개 — 진행 중인 작업 맥락.
-- 작업이 설계에 닿으면 `spec/architecture.md`(불변식) · `spec/core/`(핵심 메커니즘 스펙).
+Everything a contributor reads is English: source, comments, error messages, specs, docs and journal
+entries. `npm run check:language` fails `verify` on anything else in a tracked file. Commit messages
+and pull request bodies are English too, by convention rather than by check. Conversation with a
+maintainer can be in any language; the repository cannot.
 
-## 1. 라우팅 — 작업 종류 → 문서
-- 코어/파이프라인/인터페이스(`packages/harness/**`) → **`spec/architecture.md` 필수.**
-- 핵심 메커니즘·가치(루프·판정·타게팅·self-heal)를 이해/변경 → `spec/core/`(영문 스펙).
-- QA 앱(`packages/qa/**`) → `spec/architecture.md` + (코드 규칙은 생기는 대로 `spec/code/`).
-- 제품 설계 전반·맥락 → `docs/design.md` (에이전트용 정본). 사람용 시각 버전: `docs/design.html`.
-- 코드 스타일 문서는 코드가 쌓이면 `spec/code/`에 추가한다. **지금은 미리 쓰지 않는다.**
+Two exemptions, both recorded in the check itself: `spec/journal/archive/` and `history.md`, because
+a record rewritten after the fact is a worse record, and `docs/design.md`, which is still Korean and
+is on the list to translate. A test or fixture that must carry non-English text to do its job opts
+out with `language-check: non-English by design` on its own comment line.
 
-## 2. 설계 불변식 — 깨지 말 것
-`packages/**`를 건드리면 `spec/architecture.md`를 읽고 불변식
-(패턴≠데이터 / 인터페이스로만 확장 / 루프는 탐색만 / 재생은 결정적 / 의존방향 qa→harness)을
-지킨다. `.claude/hooks/route.sh`가 이를 자동으로 상기시킨다.
+## 0. Start of session
 
-## 3. Spec Reference Disclosure
-코드 작성·수정 **직전**, 어떤 spec 문서의 어떤 규칙을 적용하는지 한 줄로 밝힌다.
-> 이 작업은 [종류]라 [`spec/...`]의 [규칙]을 참고해 작성합니다.
+1. `spec/journal/state.md` — standing decisions, the release procedure, environment notes. Short and
+   slow-moving. Always first.
+2. `npm run journal:status` — what is in flight right now, derived from `spec/journal/entries/`.
+   Never committed, so it cannot go stale.
+3. `spec/architecture.md` (invariants) and `spec/core/` (mechanism specs) when the task touches
+   design.
 
-전체를 요약하지 말 것 — 포인터만. 규칙이 변경과 충돌하면 끝에 그 사실을 보고한다.
+## 1. Routing — task to document
 
-## 4. Verify before done — 완료 조건
-"끝났다" 선언 전에:
-- 타입체크·빌드·테스트 통과(있으면).
-- 가능하면 **도그푸딩** — cairn 자신으로 한 번 돌려본다.
-- review 단계(생기면 `spec/code/.../review-checklist.md`) 통과.
+- Core, pipeline, interfaces (`packages/harness/**`) → **`spec/architecture.md` is required.**
+- Understanding or changing a core mechanism (the loop, judgment, targeting, self-heal) → `spec/core/`.
+- QA app (`packages/qa/**`) → `spec/architecture.md`.
+- Product design and context → `docs/design.md`.
+- Code-style documents live in `spec/code/` once code accumulates. Do not write them ahead of time.
 
-## 5. 메모리 갱신 — 완료 후
-- `spec/journal/entries/`에 **새 파일 하나**(`YYYY-MM-DD-<slug>.md`)로 이번 작업을 기록
-  (브랜치·과정·결정·결과·**state 변화** 요약). **기존 파일은 건드리지 않는다** — 브랜치마다
-  새 파일만 추가하므로 병합 충돌이 구조적으로 없다.
-- `spec/journal/state.md` — **develop에서만** 갱신(작업 브랜치/PR에서 수정 금지).
-  entry에 적어둔 "state 변화"를 머지 후 develop에서 반영한다.
-- `spec/journal/history.md` — 아카이브(2026-07-03 동결). 더 이상 append하지 않는다.
+## 2. Design invariants — do not break
 
-## 6. 규칙 진화
-작업 중 반복되는 결정이나 규칙 충돌이 보이면 `spec/journal/state.md`의 **"규칙 후보"**에
-한 줄 적어둔다. 반복되면 정식 규칙(`spec/code/...`)으로 승격한다.
+Touching `packages/**` means reading `spec/architecture.md` and holding its invariants: pattern is
+not data / extend through interfaces only / the loop belongs to discovery / replay is deterministic /
+the dependency direction is qa to harness. `.claude/hooks/route.sh` reminds you automatically.
 
-## 7. 컨벤션
-- 코드·식별자·주석·에러 메시지는 **영어**. 사용자와의 대화만 한국어.
-- 커밋은 작고 의미 단위로.
+## 3. Spec reference disclosure
 
-## 8. 에이전트 기여 — 슬롭(slop) 방지
-에이전트는 잘 정돈됐지만 가치 없는 변경(slop)을 빠르게 양산할 수 있다 — 불변식을
-슬쩍 무너뜨리거나, PR을 무관한 수정으로 부풀리거나, 검증을 건너뛰는 식. 아래는 그걸
-막기 위해 에이전트가 따르는 규칙이다. 사람용 전체 기여 절차는 `CONTRIBUTING.md`.
+Immediately before writing or changing code, say in one line which spec rule you are applying.
 
-- **너는 도구다 — 결과는 사람이 소유한다.** 명명된 사람이 모든 줄을 읽고 이해하고
-  책임진다. 설명하지 못하는 변경은 제출하지 않는다.
-- **AI 사용을 고지한다.** 에이전트가 diff의 의미 있는 부분을 작성했으면 커밋 끝에
-  `Assisted-by: <model>` 트레일러를 단다(오타·한 줄 리네임 같은 사소한 수정 제외).
-  자세한 규칙은 `CONTRIBUTING.md`.
-- **대화는 사람이 한다.** 이슈·PR 댓글이나 리뷰 응답을 에이전트가 대신 올리지 않는다.
-  초안을 받았으면 본인 목소리로 다시 써서 올린다.
-- **설계 불변식을 고수한다**(§2): 패턴≠데이터 / 인터페이스로만 확장 / 루프는 탐색만 /
-  재생은 결정적 / 의존방향 qa→harness. 약화시켜야 할 것 같으면 먼저 이슈로 합의한다.
-- **Spec Reference Disclosure**(§3)와 **Verify before done**(§4)를 지킨다. 검증은
-  CI(`.github/workflows/ci.yml`)가 typecheck·build·test로 강제한다 — 빨가면 머지 불가.
-- **작고 단일 목적인 변경.** 1 논리 = 1 PR. 무관한 리팩터·포맷팅(드라이브바이)을 섞지
-  않는다. 버그픽스보다 큰 것은 코드를 생성하기 전에 메인테이너와 방향을 합의한다.
-- **생성·프로즌 산출물을 손으로 고치지 않는다.** `dist/`·`build/`·`bench/frozen/`는
-  재생성한다(전부 gitignore 대상 — 커밋에 들어와선 안 된다).
-- **끝나면 메모리를 갱신한다**(§5): `spec/journal/state.md`·`spec/journal/history.md`.
+> This is a [kind of change], so I am following the [rule] in [`spec/...`].
+
+A pointer, not a summary. If the rule conflicts with the change, report that at the end.
+
+## 4. Verify before done
+
+Before saying it is finished: typecheck, build and tests pass. Dogfood where you can — run cairn
+against itself. Pass whatever review checklist exists in `spec/code/`.
+
+## 5. The journal
+
+`spec/journal/` is the continuity record: why something was decided, and what is in flight.
+
+- **`entries/`** holds the current release cycle, one file per work item, **append-only**. Add a new
+  file; never edit an existing one. That is what lets two branches touch the journal without ever
+  conflicting, and it is why no branch rule is needed.
+- Each entry starts with front matter, then English prose:
+
+  ```
+  ---
+  issue: 225
+  pr: 226
+  status: landed
+  summary: Both discovery loops send the element listing every turn
+  next: null
+  ---
+  ```
+
+  `status` is `landed`, `in-progress`, `blocked` or `abandoned`. `summary` is one line and is what
+  `npm run journal:status` shows. `next` is a single line or `null`. `npm run journal:check`
+  validates every entry.
+- **`state.md`** holds only what outlives a cycle: standing decisions, the release procedure,
+  environment notes. It is not a status board; status is derived.
+- **`archive/`** holds one file per release. At release time the **Prepare release** workflow bumps
+  the version, writes the release entry and folds the cycle's entries into an archive, in that
+  order, then opens the release pull request as a draft. `npm run release:prepare <version>` does the
+  file changes locally if you want to look before anything moves.
+- **`history.md`** is frozen. Do not append.
+
+An entry is for work that carries a decision. A typo fix does not need one.
+
+**You usually do not write one by hand.** When a pull request merges into develop, a bot drafts the
+entry on develop from the pull request itself: the summary from its title, the issue from its
+closing keyword, the prose from its body. Edit that draft in place to say what the diff cannot. An
+entry already present is never overwritten, so writing one yourself in the branch is still the way
+to control exactly what it says.
+
+The draft drops a body that is not English rather than carrying it, because the entry lands on
+develop and would otherwise fail the repository's own language check. An outside contributor is
+never expected to think about any of this.
+
+## 6. Rules evolve
+
+When a decision repeats or two rules collide, add a line under **Rule candidates** in
+`spec/journal/state.md`. If it keeps repeating, promote it to a real rule in `spec/code/`.
+
+## 7. Conventions
+
+- English everywhere in the repository. See the note at the top.
+- Commits small and single-purpose.
+
+## 8. Agent contributions — avoiding slop
+
+An agent can produce tidy, worthless change quickly: quietly weakening an invariant, padding a pull
+request with unrelated edits, skipping verification. These rules exist to stop that. The full human
+contribution process is in `CONTRIBUTING.md`.
+
+- **You are a tool; a person owns the result.** A named person reads, understands and answers for
+  every line. Do not submit a change you cannot explain.
+- **Disclose AI use.** When an agent wrote a meaningful part of a diff, add an `Assisted-by: <model>`
+  trailer to the commit, except for trivial edits. `CONTRIBUTING.md` has the detail.
+- **A person does the talking.** An agent does not post issue or pull request comments on someone's
+  behalf. Take the draft and rewrite it in your own voice.
+- **Hold the invariants** (§2). If one seems to need weakening, agree it in an issue first.
+- **Follow §3 and §4.** CI enforces verification: typecheck, build, tests, boundaries, language and
+  the journal check. Red means no merge.
+- **Small, single-purpose changes.** One logical change per pull request. No drive-by refactors or
+  formatting. Anything larger than a bug fix is agreed with a maintainer before code is generated.
+- **Do not hand-edit generated or frozen output.** `dist/`, `build/` and `bench/results/` are
+  regenerated and are all gitignored.
+- **Update the journal when you finish** (§5).

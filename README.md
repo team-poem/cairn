@@ -50,10 +50,6 @@ Each table shows the total cost and LLM calls for six runs of the same journey, 
 | GPT-5.6 Luna | Form save | ~$0.0297 · 30 calls | ~$0.0042 · 4 calls |
 | GPT-5.6 Luna | Login → cart → order | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
 
-Compare the two approaches within each row. These fixtures do not establish a model price or quality ranking, and the dollar figures are not extra subscription charges. [Methods, token counts, and calculation](docs/benchmarks/228-codex.md).
-
-When button names changed, the saved scenarios still found them by role and position. No AI repair was needed, so the cost and success rate of self-heal remain [unmeasured](https://github.com/team-poem/cairn/issues/230).
-
 ## Features
 
 - Discover a flow from a plain-language intent, with an LLM, once

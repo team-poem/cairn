@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { build, version as esbuildVersion } from "esbuild";
 import { collectReplays, measuredRounds } from "./ci-sampling.mjs";
+import { baselineHasHarness, renderSizeOnlyComparison } from "./ci-size-only.mjs";
 import { compareReports, renderComparison } from "./ci-report.mjs";
 import { buildHash, git, load, tiers, latency, toolchain, writeJson } from "./ci-worker.mjs";
 
@@ -49,32 +50,44 @@ async function attempt(root, label, mode, captures) {
 }
 
 try {
-  const environment = { ...toolchain().environment, esbuild: esbuildVersion };
+  const hasHarness = baselineHasHarness(baseRoot, baseCommit);
   const baseSizes = await sizes(baseRoot, "base"), headSizes = await sizes(headRoot, "head");
   await writeJson(join(out, "sizes.json"), { baseCommit, headCommit, base: baseSizes, head: headSizes });
-  const discovery = await attempt(baseRoot, "discovery", "discover");
-  if (discovery.failed || discovery.report.records.some(row => !row.passed)) throw new Error("Baseline scripted discovery failed; no comparable canonical captures");
-  const captures = join(out, "discovery/captures/run-1");
-  const { fixtureInfo } = await load(baseRoot, "bench/local/server.mjs");
-  const workload = {
-    fixtureHash: createHash("sha256").update(JSON.stringify(tiers.map(tier => fixtureInfo(tier, "v1")))).digest("hex"),
-    captures: discovery.report.records.map(row => ({ tier: row.tier, scenarioHash: row.scenarioHash })), runs, latency,
-    fixtureCommit: baseCommit,
-  };
-  const reports = {
-    base: { schemaVersion: 1, commit: baseCommit, dirty: Boolean(git(baseRoot, "status", "--porcelain")), buildHash: await buildHash(baseRoot), environment, workload, sizes: baseSizes, records: [], incomplete: false },
-    head: { schemaVersion: 1, commit: headCommit, dirty: Boolean(git(headRoot, "status", "--porcelain")), buildHash: await buildHash(headRoot), environment, workload, sizes: headSizes, records: [], incomplete: false },
-  };
-  const { failed, warmupFailed } = await collectReplays({
-    reports, attempt, baseRoot, headRoot, captures, environment, workload, fixtureInfo,
-  });
-  // Warmup failures invalidate the check even if the later attempts succeed.
-  await writeJson(join(out, "paired.json"), { ...reports, warmupFailed });
-  if (warmupFailed) throw new Error("A warmup failed; timing comparisons are withheld");
-  const comparison = compareReports(reports.base, reports.head);
-  markdown = renderComparison(comparison);
-  if (failed) markdown += "\n**FAILED: at least one warmup or measured replay failed. Timing is not evidence of improvement.**\n";
-  if (failed || comparison.tiers.some(row => row.status === "invalid")) process.exitCode = 1;
+  if (!hasHarness) {
+    const side = async (root, commit, measuredSizes) => ({ commit, dirty: Boolean(git(root, "status", "--porcelain")), buildHash: await buildHash(root), sizes: measuredSizes });
+    const pair = {
+      schemaVersion: 1, kind: "size-only", replay: { status: "unavailable", reason: "baseline-harness-absent" },
+      environment: { node: process.version, esbuild: esbuildVersion, platform: process.platform, arch: process.arch },
+      base: await side(baseRoot, baseCommit, baseSizes), head: await side(headRoot, headCommit, headSizes),
+    };
+    markdown = renderSizeOnlyComparison(pair);
+    await writeJson(join(out, "paired.json"), pair);
+  } else {
+    const environment = { ...toolchain().environment, esbuild: esbuildVersion };
+    const discovery = await attempt(baseRoot, "discovery", "discover");
+    if (discovery.failed || discovery.report.records.some(row => !row.passed)) throw new Error("Baseline scripted discovery failed; no comparable canonical captures");
+    const captures = join(out, "discovery/captures/run-1");
+    const { fixtureInfo } = await load(baseRoot, "bench/local/server.mjs");
+    const workload = {
+      fixtureHash: createHash("sha256").update(JSON.stringify(tiers.map(tier => fixtureInfo(tier, "v1")))).digest("hex"),
+      captures: discovery.report.records.map(row => ({ tier: row.tier, scenarioHash: row.scenarioHash })), runs, latency,
+      fixtureCommit: baseCommit,
+    };
+    const reports = {
+      base: { schemaVersion: 1, commit: baseCommit, dirty: Boolean(git(baseRoot, "status", "--porcelain")), buildHash: await buildHash(baseRoot), environment, workload, sizes: baseSizes, records: [], incomplete: false },
+      head: { schemaVersion: 1, commit: headCommit, dirty: Boolean(git(headRoot, "status", "--porcelain")), buildHash: await buildHash(headRoot), environment, workload, sizes: headSizes, records: [], incomplete: false },
+    };
+    const { failed, warmupFailed } = await collectReplays({
+      reports, attempt, baseRoot, headRoot, captures, environment, workload, fixtureInfo,
+    });
+    // Warmup failures invalidate the check even if the later attempts succeed.
+    await writeJson(join(out, "paired.json"), { ...reports, warmupFailed });
+    if (warmupFailed) throw new Error("A warmup failed; timing comparisons are withheld");
+    const comparison = compareReports(reports.base, reports.head);
+    markdown = renderComparison(comparison);
+    if (failed) markdown += "\n**FAILED: at least one warmup or measured replay failed. Timing is not evidence of improvement.**\n";
+    if (failed || comparison.tiers.some(row => row.status === "invalid")) process.exitCode = 1;
+  }
 } catch (error) {
   console.error(error);
   process.exitCode = 1;

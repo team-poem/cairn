@@ -14,7 +14,7 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 
 cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
-![Claude — cumulative calls finish at 42 versus 7 per model. Dashed discovery line connects known endpoints only; intermediate counts are unavailable.](docs/benchmarks/228-claude-calls.svg)
+![Claude — Sonnet 5 and Opus 5 each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-claude-calls.svg)
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-calls.svg)
 
@@ -37,6 +37,8 @@ Each table shows the total cost and LLM calls for six runs of the same journey, 
 | Opus 5 | Login → cart → order | $0.463 · 42 calls | $0.077 · 7 calls |
 
 **Codex estimated costs**
+
+Codex costs are estimates from recorded tokens assuming OpenAI Standard short-context API rates; the CLI reported neither dollar costs nor a service tier.
 
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |

@@ -1,4 +1,4 @@
-// Reproduce the two README charts from attributed Claude totals and recorded Codex runs.
+// Reproduce the two README charts from author-reported Claude counts and recorded Codex runs.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 
@@ -32,6 +32,8 @@ assert.deepEqual(claude.models.map((row) => row.model), ["claude-sonnet-5", "cla
 for (const row of claude.models) {
   assert.equal(row.agentCalls, 42);
   assert.equal(row.cairnCalls, 7);
+  assert.deepEqual(row.cumulativeAgentCalls, [7, 14, 21, 28, 35, 42]);
+  assert.deepEqual(row.cumulativeCairnCalls, [7, 7, 7, 7, 7, 7]);
 }
 
 assert.equal(claude.replaysPerModel, 5);
@@ -39,23 +41,21 @@ assert.equal(claude.replayCallsPerModel, 0);
 const groups = [
   {
     file: "228-claude-calls.svg", provider: "Claude", names: "Sonnet 5 · Opus 5",
-    // Only the baseline and six-run discovery total are known. The dashed connector is a guide.
-    agent: [[0, 0], [6, claude.models[0].agentCalls]],
-    cairn: [[0, 0], ...Array.from({ length: 6 }, (_, i) => [i + 1, claude.models[0].cairnCalls])],
-    sparse: true,
-    basis: "The author reported the six-run totals and zero calls on all five replays. Intermediate discovery counts are unavailable; the dashed line only connects the baseline and final total.",
+    agent: [[0, 0], ...claude.models[0].cumulativeAgentCalls.map((value, i) => [i + 1, value])],
+    cairn: [[0, 0], ...claude.models[0].cumulativeCairnCalls.map((value, i) => [i + 1, value])],
+    basis: "Each cumulative count was reported by the PR author from the original recorded runs.",
   },
   {
     file: "228-calls.svg", provider: "Codex", names: "Sol · Terra · Luna",
     agent: [[0, 0], ...agent.map((value, i) => [i + 1, value])],
     cairn: [[0, 0], ...cairn.map((value, i) => [i + 1, value])],
-    sparse: false, basis: "Each point is summed from the recorded runs.",
+    basis: "Each point is summed from the recorded runs.",
   },
 ];
 const x = (run) => 80 + run * 165;
 const y = (calls) => 315 - calls / 42 * 210;
-const line = (points, color, dashed) => `
-    <polyline points="${points.map(([run, calls]) => `${x(run)},${y(calls)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="4"${dashed ? ' stroke-dasharray="8 7"' : ""}/>
+const line = (points, color) => `
+    <polyline points="${points.map(([run, calls]) => `${x(run)},${y(calls)}`).join(" ")}" fill="none" stroke="${color}" stroke-width="4"/>
     ${points.map(([run, calls]) => `<circle cx="${x(run)}" cy="${y(calls)}" r="5" fill="${color}"/>`).join("\n    ")}`;
 for (const group of groups) {
   await writeFile(new URL(`./${group.file}`, import.meta.url), `<svg width="1200" height="390" viewBox="0 0 1200 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
@@ -68,15 +68,15 @@ for (const group of groups) {
     <text x="1160" y="47" text-anchor="end" fill="#8fa0b8" font-size="21">Cumulative LLM calls / model</text>
     ${[0, 7, 21, 42].map((calls) => `<line x1="80" y1="${y(calls)}" x2="1070" y2="${y(calls)}" stroke="#263043"/>
     <text x="64" y="${y(calls) + 6}" text-anchor="end" fill="#8fa0b8" font-size="18">${calls}</text>`).join("\n    ")}
-    ${line(group.agent, "#e0aa6e", group.sparse)}
-    ${line(group.cairn, "#7ddab0", false)}
+    ${line(group.agent, "#e0aa6e")}
+    ${line(group.cairn, "#7ddab0")}
     <text x="1090" y="115" fill="#e0aa6e" font-size="30" font-weight="600">42</text>
     <text x="805" y="185" fill="#e0aa6e" font-size="21">Discover every run</text>
     <text x="1090" y="290" fill="#7ddab0" font-size="30" font-weight="600">7</text>
     <text x="835" y="262" fill="#7ddab0" font-size="21">Discover + replay</text>
     ${Array.from({ length: 7 }, (_, run) => `<text x="${x(run)}" y="345" text-anchor="middle" fill="#8fa0b8" font-size="18">${run}</text>`).join("\n    ")}
     <text x="1110" y="345" fill="#8fa0b8" font-size="18">Run</text>
-    ${group.sparse ? '<text x="80" y="376" fill="#8fa0b8" font-size="17">Dashed: endpoints only; intermediate discovery counts unavailable.</text>' : ""}
+
   </g>
 </svg>
 `.replace(/[ \t]+\n/g, "\n"));

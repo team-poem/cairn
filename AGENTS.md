@@ -67,13 +67,23 @@ against itself. Pass whatever review checklist exists in `spec/code/`.
   validates every entry.
 - **`state.md`** holds only what outlives a cycle: standing decisions, the release procedure,
   environment notes. It is not a status board; status is derived.
-- **`archive/`** holds one file per release. At release time `npm run journal:archive <version>`
-  folds the cycle's entries into it and empties `entries/`.
+- **`archive/`** holds one file per release. At release time the **Prepare release** workflow bumps
+  the version, writes the release entry and folds the cycle's entries into an archive, in that
+  order, then opens the release pull request as a draft. `npm run release:prepare <version>` does the
+  file changes locally if you want to look before anything moves.
 - **`history.md`** is frozen. Do not append.
 
-An entry is for work that carries a decision. A typo fix does not need one. An outside contributor
-is not expected to write one: for those changes the pull request body is the record, and a maintainer
-adds an entry if the change carries a decision worth keeping.
+An entry is for work that carries a decision. A typo fix does not need one.
+
+**You usually do not write one by hand.** When a pull request merges into develop, a bot drafts the
+entry on develop from the pull request itself: the summary from its title, the issue from its
+closing keyword, the prose from its body. Edit that draft in place to say what the diff cannot. An
+entry already present is never overwritten, so writing one yourself in the branch is still the way
+to control exactly what it says.
+
+The draft drops a body that is not English rather than carrying it, because the entry lands on
+develop and would otherwise fail the repository's own language check. An outside contributor is
+never expected to think about any of this.
 
 ## 6. Rules evolve
 

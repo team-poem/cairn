@@ -1,3 +1,4 @@
+// language-check: non-English by design — these fixtures prove a non-English body is not carried into develop.
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
 import { draftEntry, entryName, issueOf, summaryOf } from "./journal-entry.mjs";

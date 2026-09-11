@@ -56,11 +56,13 @@
 
 ## Release procedure
 
-1. On develop: bump `packages/harness/package.json` and `package-lock.json`, add a release entry,
-   run `npm run journal:archive <version>` to fold the cycle's entries, and update this file if a
-   standing decision changed.
-2. Open the release pull request from develop to main. Merging it triggers `release.yml`, which
-   publishes to npm, pushes the tag and drafts the GitHub release.
+1. Run the **Prepare release** workflow with the version. It bumps the manifest and the lockfile,
+   writes the release entry, folds the cycle's entries into `spec/journal/archive/<version>.md`,
+   runs the full checks, pushes that to develop and opens the release pull request as a draft.
+   `npm run release:prepare <version>` makes the same file changes locally without pushing.
+2. Write the release notes into the pull request body and take it out of draft. Merging it triggers
+   `release.yml`, which publishes to npm, pushes the tag and drafts the GitHub release. Update this
+   file only if a standing decision changed.
 3. The npm token is the usual failure. A **Classic Automation** token is required: it bypasses two
    factor authentication, which a granular or publish token does not. An expired token fails with
    `E404` on the PUT, because npm reports missing permission as not found; a token that requires a

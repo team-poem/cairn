@@ -12,7 +12,7 @@
  * if it would break the repository's English rule, in favour of a link. Both would otherwise turn
  * develop's own CI red, which is a worse outcome than a thin entry.
  */
-const NON_ENGLISH = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+const NON_ENGLISH = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
 const CLOSES = /(?:closes|fixes|resolves)\s+#(\d+)/i;
 const REFS = /\brefs?\s+#(\d+)/i;
 const TRAILERS = [/^🤖 Generated with .*$/gim, /^https:\/\/claude\.ai\/code\/session_\S*$/gim, /^Assisted-by:.*$/gim, /^Co-Authored-By:.*$/gim];

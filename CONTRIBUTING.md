@@ -180,6 +180,7 @@ kept verbatim in `spec/journal/archive/` and are exempt.
 - `spec/journal/state.md` — standing decisions, the release procedure, environment notes.
 - `spec/journal/entries/` — one file per work item in the current cycle, append-only. Folded into
   `spec/journal/archive/<version>.md` at each release. `npm run journal:status` shows what is in
-  flight. You are not expected to add an entry: for an outside contribution the pull request body is
-  the record, and a maintainer adds an entry if the change carries a decision worth keeping.
+  flight. You are not expected to add an entry. When your pull request merges, a bot drafts one on
+  develop from the pull request itself, and a maintainer edits it if the change carries a decision
+  worth keeping.
 - `docs/design.md` — the product design in full.

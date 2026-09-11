@@ -21,7 +21,7 @@ const CHECKED = /\.(ts|tsx|js|mjs|cjs|json|md|yml|yaml|html|svg)$/;
 const EXEMPT = [/^spec\/journal\/archive\//, /^spec\/journal\/history\.md$/, /^docs\/design\.(md|html)$/, /^package-lock\.json$/];
 const OPT_OUT = "language-check: non-English by design";
 // CJK, Hangul, Hiragana, Katakana. Latin accents and emoji are fine.
-const NON_ENGLISH = /[぀-ヿ㐀-䶿一-鿿가-힯]/;
+const NON_ENGLISH = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af]/;
 
 const files = execFileSync("git", ["ls-files", "-z"], { cwd: root, encoding: "utf8" })
   .split("\0").filter((path) => path && CHECKED.test(path) && !EXEMPT.some((rule) => rule.test(path)));

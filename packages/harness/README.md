@@ -20,35 +20,34 @@ cairn is an engine, not a product. The core is model- and browser-agnostic, and 
 
 ## Measured
 
-Six runs of the same journey, twice: an agent that discovers on every run, against cairn discovering
-once and replaying. The app changes on run 4. Cost is what the provider reported at list price, so a
-subscription run and an API run are the same number.
+Six runs of the same login → cart → order journey: discover on every run, or discover once and
+replay. Both meet the same label changes on run 4.
 
-![Cumulative LLM cost over six runs of a login, cart and order journey: discovering every run climbs
-to $0.269 while discovering once and replaying stays flat at $0.046, crossing over at run
-two](https://raw.githubusercontent.com/team-poem/cairn/main/docs/cost.svg)
+![Sonnet 5 cumulative LLM cost over six runs: discovering every run reaches $0.269; discovering once
+and replaying reaches $0.046, crossing over on run two](https://raw.githubusercontent.com/team-poem/cairn/main/docs/cost.svg)
 
-| Journey | Model | Discover every run | Discover once, then replay |
-| --- | --- | ---: | ---: |
-| click through to a destination | Sonnet 5 | $0.109 · 18 calls | $0.018 · 3 calls |
-| type a name and save it | Sonnet 5 | $0.151 · 24 calls | $0.025 · 4 calls |
-| log in, add to cart, order | Sonnet 5 | $0.269 · 42 calls | $0.046 · 7 calls |
-| log in, add to cart, order | Opus 5 | $0.463 · 42 calls | $0.077 · 7 calls |
+| Model | Discover every run | Discover once, then replay |
+| --- | ---: | ---: |
+| Sonnet 5 | $0.269 · 42 calls | $0.046 · 7 calls |
+| Opus 5 | $0.463 · 42 calls | $0.077 · 7 calls |
+| GPT-5.6 Sol | 506,120 tokens · 42 calls | 84,088 tokens · 7 calls |
+| GPT-5.6 Terra | 504,711 tokens · 42 calls | 83,956 tokens · 7 calls |
+| GPT-5.6 Luna | 448,690 tokens · 42 calls | 74,978 tokens · 7 calls |
 
-Every journey crossed over on the second run. Five of the six runs made no LLM call at all. The ratio
-barely moves between models because the saving is in the call count, not the price per call.
+Claude rows show provider-reported API list-price equivalents, including the CLI's helper model.
+They are not extra subscription charges. Codex CLI 0.146.0 reported no dollar cost, so its rows show
+billed token counts. No dollar conversion or cost crossover is claimed for Codex.
 
-On run 4 the app renamed the controls these journeys use: `Log in` became `Sign in`, `Add to cart`
-became `Add item`, `Save` became `Store`. Every frozen scenario kept passing, because a frozen target
-carries more than a name, and a renamed button still resolves by role and position. That is the first
-line of defence, and it is what these numbers measure.
+The full Codex measurement covers navigation, form saving, and checkout with Sol, Terra, and Luna
+at medium reasoning effort: **108 attempts passed; all 45 replays made zero LLM calls**.
+[See every journey, the schedule, recorded data, and reproduction commands](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/228-codex.md). These are
+local fixtures under a fixed schedule; they do not establish a saving for your application.
 
-Self-heal is the second line, for a change that role and position cannot absorb. It did not fire
-here, so no repair cost is included above. When it does fire it costs one repair, once, and the
-repaired scenario is frozen again, so the run after it is back to zero calls.
-
-Numbers come from `bench/local`, on local fixtures, with 72 attempts and no failures. They describe
-these journeys on this schedule, not your app.
+When `Log in` became `Sign in` and `Add to cart` became `Add item`, the frozen targets still resolved
+by role and position. This is multi-locator targeting, the first line of defence. Self-heal handles
+changes those locators cannot absorb, then carries the repaired scenario forward. It did not fire
+in either provider's measurements, so repair cost and success rate remain unmeasured here
+([#230](https://github.com/team-poem/cairn/issues/230)).
 
 ## Features
 

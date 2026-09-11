@@ -10,7 +10,7 @@
  * This changes files only. Committing, pushing and opening the release pull request belong to the
  * workflow, so the same command can be run locally to inspect the result before anything moves.
  */
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,24 +18,37 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("..", import.meta.url));
 const SEMVER = /^\d+\.\d+\.\d+$/;
 
+const rank = (v) => v.split(".").map(Number).reduce((n, part) => n * 100000 + part, 0);
+
+/**
+ * Edit the two entries that name the harness and nothing else. A string replacement over the
+ * lockfile would also rewrite any dependency that happens to share the version, leaving its
+ * `resolved` URL and `integrity` hash pointing at the old one, and `npm ci` does not complain.
+ */
 async function bump(version) {
   const manifest = join(root, "packages/harness/package.json");
-  const lock = join(root, "package-lock.json");
-  const current = JSON.parse(await readFile(manifest, "utf8")).version;
+  const lockPath = join(root, "package-lock.json");
+  const pkg = JSON.parse(await readFile(manifest, "utf8"));
+  const current = pkg.version;
   if (current === version) throw new Error(`packages/harness/package.json is already ${version}`);
-  for (const path of [manifest, lock]) {
-    const text = await readFile(path, "utf8");
-    const next = text.replaceAll(`"version": "${current}"`, `"version": "${version}"`);
-    if (next === text) throw new Error(`${path} does not carry version ${current}`);
-    await writeFile(path, next);
-  }
+  if (rank(version) < rank(current)) throw new Error(`${version} is below the current ${current}; a release only goes forward`);
+  pkg.version = version;
+  await writeFile(manifest, `${JSON.stringify(pkg, null, 2)}\n`);
+
+  const lock = JSON.parse(await readFile(lockPath, "utf8"));
+  const entry = lock.packages?.["packages/harness"];
+  if (entry?.version !== current) throw new Error(`package-lock.json does not carry packages/harness at ${current}`);
+  entry.version = version;
+  await writeFile(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
   return current;
 }
 
 /** The release's own entry is written before the fold, so it lands in the archive it describes. */
 async function releaseEntry(version, previous) {
   const date = new Date().toISOString().slice(0, 10);
-  const path = join(root, "spec/journal/entries", `${date}-${version}-release.md`);
+  const dir = join(root, "spec/journal/entries");
+  await mkdir(dir, { recursive: true });
+  const path = join(dir, `${date}-${version}-release.md`);
   // A shallow checkout has no previous tag, and a first release has no previous tag at all; the
   // entry is still worth writing, so a missing range degrades to no counts rather than failing.
   const since = (args, fallback = "") => {

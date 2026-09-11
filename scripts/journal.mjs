@@ -38,6 +38,9 @@ function parseEntry(name, text) {
 
 async function readEntries() {
   let names;
+  // The directory is kept by a .gitkeep so a fold cannot make it vanish, but a caller may still
+  // arrive before it exists; create it rather than fail, so writing the next entry always works.
+  await mkdir(dirs.entries, { recursive: true });
   try { names = (await readdir(dirs.entries)).filter((n) => n.endsWith(".md")).sort(); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
   const out = [];

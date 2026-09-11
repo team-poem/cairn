@@ -1,0 +1,3 @@
+The archive fold empties this directory, and git does not track an empty one. Without this file a
+fresh checkout after a release has no entries/ at all, and the next merge's drafted entry fails on a
+missing path. Keep it.

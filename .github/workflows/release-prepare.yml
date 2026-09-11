@@ -28,6 +28,8 @@ jobs:
       - name: Check the version shape before anything moves
         env:
           VERSION: ${{ inputs.version }}
+          STANDING_DAYS: ${{ steps.standing.outputs.days }}
+          STANDING_LAST: ${{ steps.standing.outputs.last }}
         run: |
           case "$VERSION" in
             [0-9]*.[0-9]*.[0-9]*) ;;
@@ -71,6 +73,14 @@ jobs:
           git add packages/harness/package.json package-lock.json spec/journal
           git commit -m "chore(release): ${VERSION}" -m "Version bump, release entry and the cycle's journal entries folded into spec/journal/archive/${VERSION}.md."
           git push origin HEAD:develop
+      - name: How long since a standing decision was written down
+        id: standing
+        run: |
+          # Nothing updates state.md automatically, so the release is the moment to ask whether a
+          # standing decision moved this cycle.
+          SECONDS_AT=$(git log -1 --format=%ct -- spec/journal/state.md)
+          echo "days=$(( ( $(date +%s) - SECONDS_AT ) / 86400 ))" >> "$GITHUB_OUTPUT"
+          echo "last=$(git log -1 --format=%cs -- spec/journal/state.md)" >> "$GITHUB_OUTPUT"
       - name: Open the release pull request
         uses: actions/github-script@v7
         with:
@@ -83,6 +93,8 @@ jobs:
               ``,
               `Write the release notes into this body before merging. Merging it publishes ${version} to npm, pushes the tag and drafts the GitHub release.`,
               ``,
+              `\`spec/journal/state.md\` was last touched ${process.env.STANDING_DAYS} days ago, on ${process.env.STANDING_LAST}. It holds only what outlives a cycle: standing decisions, the release procedure, environment notes. Nothing updates it automatically, so if this cycle changed one of those, change it now. If it did not, leave it alone.`,
+              ``,
               `Full diff: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/v${version.replace(/\.\d+$/, '')}...develop`,
             ].join('\n');
             if (open.length) {
@@ -94,3 +106,5 @@ jobs:
             core.notice(`Opened release pull request #${created.number} as a draft`);
         env:
           VERSION: ${{ inputs.version }}
+          STANDING_DAYS: ${{ steps.standing.outputs.days }}
+          STANDING_LAST: ${{ steps.standing.outputs.last }}

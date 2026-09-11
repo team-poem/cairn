@@ -22,8 +22,6 @@ Each table shows the total cost and LLM calls for six runs of the same journey, 
 
 **Claude reported costs**
 
-The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model.
-
 - **Journey:** The user flow being tested, such as login → cart → order.
 - **Discover:** AI performs the task and creates the steps to replay.
 - **Replay:** Run the saved steps again without LLM calls.

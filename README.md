@@ -12,19 +12,24 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 [![types](https://img.shields.io/npm/types/cairn-engine.svg)](https://www.npmjs.com/package/cairn-engine)
 [![license](https://img.shields.io/npm/l/cairn-engine.svg)](LICENSE)
 
-An AI walks your app once to discover the flow and freezes it to plain JSON. From then on it replays deterministically, with no LLM and no hand-written selectors. When the UI changes and a step breaks, the AI returns to heal just that step, then re-freezes.
+cairn turns a browser task into a reusable JSON test.
 
-> A cairn is a stack of stones that marks a trail. It is built once, so the path can be found again. That is the whole idea: find the path once, follow the marker forever, rebuild it when the trail shifts.
+1. **Discover:** AI runs the task and saves the steps.
+2. **Replay:** Run those saved steps again, with no LLM calls.
+3. **Repair:** If the UI changes and a step breaks, AI can fix that step and save the updated test.
 
-cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
+Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
-We ran the same login → cart → order flow six times. Each tested model made **42 LLM calls when discovering the flow every time**, or **7 calls when discovering it once and replaying it five times**. The replays made no LLM calls.
+**Six checkout runs, for each tested model:**
+
+- Discover every time: **42 LLM calls**.
+- Discover once, then replay five times: **7 LLM calls total**. The replays used **0**.
 
 ![Claude — cumulative calls finish at 42 versus 7 per model. Dashed discovery line connects known endpoints only; intermediate counts are unavailable.](docs/benchmarks/228-claude-calls.svg)
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-calls.svg)
 
-**Claude — reported costs**
+**Claude reported costs**
 
 The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model. Each cell totals six runs of that approach.
 
@@ -37,7 +42,7 @@ The [original measurements](https://github.com/team-poem/cairn/pull/228), priced
 | Opus 5 | Form save | $0.255 · 24 calls | $0.042 · 4 calls |
 | Opus 5 | Login → cart → order | $0.463 · 42 calls | $0.077 · 7 calls |
 
-**Codex — estimated costs**
+**Codex estimated costs**
 
 The same six-run totals, estimated from recorded tokens assuming OpenAI Standard API rates checked on 2026-09-11, including cache discounts. `~` marks an estimate; Codex CLI did not report dollar costs.
 

@@ -18,13 +18,44 @@ An AI walks your app once to discover the flow and freezes it to plain JSON. Fro
 
 cairn is an engine, not a product. The core (`cairn-engine`) is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
 
-Six login → cart → order runs: **42 LLM calls → 7 per model**, with zero calls on the five replays. [Benchmark details](docs/benchmarks/228-codex.md).
-
-Multi-locator targeting survived the label changes. Self-heal handles changes it cannot absorb; that repair remains [unmeasured](https://github.com/team-poem/cairn/issues/230).
+We ran the same login → cart → order flow six times. Each tested model made **42 LLM calls when discovering the flow every time**, or **7 calls when discovering it once and replaying it five times**. The replays made no LLM calls.
 
 ![Claude — cumulative calls finish at 42 versus 7 per model. Dashed discovery line connects known endpoints only; intermediate counts are unavailable.](docs/benchmarks/228-claude-calls.svg)
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-calls.svg)
+
+**Claude — reported costs**
+
+The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model. Each cell totals six runs of that approach.
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| Sonnet 5 | Navigation | $0.109 · 18 calls | $0.018 · 3 calls |
+| Sonnet 5 | Form save | $0.151 · 24 calls | $0.025 · 4 calls |
+| Sonnet 5 | Login → cart → order | $0.269 · 42 calls | $0.046 · 7 calls |
+| Opus 5 | Navigation | $0.208 · 18 calls | $0.030 · 3 calls |
+| Opus 5 | Form save | $0.255 · 24 calls | $0.042 · 4 calls |
+| Opus 5 | Login → cart → order | $0.463 · 42 calls | $0.077 · 7 calls |
+
+**Codex — estimated costs**
+
+The same six-run totals, estimated from recorded tokens assuming OpenAI Standard API rates checked on 2026-09-11, including cache discounts. `~` marks an estimate; Codex CLI did not report dollar costs.
+
+| Model | Journey | Discover every run | Discover once + replay |
+| --- | --- | ---: | ---: |
+| GPT-5.6 Sol | Navigation | ~$0.8002 · 18 calls | ~$0.0880 · 3 calls |
+| GPT-5.6 Sol | Form save | ~$0.6905 · 24 calls | ~$0.0826 · 4 calls |
+| GPT-5.6 Sol | Login → cart → order | ~$1.1513 · 42 calls | ~$0.1502 · 7 calls |
+| GPT-5.6 Terra | Navigation | ~$0.2540 · 18 calls | ~$0.0391 · 3 calls |
+| GPT-5.6 Terra | Form save | ~$0.1935 · 24 calls | ~$0.0313 · 4 calls |
+| GPT-5.6 Terra | Login → cart → order | ~$0.3788 · 42 calls | ~$0.0566 · 7 calls |
+| GPT-5.6 Luna | Navigation | ~$0.0276 · 18 calls | ~$0.0020 · 3 calls |
+| GPT-5.6 Luna | Form save | ~$0.0297 · 30 calls | ~$0.0042 · 4 calls |
+| GPT-5.6 Luna | Login → cart → order | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
+
+Compare the two approaches within each row. These fixtures do not establish a model price or quality ranking, and the dollar figures are not extra subscription charges. [Methods, token counts, and calculation](docs/benchmarks/228-codex.md).
+
+When button names changed, the saved scenarios still found them by role and position. No AI repair was needed, so the cost and success rate of self-heal remain [unmeasured](https://github.com/team-poem/cairn/issues/230).
 
 ## Features
 

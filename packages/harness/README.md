@@ -18,39 +18,13 @@ An AI walks your app once to discover the flow and freezes it to plain JSON. Fro
 
 cairn is an engine, not a product. The core is model- and browser-agnostic, and you embed it to build QA tools, CI gates, or monitors. Discovery is paid once. Regression is free.
 
-## Measured
+Across six runs of a local login → cart → order journey, each of the five tested models used **42 LLM calls when discovering every run, and 7 when discovering once and replaying**. The five replays made no LLM calls. Sonnet 5 and Opus 5 were measured in the original PR; Sol, Terra, and Luna reproduced the call-count result below.
 
-Six runs of the same login → cart → order journey: discover on every run, or discover once and
-replay. Both meet the same label changes on run 4.
+When controls were renamed on run 4, multi-locator targeting kept the frozen scenarios passing. Self-heal repairs changes those locators cannot absorb; it did not fire in these measurements, so repair cost and success rate remain [unmeasured](https://github.com/team-poem/cairn/issues/230).
 
-![Sonnet 5 cumulative LLM cost over six runs: discovering every run reaches $0.269; discovering once
-and replaying reaches $0.046, crossing over on run two](https://raw.githubusercontent.com/team-poem/cairn/main/docs/cost.svg)
+[Benchmark details](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/228-codex.md) include the schedule, all three journeys, token counts, and separate provider cost tables. These local fixtures measure the effect of replay within each model, and do not establish a model price or quality ranking.
 
-| Model | Discover every run | Discover once, then replay |
-| --- | ---: | ---: |
-| Sonnet 5 | $0.269 · 42 calls | $0.046 · 7 calls |
-| Opus 5 | $0.463 · 42 calls | $0.077 · 7 calls |
-| GPT-5.6 Sol | ~$1.1513 · 42 calls | ~$0.1502 · 7 calls |
-| GPT-5.6 Terra | ~$0.3788 · 42 calls | ~$0.0566 · 7 calls |
-| GPT-5.6 Luna | ~$0.0407 · 42 calls | ~$0.0049 · 7 calls |
-
-Claude rows show provider-reported API list-price equivalents, including the CLI's helper model.
-Codex rows marked `~` are estimates from recorded input, cache, and output tokens using
-[OpenAI Standard short-context API rates](https://developers.openai.com/api/docs/pricing) checked on
-2026-09-11. The CLI reported no dollar cost or service tier; Standard pricing is an assumption.
-Neither provider's figures represent extra subscription charges. Token breakdowns and the reproducible
-conversion are in the detailed results; no Codex dollar crossover is claimed.
-
-The full Codex measurement covers navigation, form saving, and checkout with Sol, Terra, and Luna
-at medium reasoning effort: **108 attempts passed; all 45 replays made zero LLM calls**.
-[See every journey, the schedule, recorded data, and reproduction commands](https://github.com/team-poem/cairn/blob/main/docs/benchmarks/228-codex.md). These are
-local fixtures under a fixed schedule; they do not establish a saving for your application.
-
-When `Log in` became `Sign in` and `Add to cart` became `Add item`, the frozen targets still resolved
-by role and position. This is multi-locator targeting, the first line of defence. Self-heal handles
-changes those locators cannot absorb, then carries the repaired scenario forward. It did not fire
-in either provider's measurements, so repair cost and success rate remain unmeasured here
-([#230](https://github.com/team-poem/cairn/issues/230)).
+![Cumulative LLM calls over six checkout runs: discover every run rises from 7 to 42; discover once and replay stays at 7. Sol, Terra, and Luna each produced this same trace.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
 
 ## Features
 

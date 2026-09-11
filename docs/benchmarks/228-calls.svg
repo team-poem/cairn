@@ -1,0 +1,54 @@
+<svg width="1200" height="520" viewBox="0 0 1200 520" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Six checkout runs: 42 LLM calls versus 7</title>
+  <desc id="desc">Sol, Terra and Luna each produced the same cumulative call counts. Discover every run: 7, 14, 21, 28, 35, 42. Discover once and replay: 7 on every run. Controls were renamed on run 4; no repair was needed. These are individual model traces, not pooled totals.</desc>
+  <rect width="1200" height="520" rx="20" fill="#0b1019"/>
+  <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+    <text x="48" y="52" fill="#ffffff" font-size="30" font-weight="600">Discover once. Replay five times.</text>
+    <text x="48" y="84" fill="#8fa0b8" font-size="19">Login → cart → order · Sol, Terra and Luna each produced this trace</text>
+    <text x="48" y="119" fill="#8fa0b8" font-size="17">Cumulative LLM calls</text>
+    <line x1="86" y1="420" x2="1036" y2="420" stroke="#1c2434"/>
+    <text x="70" y="426" fill="#8fa0b8" font-size="18" text-anchor="end">0</text>
+    <line x1="86" y1="373.3333333333333" x2="1036" y2="373.3333333333333" stroke="#1c2434"/>
+    <text x="70" y="379.3333333333333" fill="#8fa0b8" font-size="18" text-anchor="end">7</text>
+    <line x1="86" y1="326.6666666666667" x2="1036" y2="326.6666666666667" stroke="#1c2434"/>
+    <text x="70" y="332.6666666666667" fill="#8fa0b8" font-size="18" text-anchor="end">14</text>
+    <line x1="86" y1="280" x2="1036" y2="280" stroke="#1c2434"/>
+    <text x="70" y="286" fill="#8fa0b8" font-size="18" text-anchor="end">21</text>
+    <line x1="86" y1="233.33333333333334" x2="1036" y2="233.33333333333334" stroke="#1c2434"/>
+    <text x="70" y="239.33333333333334" fill="#8fa0b8" font-size="18" text-anchor="end">28</text>
+    <line x1="86" y1="186.66666666666666" x2="1036" y2="186.66666666666666" stroke="#1c2434"/>
+    <text x="70" y="192.66666666666666" fill="#8fa0b8" font-size="18" text-anchor="end">35</text>
+    <line x1="86" y1="140" x2="1036" y2="140" stroke="#1c2434"/>
+    <text x="70" y="146" fill="#8fa0b8" font-size="18" text-anchor="end">42</text>
+    <line x1="656" y1="132" x2="656" y2="420" stroke="#8fa0b8" stroke-dasharray="4 7"/>
+    <text x="670" y="161" fill="#8fa0b8" font-size="17">Labels changed</text>
+    
+  <polyline points="86,373.3333333333333 276,326.6666666666667 466,280 656,233.33333333333334 846,186.66666666666666 1036,140" fill="none" stroke="#e0aa6e" stroke-width="4"/>
+  <circle cx="86" cy="373.3333333333333" r="5" fill="#e0aa6e"/>
+  <circle cx="276" cy="326.6666666666667" r="5" fill="#e0aa6e"/>
+  <circle cx="466" cy="280" r="5" fill="#e0aa6e"/>
+  <circle cx="656" cy="233.33333333333334" r="5" fill="#e0aa6e"/>
+  <circle cx="846" cy="186.66666666666666" r="5" fill="#e0aa6e"/>
+  <circle cx="1036" cy="140" r="5" fill="#e0aa6e"/>
+    
+  <polyline points="86,373.3333333333333 276,373.3333333333333 466,373.3333333333333 656,373.3333333333333 846,373.3333333333333 1036,373.3333333333333" fill="none" stroke="#7ddab0" stroke-width="4" stroke-dasharray="9 6"/>
+  <circle cx="86" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+  <circle cx="276" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+  <circle cx="466" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+  <circle cx="656" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+  <circle cx="846" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+  <circle cx="1036" cy="373.3333333333333" r="5" fill="#7ddab0"/>
+    <text x="1049" y="150" fill="#e0aa6e" font-size="30" font-weight="600">42</text>
+    <text x="860" y="219" fill="#e0aa6e" font-size="19">Discover every run</text>
+    <text x="1049" y="383" fill="#7ddab0" font-size="30" font-weight="600">7</text>
+    <text x="766" y="350" fill="#7ddab0" font-size="19">Discover once, then replay</text>
+    <text x="86" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">1</text>
+    <text x="276" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">2</text>
+    <text x="466" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">3</text>
+    <text x="656" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">4</text>
+    <text x="846" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">5</text>
+    <text x="1036" y="451" text-anchor="middle" fill="#8fa0b8" font-size="18">6</text>
+    <text x="1094" y="451" fill="#8fa0b8" font-size="18">Run</text>
+    <text x="48" y="491" fill="#8fa0b8" font-size="18">Five replays · zero LLM calls · no repairs triggered in this fixture</text>
+  </g>
+</svg>

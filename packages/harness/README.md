@@ -40,8 +40,6 @@ The [original measurements](https://github.com/team-poem/cairn/pull/228), priced
 
 **Codex estimated costs**
 
-The same six-run totals, estimated from recorded tokens assuming OpenAI Standard API rates checked on 2026-09-11, including cache discounts. `~` marks an estimate; Codex CLI did not report dollar costs.
-
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |
 | GPT-5.6 Sol | Navigation | ~$0.8002 · 18 calls | ~$0.0880 · 3 calls |

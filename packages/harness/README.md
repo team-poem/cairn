@@ -18,16 +18,16 @@ cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cai
 
 ![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](https://raw.githubusercontent.com/team-poem/cairn/main/docs/benchmarks/228-calls.svg)
 
-- **Journey:** The user flow being tested, such as login → cart → order.
-- **Discover:** AI performs the task and creates the steps to replay.
-- **Replay:** Run the saved steps again without LLM calls.
-- **Heal:** AI repairs a step that broke after a UI change. This did not occur in these measurements.
-
 Each table shows the total cost and LLM calls for six runs of the same journey, using each approach.
 
 **Claude reported costs**
 
 The [original measurements](https://github.com/team-poem/cairn/pull/228), priced by Claude Code at API list rates, including its helper model.
+
+- **Journey:** The user flow being tested, such as login → cart → order.
+- **Discover:** AI performs the task and creates the steps to replay.
+- **Replay:** Run the saved steps again without LLM calls.
+- **Heal:** AI repairs a step that broke after a UI change. This did not occur in these measurements.
 
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |

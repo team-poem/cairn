@@ -809,8 +809,9 @@ export class ChromeDevToolsDriver implements Driver {
       if (this.documentObservation) {
         const observation = this.documentObservation;
         await observation.validate(row);
+        const currentPage = await this.selectedPage();
         if (this.references.get(ref) !== row || this.documentObservation !== observation ||
-            await this.selectedPage() !== this.observedPage) throw new Error("observation superseded during document validation");
+            currentPage === undefined || currentPage !== this.observedPage) throw new Error("observation superseded during document validation");
         return row;
       }
       // Include unnamed peers: role/index counts them as well. These are the captured

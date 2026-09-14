@@ -176,3 +176,17 @@ test("documentRefUnknownGuard: unavailable document measurements preserve candid
     expect(unknown.every(row => row.ref === undefined)).toBe(true);
   });
 });
+test("documentRefAsyncSupersession: recapture during the final page check cannot dispatch the old exact ref", async () => {
+  await withDocuments(async ({ driver, clicks }) => {
+    const ref = (await driver.snapshot({ perception: true })).find(row => row.role === "button" && row.name === "Save")!.ref!;
+    const target = await driver.locateRef(ref);
+    const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+    let pageChecks = 0;
+    (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+      if (name === "list_pages" && ++pageChecks === 2) await driver.snapshot({ perception: true });
+      return original(name, args);
+    };
+    await expect(driver.click(target, ref)).rejects.toThrow(/expired|ref|superseded/i);
+    expect(clicks).toEqual([]);
+  });
+});

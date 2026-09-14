@@ -119,6 +119,22 @@ All PR target branches trigger validation, including stacked feature PRs.
 
 ## Run locally
 
+The separate `Document references (MCP 1.8.0)` job exercises the production driver against
+local Chrome pages with same-origin nested frames, a cross-site sibling (`127.0.0.1` and
+`localhost`), and an unnamed empty frame. Five duplicate buttons must receive exact refs
+and click in global order. Targets are saved and loaded through the public skill-file API,
+then replayed in a fresh browser with zero LLM calls. Twelve frame-lifecycle checks must
+reject expired refs before any click tool is dispatched.
+
+Run it after `npm ci` and `npm run build` with `npm run test:document-refs`. It uses pinned
+MCP 1.8.0 through `npx`, or an already installed tool supplied in `CAIRN_MCP_ENTRY`.
+`CAIRN_DOCUMENT_REFS_REPORT` selects a JSON result file; CI retains it as `document-refs`.
+`CAIRN_DOCUMENT_REFS_DEBUG=1` includes raw MCP calls in the log for diagnosis.
+
+This fixture proves the listed topology. MCP can omit a loaded nested cross-site document
+from its AX tree; incomplete or unavailable document coverage remains a conservative
+fallback. The existing MCP 1.3.0 compatibility jobs below remain separate.
+
 Install dependencies and build both checkouts first. Replay comparison requires
 the baseline local runner from #169 and the public APIs used by it. A baseline
 without the entire local harness receives the size-only result described above;

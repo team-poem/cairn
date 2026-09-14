@@ -67,6 +67,34 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  document-refs:
+    name: Document references (MCP 1.8.0)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Install production browser driver
+        run: npm install --prefix "${{ runner.temp }}/cairn-document-tools" --ignore-scripts --no-audit --no-fund chrome-devtools-mcp@1.8.0
+      - name: Exact document references and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+          CAIRN_DOCUMENT_REFS_REPORT: ${{ runner.temp }}/document-refs.json
+        run: npm run test:document-refs
+      - name: Preserve document reference results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: document-refs
+          path: ${{ runner.temp }}/document-refs.json
+          if-no-files-found: warn
+          retention-days: 14
+
   # Prove that the published artifact can be embedded outside this workspace.
   package-consumer:
     runs-on: ubuntu-latest

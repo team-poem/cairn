@@ -580,7 +580,7 @@ export class ChromeDevToolsDriver implements Driver {
         if (errorKindOf(err) === "transport") throw err;
         const message = err instanceof Error ? err.message : "";
         const isolatedNodeFailure = !isDialogBlocked(message) &&
-          /^(?:MCP evaluate_script failed: )?(?:Elements from different frames (?:can't|cannot) be evaluated together\.?|Element uid "[^"\r\n]+" not found on page \S+\.|Element with uid \S+ no longer exists on the page\.)(?:\nCause: [\s\S]*)?$/.test(message);
+          /^(?:MCP evaluate_script failed: )?(?:Error: )?(?:Elements from different frames (?:can't|cannot) be evaluated together\.?|Element uid "[^"\r\n]+" not found on page \S+\.|Element with uid \S+ no longer exists on the page\.)(?:\nCause: [\s\S]*)?$/.test(message);
         if (!isolatedNodeFailure) {
           // A global tool/schema failure will not improve by retrying every subset.
           // Keep its candidates, but do not claim facts or exact identity for this batch.

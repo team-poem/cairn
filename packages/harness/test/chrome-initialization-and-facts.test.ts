@@ -187,3 +187,31 @@ test("globalFactFailureDoesNotSplitCandidates: generic schema and tool-envelope 
     });
   }
 });
+
+test("realMcpNodeErrorEnvelopesPreserveOtherFacts: MCP Error prefixes still isolate mixed-frame and stale UIDs", async () => {
+  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+  for (const message of [
+    "Error: Elements from different frames can't be evaluated together.",
+    'Error: Element uid "1_1" not found on page 0.',
+    "Error: Element with uid 1_1 no longer exists on the page.\nCause: Could not resolve node.",
+  ]) {
+    issue231Wire.calls = [];
+    const original = Client.prototype.callTool;
+    const spy = vi.spyOn(Client.prototype, "callTool").mockImplementation(function (this: InstanceType<typeof Client>, request, ...options) {
+      if (request.name === "evaluate_script" && String(request.arguments?.function).includes("const ids =")) {
+        issue231Wire.factEnvelope = (request.arguments!.args as string[]).includes("1_1") ? message : undefined;
+      }
+      return original.call(this, request, ...options);
+    });
+    try {
+      await issue231Driver(async driver => {
+        const rows = await driver.snapshot({ perception: true });
+        expect(issue231FactCalls()).toHaveLength(7);
+        expect(rows).toHaveLength(8);
+        expect(rows[0]!.inActivePopup).toBeUndefined();
+        for (const row of rows.slice(1)) expect(row).toMatchObject({ inActivePopup: true, clickable: true, clickableRegion: "region" });
+        expect(rows.every(row => row.ref === undefined)).toBe(true);
+      });
+    } finally { spy.mockRestore(); }
+  }
+});

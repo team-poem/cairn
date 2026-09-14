@@ -230,3 +230,27 @@ test("documentCaptureSupersession: a recapture during facts cannot publish older
     expect(await driver.locateRef(freshRef!)).toMatchObject({ text: "Save", nth: 0 });
   });
 });
+test("documentUidRotation: fresh root, owner and verbose-peer UIDs preserve original objects and the compact target", async () => {
+  await withDocuments(async ({ driver, page, frame, onSnapshot, clicks }) => {
+    await frame("/same").evaluate("document.querySelector('#unnamed').setAttribute('data-verbose', '')");
+    const ref = (await driver.snapshot({ perception: true })).find(row => row.role === "button" && row.name === "Save")?.ref;
+    expect(ref).toBeTypeOf("string");
+    let rotated = false;
+    onSnapshot(async verbose => {
+      if (verbose || rotated) return;
+      rotated = true;
+      for (const context of page.frames()) await context.evaluate(`(() => {
+        const state = globalThis.fixture;
+        const selected = location.pathname === '/' ? document.querySelector('#main') : undefined;
+        const uid = selected && state.ids.get(selected);
+        state.ids = new WeakMap(); state.nodes = new Map();
+        if (selected) { state.ids.set(selected, uid); state.nodes.set(uid, selected); }
+      })()`);
+    });
+    const target = await driver.locateRef(ref!);
+    expect(rotated).toBe(true);
+    expect(target).toEqual({ text: "Save", role: "button", index: 0, nth: 0 });
+    await driver.click(target, ref);
+    expect(clicks).toEqual(["/#main"]);
+  });
+});

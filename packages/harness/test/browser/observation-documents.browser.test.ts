@@ -143,3 +143,22 @@ test("documentRefContinuity: frame navigation, owner changes and global cohort d
     });
   }
 }, 60_000);
+test("documentRefStableIntervals: incidental changes pass, continuously mutating documents fail within two validation captures", async () => {
+  await withDocuments(async ({ driver, frame, clicks, onSnapshot }) => {
+    const rows = await driver.snapshot({ perception: true });
+    const ref = rows.find(row => row.name === "Save" && row.role === "button")?.ref;
+    expect(ref).toBeTypeOf("string");
+    await frame("/empty").evaluate("document.querySelector('#clock').textContent = '12:01'");
+    const target = await driver.locateRef(ref!);
+    await driver.click(target, ref);
+    expect(clicks).toEqual(["/#main"]);
+    const fresh = (await driver.snapshot({ perception: true })).find(row => row.name === "Save" && row.role === "button")!.ref!;
+    let captures = 0;
+    onSnapshot(async verbose => {
+      if (verbose) { captures++; await frame("/empty").evaluate("document.querySelector('#clock').textContent += '.'"); }
+    });
+    await expect(driver.locateRef(fresh)).rejects.toThrow(/stable|expired|ref/i);
+    expect(captures).toBeLessThanOrEqual(2);
+    expect(clicks).toEqual(["/#main"]);
+  });
+});

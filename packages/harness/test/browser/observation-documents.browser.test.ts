@@ -211,3 +211,22 @@ test("documentRefValidationWindow: mutations in a previously checked document ca
     expect(clicks).toEqual([]);
   });
 });
+
+test("documentCaptureSupersession: a recapture during facts cannot publish older refs or replace the newer observation", async () => {
+  await withDocuments(async ({ driver }) => {
+    const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+    let freshRef: string | undefined;
+    let superseded = false;
+    (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = await original(name, args);
+      if (!superseded && name === "evaluate_script" && String(args.function).includes("const ids =") && String(args.function).includes("const active =")) {
+        superseded = true;
+        freshRef = (await driver.snapshot({ perception: true })).find(row => row.role === "button" && row.name === "Save")?.ref;
+      }
+      return result;
+    };
+    await expect(driver.snapshot({ perception: true })).rejects.toThrow(/expired|superseded|observation/i);
+    expect(freshRef).toBeTypeOf("string");
+    expect(await driver.locateRef(freshRef!)).toMatchObject({ text: "Save", nth: 0 });
+  });
+});

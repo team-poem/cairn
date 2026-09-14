@@ -513,6 +513,10 @@ export class ChromeDevToolsDriver implements Driver {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.invalidateObservation();
+    const version = this.observationVersion;
+    const assertCapture = () => {
+      if (this.observationVersion !== version) throw stepError("resolution", "observation capture superseded");
+    };
     let guarded = false;
     if (options?.perception) {
       // Install before capture so changed sibling order cannot freeze an already-stale ordinal.
@@ -529,6 +533,7 @@ export class ChromeDevToolsDriver implements Driver {
     let raw = options?.perception
       ? await this.call("take_snapshot", { verbose: true })
       : await this.getSnapshot();
+    assertCapture();
     let documentCoverage = true;
     if (options?.perception && documentTopology(raw).framed) {
       documentCoverage = false;
@@ -538,6 +543,7 @@ export class ChromeDevToolsDriver implements Driver {
             (name, args) => this.call(name, args, "observation"), this.guardKey, parseSnapshotRows,
           );
           raw = await observation.start(raw);
+          assertCapture();
           this.documentObservation = observation;
           documentCoverage = true;
         } catch (err) {
@@ -545,16 +551,23 @@ export class ChromeDevToolsDriver implements Driver {
         }
       }
     }
+    assertCapture();
     const els = parseElements(raw);
     if (options?.perception) {
-      const version = ++this.observationVersion;
       const page = await this.selectedPage();
+      assertCapture();
       this.observedPage = page;
       // MCP's verbose tree includes virtual InlineTextBox entries with shared/unresolvable UIDs.
       // The owning StaticText remains available; virtual glyph runs cannot be action targets.
       this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
       const named = this.observedRows.filter((row) => row.name.trim());
       const facts = await this.probePerceptionFacts(named);
+      assertCapture();
+      if (this.documentObservation) {
+        const currentPage = await this.selectedPage();
+        assertCapture();
+        if (currentPage === undefined || currentPage !== page) throw stepError("resolution", "observation page changed during capture");
+      }
       return els.filter(element => element.role !== "InlineTextBox").map((element, i) => {
         const row = named[i]!;
         const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
@@ -940,6 +953,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private invalidateObservation(): void {
+    this.observationVersion++;
     this.references.clear();
     this.documentObservation = undefined;
     this.validatedReferenceRevisions.clear();

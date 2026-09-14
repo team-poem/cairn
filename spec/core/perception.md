@@ -131,8 +131,10 @@ guarantee.
 
 The default driver pins Chrome DevTools MCP 1.8.0 and disables its explicit page-ID
 routing to retain the selected-page/UID protocol. During connection initialization,
-it negotiates `evaluate_script`'s public `waitForStableDom` boolean once. Guard setup,
-perception facts and reference validation request `false` only when supported. This
+it negotiates `evaluate_script`'s public `waitForStableDom` boolean once.
+Concurrent first calls share the entire connection and negotiation attempt. Failed initialization
+can be retried. Closing the driver is terminal and also releases a transport still initializing.
+Guard setup, perception facts and reference validation request `false` only when supported. This
 includes the first guard call: arguments are prepared after negotiation. Older/custom
 servers without the option use ordinary evaluation; a failed evaluation is never retried
 with a different wait mode. Negotiation transport failures and timeouts abort initialization
@@ -191,7 +193,9 @@ The DOM probe measures expanded `aria-controls`/`aria-owns` relationships, open 
 hit-test coverage, and roleless cursor regions, including delegated click handlers. It treats
 offscreen, clipped, detached, and shadow-tree hit tests as unknown. A cursor is only a candidate
 hint. Mixed-frame or detached-UID batch failures are isolated; other measurable rows retain
-their facts and region identity.
+their facts and region identity. Other non-transport failures stop the affected batch without
+recursive retries, preserving candidates but withholding unmeasured facts and exact refs.
+Transport failures abort the capture.
 
 Exact refs are scoped to a Driver capture and guarded document. Chrome validates selected-page
 identity, original-node connectivity, and a DOM mutation guard before enrichment and dispatch.

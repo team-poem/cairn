@@ -136,3 +136,19 @@ test("failedInitializationFansOutAndCanRetry: concurrent callers share one start
     expect(issue231Wire.lists).toBe(1);
   });
 });
+
+test("sharedNegotiationTimeoutClosesOneTransport: concurrent evidence calls fail together without leaked transports", async () => {
+  vi.useFakeTimers();
+  issue231Wire.listGate = new Promise<void>(() => {});
+  try {
+    await issue231Driver(async driver => {
+      const outcome = driver.observe().then(() => undefined, error => error);
+      await vi.advanceTimersByTimeAsync(26);
+      expect(await outcome).toMatchObject({ kind: "transport" });
+      expect(issue231Wire.connects).toBe(1);
+      expect(issue231Wire.lists).toBe(1);
+      expect(issue231Wire.calls).toEqual([]);
+      expect(issue231Wire.transports.every(transport => transport.closes === 1)).toBe(true);
+    }, { timeoutMs: 25 });
+  } finally { vi.useRealTimers(); }
+});

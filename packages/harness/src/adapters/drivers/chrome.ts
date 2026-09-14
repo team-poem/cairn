@@ -578,6 +578,15 @@ export class ChromeDevToolsDriver implements Driver {
         }, "observation");
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;
+        const message = err instanceof Error ? err.message : "";
+        const isolatedNodeFailure = !isDialogBlocked(message) &&
+          /^(?:MCP evaluate_script failed: )?(?:Elements from different frames (?:can't|cannot) be evaluated together\.?|Element uid "[^"\r\n]+" not found on page \S+\.|Element with uid \S+ no longer exists on the page\.)(?:\nCause: [\s\S]*)?$/.test(message);
+        if (!isolatedNodeFailure) {
+          // A global tool/schema failure will not improve by retrying every subset.
+          // Keep its candidates, but do not claim facts or exact identity for this batch.
+          for (const uid of uids) this.unguarded.add(uid);
+          return;
+        }
         // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
         // unsupported node must not erase measurable main-page facts. Region IDs use the
         // first candidate UID in a page-local WeakMap, so they survive batch boundaries.

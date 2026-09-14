@@ -168,3 +168,22 @@ test("closeDuringInitializationCleansPendingTransport: close releases the spawne
   await expect(driver.snapshot()).rejects.toMatchObject({ kind: "transport" });
   expect(issue231Wire.connects).toBe(1);
 });
+
+test("globalFactFailureDoesNotSplitCandidates: generic schema and tool-envelope failures preserve candidates without multiplying probes or changing wait mode", async () => {
+  for (const failure of [
+    { error: new Error("Observation evaluation is unavailable") },
+    { error: new McpError(ErrorCode.InvalidParams, "Invalid arguments for tool evaluate_script: waitForStableDom is not accepted") },
+    { envelope: "Invalid arguments for tool evaluate_script: waitForStableDom is not accepted" },
+  ]) {
+    issue231Wire.factError = "error" in failure ? failure.error : undefined;
+    issue231Wire.factEnvelope = "envelope" in failure ? failure.envelope : undefined;
+    issue231Wire.calls = [];
+    await issue231Driver(async driver => {
+      const rows = await driver.snapshot({ perception: true });
+      expect(rows.map(row => row.name)).toEqual(Array.from({ length: 8 }, (_, i) => `Save ${i + 1}`));
+      expect(rows.every(row => row.ref === undefined && row.inActivePopup === undefined && row.clickable === undefined)).toBe(true);
+      expect(issue231FactCalls()).toHaveLength(1);
+      expect(issue231FactCalls()[0]!.arguments.waitForStableDom).toBe(false);
+    });
+  }
+});

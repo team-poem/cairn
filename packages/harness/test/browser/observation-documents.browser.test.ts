@@ -162,3 +162,17 @@ test("documentRefStableIntervals: incidental changes pass, continuously mutating
     expect(clicks).toEqual(["/#main"]);
   });
 });
+test("documentRefUnknownGuard: unavailable document measurements preserve candidates without offering refs", async () => {
+  await withDocuments(async ({ driver }) => {
+    const rows = await driver.snapshot({ perception: true });
+    expect(rows.some(row => row.ref !== undefined)).toBe(true);
+    const call = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+    (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+      if (name === "evaluate_script" && (args.args as string[] | undefined)?.length) throw new Error("Evaluation is unavailable");
+      return call(name, args);
+    };
+    const unknown = await driver.snapshot({ perception: true });
+    expect(unknown.filter(row => row.name === "Save" && row.role === "button")).toHaveLength(4);
+    expect(unknown.every(row => row.ref === undefined)).toBe(true);
+  });
+});

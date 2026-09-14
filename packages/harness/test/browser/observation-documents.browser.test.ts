@@ -254,3 +254,14 @@ test("documentUidRotation: fresh root, owner and verbose-peer UIDs preserve orig
     expect(clicks).toEqual(["/#main"]);
   });
 });
+test("documentUidRebinding: a reused selected UID cannot silently switch to another same-named DOM object", async () => {
+  await withDocuments(async ({ driver, page, clicks }) => {
+    await page.evaluate("const b = document.createElement('button'); b.id='decoy'; b.setAttribute('data-row','button'); b.textContent='Save'; document.body.append(b)");
+    const ref = (await driver.snapshot({ perception: true })).find(row => row.role === "button" && row.name === "Save")?.ref;
+    expect(ref).toBeTypeOf("string");
+    const target = await driver.locateRef(ref!);
+    await page.evaluate("const s = globalThis.fixture; s.nodes.set(s.ids.get(document.querySelector('#main')), document.querySelector('#decoy'))");
+    await expect(driver.click(target, ref)).rejects.toThrow(/expired|ref|continuity/i);
+    expect(clicks).toEqual([]);
+  });
+});

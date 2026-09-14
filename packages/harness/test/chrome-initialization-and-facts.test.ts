@@ -121,3 +121,18 @@ test("pendingNegotiationIsShared: tool dispatch waits for the single capability 
     expect(issue231FactCalls()[0]!.arguments.waitForStableDom).toBe(false);
   });
 });
+
+test("failedInitializationFansOutAndCanRetry: concurrent callers share one startup failure and a later call gets one fresh attempt", async () => {
+  issue231Wire.connectError = new Error("launch unavailable");
+  await issue231Driver(async driver => {
+    const outcomes = await Promise.allSettled([driver.observe(), driver.snapshot()]);
+    expect(outcomes.every(outcome => outcome.status === "rejected")).toBe(true);
+    expect(issue231Wire.connects).toBe(1);
+    expect(issue231Wire.calls).toEqual([]);
+    expect(issue231Wire.transports[0]!.closes).toBe(1);
+    issue231Wire.connectError = undefined;
+    await driver.observe();
+    expect(issue231Wire.connects).toBe(2);
+    expect(issue231Wire.lists).toBe(1);
+  });
+});

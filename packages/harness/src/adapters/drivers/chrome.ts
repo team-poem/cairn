@@ -177,6 +177,7 @@ export function mcpToolError(name: string, text: string): Error {
 
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
+  private connecting?: Promise<Client>;
   private transport?: StdioClientTransport;
   private observationWaitOverride = false;
   private initialUrl?: string;
@@ -246,6 +247,15 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("transport", "browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
     }
     if (this.client) return this.client;
+    // Cold observe() asks for pages, network and console concurrently. Share both the
+    // transport connection and capability negotiation before publishing the client.
+    if (!this.connecting) {
+      this.connecting = this.connect().finally(() => { this.connecting = undefined; });
+    }
+    return this.connecting;
+  }
+
+  private async connect(): Promise<Client> {
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: this.opts.command ?? MCP_COMMAND,

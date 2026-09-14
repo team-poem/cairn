@@ -103,3 +103,21 @@ test("pendingConnectionIsShared: concurrent calls cannot start another transport
     expect(issue231Wire.lists).toBe(1);
   });
 });
+
+test("pendingNegotiationIsShared: tool dispatch waits for the single capability negotiation", async () => {
+  const gate = issue231Deferred();
+  issue231Wire.listGate = gate.promise;
+  await issue231Driver(async driver => {
+    const first = driver.snapshot({ perception: true });
+    await vi.waitFor(() => expect(issue231Wire.lists).toBeGreaterThan(0));
+    const second = driver.observe();
+    const connects = issue231Wire.connects;
+    const calls = issue231Wire.calls.length;
+    gate.resolve();
+    await Promise.all([first, second]);
+    expect(connects).toBe(1);
+    expect(calls).toBe(0);
+    expect(issue231Wire.lists).toBe(1);
+    expect(issue231FactCalls()[0]!.arguments.waitForStableDom).toBe(false);
+  });
+});

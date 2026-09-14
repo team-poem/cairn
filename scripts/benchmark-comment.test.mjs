@@ -159,3 +159,25 @@ test("publisher rejects a different source workflow", async t => {
   await assert.rejects(f.publish(), /Unexpected benchmark workflow/);
   assert.equal(f.sent.length, 0);
 });
+
+test("candidateFilterKeepsUniqueSameRepositoryPR: a fork association sharing the commit cannot hide the eligible PR", async t => {
+  const f = await fixture(t);
+  const eligible = structuredClone(f.pr);
+  const fork = structuredClone(f.pr);
+  fork.number = 228;
+  fork.head.repo.full_name = "fork/repo";
+  f.associated = [eligible, fork];
+  await f.publish();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].issue_number, eligible.number);
+});
+
+test("candidateFilterRejectsForkBeforePRRead: an independent valid detail response cannot conceal a fork candidate", async t => {
+  const f = await fixture(t);
+  const fork = structuredClone(f.pr);
+  fork.head.repo.full_name = "fork/repo";
+  f.associated = [fork];
+  await f.publish();
+  assert.deepEqual(f.reads, []);
+  assert.deepEqual(f.sent, []);
+});

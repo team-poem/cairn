@@ -152,3 +152,19 @@ test("sharedNegotiationTimeoutClosesOneTransport: concurrent evidence calls fail
     }, { timeoutMs: 25 });
   } finally { vi.useRealTimers(); }
 });
+
+test("closeDuringInitializationCleansPendingTransport: close releases the spawned transport before negotiation settles and remains terminal", async () => {
+  const gate = issue231Deferred();
+  issue231Wire.listGate = gate.promise;
+  const driver = new ChromeDevToolsDriver();
+  const outcome = driver.observe().then(() => undefined, error => error);
+  await vi.waitFor(() => expect(issue231Wire.lists).toBeGreaterThan(0));
+  await driver.close();
+  const closesAtReturn = issue231Wire.transports.map(transport => transport.closes);
+  gate.resolve();
+  expect(await outcome).toMatchObject({ kind: "transport" });
+  expect(closesAtReturn).toEqual([1]);
+  expect(issue231Wire.calls).toEqual([]);
+  await expect(driver.snapshot()).rejects.toMatchObject({ kind: "transport" });
+  expect(issue231Wire.connects).toBe(1);
+});

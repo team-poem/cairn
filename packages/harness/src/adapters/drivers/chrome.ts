@@ -261,13 +261,16 @@ export class ChromeDevToolsDriver implements Driver {
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
+    this.transport = transport; // close() also owns an initialization still in flight
     // An unexpected transport close mid-run is fatal for this session: a silent reconnect would
     // resume the run on a fresh browser (about:blank, empty storage) and fail confusingly (#88).
     transport.onclose = () => {
-      if (this.client === client) {
-        this.client = undefined;
+      if (this.transport === transport) {
         this.transport = undefined;
-        this.crashed = true;
+        if (this.client === client) {
+          this.client = undefined;
+          this.crashed = true;
+        }
       }
     };
     try {
@@ -276,14 +279,19 @@ export class ChromeDevToolsDriver implements Driver {
         this.opts.connectTimeoutMs ?? 60_000,
         "chrome-devtools-mcp connect",
       );
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
       this.observationWaitOverride = await this.supportsObservationWaitOverride(client);
-      if (this.closed) throw stepError("transport", "driver closed during MCP initialization");
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
     } catch (err) {
-      await transport.close().catch(() => {}); // don't orphan the spawned subprocess
+      // Clear ownership before intentional cleanup, and do not close a transport that
+      // close() or its own onclose callback has already released.
+      if (this.transport === transport) {
+        this.transport = undefined;
+        await transport.close().catch(() => {});
+      }
       throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.client = client;
-    this.transport = transport;
     return client;
   }
 

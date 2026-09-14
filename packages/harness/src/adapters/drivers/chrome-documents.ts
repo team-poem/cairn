@@ -131,8 +131,24 @@ export class ChromeDocumentObservation {
         this.requireGuard(result, index);
         after.push(result.revision as number);
       }
-      if (after.every((value, index) => value === revisions[index])) { this.revisions = after; return; }
-      revisions = after;
+      // A later frame evaluation can overlap a mutation in an earlier document. Close the
+      // substantive validation interval with a lightweight revision sweep over every root.
+      const closing: number[] = [];
+      for (const [index, root] of current.topology.documents.entries()) {
+        const result = await this.evaluate(`root => {
+          const state = globalThis[Symbol.for(${JSON.stringify(this.key)})];
+          if (!state?.observer || state.overflow || root !== document || state.document !== document) return { connected: false };
+          state.retain(state.observer.takeRecords());
+          return { connected: !state.overflow, token: state.token, revision: state.records.length };
+        }`, [root.uid]);
+        this.requireGuard(result, index);
+        closing.push(result.revision as number);
+      }
+      if (closing.every((value, index) => value === after[index] && value === revisions[index])) {
+        this.revisions = closing;
+        return;
+      }
+      revisions = closing;
     }
     throw new Error("observation could not validate a stable document cohort");
   }

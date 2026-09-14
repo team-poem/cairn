@@ -190,3 +190,24 @@ test("documentRefAsyncSupersession: recapture during the final page check cannot
     expect(clicks).toEqual([]);
   });
 });
+test("documentRefValidationWindow: mutations in a previously checked document cannot escape later frame validation", async () => {
+  for (const empty of [false, true]) await withDocuments(async ({ driver, page, frame, clicks, evaluations }) => {
+    if (empty) await page.evaluate("document.querySelector('#same').before(document.querySelector('#empty'))");
+    const ref = (await driver.snapshot({ perception: true })).find(row => row.role === "button" && row.name === "Save")!.ref!;
+    const target = await driver.locateRef(ref);
+    const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+    let changed = false;
+    (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+      const result = await original(name, args);
+      if (!changed && name === "evaluate_script" && String(args.function).includes("const keys =") && evaluations.at(-1)?.document.endsWith("/nested")) {
+        changed = true;
+        if (empty) await frame("/empty").evaluate("document.body.innerHTML = '<button data-row=button>Save</button>'");
+        else await page.evaluate("document.querySelector('#main').textContent = 'Delete'");
+      }
+      return result;
+    };
+    await expect(driver.click(target, ref)).rejects.toThrow(/ref|expired|cohort/i);
+    expect(changed).toBe(true);
+    expect(clicks).toEqual([]);
+  });
+});

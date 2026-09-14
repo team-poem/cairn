@@ -117,3 +117,29 @@ test("documentRefsAcrossFrames: same-origin, cross-origin and nested duplicates 
     }
   });
 });
+test("documentRefContinuity: frame navigation, owner changes and global cohort drift expire refs before enrichment and dispatch", async () => {
+  const mutations = [
+    async ({ frame }: DocumentFixture) => { await frame("/cross").goto("http://cross.test/cross?reload=1"); },
+    async ({ frame }: DocumentFixture) => { await frame("/cross").evaluate("location.reload()"); await frame("/cross").waitForLoadState(); },
+    async ({ page }: DocumentFixture) => { await page.locator("#cross").evaluate(node => node.remove()); },
+    async ({ page }: DocumentFixture) => { await page.locator("#cross").evaluate(node => node.replaceWith(node.cloneNode(true))); },
+    async ({ page }: DocumentFixture) => { await page.evaluate("document.querySelector('#same').before(document.querySelector('#cross'))"); },
+    async ({ frame }: DocumentFixture) => { await frame("/empty").evaluate("document.body.innerHTML = '<button data-row=button>Save</button>'"); },
+    async ({ frame }: DocumentFixture) => { await frame("/same").evaluate("document.querySelector('#unnamed').remove()"); },
+    async ({ frame }: DocumentFixture) => { await frame("/same").evaluate("document.querySelector('#same').replaceWith(document.querySelector('#same').cloneNode(true))"); },
+    async ({ frame }: DocumentFixture) => { await frame("/nested").evaluate("document.querySelector('button').setAttribute('aria-label', 'Cancel')"); },
+    async ({ frame }: DocumentFixture) => { await frame("/nested").evaluate("document.querySelector('button').setAttribute('role', 'link')"); },
+    async ({ page }: DocumentFixture) => { await page.evaluate("const f = document.createElement('iframe'); f.id='new'; f.src='http://main.test/empty'; document.body.append(f)"); },
+  ];
+  for (const dispatch of [false, true]) for (const mutate of mutations) {
+    await withDocuments(async fixture => {
+      const rows = await fixture.driver.snapshot({ perception: true });
+      const ref = rows.find(row => row.name === "Save" && row.role === "button")?.ref;
+      expect(ref).toBeTypeOf("string");
+      const target = dispatch ? await fixture.driver.locateRef(ref!) : { text: "Save", role: "button", nth: 0 };
+      await mutate(fixture);
+      await expect(dispatch ? fixture.driver.click(target, ref) : fixture.driver.locateRef(ref!)).rejects.toThrow(/ref|expired|continuity/i);
+      expect(fixture.clicks).toEqual([]);
+    });
+  }
+}, 60_000);

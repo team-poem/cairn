@@ -37,8 +37,12 @@ export function documentTopology(raw: string): DocumentTopology {
       documents.push({ uid, ...(owner ? { owner: owner.uid, parent: owner.document } : {}) });
       if (owner) { if (attached.has(owner.uid)) valid = false; attached.add(owner.uid); }
     }
-    if (membership.has(uid)) valid = false;
-    if (document !== undefined) membership.set(uid, document);
+    // Virtual glyph runs may alias another UID, even across frames. They do not own
+    // nodes or participate in semantic row pools and must never overwrite membership.
+    if (role !== "InlineTextBox") {
+      if (membership.has(uid)) valid = false;
+      if (document !== undefined) membership.set(uid, document);
+    }
     stack.push({ indent, uid, role, document });
   }
   if ([...owners].some(uid => !attached.has(uid))) valid = false;

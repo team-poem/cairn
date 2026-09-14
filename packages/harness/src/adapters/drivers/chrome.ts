@@ -4,6 +4,7 @@
  * Chrome-specific, including parsing the MCP's human-readable text, stays here behind the
  * Driver port (invariant #5).
  */
+import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -190,6 +191,7 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly driverId = ++nextDriverId;
   private observationVersion = 0;
   private observedRows: SnapshotRow[] = [];
+  private documentObservation?: ChromeDocumentObservation;
   private observedPage?: string;
   private readonly references = new Map<string, SnapshotRow>();
   private readonly unguarded = new Set<string>();
@@ -524,9 +526,25 @@ export class ChromeDevToolsDriver implements Driver {
     }
     // Perception has a larger candidate pool than ordinary lookup and select's watermark.
     // Keep its full tree local so those compact-snapshot consumers retain their ordinals.
-    const raw = options?.perception
+    let raw = options?.perception
       ? await this.call("take_snapshot", { verbose: true })
       : await this.getSnapshot();
+    let documentCoverage = true;
+    if (options?.perception && documentTopology(raw).framed) {
+      documentCoverage = false;
+      if (guarded && documentTopology(raw).valid) {
+        try {
+          const observation = new ChromeDocumentObservation(
+            (name, args) => this.call(name, args, "observation"), this.guardKey, parseSnapshotRows,
+          );
+          raw = await observation.start(raw);
+          this.documentObservation = observation;
+          documentCoverage = true;
+        } catch (err) {
+          if (errorKindOf(err) === "transport") throw err;
+        }
+      }
+    }
     const els = parseElements(raw);
     if (options?.perception) {
       const version = ++this.observationVersion;
@@ -543,7 +561,7 @@ export class ChromeDevToolsDriver implements Driver {
         // A failed page measurement preserves candidates but cannot promise exact identity.
         // All candidate bindings share the captured ordinal pool. An unguarded shadow/frame row can
         // change the ordinal of a document row too, so coverage must hold for the whole capture.
-        const addressable = guarded && page !== undefined && this.unguarded.size === 0;
+        const addressable = guarded && documentCoverage && page !== undefined && this.unguarded.size === 0;
         if (addressable) this.references.set(ref, row);
         return { ...element, ...facts.get(row.uid), ...(addressable ? { ref } : {}) };
       });
@@ -788,6 +806,13 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("resolution", "observation ref expired: active page continuity is unavailable");
     }
     try {
+      if (this.documentObservation) {
+        const observation = this.documentObservation;
+        await observation.validate(row);
+        if (this.references.get(ref) !== row || this.documentObservation !== observation ||
+            await this.selectedPage() !== this.observedPage) throw new Error("observation superseded during document validation");
+        return row;
+      }
       // Include unnamed peers: role/index counts them as well. These are the captured
       // backend nodes, never a search by text or a reconstruction of implicit ARIA roles.
       const cohort = this.observedRows.filter(candidate => candidate.role === row.role);
@@ -915,6 +940,7 @@ export class ChromeDevToolsDriver implements Driver {
 
   private invalidateObservation(): void {
     this.references.clear();
+    this.documentObservation = undefined;
     this.validatedReferenceRevisions.clear();
     this.capturedReferenceCohorts.clear();
     this.unguarded.clear();

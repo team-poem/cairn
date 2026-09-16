@@ -192,7 +192,9 @@ bound exact refs that pass compact re-anchoring, not to every historical ordinal
 The DOM probe measures expanded `aria-controls`/`aria-owns` relationships, open dialogs/popovers,
 hit-test coverage, and roleless cursor regions, including delegated click handlers. It treats
 offscreen, clipped, detached, and shadow-tree hit tests as unknown. A cursor is only a candidate
-hint. Mixed-frame or detached-UID batch failures are isolated; other measurable rows retain
+hint. Complete document topology partitions fact probes into document-local batches without
+changing candidate order or persistent ordinals. Unknown membership keeps the ordinary batch
+isolation path. Mixed-frame or detached-UID batch failures are isolated; other measurable rows retain
 their facts and region identity. Other non-transport failures stop the affected batch without
 recursive retries, preserving candidates but withholding unmeasured facts and exact refs.
 Transport failures abort the capture.
@@ -231,6 +233,9 @@ Multi-document validation refreshes the full tree and verifies document tokens, 
 global role/name order and original node identity, partitioning evaluations by document. Every
 captured document participates, including frames with no peers of the selected role. A closing
 revision sweep detects changes in earlier documents while later documents undergo validation.
+Main-document targets use these same checks: another frame can change their global ordinal.
+An unchanged DOM revision cannot replace the accessibility capture, since CSSOM and media-query
+changes can reveal peers without producing a MutationObserver record.
 At most two capture intervals may be attempted; continuous mutation refuses the ref. These
 checks do not make evaluation across contexts and final MCP dispatch atomic.
 

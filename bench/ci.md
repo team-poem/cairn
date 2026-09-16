@@ -131,6 +131,14 @@ MCP 1.8.0 through `npx`, or an already installed tool supplied in `CAIRN_MCP_ENT
 `CAIRN_DOCUMENT_REFS_REPORT` selects a JSON result file; CI retains it as `document-refs`.
 `CAIRN_DOCUMENT_REFS_DEBUG=1` includes raw MCP calls in the log for diagnosis.
 
+For per-action cost, run `node scripts/measure-document-refs.mjs` after building.
+It runs the same fixture and additionally reports MCP call counts by tool and elapsed time
+from each perception snapshot through its successful exact click. Navigation, startup and
+replay are outside those measurements. The optional first argument selects an absolute built
+runtime module path, allowing the same fixture to measure a baseline checkout; the optional
+second argument selects the pinned MCP entry. Use the same Chrome/MCP versions and an idle
+machine for comparisons. Timing is informational, not a performance gate.
+
 This fixture proves the listed topology. MCP can omit a loaded nested cross-site document
 from its AX tree; incomplete or unavailable document coverage remains a conservative
 fallback. The existing MCP 1.3.0 compatibility jobs below remain separate.

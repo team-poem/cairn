@@ -561,7 +561,8 @@ export class ChromeDevToolsDriver implements Driver {
       // The owning StaticText remains available; virtual glyph runs cannot be action targets.
       this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
       const named = this.observedRows.filter((row) => row.name.trim());
-      const facts = await this.probePerceptionFacts(named);
+      const topology = documentTopology(raw);
+      const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
       assertCapture();
       if (this.documentObservation) {
         const currentPage = await this.selectedPage();
@@ -596,7 +597,7 @@ export class ChromeDevToolsDriver implements Driver {
     return els;
   }
 
-  private async probePerceptionFacts(rows: SnapshotRow[]): Promise<Map<string, Partial<PageElement>>> {
+  private async probePerceptionFacts(rows: SnapshotRow[], membership?: Map<string, number>): Promise<Map<string, Partial<PageElement>>> {
     const facts = new Map<string, Partial<PageElement>>();
     if (!rows.length) return facts;
     const measure = async (batch: SnapshotRow[]): Promise<void> => {
@@ -646,7 +647,21 @@ export class ChromeDevToolsDriver implements Driver {
         facts.set(uid, row);
       }
     };
-    await measure(rows);
+    // The full tree already identifies document contexts. Start with compatible batches
+    // instead of paying for known mixed-frame failures and recursively discovering them.
+    // Incomplete topology keeps the ordinary isolation path, preserving every candidate.
+    if (membership && rows.every(row => membership.has(row.uid))) {
+      const documents = new Map<number, SnapshotRow[]>();
+      for (const row of rows) {
+        const document = membership.get(row.uid)!;
+        const batch = documents.get(document) ?? [];
+        batch.push(row);
+        documents.set(document, batch);
+      }
+      for (const batch of documents.values()) await measure(batch);
+    } else {
+      await measure(rows);
+    }
     return facts;
   }
 

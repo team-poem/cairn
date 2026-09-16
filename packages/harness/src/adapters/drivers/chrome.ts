@@ -177,6 +177,7 @@ export function mcpToolError(name: string, text: string): Error {
 
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
+  private connecting?: Promise<Client>;
   private transport?: StdioClientTransport;
   private observationWaitOverride = false;
   private initialUrl?: string;
@@ -246,18 +247,30 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("transport", "browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
     }
     if (this.client) return this.client;
+    // Cold observe() asks for pages, network and console concurrently. Share both the
+    // transport connection and capability negotiation before publishing the client.
+    if (!this.connecting) {
+      this.connecting = this.connect().finally(() => { this.connecting = undefined; });
+    }
+    return this.connecting;
+  }
+
+  private async connect(): Promise<Client> {
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
+    this.transport = transport; // close() also owns an initialization still in flight
     // An unexpected transport close mid-run is fatal for this session: a silent reconnect would
     // resume the run on a fresh browser (about:blank, empty storage) and fail confusingly (#88).
     transport.onclose = () => {
-      if (this.client === client) {
-        this.client = undefined;
+      if (this.transport === transport) {
         this.transport = undefined;
-        this.crashed = true;
+        if (this.client === client) {
+          this.client = undefined;
+          this.crashed = true;
+        }
       }
     };
     try {
@@ -266,14 +279,19 @@ export class ChromeDevToolsDriver implements Driver {
         this.opts.connectTimeoutMs ?? 60_000,
         "chrome-devtools-mcp connect",
       );
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
       this.observationWaitOverride = await this.supportsObservationWaitOverride(client);
-      if (this.closed) throw stepError("transport", "driver closed during MCP initialization");
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
     } catch (err) {
-      await transport.close().catch(() => {}); // don't orphan the spawned subprocess
+      // Clear ownership before intentional cleanup, and do not close a transport that
+      // close() or its own onclose callback has already released.
+      if (this.transport === transport) {
+        this.transport = undefined;
+        await transport.close().catch(() => {});
+      }
       throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.client = client;
-    this.transport = transport;
     return client;
   }
 
@@ -560,6 +578,15 @@ export class ChromeDevToolsDriver implements Driver {
         }, "observation");
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;
+        const message = err instanceof Error ? err.message : "";
+        const isolatedNodeFailure = !isDialogBlocked(message) &&
+          /^(?:MCP evaluate_script failed: )?(?:Error: )?(?:Elements from different frames (?:can't|cannot) be evaluated together\.?|Element uid "[^"\r\n]+" not found on page \S+\.|Element with uid \S+ no longer exists on the page\.)(?:\nCause: [\s\S]*)?$/.test(message);
+        if (!isolatedNodeFailure) {
+          // A global tool/schema failure will not improve by retrying every subset.
+          // Keep its candidates, but do not claim facts or exact identity for this batch.
+          for (const uid of uids) this.unguarded.add(uid);
+          return;
+        }
         // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
         // unsupported node must not erase measurable main-page facts. Region IDs use the
         // first candidate UID in a page-local WeakMap, so they survive batch boundaries.

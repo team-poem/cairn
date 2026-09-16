@@ -3,9 +3,13 @@ name: release
 on:
   push:
     branches: [main]
+  # Re-run by hand to mirror an already released version to GitHub Packages; npm, the tag and
+  # the release are each skipped when they already exist.
+  workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   publish:
@@ -39,12 +43,30 @@ jobs:
             echo "should_release=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # GitHub Packages only lists scoped names, so the same build is mirrored there as
+      # @team-poem/cairn-engine. That is what makes the package show on the repository page;
+      # npm stays the registry people install from.
+      - name: Authenticate to GitHub Packages
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm config set //npm.pkg.github.com/:_authToken "$GITHUB_TOKEN"
+
+      - name: Check if this version is already on GitHub Packages
+        id: mirror
+        run: |
+          if npm view "@team-poem/cairn-engine@${{ steps.pkg.outputs.version }}" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+            echo "already mirrored — skipping GitHub Packages"
+            echo "should_mirror=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_mirror=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Build
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.check.outputs.should_release == 'true' || steps.mirror.outputs.should_mirror == 'true'
         run: npm run build
 
       - name: Test
-        if: steps.check.outputs.should_release == 'true'
+        if: steps.check.outputs.should_release == 'true' || steps.mirror.outputs.should_mirror == 'true'
         run: npm run test
 
       - name: Publish to npm
@@ -53,6 +75,17 @@ jobs:
         run: npm publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Mirror to GitHub Packages
+        if: steps.mirror.outputs.should_mirror == 'true'
+        # A mirror failure must not stop the tag and the release; it shows as a warning instead.
+        continue-on-error: true
+        working-directory: packages/harness
+        run: |
+          cp package.json package.json.npm
+          trap 'mv package.json.npm package.json' EXIT
+          npm pkg set name=@team-poem/cairn-engine
+          npm publish --registry=https://npm.pkg.github.com
 
       - name: Tag release
         if: steps.check.outputs.should_release == 'true'

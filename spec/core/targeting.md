@@ -11,7 +11,10 @@ Locate an element by **intent**, not by a *driver handle* → replay doesn't bre
 - **`text`** (accessible name) = primary. **`nth`** (0-based, same convention as `index`)
   qualifies it: the Nth element whose name matches — the readable, heal-friendly way to address
   one of several identically-named elements (list UIs: `{text:"Accept", role:"button", nth:2}` =
-  the 3rd Accept button). Out of range → no match, never a neighbor.
+  the 3rd Accept button). Out of range → no match, never a neighbor. A position is only meaningful
+  within one pool: a substring may name the pool when its matches are identical to each other, and
+  the Chrome driver resolves a role-less `nth` over the compact tree on every attempt, since the
+  verbose tree adds rows that shift a role-less count (#229).
 - **`role` + `index`** (position among same-role elements) = a rename-resilient fallback.
 - **`selector`** (CSS) = an escape hatch for elements with no accessible name.
 

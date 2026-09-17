@@ -350,10 +350,22 @@ describe("resolveTargetUid — nth among same-named elements (#92)", () => {
     expect(resolveTargetUid(rows, { text: "Accept", role: "button" })).toBeUndefined();
   });
 
-  it("applies nth to the substring pool when no exact name matches (M1 stays for nth-less targets)", () => {
-    const subs = parseSnapshotRows(`uid=7_0 button "Add to cart"\nuid=7_1 button "Add to wishlist"`);
-    expect(resolveTargetUid(subs, { text: "Add", nth: 1 })).toBe("7_1");
-    expect(resolveTargetUid(subs, { text: "Add" })).toBeUndefined();
+  it("applies nth to a substring pool only when its matches are identically named (#229)", () => {
+    // An authored substring over repeated identical labels is still the designed address.
+    const repeated = parseSnapshotRows(`uid=7_0 button "Add to cart"\nuid=7_1 button "Add to cart"`);
+    expect(resolveTargetUid(repeated, { text: "Add", nth: 1 })).toBe("7_1");
+    // Differently-named partial matches: the Nth is a differently-named element, so nothing.
+    const differing = parseSnapshotRows(`uid=7_0 button "Add to cart"\nuid=7_1 button "Add to wishlist"`);
+    expect(resolveTargetUid(differing, { text: "Add", nth: 1 })).toBeUndefined();
+    expect(resolveTargetUid(differing, { text: "Add" })).toBeUndefined();
+  });
+
+  it("refuses a frozen exact name whose matches are gone instead of acting on a longer name (#229)", () => {
+    // Frozen on a page with two "Save" buttons; on a later page they are gone and only "Save later"
+    // and "Save draft" contain the text. Before, nth: 1 clicked "Save draft" with no error.
+    const later = parseSnapshotRows(`uid=8_0 button "Save later"\nuid=8_1 button "Save draft"`);
+    expect(resolveTargetUid(later, { text: "Save", role: "button", nth: 1 })).toBeUndefined();
+    expect(resolveTargetUid(later, { text: "Save", role: "button", nth: 0 })).toBeUndefined();
   });
 });
 
@@ -1076,6 +1088,53 @@ describe("ChromeDevToolsDriver audit coverage", () => {
         await p;
         expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_2" });
         expect(calls.filter((c) => c.name === "take_snapshot")).toHaveLength(2);
+      });
+    });
+  }
+
+  // chrome-resolve-uid-positional-target-keeps-one-pool.test.ts
+  {
+    describe("chrome resolveUid", () => {
+      afterEach(() => vi.useRealTimers());
+
+      // The verbose tree carries a StaticText "Save" under the first button, which the compact tree
+      // collapses. Over the compact tree {text: "Save", nth: 1} is the second button; over the verbose
+      // tree it is the first, because the StaticText now occupies position 0 of the role-less pool.
+      const COMPACT = 'uid=1_1 button "Save"\nuid=1_2 button "Save"';
+      const VERBOSE = 'uid=1_1 button "Save"\n  uid=1_9 StaticText "Save"\nuid=1_2 button "Save"';
+
+      it("chromeResolveUidPositionalTargetResolvesTheSameNodeWhetherOrNotAttemptZeroMissed (#229)", async () => {
+        vi.useFakeTimers();
+        let n = 0;
+        // Attempt 0 sees a compact tree missing a row; the retry sees the complete one.
+        const { driver, calls } = stubbedDriver({
+          take_snapshot: (args) => (args.verbose ? VERBOSE : ++n >= 2 ? COMPACT : 'uid=1_1 button "Save"'),
+          list_pages: "",
+        });
+        const p = driver.click({ text: "Save", nth: 1 });
+        await vi.advanceTimersByTimeAsync(300);
+        await p;
+        expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_2" });
+        // A positional target never resolves over the verbose tree.
+        expect(calls.filter((c) => c.name === "take_snapshot" && c.args.verbose)).toHaveLength(0);
+      });
+
+      it("chromeResolveUidPositionalTargetAgreesWithTheNoMissPath (#229)", async () => {
+        const { driver, calls } = stubbedDriver({ take_snapshot: (args) => (args.verbose ? VERBOSE : COMPACT), list_pages: "" });
+        await driver.click({ text: "Save", nth: 1 });
+        expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_2" });
+      });
+
+      it("chromeResolveUidNameOnlyTargetStillRetriesOverTheVerboseTree: a portal row absent from the compact tree resolves on retry", async () => {
+        vi.useFakeTimers();
+        const { driver, calls } = stubbedDriver({
+          take_snapshot: (args) => (args.verbose ? 'uid=1_1 button "Other"\nuid=1_7 option "Portal"' : 'uid=1_1 button "Other"'),
+          list_pages: "",
+        });
+        const p = driver.click({ text: "Portal" });
+        await vi.advanceTimersByTimeAsync(300);
+        await p;
+        expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_7" });
       });
     });
   }

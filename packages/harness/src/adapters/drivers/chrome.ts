@@ -980,6 +980,13 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async resolveUid(target: Target, refreshWatermark = false): Promise<string> {
+    // `nth` is a position within one pool. The verbose tree adds rows the compact tree collapses (a
+    // StaticText under a named control), so a role-less position taken over it can land on a
+    // different node than over the compact tree, and which tree a replay used depended only on
+    // whether attempt 0 missed (#229). A role-less positional target therefore retries over the
+    // compact tree. With a role the added rows never enter the pool, and the verbose retry keeps
+    // finding a same-role row MCP omitted from the compact snapshot (a portal option).
+    const positional = target.nth !== undefined && !target.role;
     let raw = await this.getSnapshot();
     for (let attempt = 0; ; attempt++) {
       const rows = parseSnapshotRows(raw);
@@ -997,14 +1004,14 @@ export class ChromeDevToolsDriver implements Driver {
       // Refresh select's before-open watermark after changes during the retry wait.
       // Capture compact BEFORE verbose: compact can retire verbose-only MCP UIDs,
       // so the resolving capture must remain last before dispatch.
-      if (refreshWatermark) {
+      if (refreshWatermark || positional) {
         this.snapshotCache = undefined;
-        await this.getSnapshot();
+        raw = await this.getSnapshot();
       }
       // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
       // compact snapshot even when present. Keep this retry local to resolution;
       // the ordinary cache retains the compact pool, refreshed above for select.
-      raw = await this.call("take_snapshot", { verbose: true });
+      if (!positional) raw = await this.call("take_snapshot", { verbose: true });
     }
   }
 
@@ -1128,9 +1135,11 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     const exacts = rows.filter((r) => roleOk(r) && r.name.toLowerCase() === needle);
     const subs = rows.filter((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
     if (target.nth !== undefined) {
-      // An explicit position among the name matches — the designed address for identically-named
-      // elements. Out of range (the list shrank/renamed) yields nothing: never guess a neighbor.
-      const pool = exacts.length ? exacts : subs;
+      // An explicit position among identically-named elements. Out of range (the list shrank or
+      // renamed) yields nothing: never guess a neighbor. A substring may name the pool too, but only
+      // when its matches are identical to each other; the Nth of differently-named partial matches
+      // is a differently-named element, which is a guess (#229).
+      const pool = exacts.length ? exacts : new Set(subs.map((r) => r.name.toLowerCase())).size === 1 ? subs : [];
       return pool[target.nth]?.uid;
     }
     // Several exact matches within ONE role is a guess like any other (#127) — the class the
@@ -1274,6 +1283,17 @@ export function describeResolutionMiss(rows: SnapshotRow[], target: Target): str
     if (exacts.length > 1 && hasSameRoleDupes(exacts)) {
       const roles = [...new Set(exacts.map((r) => r.role))].join("/");
       return `${exacts.length} elements named "${target.text}" (${roles}) — add "role" (and 0-based "nth" if that role still repeats)`;
+    }
+  }
+  if (target.text && target.nth !== undefined) {
+    // nth counts identically-named elements (#229). When none carries the name exactly and the
+    // partial matches differ, say which names exist, so the fix is visible.
+    const needle = target.text.trim().toLowerCase();
+    const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
+    const exact = rows.some((r) => roleOk(r) && r.name.toLowerCase() === needle);
+    const partial = [...new Set(rows.filter((r) => roleOk(r) && r.name.toLowerCase().includes(needle)).map((r) => r.name))];
+    if (!exact && partial.length > 1) {
+      return `no element named exactly "${target.text}"; "nth" counts identical names, and the partial matches differ: ${partial.map((n) => `"${n}"`).join(", ")}`;
     }
   }
   return `no element matching ${JSON.stringify(target)}`;

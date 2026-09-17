@@ -1285,6 +1285,17 @@ export function describeResolutionMiss(rows: SnapshotRow[], target: Target): str
       return `${exacts.length} elements named "${target.text}" (${roles}) — add "role" (and 0-based "nth" if that role still repeats)`;
     }
   }
+  if (target.text && target.nth !== undefined) {
+    // nth counts identically-named elements (#229). When none carries the name exactly and the
+    // partial matches differ, say which names exist, so the fix is visible.
+    const needle = target.text.trim().toLowerCase();
+    const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
+    const exact = rows.some((r) => roleOk(r) && r.name.toLowerCase() === needle);
+    const partial = [...new Set(rows.filter((r) => roleOk(r) && r.name.toLowerCase().includes(needle)).map((r) => r.name))];
+    if (!exact && partial.length > 1) {
+      return `no element named exactly "${target.text}"; "nth" counts identical names, and the partial matches differ: ${partial.map((n) => `"${n}"`).join(", ")}`;
+    }
+  }
   return `no element matching ${JSON.stringify(target)}`;
 }
 

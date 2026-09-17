@@ -1112,11 +1112,37 @@ describe("ChromeDevToolsDriver audit coverage", () => {
           list_pages: "",
         });
         const p = driver.click({ text: "Save", nth: 1 });
-        await vi.advanceTimersByTimeAsync(300);
+        // Enough for every retry: a retry that re-read a cached compact tree would exhaust them and
+        // reject here instead of resolving on the second, fresh capture.
+        await vi.advanceTimersByTimeAsync(1_000);
         await p;
         expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_2" });
-        // A positional target never resolves over the verbose tree.
+        // A role-less positional target retries over fresh compact captures, never the verbose tree.
         expect(calls.filter((c) => c.name === "take_snapshot" && c.args.verbose)).toHaveLength(0);
+        expect(calls.filter((c) => c.name === "take_snapshot").length).toBe(2);
+      });
+
+      it("chromeResolveUidRoleBearingNthStillRetriesOverTheVerboseTree: a portal option the compact tree omits resolves by role and nth (#229)", async () => {
+        vi.useFakeTimers();
+        const { driver, calls } = stubbedDriver({
+          take_snapshot: (args) => (args.verbose ? 'uid=1_1 button "Other"\nuid=1_7 option "Personal"\nuid=1_8 option "Personal"' : 'uid=1_1 button "Other"'),
+          list_pages: "",
+        });
+        const p = driver.click({ text: "Personal", role: "option", nth: 1 });
+        await vi.advanceTimersByTimeAsync(300);
+        await p;
+        expect(calls.find((c) => c.name === "click")?.args).toEqual({ uid: "1_8" });
+        expect(calls.filter((c) => c.name === "take_snapshot" && c.args.verbose).length).toBeGreaterThan(0);
+      });
+
+      it("chromeResolveUidNamesTheDifferingPartialMatchesWhenNthMisses (#229)", async () => {
+        vi.useFakeTimers();
+        const { driver, calls } = stubbedDriver({ take_snapshot: 'uid=8_0 button "Save later"\nuid=8_1 button "Save draft"', list_pages: "" });
+        const p = driver.click({ text: "Save", role: "button", nth: 1 });
+        p.catch(() => {});
+        await vi.advanceTimersByTimeAsync(1_000);
+        await expect(p).rejects.toThrow('no element named exactly "Save"; "nth" counts identical names, and the partial matches differ: "Save later", "Save draft"');
+        expect(calls.some((c) => c.name === "click")).toBe(false);
       });
 
       it("chromeResolveUidPositionalTargetAgreesWithTheNoMissPath (#229)", async () => {

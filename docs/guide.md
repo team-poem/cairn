@@ -315,7 +315,7 @@ Discovery is authoring, not running. It happens once, and what it produces is pl
 An `ActionPolicy`, a deterministic gate the discover loop consults before executing each proposed action. It sees the page (the current elements and URL), not just the proposal. Block delete- or checkout-style controls, cap wandering, or stop on a goal. A rejected action never runs, and the LLM picks another path. The same policy gates the unattended re-discovery when `runScenario({ heal: true, policy })` repairs a broken flow.
 
 **What about logins and sessions?**
-Drive them like a user. Put the credentials in the intent and the agent types them. The frozen step carries a post-condition on the auth request itself (method-matched, for example `POST /auth` returning 200), so replay waits for login to really happen instead of racing it. For anything heavier (seeded sessions, 2FA, fixtures), supply a `ContextProvider` or your own `Driver`.
+Drive them like a user, but keep credentials out of the intent. Use placeholders and supply their values separately: `log in as {user} with {password}` together with `--secret user=alice --secret password="$APP_PASSWORD"`. The driver receives the values while the frozen step retains the placeholders. The frozen step also carries a post-condition on the auth request itself (method-matched, for example `POST /auth` returning 200), so replay waits for login to really happen instead of racing it. For anything heavier (seeded sessions, 2FA, fixtures), supply a `ContextProvider` or your own `Driver`.
 
 ## Conventions: agentic test files
 

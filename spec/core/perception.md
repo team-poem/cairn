@@ -131,8 +131,10 @@ guarantee.
 
 The default driver pins Chrome DevTools MCP 1.8.0 and disables its explicit page-ID
 routing to retain the selected-page/UID protocol. During connection initialization,
-it negotiates `evaluate_script`'s public `waitForStableDom` boolean once. Guard setup,
-perception facts and reference validation request `false` only when supported. This
+it negotiates `evaluate_script`'s public `waitForStableDom` boolean once.
+Concurrent first calls share the entire connection and negotiation attempt. Failed initialization
+can be retried. Closing the driver is terminal and also releases a transport still initializing.
+Guard setup, perception facts and reference validation request `false` only when supported. This
 includes the first guard call: arguments are prepared after negotiation. Older/custom
 servers without the option use ordinary evaluation; a failed evaluation is never retried
 with a different wait mode. Negotiation transport failures and timeouts abort initialization
@@ -190,10 +192,14 @@ bound exact refs that pass compact re-anchoring, not to every historical ordinal
 The DOM probe measures expanded `aria-controls`/`aria-owns` relationships, open dialogs/popovers,
 hit-test coverage, and roleless cursor regions, including delegated click handlers. It treats
 offscreen, clipped, detached, and shadow-tree hit tests as unknown. A cursor is only a candidate
-hint. Mixed-frame or detached-UID batch failures are isolated; other measurable rows retain
-their facts and region identity.
+hint. Complete document topology partitions fact probes into document-local batches without
+changing candidate order or persistent ordinals. Unknown membership keeps the ordinary batch
+isolation path. Mixed-frame or detached-UID batch failures are isolated; other measurable rows retain
+their facts and region identity. Other non-transport failures stop the affected batch without
+recursive retries, preserving candidates but withholding unmeasured facts and exact refs.
+Transport failures abort the capture.
 
-Exact refs are scoped to a Driver capture and guarded document. Chrome validates selected-page
+Exact refs are scoped to a Driver capture and guarded documents. Chrome validates selected-page
 identity, original-node connectivity, and a DOM mutation guard before enrichment and dispatch.
 The guard retains the original DOM objects for the selected role's entire positional cohort,
 including unnamed peers. It rejects node replacement and changes involving that cohort,
@@ -209,11 +215,35 @@ that changes throughout both attempts is refused even if those changes appear un
 The guard does not promise liveness under continuous mutation, and candidate-tag/ancestor
 checks can conservatively reject benign changes. Retained mutation records are capped at
 4,096; overflow disconnects the observer, releases retained records/cohorts and expires refs.
-If any captured row is outside the guard
-(including shadow trees or frames), or its coverage cannot be measured, the entire capture
-uses legacy addressing: even document rows share duplicate ordinals with unguarded rows.
-Measured facts remain available. Actions, recapture, navigation, and close
-expire prior refs; MCP dispatch uses the captured UID once without name-search retries.
+If a captured semantic row is outside its document guard (including a shadow tree), or its
+coverage cannot be measured, the entire capture uses legacy addressing: all documents share
+persistent duplicate ordinals. Measured facts remain available. Actions, recapture, navigation,
+and close expire prior refs; MCP dispatch uses the captured UID once without name-search retries.
+
+For pages containing frames, Chrome privately parses the full tree's indentation and document
+roots, including unnamed empty frames that do not appear in the legacy semantic parser. It
+installs a guard in each exact Document before a definitive full capture, then retains the
+original Document, parent iframe objects and semantic node objects. Cross-origin and nested
+frames use MCP's owning-document evaluation context; cross-origin `window.frameElement` is not
+required. Virtual InlineTextBox aliases remain excluded from node identity. Ignored AX scaffolding
+is not evaluated or added to the persistent ordinal pool. Unsupported topology, missing child
+roots, document changes during capture or unavailable measurements withhold refs.
+
+Multi-document validation refreshes the full tree and verifies document tokens, parent ownership,
+global role/name order and original node identity, partitioning evaluations by document. Every
+captured document participates, including frames with no peers of the selected role. A closing
+revision sweep detects changes in earlier documents while later documents undergo validation.
+Main-document targets use these same checks: another frame can change their global ordinal.
+An unchanged DOM revision cannot replace the accessibility capture, since CSSOM and media-query
+changes can reveal peers without producing a MutationObserver record.
+At most two capture intervals may be attempted; continuous mutation refuses the ref. These
+checks do not make evaluation across contexts and final MCP dispatch atomic.
+
+`locateRef` still re-anchors the exact captured UID into the ordinary page-global compact pool.
+Root, owner and peer UIDs may rotate when they still resolve to the retained objects; the selected
+UID must resolve to its original node. Durable Target fields, global compact index/nth, legacy
+replay semantics and the single-document validation path remain unchanged. No document token or
+frame handle is stored in a frozen target.
 
 This is not a collector for every DOM node absent from accessibility. Fully nameless/roleless
 widgets with no captured text still require a consumer Driver to supply candidates and durable

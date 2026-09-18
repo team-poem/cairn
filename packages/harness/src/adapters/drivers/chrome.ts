@@ -4,6 +4,7 @@
  * Chrome-specific, including parsing the MCP's human-readable text, stays here behind the
  * Driver port (invariant #5).
  */
+import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -177,6 +178,7 @@ export function mcpToolError(name: string, text: string): Error {
 
 export class ChromeDevToolsDriver implements Driver {
   private client?: Client;
+  private connecting?: Promise<Client>;
   private transport?: StdioClientTransport;
   private observationWaitOverride = false;
   private initialUrl?: string;
@@ -189,6 +191,7 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly driverId = ++nextDriverId;
   private observationVersion = 0;
   private observedRows: SnapshotRow[] = [];
+  private documentObservation?: ChromeDocumentObservation;
   private observedPage?: string;
   private readonly references = new Map<string, SnapshotRow>();
   private readonly unguarded = new Set<string>();
@@ -246,18 +249,30 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("transport", "browser session ended mid-run (chrome-devtools-mcp transport closed) — rerun with a new driver");
     }
     if (this.client) return this.client;
+    // Cold observe() asks for pages, network and console concurrently. Share both the
+    // transport connection and capability negotiation before publishing the client.
+    if (!this.connecting) {
+      this.connecting = this.connect().finally(() => { this.connecting = undefined; });
+    }
+    return this.connecting;
+  }
+
+  private async connect(): Promise<Client> {
     const client = new Client({ name: "cairn-harness", version: "0.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: this.opts.command ?? MCP_COMMAND,
       args: this.opts.args ?? MCP_ARGS,
     });
+    this.transport = transport; // close() also owns an initialization still in flight
     // An unexpected transport close mid-run is fatal for this session: a silent reconnect would
     // resume the run on a fresh browser (about:blank, empty storage) and fail confusingly (#88).
     transport.onclose = () => {
-      if (this.client === client) {
-        this.client = undefined;
+      if (this.transport === transport) {
         this.transport = undefined;
-        this.crashed = true;
+        if (this.client === client) {
+          this.client = undefined;
+          this.crashed = true;
+        }
       }
     };
     try {
@@ -266,14 +281,19 @@ export class ChromeDevToolsDriver implements Driver {
         this.opts.connectTimeoutMs ?? 60_000,
         "chrome-devtools-mcp connect",
       );
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
       this.observationWaitOverride = await this.supportsObservationWaitOverride(client);
-      if (this.closed) throw stepError("transport", "driver closed during MCP initialization");
+      if (this.closed || this.transport !== transport) throw stepError("transport", "browser session ended during MCP initialization");
     } catch (err) {
-      await transport.close().catch(() => {}); // don't orphan the spawned subprocess
+      // Clear ownership before intentional cleanup, and do not close a transport that
+      // close() or its own onclose callback has already released.
+      if (this.transport === transport) {
+        this.transport = undefined;
+        await transport.close().catch(() => {});
+      }
       throw stepError("transport", `failed to start chrome-devtools-mcp: ${err instanceof Error ? err.message : String(err)}`);
     }
     this.client = client;
-    this.transport = transport;
     return client;
   }
 
@@ -493,6 +513,10 @@ export class ChromeDevToolsDriver implements Driver {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.invalidateObservation();
+    const version = this.observationVersion;
+    const assertCapture = () => {
+      if (this.observationVersion !== version) throw stepError("resolution", "observation capture superseded");
+    };
     let guarded = false;
     if (options?.perception) {
       // Install before capture so changed sibling order cannot freeze an already-stale ordinal.
@@ -506,26 +530,52 @@ export class ChromeDevToolsDriver implements Driver {
     }
     // Perception has a larger candidate pool than ordinary lookup and select's watermark.
     // Keep its full tree local so those compact-snapshot consumers retain their ordinals.
-    const raw = options?.perception
+    let raw = options?.perception
       ? await this.call("take_snapshot", { verbose: true })
       : await this.getSnapshot();
+    assertCapture();
+    let documentCoverage = true;
+    if (options?.perception && documentTopology(raw).framed) {
+      documentCoverage = false;
+      if (guarded && documentTopology(raw).valid) {
+        try {
+          const observation = new ChromeDocumentObservation(
+            (name, args) => this.call(name, args, "observation"), this.guardKey, parseSnapshotRows,
+          );
+          raw = await observation.start(raw);
+          assertCapture();
+          this.documentObservation = observation;
+          documentCoverage = true;
+        } catch (err) {
+          if (errorKindOf(err) === "transport") throw err;
+        }
+      }
+    }
+    assertCapture();
     const els = parseElements(raw);
     if (options?.perception) {
-      const version = ++this.observationVersion;
       const page = await this.selectedPage();
+      assertCapture();
       this.observedPage = page;
       // MCP's verbose tree includes virtual InlineTextBox entries with shared/unresolvable UIDs.
       // The owning StaticText remains available; virtual glyph runs cannot be action targets.
       this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
       const named = this.observedRows.filter((row) => row.name.trim());
-      const facts = await this.probePerceptionFacts(named);
+      const topology = documentTopology(raw);
+      const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
+      assertCapture();
+      if (this.documentObservation) {
+        const currentPage = await this.selectedPage();
+        assertCapture();
+        if (currentPage === undefined || currentPage !== page) throw stepError("resolution", "observation page changed during capture");
+      }
       return els.filter(element => element.role !== "InlineTextBox").map((element, i) => {
         const row = named[i]!;
         const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
         // A failed page measurement preserves candidates but cannot promise exact identity.
         // All candidate bindings share the captured ordinal pool. An unguarded shadow/frame row can
         // change the ordinal of a document row too, so coverage must hold for the whole capture.
-        const addressable = guarded && page !== undefined && this.unguarded.size === 0;
+        const addressable = guarded && documentCoverage && page !== undefined && this.unguarded.size === 0;
         if (addressable) this.references.set(ref, row);
         return { ...element, ...facts.get(row.uid), ...(addressable ? { ref } : {}) };
       });
@@ -547,7 +597,7 @@ export class ChromeDevToolsDriver implements Driver {
     return els;
   }
 
-  private async probePerceptionFacts(rows: SnapshotRow[]): Promise<Map<string, Partial<PageElement>>> {
+  private async probePerceptionFacts(rows: SnapshotRow[], membership?: Map<string, number>): Promise<Map<string, Partial<PageElement>>> {
     const facts = new Map<string, Partial<PageElement>>();
     if (!rows.length) return facts;
     const measure = async (batch: SnapshotRow[]): Promise<void> => {
@@ -560,6 +610,15 @@ export class ChromeDevToolsDriver implements Driver {
         }, "observation");
       } catch (err) {
         if (errorKindOf(err) === "transport") throw err;
+        const message = err instanceof Error ? err.message : "";
+        const isolatedNodeFailure = !isDialogBlocked(message) &&
+          /^(?:MCP evaluate_script failed: )?(?:Error: )?(?:Elements from different frames (?:can't|cannot) be evaluated together\.?|Element uid "[^"\r\n]+" not found on page \S+\.|Element with uid \S+ no longer exists on the page\.)(?:\nCause: [\s\S]*)?$/.test(message);
+        if (!isolatedNodeFailure) {
+          // A global tool/schema failure will not improve by retrying every subset.
+          // Keep its candidates, but do not claim facts or exact identity for this batch.
+          for (const uid of uids) this.unguarded.add(uid);
+          return;
+        }
         // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
         // unsupported node must not erase measurable main-page facts. Region IDs use the
         // first candidate UID in a page-local WeakMap, so they survive batch boundaries.
@@ -588,7 +647,21 @@ export class ChromeDevToolsDriver implements Driver {
         facts.set(uid, row);
       }
     };
-    await measure(rows);
+    // The full tree already identifies document contexts. Start with compatible batches
+    // instead of paying for known mixed-frame failures and recursively discovering them.
+    // Incomplete topology keeps the ordinary isolation path, preserving every candidate.
+    if (membership && rows.every(row => membership.has(row.uid))) {
+      const documents = new Map<number, SnapshotRow[]>();
+      for (const row of rows) {
+        const document = membership.get(row.uid)!;
+        const batch = documents.get(document) ?? [];
+        batch.push(row);
+        documents.set(document, batch);
+      }
+      for (const batch of documents.values()) await measure(batch);
+    } else {
+      await measure(rows);
+    }
     return facts;
   }
 
@@ -761,6 +834,14 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("resolution", "observation ref expired: active page continuity is unavailable");
     }
     try {
+      if (this.documentObservation) {
+        const observation = this.documentObservation;
+        await observation.validate(row);
+        const currentPage = await this.selectedPage();
+        if (this.references.get(ref) !== row || this.documentObservation !== observation ||
+            currentPage === undefined || currentPage !== this.observedPage) throw new Error("observation superseded during document validation");
+        return row;
+      }
       // Include unnamed peers: role/index counts them as well. These are the captured
       // backend nodes, never a search by text or a reconstruction of implicit ARIA roles.
       const cohort = this.observedRows.filter(candidate => candidate.role === row.role);
@@ -887,7 +968,9 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private invalidateObservation(): void {
+    this.observationVersion++;
     this.references.clear();
+    this.documentObservation = undefined;
     this.validatedReferenceRevisions.clear();
     this.capturedReferenceCohorts.clear();
     this.unguarded.clear();
@@ -897,6 +980,13 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async resolveUid(target: Target, refreshWatermark = false): Promise<string> {
+    // `nth` is a position within one pool. The verbose tree adds rows the compact tree collapses (a
+    // StaticText under a named control), so a role-less position taken over it can land on a
+    // different node than over the compact tree, and which tree a replay used depended only on
+    // whether attempt 0 missed (#229). A role-less positional target therefore retries over the
+    // compact tree. With a role the added rows never enter the pool, and the verbose retry keeps
+    // finding a same-role row MCP omitted from the compact snapshot (a portal option).
+    const positional = target.nth !== undefined && !target.role;
     let raw = await this.getSnapshot();
     for (let attempt = 0; ; attempt++) {
       const rows = parseSnapshotRows(raw);
@@ -914,14 +1004,14 @@ export class ChromeDevToolsDriver implements Driver {
       // Refresh select's before-open watermark after changes during the retry wait.
       // Capture compact BEFORE verbose: compact can retire verbose-only MCP UIDs,
       // so the resolving capture must remain last before dispatch.
-      if (refreshWatermark) {
+      if (refreshWatermark || positional) {
         this.snapshotCache = undefined;
-        await this.getSnapshot();
+        raw = await this.getSnapshot();
       }
       // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
       // compact snapshot even when present. Keep this retry local to resolution;
       // the ordinary cache retains the compact pool, refreshed above for select.
-      raw = await this.call("take_snapshot", { verbose: true });
+      if (!positional) raw = await this.call("take_snapshot", { verbose: true });
     }
   }
 
@@ -1045,9 +1135,11 @@ export function resolveTargetUid(rows: SnapshotRow[], target: Target): string | 
     const exacts = rows.filter((r) => roleOk(r) && r.name.toLowerCase() === needle);
     const subs = rows.filter((r) => roleOk(r) && r.name.trim() !== "" && r.name.toLowerCase().includes(needle));
     if (target.nth !== undefined) {
-      // An explicit position among the name matches — the designed address for identically-named
-      // elements. Out of range (the list shrank/renamed) yields nothing: never guess a neighbor.
-      const pool = exacts.length ? exacts : subs;
+      // An explicit position among identically-named elements. Out of range (the list shrank or
+      // renamed) yields nothing: never guess a neighbor. A substring may name the pool too, but only
+      // when its matches are identical to each other; the Nth of differently-named partial matches
+      // is a differently-named element, which is a guess (#229).
+      const pool = exacts.length ? exacts : new Set(subs.map((r) => r.name.toLowerCase())).size === 1 ? subs : [];
       return pool[target.nth]?.uid;
     }
     // Several exact matches within ONE role is a guess like any other (#127) — the class the
@@ -1191,6 +1283,17 @@ export function describeResolutionMiss(rows: SnapshotRow[], target: Target): str
     if (exacts.length > 1 && hasSameRoleDupes(exacts)) {
       const roles = [...new Set(exacts.map((r) => r.role))].join("/");
       return `${exacts.length} elements named "${target.text}" (${roles}) — add "role" (and 0-based "nth" if that role still repeats)`;
+    }
+  }
+  if (target.text && target.nth !== undefined) {
+    // nth counts identically-named elements (#229). When none carries the name exactly and the
+    // partial matches differ, say which names exist, so the fix is visible.
+    const needle = target.text.trim().toLowerCase();
+    const roleOk = (r: SnapshotRow) => !target.role || r.role === target.role;
+    const exact = rows.some((r) => roleOk(r) && r.name.toLowerCase() === needle);
+    const partial = [...new Set(rows.filter((r) => roleOk(r) && r.name.toLowerCase().includes(needle)).map((r) => r.name))];
+    if (!exact && partial.length > 1) {
+      return `no element named exactly "${target.text}"; "nth" counts identical names, and the partial matches differ: ${partial.map((n) => `"${n}"`).join(", ")}`;
     }
   }
   return `no element matching ${JSON.stringify(target)}`;

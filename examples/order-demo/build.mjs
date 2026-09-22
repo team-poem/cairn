@@ -70,6 +70,8 @@ const source = resolve(dist, "public/source/order-demo");
 await mkdir(source, { recursive: true });
 await cp(resolve(artifacts, manifest.engine.archive), resolve(source, manifest.engine.archive));
 for (const path of [
+  ".gitignore",
+  "build.mjs",
   "record.mjs",
   "server.mjs",
   "server.test.mjs",
@@ -79,7 +81,6 @@ for (const path of [
   await cp(resolve(root, path), resolve(source, path), { recursive: true });
 }
 const pkg = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
-delete pkg.scripts.build;
 pkg.dependencies["cairn-engine"] = `file:./${manifest.engine.archive}`;
 await writeFile(resolve(source, "package.json"), JSON.stringify(pkg, null, 2));
 execFileSync("tar", [

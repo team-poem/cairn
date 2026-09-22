@@ -354,17 +354,37 @@ async function main() {
     "The engine hid an application defect",
   );
   assert.equal(defect.stage.oracle.completed, false);
-  assert.ok(
-    defect.stage.requests.some(
-      (r) =>
-        r.method === "POST" && r.url.includes("/api/order") && r.status === 500,
-    ),
+  const defectTrace = JSON.parse(
+    await readFile(resolve(output, defect.stage.trace), "utf8"),
   );
+  const initialOrderFailure = defectTrace.find(
+    (event) => event.kind === "assertion" && event.phase === "replay" &&
+      !event.payload.passed && event.payload.assertion.kind === "request-status" &&
+      event.payload.assertion.method === "POST" && event.payload.assertion.status === 200 &&
+      event.payload.assertion.urlIncludes.includes("/api/order") &&
+      event.payload.statuses?.includes(500),
+  );
+  assert.ok(initialOrderFailure, "The original replay did not detect the order 500");
+  assert.ok(
+    defect.stage.oracle.orders.some((order) => order.status === 500),
+    "The application did not return an order 500",
+  );
+  // Outcome re-discovery returns its own final observation. Keep the original
+  // engine failure in the trace and disclose if its request vanished later.
+  defect.stage.orderFailure = {
+    traceSeq: initialOrderFailure.seq,
+    statuses: initialOrderFailure.payload.statuses,
+    finalEvidenceHas500: defect.stage.requests.some(
+      (request) => request.method === "POST" &&
+        request.url.includes("/api/order") && request.status === 500,
+    ),
+  };
   assert.ok(
     defect.stage.verdict.results.some(
       (r) =>
         !r.passed &&
         r.assertion.kind === "request-status" &&
+        r.assertion.method === "POST" && r.assertion.status === 200 &&
         r.assertion.urlIncludes.includes("/api/order"),
     ),
   );

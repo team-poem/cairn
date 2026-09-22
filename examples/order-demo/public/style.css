@@ -307,8 +307,9 @@ main {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 16/10;
-  object-fit: contain;
+  aspect-ratio: 6/5;
+  object-fit: cover;
+  object-position: top;
 }
 .screen p {
   color: #777;
@@ -668,9 +669,6 @@ footer > a:last-child {
   }
   .screen {
     min-height: 0;
-  }
-  .screen img {
-    aspect-ratio: auto;
   }
   .evidence {
     grid-template-columns: 1fr;

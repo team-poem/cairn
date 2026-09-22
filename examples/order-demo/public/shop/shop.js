@@ -19,7 +19,7 @@ function go(path) {
 function render() {
   const route = location.pathname;
   if (route === "/shop/checkout" && inBag) {
-    app.innerHTML = `<section class="checkout"><p class="steps">01 BAG &nbsp; / &nbsp; 02 DETAILS &nbsp; / &nbsp; 03 ORDER</p><h1>Where should it go?</h1><p class="muted">Use Alex Demo and alex@example.test to try the sample checkout.</p><div class="checkout-grid"><form id="details"><label for="customer-name">Full name</label><input id="customer-name" name="name" autocomplete="off" required maxlength="80"><label for="customer-email">Email</label><input id="customer-email" name="email" type="email" aria-label="Email address for this order" autocomplete="off" required maxlength="120"><button class="primary">Review order →</button></form>${summary}</div></section>`;
+    app.innerHTML = `<section class="checkout"><p class="steps">01 BAG &nbsp; / &nbsp; 02 DETAILS &nbsp; / &nbsp; 03 ORDER</p><h1>Where should it go?</h1><p class="muted">Enter Alex Demo. The sample email is already filled in; no real contact details are needed.</p><div class="checkout-grid"><form id="details"><label for="customer-name" aria-hidden="true">Full name</label><input aria-label="Full name" id="customer-name" name="name" autocomplete="off" required maxlength="80"><label for="customer-email">Email</label><input id="customer-email" name="email" type="email" value="alex@example.test" readonly aria-label="Email address for this order" autocomplete="off" required maxlength="120"><button class="primary">Review order →</button></form>${summary}</div></section>`;
     app.querySelector("form").addEventListener("submit", (event) => {
       event.preventDefault();
       customer = Object.fromEntries(new FormData(event.currentTarget));

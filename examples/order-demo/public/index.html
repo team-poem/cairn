@@ -83,7 +83,7 @@
                   <i></i><i></i><i></i>
                 </div>
                 <span id="browser-url" class="mono">fieldnotes / checkout</span
-                ><span class="mono">CAPTURE</span>
+                ><a id="capture-link" class="mono" target="_blank" rel="noopener">FULL CAPTURE ↗</a>
               </div>
               <div class="screen">
                 <img
@@ -171,7 +171,7 @@
         <pre><code>tar -xzf source.tar.gz
 cd order-demo
 npm install
-CAIRN_LLM_BACKEND=codex npm run record
+CAIRN_LLM_BACKEND=codex DEMO_MODEL=gpt-5.6-sol npm run record
 npm start</code></pre>
       </section>
       <p class="limits">

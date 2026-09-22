@@ -22,7 +22,11 @@ function showFrame() {
   const frame = frames[frameIndex];
   byId("frame").hidden = !frame?.image;
   byId("no-frame").hidden = Boolean(frame?.image);
-  if (frame?.image) byId("frame").src = "/recording/" + frame.image;
+  byId("capture-link").hidden = !frame?.image;
+  if (frame?.image) {
+    byId("frame").src = "/recording/" + frame.image;
+    byId("capture-link").href = "/recording/" + frame.image;
+  }
   byId("frame-count").textContent = frames.length
     ? `${frameIndex + 1} / ${frames.length}`
     : "0 / 0";
@@ -76,6 +80,13 @@ async function selectStage(index) {
       : failed
         ? "The run failed. Inspect the trace for the target error or failed POST /api/order assertion."
         : "The saved checks include a successful POST /api/order. Reaching a completion screen alone is not enough.";
+  if (stage.id === "bug" && stage.orderFailure) {
+    byId("proof-detail").textContent =
+      `Original replay: POST /api/order returned 500 (trace event ${stage.orderFailure.traceSeq}). ` +
+      (stage.orderFailure.finalEvidenceHas500
+        ? "The final result remains failed after the repair attempt."
+        : "The final result stays failed, but its request list no longer contains that 500 after re-discovery. The trace preserves the original failure; evidence retention remains a known limitation.");
+  }
   byId("scenario-link").href = "/recording/" + stage.scenario;
   byId("trace-link").href = "/recording/" + stage.trace;
   byId("browser-url").textContent =

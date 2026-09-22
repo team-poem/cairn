@@ -63,6 +63,24 @@ it("normalizedPerceivePreservesCanonicalRef: trimming a label preserves exact dr
   }
 });
 
+it("shortenedRefDescriptionsReachTheSelectedNode: both loops accept a substring and freeze the full description", async () => {
+  const name = "Wireless Earbuds Pro 2 $129.00 free shipping 4.8 (1,204)";
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver([{ role: "button", name, ref: "node-product" }]);
+    const llm = new PromptRecordingLlm((prompt, turn) => turn === 1
+      ? JSON.stringify({ action: "click", ref: promptRef(prompt), text: "Wireless Earbuds Pro 2" })
+      : '{"action":"done"}');
+    const result = await runPromptLoop(mode, driver, llm);
+    expect(result.truncated).not.toBe(true);
+    expect(driver.exact).toEqual(["node-product"]);
+    expect(result.steps.find(step => step.kind === "click")).toEqual({
+      kind: "click", target: { text: name, role: "button", selector: "#node-product" },
+    });
+    expect(llm.prompts).toHaveLength(2);
+    expect(llm.prompts[1]).not.toContain("reference binding rejected");
+  }
+});
+
 it("invalidPerceiveEndsBoundedly: both loops recover a fresh valid capture after a rejected binding and bound persistent failures", async () => {
   for (const mode of ["discover", "explore"] as const) {
     for (const change of [{ name: "Delete" }, { role: "link" }]) {

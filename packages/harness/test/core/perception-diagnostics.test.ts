@@ -122,6 +122,11 @@ it("invalidReferenceHasItsOwnGate: valid JSON with an unknown or contradictory r
       expect(gates[0]!.payload.reason).toMatch(/reference|binding/i);
       expect(gates[0]!.stepRef).toBeUndefined();
       expect(llm.prompts[1]).not.toContain("not a single valid JSON action object");
+      if (choice !== "unknown") {
+        expect(llm.prompts[1]).toContain('reference contradicts element description: selected {"text":"Save","role":"button"}');
+        expect(JSON.stringify(gates)).not.toContain("Save");
+        expect(JSON.stringify(gates)).not.toContain("private-driver-token");
+      }
     }
   }
 });

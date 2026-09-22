@@ -17,6 +17,7 @@ import { PerceptionObservation, assertDecisionCurrent, decisionReference } from 
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
+import { validTargetAnswer, type TargetChoicePilot, type TargetChoiceAudit } from "../../core/target-choice.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
  * role/index, not a brittle text-only one) was used instead. */
@@ -27,6 +28,12 @@ export interface Heal {
 }
 
 export interface SelfHealOptions {
+  /** Experimental finite selection. The host supplies context only for steps with original
+   * post-conditions, then calls confirmChoice after the existing step verifier finishes. */
+  choice?: TargetChoicePilot & {
+    context: (target: Target) => { intent: string; stepRef: number } | undefined;
+    onDecision?: (audit: TargetChoiceAudit, stepRef?: number) => void;
+  };
   /** Maximum repair model requests, including unsuccessful attempts. Defaults to 5. */
   maxHeals?: number;
   policy?: ActionPolicy;
@@ -71,6 +78,7 @@ export function parseHealChoice(text: string): string | undefined {
 
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
+  private readonly pending = new Map<Target, Heal>();
   private healAttempts = 0;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
@@ -82,6 +90,10 @@ export class SelfHealingDriver implements Driver {
   ) {
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
+    const threshold = opts.choice?.minConfidence;
+    if (opts.choice && threshold !== null && (threshold === undefined || !Number.isFinite(threshold) || threshold < 0 || threshold > 1)) {
+      throw new Error("target choice confidence threshold must be null or between 0 and 1");
+    }
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
   }
 
@@ -117,12 +129,24 @@ export class SelfHealingDriver implements Driver {
     } catch (cause) {
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
       if (ref !== undefined) throw cause;
+      // Transport, script, and handler failures are not evidence of a stale target.
+      if (this.opts.choice && errorKindOf(cause) !== "resolution") throw cause;
       const repaired = await this.heal(target, cause, action, value);
       repaired.validate();
       await dispatch(repaired.heal.healed, repaired.ref);
-      this.heals.push(repaired.heal);
-      this.onHeal?.(repaired.heal);
+      if (this.opts.choice) this.pending.set(target, repaired.heal);
+      else {
+        this.heals.push(repaired.heal);
+        this.onHeal?.(repaired.heal);
+      }
     }
+  }
+
+  /** A successful dispatch alone is tentative. The original step post-condition must pass. */
+  confirmChoice(target: Target, ok: boolean): void {
+    const heal = this.pending.get(target);
+    this.pending.delete(target);
+    if (heal && ok) { this.heals.push(heal); this.onHeal?.(heal); }
   }
 
   locate(target: Target): Promise<Target> {
@@ -168,30 +192,57 @@ export class SelfHealingDriver implements Driver {
 
   private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
     this.assertHealBudget(target, cause);
+    const choiceContext = this.opts.choice?.context(target);
+    if (this.opts.choice && !choiceContext) throw stepError("resolution", "target choice requires original intent and post-condition evidence");
     const raw = await this.inner.snapshot({ perception: true });
     const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
-    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "");
+    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "", this.opts.choice ? 254 : undefined);
     // Observation may yield to another repair. Reserve a request only after it succeeds,
     // and keep this check and increment synchronous so concurrent calls share the limit.
     this.assertHealBudget(target, cause);
     this.healAttempts++;
-    const reply = await this.llm.complete(healPrompt(target, page), {
-      system: HEAL_SYSTEM,
-    });
-    const parsed = extractFirstJsonObject(reply) as { name?: string; ref?: string; role?: string; nth?: number } | undefined;
-    const choice = parseHealChoice(reply);
-    if (!choice && parsed?.ref === undefined) {
-      const why = cause instanceof Error ? cause.message : String(cause);
-      // The original cause keeps its kind: a transport failure healed into nothing is still transport.
-      throw stepError(
-        errorKindOf(cause) ?? "resolution",
-        `self-heal found no match for ${JSON.stringify(target)} (${why})`,
-      );
+    let unbound: Decision;
+    if (this.opts.choice) {
+      const candidates = page.candidates();
+      // No shortlist or name-only fallback: every retained candidate needs exact addressing.
+      if (page.omittedCount || elements.some(e => e.occluded !== true && !e.ref) || !candidates.length) {
+        throw stepError("resolution", "target choice requires a complete nonempty reference table within the candidate limit");
+      }
+      const selected = await this.opts.choice.selector.select({ observationId: page.id,
+        original: Object.fromEntries(Object.entries(target).map(([k, v]) => [k, typeof v === "string" ? slotSecretText(v, this.opts.secrets) : v])),
+        intent: slotSecretText(choiceContext!.intent, this.opts.secrets),
+        candidates: candidates.map(c => ({ ...c, name: slotSecretText(c.name, this.opts.secrets) })),
+      });
+      const answer = selected.answer;
+      const valid = !selected.error && validTargetAnswer(answer, [...candidates.map(c => c.key), "none"]);
+      const outcome = !valid ? "rejected" : answer!.choice === "none" ? "none" :
+        this.opts.choice.minConfidence === null ? "threshold-unset" :
+        answer!.confidence < this.opts.choice.minConfidence ? "low-confidence" : "selected";
+      this.opts.choice.onDecision?.({ ...selected, policyVersion: "cairn-target-policy/1", observationId: page.id, candidateKeys: candidates.map(c => c.key),
+        minConfidence: this.opts.choice.minConfidence, fallback: "fail", outcome }, choiceContext!.stepRef);
+      if (outcome !== "selected") throw stepError("resolution", `target choice withheld: ${selected.error ?? outcome}`);
+      if (candidates.find(c => c.key === answer!.choice)?.disabled) throw stepError("resolution", "target choice selected a disabled candidate");
+      unbound = { action, ref: answer!.choice };
+    } else {
+      const reply = await this.llm.complete(healPrompt(target, page), {
+        system: HEAL_SYSTEM,
+      });
+      const parsed = extractFirstJsonObject(reply) as { name?: string; ref?: string; role?: string; nth?: number } | undefined;
+      const choice = parseHealChoice(reply);
+      if (!choice && parsed?.ref === undefined) {
+        const why = cause instanceof Error ? cause.message : String(cause);
+        // The original cause keeps its kind: a transport failure healed into nothing is still transport.
+        throw stepError(
+          errorKindOf(cause) ?? "resolution",
+          `self-heal found no match for ${JSON.stringify(target)} (${why})`,
+        );
+      }
+      unbound = { action, ...(choice ? { text: choice } : {}),
+        ...(parsed?.ref !== undefined ? { ref: parsed.ref } : {}),
+        ...(parsed?.role !== undefined ? { role: parsed.role } : {}),
+        ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}) };
     }
-    const decision = page.bind({ action, ...(choice ? { text: choice } : {}),
-      ...(parsed?.ref !== undefined ? { ref: parsed.ref } : {}),
-      ...(parsed?.role !== undefined ? { role: parsed.role } : {}),
-      ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}), ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
+    const decision = page.bind({ ...unbound, ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) throw stepError("resolution", ambiguity);
     if (this.opts.policy) {

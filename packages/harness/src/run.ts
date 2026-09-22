@@ -28,8 +28,12 @@ import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } f
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 import type { Secrets } from "./core/secrets.js";
+import type { TargetChoicePilot } from "./core/target-choice.js";
 
 export interface RunScenarioOptions {
+  /** Opt-in locator-only pilot. Mutually exclusive with heal: no surgical/outcome LLM fallback.
+   * Requires original step intent, nonempty expect, and original goal assertions. */
+  targetChoice?: TargetChoicePilot;
   /** Replay at a different origin without modifying the frozen scenario. Heals repair the live
    * run only; no healedScenario is returned for re-freezing while this option is configured. */
   replayEnvironment?: ReplayEnvironment;
@@ -92,12 +96,13 @@ export interface RunScenarioOptions {
 
 export interface RunScenarioResult {
   result: Result;
-  /** Locator substitutions self-heal made (empty unless `heal` was set and a target broke). */
+  /** Locator substitutions (heal/targetChoice only). Pilot entries passed the original step expect. */
   heals: Heal[];
   /** Surgical step repairs (empty unless `heal` was set and a step's `expect` diverged). */
   stepHeals: StepHeal[];
   /** Scenario rewritten with healed targets/steps, ready to re-freeze. Undefined if no heals
-   * or replayEnvironment is configured: environment repairs are temporary, never canonical. */
+   * or replayEnvironment is configured. The targetChoice pilot also requires an unblocked run
+   * with original goals verified; environment repairs are temporary, never canonical. */
   healedScenario?: Scenario;
   /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
    * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
@@ -143,6 +148,7 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
     validateReplayEntry(scenario, opts.replayEnvironment);
     scenario = reanchorScenario(scenario, opts.replayEnvironment);
@@ -153,7 +159,12 @@ export async function runScenario(
   let meter: UsageMeter | undefined;
   const getLlm = (): LlmClient =>
     (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
-  const usage = (): RunUsage => meter?.snapshot() ?? emptyUsage();
+  const choiceUsage = emptyUsage();
+  const usage = (): RunUsage => {
+    const result = meter?.snapshot() ?? emptyUsage();
+    for (const key of Object.keys(choiceUsage) as (keyof RunUsage)[]) result[key] += choiceUsage[key];
+    return result;
+  };
   // Both heal layers take their client up front but only call it on a break, so hand them one
   // that defers construction to the first completion. A green replay never builds a backend.
   const lazyLlm: LlmClient = {
@@ -205,16 +216,34 @@ export async function runScenario(
   const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
   const ownsDriver = !opts.driver;
   const onHeal = (heal: Heal): void => {
+    const stepRef = opts.targetChoice ? scenario.steps.findIndex(step => "target" in step && step.target === heal.original) : -1;
     scope?.emit({
       kind: "heal",
       phase: "heal",
+      ...(stepRef >= 0 ? { stepRef } : {}),
       payload: { layer: "locator", broke: heal.original, became: heal.healed, judgedBy: "original" },
     });
     opts.onHeal?.(heal);
   };
   let healer: SelfHealingDriver | undefined;
-  const driver = opts.heal
-    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets }))
+  const driver = opts.heal || opts.targetChoice
+    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
+        ...(opts.targetChoice ? { choice: { ...opts.targetChoice,
+          context: target => {
+            const matches = scenario.steps.map((step, stepRef) => ({ step, stepRef })).filter(({ step }) => "target" in step && step.target === target);
+            if (matches.length !== 1) return undefined;
+            const { step, stepRef } = matches[0]!;
+            const hasGoal = scenario.assertions.some(a => a.kind !== "no-failed-requests" && a.kind !== "no-console-errors");
+            return hasGoal && step.intent?.trim() && step.expect && Object.values(step.expect).some(v => v !== undefined)
+              ? { intent: step.intent, stepRef } : undefined;
+          },
+          onDecision: (audit, stepRef) => {
+            if (audit.requested) choiceUsage.llmCalls++;
+            if (audit.usage) { choiceUsage.measuredCalls++; choiceUsage.inputTokens += audit.usage.inputTokens; choiceUsage.outputTokens += audit.usage.outputTokens; }
+            scope?.emit({ kind: "target-choice", phase: "heal", stepRef, payload: audit });
+          },
+        } } : {}),
+      }))
     : baseDriver;
   const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
 
@@ -230,7 +259,10 @@ export async function runScenario(
       scenario.name,
       {
         signal: opts.signal,
-        onStep: opts.onStep,
+        onStep: opts.targetChoice ? progress => {
+          if ("target" in progress.step) healer?.confirmChoice(progress.step.target, progress.ok && !progress.skipped);
+          opts.onStep?.(progress);
+        } : opts.onStep,
         captureScreenshots: opts.screenshots,
         actions: opts.actions,
         stepHealer,
@@ -355,7 +387,8 @@ export async function runScenario(
       result: final,
       heals,
       stepHeals,
-      healedScenario: !opts.replayEnvironment && (heals.length || stepHeals.length) ? rewritten : undefined,
+      healedScenario: !opts.replayEnvironment && (heals.length || stepHeals.length) &&
+        (!opts.targetChoice || (!final.evidence.execution.blocked && !final.verdict.failClosed && goalFailures(final.verdict).length === 0)) ? rewritten : undefined,
     };
   } catch (err) {
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.

@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.6**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.7**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.6", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.7", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -260,3 +260,20 @@ two gate values and one phase value; the envelope is unchanged.
   **1.4**: a new value in an existing enumerated field, minor rule — a 1.3 viewer renders the gate
   generically, a typed consumer with an exhaustive switch on `gate` sees a compile-time break, not
   a runtime one.
+
+## Target-choice pilot (version 1.7)
+
+The opt-in locator-only pilot emits `kind: target-choice`, `phase: heal` with the original
+`stepRef`. Its payload records provider, requested/resolved model, question version, observation
+ID, candidate-set SHA-256 and engine candidate keys, selected key/full distribution/confidence,
+explicit threshold (null means hold), fail-only fallback outcome, latency, request-attempt flag
+and available token usage. No credential, input value, raw driver ref, response body or page text
+is stored in this event. No model call means no decision event; the existing failed step describes
+missing evidence/candidate overflow.
+
+A selected decision is not a successful heal. The same step's `step` event verifies dispatch and
+the original post-condition; `heal` is emitted only after that check. Original `assertion` events
+and `case-end` contain final verification. Correlate all by caseRef/stepRef, not numeric confidence.
+The existing RunUsage counters include actual Jev requests as model calls; a healthy replay
+remains at zero. Provider usage is measured only when present. This additive event changes no
+proof grade, verdict rule, or assertion. Old viewers skip/count the unknown kind.

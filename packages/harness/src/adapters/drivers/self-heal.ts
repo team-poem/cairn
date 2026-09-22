@@ -27,6 +27,13 @@ export interface Heal {
 }
 
 export interface SelfHealOptions {
+  /** Experimental finite selection. The host supplies context only for steps with original
+   * post-conditions, then calls confirmChoice after the existing step verifier finishes. */
+  choice?: {
+    /** Validate original evidence before taking a snapshot; choose one observation key or throw.
+     * Injected by createTargetChoiceRepair so browser consumers do not bundle pilot policy. */
+    prepare: (target: Target) => (page: PerceptionObservation, elements: PageElement[]) => Promise<string>;
+  };
   /** Maximum repair model requests, including unsuccessful attempts. Defaults to 5. */
   maxHeals?: number;
   policy?: ActionPolicy;
@@ -71,6 +78,7 @@ export function parseHealChoice(text: string): string | undefined {
 
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
+  private pending?: Map<Target, Heal>;
   private healAttempts = 0;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
@@ -117,12 +125,24 @@ export class SelfHealingDriver implements Driver {
     } catch (cause) {
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
       if (ref !== undefined) throw cause;
+      // Transport, script, and handler failures are not evidence of a stale target.
+      if (this.opts.choice && errorKindOf(cause) !== "resolution") throw cause;
       const repaired = await this.heal(target, cause, action, value);
       repaired.validate();
       await dispatch(repaired.heal.healed, repaired.ref);
-      this.heals.push(repaired.heal);
-      this.onHeal?.(repaired.heal);
+      if (this.opts.choice) (this.pending ??= new Map()).set(target, repaired.heal);
+      else {
+        this.heals.push(repaired.heal);
+        this.onHeal?.(repaired.heal);
+      }
     }
+  }
+
+  /** A successful dispatch alone is tentative. The original step post-condition must pass. */
+  confirmChoice(target: Target, ok: boolean): void {
+    const heal = this.pending?.get(target);
+    this.pending?.delete(target);
+    if (heal && ok) { this.heals.push(heal); this.onHeal?.(heal); }
   }
 
   locate(target: Target): Promise<Target> {
@@ -168,30 +188,37 @@ export class SelfHealingDriver implements Driver {
 
   private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
     this.assertHealBudget(target, cause);
+    const choose = this.opts.choice?.prepare(target);
     const raw = await this.inner.snapshot({ perception: true });
     const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
-    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "");
+    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "", this.opts.choice ? 254 : undefined);
     // Observation may yield to another repair. Reserve a request only after it succeeds,
     // and keep this check and increment synchronous so concurrent calls share the limit.
     this.assertHealBudget(target, cause);
     this.healAttempts++;
-    const reply = await this.llm.complete(healPrompt(target, page), {
-      system: HEAL_SYSTEM,
-    });
-    const parsed = extractFirstJsonObject(reply) as { name?: string; ref?: string; role?: string; nth?: number } | undefined;
-    const choice = parseHealChoice(reply);
-    if (!choice && parsed?.ref === undefined) {
-      const why = cause instanceof Error ? cause.message : String(cause);
-      // The original cause keeps its kind: a transport failure healed into nothing is still transport.
-      throw stepError(
-        errorKindOf(cause) ?? "resolution",
-        `self-heal found no match for ${JSON.stringify(target)} (${why})`,
-      );
+    let unbound: Decision;
+    if (this.opts.choice) {
+      unbound = { action, ref: await choose!(page, elements) };
+    } else {
+      const reply = await this.llm.complete(healPrompt(target, page), {
+        system: HEAL_SYSTEM,
+      });
+      const parsed = extractFirstJsonObject(reply) as { name?: string; ref?: string; role?: string; nth?: number } | undefined;
+      const choice = parseHealChoice(reply);
+      if (!choice && parsed?.ref === undefined) {
+        const why = cause instanceof Error ? cause.message : String(cause);
+        // The original cause keeps its kind: a transport failure healed into nothing is still transport.
+        throw stepError(
+          errorKindOf(cause) ?? "resolution",
+          `self-heal found no match for ${JSON.stringify(target)} (${why})`,
+        );
+      }
+      unbound = { action, ...(choice ? { text: choice } : {}),
+        ...(parsed?.ref !== undefined ? { ref: parsed.ref } : {}),
+        ...(parsed?.role !== undefined ? { role: parsed.role } : {}),
+        ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}) };
     }
-    const decision = page.bind({ action, ...(choice ? { text: choice } : {}),
-      ...(parsed?.ref !== undefined ? { ref: parsed.ref } : {}),
-      ...(parsed?.role !== undefined ? { role: parsed.role } : {}),
-      ...(parsed?.nth !== undefined ? { nth: parsed.nth } : {}), ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
+    const decision = page.bind({ ...unbound, ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) throw stepError("resolution", ambiguity);
     if (this.opts.policy) {

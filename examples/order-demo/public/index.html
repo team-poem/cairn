@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Watch cairn discover a checkout, replay its saved test, repair a changed interface, and catch an application defect. Actual browser captures and reproducible source."
+    />
+    <title>One flow. Every release. — cairn</title>
+    <link rel="stylesheet" href="/style.css" />
+    <script type="module" src="/viewer.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="wordmark" href="/" aria-label="cairn home"
+        ><span class="stones" aria-hidden="true"><i></i><i></i><i></i></span
+        >cairn<span class="tag">IN PRACTICE</span></a
+      >
+      <nav>
+        <a
+          href="https://github.com/team-poem/cairn"
+          target="_blank"
+          rel="noopener"
+          >GitHub ↗</a
+        ><a href="/shop/" target="_blank" rel="noopener" class="outline"
+          >Try the sample shop ↗</a
+        >
+      </nav>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <p class="eyebrow">
+            <span class="dot"></span> A BROWSER TEST, FROM START TO FINISH
+          </p>
+          <h1>One flow.<br /><span>Every release.</span></h1>
+        </div>
+        <div class="intro-copy">
+          <p>You ship. The checkout still needs checking.</p>
+          <p class="secondary">
+            Describe the task once. cairn discovers a test, saves it, and
+            replays it without a model. Follow a real run below — including what
+            happens when things break.
+          </p>
+          <a href="#walkthrough" class="text-link"
+            >Follow the checkout <span>↓</span></a
+          >
+        </div>
+      </section>
+      <section class="intent-strip">
+        <span class="mono">THE TASK</span>
+        <p>“Order one Field notebook and verify the order succeeded.”</p>
+        <span class="pill">SAMPLE APP / FIELDNOTES</span>
+      </section>
+      <section id="walkthrough" aria-labelledby="walkthrough-title">
+        <div class="section-top">
+          <h2 id="walkthrough-title">A test that has somewhere to go.</h2>
+          <span class="record-label"
+            ><span class="dot"></span> RECORDED EXECUTION · NOT LIVE</span
+          >
+        </div>
+        <div id="loading" class="empty">
+          <p>Loading the execution record…</p>
+        </div>
+        <div id="experience" hidden>
+          <div class="workspace">
+            <aside class="chapters">
+              <p class="mono muted">THE WALKTHROUGH</p>
+              <div
+                id="chapters"
+                role="group"
+                aria-label="Recorded stages"
+              ></div>
+              <div class="stage-note">
+                <span class="mono">WHAT TO NOTICE</span>
+                <p id="explanation"></p>
+              </div>
+            </aside>
+            <div class="viewer">
+              <div class="browser-bar">
+                <div class="traffic" aria-hidden="true">
+                  <i></i><i></i><i></i>
+                </div>
+                <span id="browser-url" class="mono">fieldnotes / checkout</span
+                ><span class="mono">CAPTURE</span>
+              </div>
+              <div class="screen">
+                <img
+                  id="frame"
+                  alt="Actual browser screenshot from the selected cairn action"
+                />
+                <p id="no-frame" hidden>
+                  No browser image was captured for this action.
+                </p>
+              </div>
+              <div class="transport">
+                <button id="previous" aria-label="Previous browser action">
+                  ←</button
+                ><span id="frame-count" class="mono"></span
+                ><button id="next" aria-label="Next browser action">→</button
+                ><span id="frame-caption"></span>
+              </div>
+            </div>
+          </div>
+          <div class="evidence">
+            <div class="code-panel">
+              <div class="panel-heading">
+                <span class="mono">ACTION + SAVED CHECKS</span
+                ><a id="scenario-link" target="_blank" rel="noopener"
+                  >Open JSON ↗</a
+                >
+              </div>
+              <pre id="code" tabindex="0"></pre>
+            </div>
+            <div class="result-panel">
+              <div class="panel-heading">
+                <span class="mono">WHAT ACTUALLY HAPPENED</span
+                ><a id="trace-link" target="_blank" rel="noopener">Trace ↗</a>
+              </div>
+              <div id="verdict" class="verdict" aria-live="polite"></div>
+              <div class="metrics">
+                <div>
+                  <strong id="calls"></strong><span>observed LLM calls</span>
+                </div>
+                <div>
+                  <strong id="duration"></strong><span>recorded duration</span>
+                </div>
+                <div><strong id="proof"></strong><span>proof grade</span></div>
+              </div>
+              <p id="proof-detail" class="muted"></p>
+            </div>
+          </div>
+          <p id="provenance" class="provenance"></p>
+        </div>
+      </section>
+      <section class="takeaway">
+        <span class="mono">THE PART THAT MATTERS</span>
+        <h2>
+          A changed button is a test repair.<br />A failed order is still a
+          failed order.
+        </h2>
+        <p>
+          This example changes the order control from a button to a link. Then
+          it makes the order API return 500, even though the screen says
+          “complete.” The test checks the request, not just the destination.
+        </p>
+      </section>
+      <section class="reproduce">
+        <div>
+          <p class="eyebrow">TAKE IT FOR A WALK</p>
+          <h2>Run the same story yourself.</h2>
+          <p>
+            Node 22.12+, Chrome, and an authenticated model backend.<br />Recording
+            uses model calls; browsing this page uses none.
+          </p>
+          <div class="links">
+            <a href="/recording/source.tar.gz" download
+              >Download runnable source ↓</a
+            ><a href="/source/record.mjs" target="_blank" rel="noopener"
+              >Read the runner ↗</a
+            ><a
+              id="manifest-link"
+              href="/recording/manifest.json"
+              target="_blank"
+              rel="noopener"
+              >Inspect the execution record ↗</a
+            >
+          </div>
+        </div>
+        <pre><code>tar -xzf source.tar.gz
+cd order-demo
+npm install
+CAIRN_LLM_BACKEND=codex npm run record
+npm start</code></pre>
+      </section>
+      <p class="limits">
+        One measured example, not a general repair success rate. Each stage
+        starts with a fresh browser. Model costs are not shown when the backend
+        does not report them. This demo is ready for usability testing; no
+        external-user outcomes are claimed.
+      </p>
+    </main>
+    <footer>
+      <a class="wordmark" href="/">cairn</a
+      ><span>Discover once. Follow the path again.</span
+      ><a href="https://github.com/team-poem/cairn/issues/255"
+        >An open experiment · #255 ↗</a
+      >
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,17 @@
+{
+  "name": "cairn-order-demo",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "record": "node record.mjs",
+    "test": "node --test server.test.mjs",
+    "build": "node build.mjs"
+  },
+  "engines": {
+    "node": ">=22.12"
+  },
+  "dependencies": {
+    "cairn-engine": "^2.9.2"
+  }
+}

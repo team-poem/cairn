@@ -27,6 +27,8 @@ jobs:
         run: npm run test:workspace
       - name: Offline benchmark contract tests
         run: npm run test:bench
+      - name: Demo application contracts
+        run: npm run test:demo
 
   # The in-page probe (#176) decides what a click resolves to by reading element boxes, hit tests
   # and computed overflow/position — answers only a layout engine has. jsdom returns zeros for all

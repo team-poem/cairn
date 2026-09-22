@@ -41,6 +41,8 @@ export { FakeDriver } from "./adapters/drivers/fake.js";
 export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
+export { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";
+export type { TargetChoiceRepairOptions } from "./adapters/drivers/target-choice.js";
 export { JevTargetSelector, JEV_TARGET_QUESTION_VERSION } from "./adapters/decisions/jev.js";
 export type { JevTargetSelectorOptions } from "./adapters/decisions/jev.js";
 export type { TargetSelector, TargetChoiceRequest, TargetChoiceResult, TargetChoicePilot, TargetChoiceAudit, TargetCandidate } from "./core/target-choice.js";

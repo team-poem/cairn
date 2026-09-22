@@ -119,6 +119,13 @@ latency. It is not wired into this pilot.
 Choice result and audit data. It is deliberately smaller than a general `decide(state,questions)`
 framework. The host supplies it through the existing Driver decorator at `runScenario`.
 
+`runScenario` composes the selection policy with `createTargetChoiceRepair`. The policy lives in
+`adapters/drivers/target-choice.ts`, outside the browser entry's runtime dependency graph; the
+existing browser `SelfHealingDriver` export remains available. Direct decorator users pass
+`choice: createTargetChoiceRepair({ selector, minConfidence, context, onDecision, secrets })`
+and confirm the original step post-condition through `confirmChoice`. This replaces the initial
+draft's inline `choice` configuration; the `runScenario.targetChoice` API is unchanged.
+
 ```ts
 import { JevTargetSelector, runScenario } from "cairn-engine";
 

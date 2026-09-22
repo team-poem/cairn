@@ -5,7 +5,7 @@ import { createHash } from "node:crypto";
 import { cases as syntheticCases } from "./corpus.mjs";
 import { createBudget } from "../local/budget.mjs";
 import { createLlm } from "../local/llm.mjs";
-import { FakeDriver, SelfHealingDriver, JevTargetSelector } from "../../packages/harness/dist/index.js";
+import { FakeDriver, SelfHealingDriver, JevTargetSelector, createTargetChoiceRepair } from "../../packages/harness/dist/index.js";
 
 const live = process.argv.includes("--live");
 const option = key => { const index = process.argv.indexOf(key); return index < 0 ? undefined : process.argv[index + 1]; };
@@ -70,8 +70,8 @@ for (const [index, row] of cases.entries()) {
     } };
     // null is the live default: selection is observable but never dispatches without a chosen threshold.
     const minConfidence = live ? config.jev.minConfidence ?? null : 0.7;
-    const healer = new SelfHealingDriver(driver, llm, arm === "jev" ? { choice: { selector, minConfidence,
-      context: () => ({ intent: row.original.text, stepRef: 0 }), onDecision: result => { decision = result; } } } : {});
+    const healer = new SelfHealingDriver(driver, llm, arm === "jev" ? { choice: createTargetChoiceRepair({ selector, minConfidence,
+      context: () => ({ intent: row.original.text, stepRef: 0 }), onDecision: result => { decision = result; } }) } : {});
     const start = performance.now(); let failed = false;
     try { await healer.click(row.original); } catch { failed = true; }
     const selected = arm === "jev" ? references.get(decision?.answer?.choice) ?? null : driver.selected;

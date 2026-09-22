@@ -15,6 +15,7 @@ import type { CustomChecks } from "./adapters/critics/assertion.js";
 import { LlmCritic } from "./adapters/critics/llm.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { SelfHealingDriver } from "./adapters/drivers/self-heal.js";
+import { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";
 import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { LlmStepHealer } from "./core/step-heal.js";
@@ -159,10 +160,10 @@ export async function runScenario(
   let meter: UsageMeter | undefined;
   const getLlm = (): LlmClient =>
     (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
-  const choiceUsage = emptyUsage();
+  let choiceUsage: RunUsage | undefined;
   const usage = (): RunUsage => {
     const result = meter?.snapshot() ?? emptyUsage();
-    for (const key of Object.keys(choiceUsage) as (keyof RunUsage)[]) result[key] += choiceUsage[key];
+    if (choiceUsage) for (const key of Object.keys(choiceUsage) as (keyof RunUsage)[]) result[key] += choiceUsage[key];
     return result;
   };
   // Both heal layers take their client up front but only call it on a break, so hand them one
@@ -228,7 +229,7 @@ export async function runScenario(
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal || opts.targetChoice
     ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
-        ...(opts.targetChoice ? { choice: { ...opts.targetChoice,
+        ...(opts.targetChoice ? { choice: createTargetChoiceRepair({ ...opts.targetChoice, secrets: opts.secrets,
           context: target => {
             const matches = scenario.steps.map((step, stepRef) => ({ step, stepRef })).filter(({ step }) => "target" in step && step.target === target);
             if (matches.length !== 1) return undefined;
@@ -238,11 +239,14 @@ export async function runScenario(
               ? { intent: step.intent, stepRef } : undefined;
           },
           onDecision: (audit, stepRef) => {
-            if (audit.requested) choiceUsage.llmCalls++;
-            if (audit.usage) { choiceUsage.measuredCalls++; choiceUsage.inputTokens += audit.usage.inputTokens; choiceUsage.outputTokens += audit.usage.outputTokens; }
+            if (audit.requested) (choiceUsage ??= emptyUsage()).llmCalls++;
+            if (audit.usage) {
+              choiceUsage ??= emptyUsage();
+              choiceUsage.measuredCalls++; choiceUsage.inputTokens += audit.usage.inputTokens; choiceUsage.outputTokens += audit.usage.outputTokens;
+            }
             scope?.emit({ kind: "target-choice", phase: "heal", stepRef, payload: audit });
           },
-        } } : {}),
+        }) } : {}),
       }))
     : baseDriver;
   const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;

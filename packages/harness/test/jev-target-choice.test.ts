@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
 import { JevTargetSelector } from "../src/adapters/decisions/jev.js";
 import { runScenario } from "../src/run.js";
 import { stepError } from "../src/core/errors.js";
@@ -123,6 +125,14 @@ async function run(driver = new ExactDriver(), http = choiceTransport(), s = sce
 }
 
 describe("locator-only pilot safety (scripted choices)", () => {
+  it("keeps finite-choice policy and provider out of the complete browser bundle", async () => {
+    const result = await build({ entryPoints: [fileURLToPath(new URL("../src/browser.ts", import.meta.url))],
+      bundle: true, write: false, platform: "browser", format: "esm", metafile: true });
+    const inputs = Object.keys(result.metafile!.inputs).map(path => path.replaceAll("\\", "/"));
+    expect(inputs.some(path => path.endsWith("adapters/drivers/self-heal.ts"))).toBe(true);
+    expect(inputs.some(path => path.endsWith("core/target-choice.ts") ||
+      path.endsWith("adapters/drivers/target-choice.ts") || path.endsWith("adapters/decisions/jev.ts"))).toBe(false);
+  });
   it("repairs button to link, verifies the original goal, re-freezes, then replays without a model", async () => {
     const s = scenario(); const result = await run(undefined, undefined, s);
     expect(result.result.verdict.passed).toBe(true); expect(result.heals).toHaveLength(1);

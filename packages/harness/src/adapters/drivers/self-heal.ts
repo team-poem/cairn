@@ -17,7 +17,6 @@ import { PerceptionObservation, assertDecisionCurrent, decisionReference } from 
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
-import { validTargetAnswer, type TargetChoicePilot, type TargetChoiceAudit } from "../../core/target-choice.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
  * role/index, not a brittle text-only one) was used instead. */
@@ -30,9 +29,10 @@ export interface Heal {
 export interface SelfHealOptions {
   /** Experimental finite selection. The host supplies context only for steps with original
    * post-conditions, then calls confirmChoice after the existing step verifier finishes. */
-  choice?: TargetChoicePilot & {
-    context: (target: Target) => { intent: string; stepRef: number } | undefined;
-    onDecision?: (audit: TargetChoiceAudit, stepRef?: number) => void;
+  choice?: {
+    /** Validate original evidence before taking a snapshot; choose one observation key or throw.
+     * Injected by createTargetChoiceRepair so browser consumers do not bundle pilot policy. */
+    prepare: (target: Target) => (page: PerceptionObservation, elements: PageElement[]) => Promise<string>;
   };
   /** Maximum repair model requests, including unsuccessful attempts. Defaults to 5. */
   maxHeals?: number;
@@ -78,7 +78,7 @@ export function parseHealChoice(text: string): string | undefined {
 
 export class SelfHealingDriver implements Driver {
   readonly heals: Heal[] = [];
-  private readonly pending = new Map<Target, Heal>();
+  private pending?: Map<Target, Heal>;
   private healAttempts = 0;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
@@ -90,10 +90,6 @@ export class SelfHealingDriver implements Driver {
   ) {
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
-    const threshold = opts.choice?.minConfidence;
-    if (opts.choice && threshold !== null && (threshold === undefined || !Number.isFinite(threshold) || threshold < 0 || threshold > 1)) {
-      throw new Error("target choice confidence threshold must be null or between 0 and 1");
-    }
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
   }
 
@@ -134,7 +130,7 @@ export class SelfHealingDriver implements Driver {
       const repaired = await this.heal(target, cause, action, value);
       repaired.validate();
       await dispatch(repaired.heal.healed, repaired.ref);
-      if (this.opts.choice) this.pending.set(target, repaired.heal);
+      if (this.opts.choice) (this.pending ??= new Map()).set(target, repaired.heal);
       else {
         this.heals.push(repaired.heal);
         this.onHeal?.(repaired.heal);
@@ -144,8 +140,8 @@ export class SelfHealingDriver implements Driver {
 
   /** A successful dispatch alone is tentative. The original step post-condition must pass. */
   confirmChoice(target: Target, ok: boolean): void {
-    const heal = this.pending.get(target);
-    this.pending.delete(target);
+    const heal = this.pending?.get(target);
+    this.pending?.delete(target);
     if (heal && ok) { this.heals.push(heal); this.onHeal?.(heal); }
   }
 
@@ -192,8 +188,7 @@ export class SelfHealingDriver implements Driver {
 
   private async heal(target: Target, cause: unknown, action: Decision["action"], value?: string): Promise<{ heal: Heal; ref?: string; validate: () => void }> {
     this.assertHealBudget(target, cause);
-    const choiceContext = this.opts.choice?.context(target);
-    if (this.opts.choice && !choiceContext) throw stepError("resolution", "target choice requires original intent and post-condition evidence");
+    const choose = this.opts.choice?.prepare(target);
     const raw = await this.inner.snapshot({ perception: true });
     const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
     const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "", this.opts.choice ? 254 : undefined);
@@ -203,26 +198,7 @@ export class SelfHealingDriver implements Driver {
     this.healAttempts++;
     let unbound: Decision;
     if (this.opts.choice) {
-      const candidates = page.candidates();
-      // No shortlist or name-only fallback: every retained candidate needs exact addressing.
-      if (page.omittedCount || elements.some(e => e.occluded !== true && !e.ref) || !candidates.length) {
-        throw stepError("resolution", "target choice requires a complete nonempty reference table within the candidate limit");
-      }
-      const selected = await this.opts.choice.selector.select({ observationId: page.id,
-        original: Object.fromEntries(Object.entries(target).map(([k, v]) => [k, typeof v === "string" ? slotSecretText(v, this.opts.secrets) : v])),
-        intent: slotSecretText(choiceContext!.intent, this.opts.secrets),
-        candidates: candidates.map(c => ({ ...c, name: slotSecretText(c.name, this.opts.secrets) })),
-      });
-      const answer = selected.answer;
-      const valid = !selected.error && validTargetAnswer(answer, [...candidates.map(c => c.key), "none"]);
-      const outcome = !valid ? "rejected" : answer!.choice === "none" ? "none" :
-        this.opts.choice.minConfidence === null ? "threshold-unset" :
-        answer!.confidence < this.opts.choice.minConfidence ? "low-confidence" : "selected";
-      this.opts.choice.onDecision?.({ ...selected, policyVersion: "cairn-target-policy/1", observationId: page.id, candidateKeys: candidates.map(c => c.key),
-        minConfidence: this.opts.choice.minConfidence, fallback: "fail", outcome }, choiceContext!.stepRef);
-      if (outcome !== "selected") throw stepError("resolution", `target choice withheld: ${selected.error ?? outcome}`);
-      if (candidates.find(c => c.key === answer!.choice)?.disabled) throw stepError("resolution", "target choice selected a disabled candidate");
-      unbound = { action, ref: answer!.choice };
+      unbound = { action, ref: await choose!(page, elements) };
     } else {
       const reply = await this.llm.complete(healPrompt(target, page), {
         system: HEAL_SYSTEM,

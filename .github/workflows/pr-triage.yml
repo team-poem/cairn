@@ -2,6 +2,7 @@ name: pr triage
 
 on:
   pull_request_target:
+    branches: [develop]
     types: [opened, edited, reopened, ready_for_review, synchronize]
 
 permissions:

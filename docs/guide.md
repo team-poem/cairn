@@ -277,6 +277,14 @@ CAIRN_SECRET_PASSWORD=… cairn replay login.skill.json --secret user=alice     
 
 In the library, `secrets: { user: "alice", password: { value: "…", origin: "https://your.app" } }` on `runScenario`, `runSuite` or `discover`. A scoped secret is refused on any page outside its site (host or subdomain, and the port when you give one), during discovery and replay alike, so a flow that wanders to a payment provider's login form cannot type your app's credentials there (exit 3). A placeholder with no value fails the step and skips healing (exit 4: pass it). To type a literal `{word}`, write `{{word}}`. In CI prefer `CAIRN_SECRET_<NAME>`: a `--secret` on the command line shows in `ps` and in the job log.
 
+A secret's `origin` must include `http://` or `https://` and contain only the host and optional
+port (a trailing `/` is allowed). For example, use `http://localhost:3000`, not `localhost:3000`.
+The library and CLI reject malformed scopes before execution, even for unused secrets; this is
+a configuration error, distinct from a valid secret being refused on another site. Origins with
+credentials, a path, query, or fragment are rejected. Hosts can call `validateSecrets(secrets)`
+to perform the same check before starting a run.
+
+
 ## Extend it
 
 Every stage is a replaceable port. Bring your own `Driver` (for example Playwright), `Critic`, `Reporter`, `ContextProvider` (auth, fixtures), or `LlmClient` (any model).

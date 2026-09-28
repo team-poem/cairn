@@ -4,9 +4,30 @@ import type { PageElement, Step } from "./types.js";
 
 /** A value a `type` step fills in for a `{name}` placeholder at run time (#174). Scoped form:
  * the secret belongs to one site (host or a subdomain of it; the port when one is given) and
- * the engine refuses to type it anywhere else. */
+ * the engine refuses to type it anywhere else. origin must be an explicit HTTP(S) origin
+ * (scheme://host[:port], optional trailing slash); invalid scopes fail before execution. */
 export type Secret = string | { value: string; origin: string };
 export type Secrets = Readonly<Record<string, Secret>>;
+
+/** Reject malformed scopes before any run side effects. Do not echo the supplied origin:
+ * a mistaken URL can contain credentials or callback tokens. Keep explicit default ports in
+ * the original string, since URL.port normalizes them away. */
+export function validateSecrets(secrets: Secrets = {}): void {
+  for (const [name, secret] of Object.entries(secrets)) {
+    if (typeof secret !== "string") validateSecretOrigin(name, secret.origin);
+  }
+}
+
+function validateSecretOrigin(name: string, origin: string): void {
+  try {
+    if (!/^https?:\/\/[^/?#\\\s]+\/?$/i.test(origin)) throw new Error();
+    if (origin.trim() !== origin || origin.includes("@") || /:\/?$/.test(origin)) throw new Error();
+    const parsed = new URL(origin);
+    if (!parsed.hostname || parsed.username || parsed.password) throw new Error();
+  } catch {
+    throw stepError("handler", `secret {${name}} origin could not be parsed: expects a URL with a scheme and host (http:// or https://host[:port]), without credentials, path, query, or fragment`);
+  }
+}
 
 /** `{name}`: a bare identifier in braces. Nothing else is a placeholder, so typed JSON
  * (`{"a":1}`) or a regex quantifier passes through. `{{name}}` is the escape: it types the
@@ -44,9 +65,10 @@ function effectivePort(u: URL): string {
 function onSecretSite(origin: string, pageUrl: string): boolean {
   if (!onSiteOf(origin, pageUrl)) return false;
   try {
-    const withScheme = /^https?:\/\//i.test(origin) ? origin : `https://${origin}`;
-    const named = /^[a-z]+:\/\/[^/]*:\d+(?:[/?#]|$)/i.test(withScheme);
-    return !named || effectivePort(new URL(withScheme)) === effectivePort(new URL(pageUrl));
+    const page = new URL(pageUrl);
+    if (page.protocol !== "http:" && page.protocol !== "https:") return false;
+    const named = /^https?:\/\/[^/]*:\d+(?:\/|$)/i.test(origin);
+    return !named || effectivePort(new URL(origin)) === effectivePort(page);
   } catch {
     return false;
   }
@@ -60,6 +82,7 @@ function onSecretSite(origin: string, pageUrl: string): boolean {
  * the one input where following it is harmful, not merely off-task.
  */
 export function fillSecrets(text: string, secrets: Secrets = {}, pageUrl?: string): string {
+  validateSecrets(secrets);
   const filled = text.replace(ESCAPED, (_m, name: string) => `\u0000${name}\u0000`).replace(PLACEHOLDER, (_m, name: string) => {
     const secret = secrets[name];
     if (secret === undefined) {
@@ -159,6 +182,7 @@ export function slotSecrets(steps: Step[], secrets: Secrets = {}): void {
  * as `fillSecrets`; a no-op when no scoped value is present.
  */
 export function assertSecretScope(output: string, secrets: Secrets = {}, pageUrl?: string): void {
+  validateSecrets(secrets);
   for (const [name, secret] of Object.entries(secrets)) {
     if (typeof secret === "string" || secret.value.length === 0 || !output.includes(secret.value)) continue;
     if (pageUrl === undefined || !onSecretSite(secret.origin, pageUrl)) {

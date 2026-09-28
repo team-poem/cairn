@@ -42,3 +42,17 @@ form must not be handed the app's credentials, and a prompt saying "only on our 
 request, not a guarantee. The refusal is a step failure the model can route around (`script`,
 exit 3 on replay: the frozen step would type a secret where it does not belong); its message
 names the page as origin+path, never the query, because provider callbacks carry tokens there.
+
+**Validate configuration before execution (#245).** A scoped secret's `origin` must be an
+explicit HTTP(S) origin (`scheme://host[:port]`, with an optional trailing slash). Bare hosts
+such as `shop.example` and `shop.example:3000` are configuration errors, consistently in the
+library and CLI; use `https://shop.example` or `http://shop.example:3000` instead. Credentials,
+paths, queries, fragments, and malformed URLs are rejected, including on unused secrets, before
+navigation, model calls, or host callbacks. The error identifies the placeholder and says the
+origin could not be parsed without echoing the supplied URL or value. `validateSecrets` exposes
+the same preflight check to hosts. Direct handlers and healers also validate at construction.
+
+A valid scope on another site still produces the separate runtime refusal above. Validation
+preserves explicit default ports rather than normalizing them away, and does not change the
+existing host/subdomain policy or add a scheme restriction between HTTP and HTTPS when no port
+was specified. A non-HTTP(S) page cannot receive a scoped value.

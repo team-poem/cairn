@@ -267,7 +267,8 @@ export async function runScenario(
           if ("target" in progress.step) healer?.confirmChoice(progress.step.target, progress.ok && !progress.skipped);
           opts.onStep?.(progress);
         } : opts.onStep,
-        captureScreenshots: opts.screenshots,
+        // The internal choice-confirmation callback does not consume screenshot bytes.
+        captureScreenshots: opts.screenshots && (opts.onStep !== undefined || scope?.acceptsAttachments === true),
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,

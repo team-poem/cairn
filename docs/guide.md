@@ -304,6 +304,11 @@ const result = await runHarness({
 await driver.close() // whoever constructs a Driver owns it, and runHarness never closes yours
 ```
 
+Use a fresh driver for each independent discovery or replay run. The Chrome driver retains network
+evidence for its session across page navigations; calling `goto` does not reset that evidence.
+The suite creates a separate driver per discovery/replay, and outcome healing deliberately stays
+in the current session while judging only the repair attempt's new requests.
+
 Building a UI on top? The engine streams what a screen needs: `signal` (Stop), `screenshots`, `onStep` (a live timeline), and the full lifecycle as a trace stream ([the run is just data, too](#the-run-is-just-data-too)). No Node (a browser or an extension)? Import from `cairn-engine/browser` and compose `runHarness` with your own `Driver`, for example one over `chrome.debugger`.
 
 ## FAQ

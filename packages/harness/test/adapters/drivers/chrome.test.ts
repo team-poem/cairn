@@ -725,7 +725,7 @@ describe("ChromeDevToolsDriver audit coverage", () => {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
       calls.push({ name, args });
-      const r = responses[name];
+      const r = responses[name] ?? (name === "list_pages" ? "0: https://x/ [selected]" : undefined);
       if (r === undefined) return "";
       return typeof r === "function" ? r(args) : r;
     };
@@ -815,6 +815,7 @@ describe("ChromeDevToolsDriver audit coverage", () => {
     describe("chrome call()", () => {
       it("chromeCallJoinsTextContentBlocks: multiple text blocks are joined with newlines, non-text blocks skipped", async () => {
         const { driver, client } = withClient(async ({ name }) => {
+          if (name === "list_pages") return { content: [{ type: "text", text: "0: https://a/ [selected]" }] };
           if (name === "list_network_requests") {
             return {
               content: [
@@ -831,7 +832,7 @@ describe("ChromeDevToolsDriver audit coverage", () => {
           { method: "GET", url: "https://a/", status: 200 },
           { method: "POST", url: "https://b/", status: 500 },
         ]);
-        expect(client.callTool).toHaveBeenCalledWith({ name: "list_network_requests", arguments: {} });
+        expect(client.callTool).toHaveBeenCalledWith({ name: "list_network_requests", arguments: { includePreservedRequests: true } });
       });
     });
   }
@@ -956,7 +957,7 @@ describe("ChromeDevToolsDriver audit coverage", () => {
         expect(calls.find((c) => c.name === "hover")?.args).toEqual({ uid: "1_1" });
         expect(calls.find((c) => c.name === "press_key")?.args).toEqual({ key: "Enter" });
         const names = calls.map((c) => c.name);
-        expect(names.indexOf("list_pages")).toBeGreaterThan(names.indexOf("press_key"));
+        expect(names.lastIndexOf("list_pages")).toBeGreaterThan(names.indexOf("press_key"));
       });
     });
   }
@@ -1425,7 +1426,7 @@ describe("ChromeDevToolsDriver audit coverage", () => {
         };
         await driver.type({ text: "Email" }, "a@b.c");
         const names = calls.map((c) => c.name).filter((n) => n !== "take_snapshot");
-        expect(names).toEqual(["fill", "list_pages", "<settle>"]);
+        expect(names).toEqual(["fill", "list_pages", "list_network_requests", "<settle>"]);
         expect(calls.find((c) => c.name === "fill")?.args).toEqual({ uid: "1_1", value: "a@b.c" });
       });
     });

@@ -89,6 +89,32 @@ matching (a same-path GET must not satisfy a submit), and the path stops before 
 segment. At **replay**: `conditionMet` takes a per-step **watermark** and only counts requests observed
 after the step started — an earlier step's request can never satisfy this step's post-condition.
 
+### Reference driver network retention (#259)
+
+Chrome MCP exposes a sliding window of three navigations. The driver requests preserved rows
+and retains them by **page ID + request ID**, in first-observed order, for its own session.
+A repeated row updates that slot; pending-to-completed updates never append another request.
+Previously returned evidence is a snapshot, not a mutable view of the live log.
+
+Collection at explicit navigation and interactive-action boundaries, during settle, and during
+observe prevents later navigations from moving existing watermarks. A response never observed
+before MCP evicts it cannot be reconstructed: an unresolved request stays status 0, and missing
+request evidence cannot prove success. This is not an unbounded browser event subscription;
+unobserved traffic beyond MCP's three-navigation/1,000-requests-per-navigation retention is not
+recovered. Console retention is unchanged by this network-only fix.
+
+The scope is a **driver session**, not a URL. `goto` must not clear evidence: a scenario can navigate
+many times, and outcome healing on the same driver already uses a request watermark to isolate
+its own attempt. Independent discovery/replay runs use fresh drivers (as the suite does); callers
+supplying a driver own that lifecycle. `close` clears the log and remains terminal. Reusing a live
+driver deliberately continues its evidence session; it does not establish an independent run.
+
+Run `npm run build && npm run test:network-evidence` for the real Chrome regression. It reuses
+#230's order fixture, repairs the changed target with a scripted provider, replays on a fresh
+browser with zero model calls, traverses more than three documents, rejects an earlier success
+as a later step's proof, and checks a persistent 500 through outcome healing. Set `CAIRN_MCP_ENTRY`
+to an installed MCP 1.8.0 entry and `CAIRN_NETWORK_REPORT` to retain the JSON report.
+
 ## 5. Invariants (preserved)
 
 - No divergence → **zero LLM (deterministic replay, #4).** LLM only in discovery + heal (#4(b) sanctioned).

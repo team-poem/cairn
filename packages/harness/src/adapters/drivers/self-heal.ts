@@ -15,7 +15,7 @@ import type {
 } from "../../core/types.js";
 import { PerceptionObservation, assertDecisionCurrent, decisionReference } from "../../core/observation.js";
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
-import { redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
+import { validateSecrets, redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
@@ -80,6 +80,7 @@ export class SelfHealingDriver implements Driver {
     private readonly llm: LlmClient,
     private readonly opts: SelfHealOptions = {},
   ) {
+    validateSecrets(opts.secrets);
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);

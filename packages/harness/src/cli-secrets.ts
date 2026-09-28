@@ -1,4 +1,4 @@
-import type { Secrets } from "./index.js";
+import { validateSecrets, type Secrets } from "./index.js";
 import { flagList } from "./cli-args.js";
 import type { Flags } from "./cli-args.js";
 
@@ -27,11 +27,6 @@ export function secretsFromFlags(flags: Flags, env: NodeJS.ProcessEnv = process.
     const eq = pair.indexOf("=");
     if (eq <= 0) throw new Error(`--secret-origin expects name=origin, got ${JSON.stringify(pair)}`);
     const origin = pair.slice(eq + 1);
-    try {
-      new URL(origin);
-    } catch {
-      throw new Error(`--secret-origin ${pair.slice(0, eq)}: expects a URL with a scheme (https://app.example), got ${JSON.stringify(origin)}`);
-    }
     origins.set(pair.slice(0, eq), origin);
   }
   for (const [key, value] of Object.entries(env)) {
@@ -46,7 +41,8 @@ export function secretsFromFlags(flags: Flags, env: NodeJS.ProcessEnv = process.
   const out: Record<string, Secrets[string]> = {};
   for (const [name, value] of values) {
     const origin = origins.get(name);
-    out[name] = origin ? { value, origin } : value;
+    out[name] = origin !== undefined ? { value, origin } : value;
   }
+  validateSecrets(out);
   return out;
 }

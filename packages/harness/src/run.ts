@@ -27,7 +27,7 @@ import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
-import type { Secrets } from "./core/secrets.js";
+import { validateSecrets, type Secrets } from "./core/secrets.js";
 
 export interface RunScenarioOptions {
   /** Replay at a different origin without modifying the frozen scenario. Heals repair the live
@@ -143,6 +143,7 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  validateSecrets(opts.secrets);
   if (opts.replayEnvironment) {
     validateReplayEntry(scenario, opts.replayEnvironment);
     scenario = reanchorScenario(scenario, opts.replayEnvironment);

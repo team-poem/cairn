@@ -5,7 +5,7 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer, PerceptionAdapter } from "./ports.js";
 import type { Step } from "./types.js";
-import { redactSecrets, slotSecretText } from "./secrets.js";
+import { validateSecrets, redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
 import { describeAmbiguity } from "./discover/decision.js";
@@ -36,7 +36,7 @@ export class LlmStepHealer implements StepHealer {
     /** Values for `{name}` placeholders (#174): the healer types them and never writes them. */
     private readonly secrets: Secrets = {},
     private readonly options: StepHealOptions = {},
-  ) {}
+  ) { validateSecrets(secrets); }
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
     if (this.attempts >= this.maxHeals) return null;

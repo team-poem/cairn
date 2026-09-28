@@ -6,7 +6,7 @@
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
-import type { Secrets } from "./secrets.js";
+import { validateSecrets, type Secrets } from "./secrets.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { RequestMatchOptions } from "./requests.js";
 import type { ConditionMatchOptions } from "./steps.js";
@@ -270,6 +270,7 @@ export async function runHarness(
   task: string,
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
+  validateSecrets(opts.secrets);
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);

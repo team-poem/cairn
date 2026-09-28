@@ -7,8 +7,9 @@ import { SYSTEM, ACTION_VOCABULARY, ACTION_RULES, PERCEPTION_RULES } from "../..
 import { LlmStepHealer } from "../../src/core/step-heal.js";
 import { explore } from "../../src/core/explore/index.js";
 import { EXPLORE_SYSTEM } from "../../src/core/explore/prompt.js";
-import type { LlmClient, PerceptionAdapter } from "../../src/core/ports.js";
+import type { Driver, LlmClient, PerceptionAdapter } from "../../src/core/ports.js";
 import type { PageElement, Target } from "../../src/core/types.js";
+import { startTrace } from "../../src/core/trace.js";
 import { StubDriver } from "../support/doubles.js";
 
 class PromptRefDriver extends StubDriver {
@@ -44,7 +45,7 @@ class PromptRecordingLlm implements LlmClient {
     return this.reply(prompt, this.prompts.length);
   }
 }
-async function runPromptLoop(mode: "discover" | "explore", driver: PromptRefDriver, llm: LlmClient, perceive?: PerceptionAdapter) {
+async function runPromptLoop(mode: "discover" | "explore", driver: Driver, llm: LlmClient, perceive?: PerceptionAdapter) {
   const opts = { driver, llm, perceive, baseUrl: "https://app/start", maxSteps: 4 };
   return mode === "discover" ? discover("save", opts) : explore("save", opts);
 }
@@ -218,4 +219,108 @@ it("stepHealTeachesAndExecutesRefOnlySchema: the healer receives shared target r
   expect(driver.exact).toEqual(["second"]);
   expect(result).toEqual({ index: 2, step: { kind: "click", target: { text: "Save", role: "button", selector: "#second" }, intent: original.intent, expect: original.expect } });
   expect(JSON.stringify(result)).not.toContain('"ref"');
+});
+
+function expectNamedInstructions(system: string): void {
+  expect(system).toContain('No references are available in this observation');
+  expect(system).toContain('do not include "ref"');
+  expect(system).not.toContain('"ref":"<ref>"');
+  expect(system).not.toContain('choose it from the current reference table');
+  for (const action of ["click", "doubleClick", "hover", "type", "select"]) {
+    expect(system).toContain(`{"action":"${action}","text":"<element>"`);
+  }
+  expect(system).toContain('always add "role"');
+  expect(system).toContain('duplicate WITHOUT nth is rejected');
+}
+
+it.each(["legacy", "unreferenced", "empty", "filtered"] as const)(
+  "referenceFreeInstructions: %s observations teach named actions in both loops and step healing", async mode => {
+    for (const flow of ["discover", "explore", "step-heal"] as const) {
+      const driver = mode === "legacy" ? new StubDriver() : new PromptRefDriver();
+      driver.els = mode === "empty" ? [] : [{ role: "button", name: "Save",
+        ...(mode === "legacy" || mode === "filtered" ? { ref: "node-save" } : {}),
+        ...(mode === "filtered" ? { occluded: true } : {}),
+      }];
+      const systems: string[] = [];
+      const llm: LlmClient = { id: "named-instructions", async complete(_prompt, opts) {
+        systems.push(opts?.system ?? "");
+        return '{"action":"done"}';
+      } };
+      if (flow === "step-heal") {
+        await new LlmStepHealer(llm).heal({ kind: "click", target: { text: "Old" }, intent: "submit" }, 0, driver);
+      } else await runPromptLoop(flow, driver, llm);
+      expectNamedInstructions(systems[0]!);
+      expect(driver.clicked).toEqual([]);
+    }
+  },
+);
+
+it("namedInstructionsExecuteWithoutAReferenceRetry: both loops select by name and freeze the target", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Save" }];
+    driver.navOn.Save = "https://app/saved";
+    let decisions = 0;
+    const llm: LlmClient = { id: "named-schema", async complete(prompt, opts) {
+      if (!prompt.includes("What is the single next action?")) return "[]";
+      expectNamedInstructions(opts?.system ?? "");
+      return ++decisions === 1 ? '{"action":"click","text":"Save","role":"button"}' : '{"action":"done"}';
+    } };
+    const result = await runPromptLoop(mode, driver, llm);
+    expect(result.truncated).not.toBe(true);
+    expect(decisions).toBe(2);
+    expect(driver.clicked).toEqual(["Save"]);
+    expect(result.steps.find(step => step.kind === "click")).toMatchObject({ target: { text: "Save", role: "button" } });
+  }
+});
+
+it("referenceInstructionsTrackEachObservation: refs can disappear and return without changing driver capability", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver();
+    const llm = new PromptRecordingLlm((_prompt, turn) => {
+      driver.els = [{ role: "button", name: "Save", ...(turn === 1 ? {} : { ref: "node-save" }) }];
+      return turn < 3 ? '{"action":"pressKey","key":"Escape"}' : '{"action":"done"}';
+    });
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.systems).toHaveLength(3);
+    expect(llm.systems[0]).toContain(ACTION_VOCABULARY);
+    expectNamedInstructions(llm.systems[1]!);
+    expect(llm.systems[2]).toContain(ACTION_VOCABULARY);
+  }
+});
+
+it("namedStepHealKeepsOriginalChecks: a reference-free duplicate repair retains ordinal, intent and expect", async () => {
+  const driver = new StubDriver();
+  driver.els = [{ role: "button", name: "Save" }, { role: "button", name: "Save" }];
+  const step = { kind: "click" as const, target: { text: "Old" }, intent: "save", expect: { text: "Saved" } };
+  const llm: LlmClient = { id: "named-repair", async complete(_prompt, opts) {
+    expectNamedInstructions(opts?.system ?? "");
+    return '{"action":"click","text":"Save","role":"button","nth":1}';
+  } };
+  const result = await new LlmStepHealer(llm).heal(step, 0, driver);
+  expect(driver.clicked).toEqual(["Save"]);
+  expect(result?.step).toMatchObject({ target: { text: "Save", role: "button", nth: 1 }, intent: step.intent, expect: step.expect });
+});
+
+it("inventedReferenceStillFailsClosed: named guidance does not turn a forged ref into a fallback or parse retry", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Save" }];
+    const gates: string[] = [];
+    const llm = new PromptRecordingLlm((_prompt, turn) => turn === 1
+      ? '{"action":"click","text":"Save","ref":"forged"}'
+      : turn === 2 ? '{"action":"click","text":"Save","role":"button"}' : '{"action":"done"}');
+    const opts = { driver, llm, baseUrl: "https://app/start", maxSteps: 4,
+      trace: startTrace({ emit: event => {
+        if (event.kind === "gate") gates.push(event.payload.gate);
+      } }, "test").scope("named"),
+    };
+    const result = mode === "discover" ? await discover("save", opts) : await explore("save", opts);
+    expect(result.truncated).not.toBe(true);
+    expect(gates).toContain("reference-binding");
+    expect(gates).not.toContain("parse-retry");
+    expect(driver.clicked).toEqual(["Save"]);
+    expect(llm.prompts).toHaveLength(3);
+    expect(llm.prompts[1]).toContain("unknown or expired observation reference");
+  }
 });

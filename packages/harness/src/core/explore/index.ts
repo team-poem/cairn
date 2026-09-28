@@ -19,7 +19,7 @@ import { UsageMeter } from "../usage.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
-import { EXPLORE_SYSTEM, buildExplorePrompt } from "./prompt.js";
+import { exploreSystem, buildExplorePrompt } from "./prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
@@ -185,7 +185,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
 
     const reply = await llm.complete(
       buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references),
-      { system: EXPLORE_SYSTEM },
+      { system: exploreSystem(Boolean(page.references)) },
     );
 
     let decision: Decision;

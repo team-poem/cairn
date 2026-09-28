@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { resolveArtifact } from "./artifact-path.mjs";
 import { cp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -40,8 +41,7 @@ for (const stage of manifest.stages) {
     stage.trace,
     ...stage.frames.map((frame) => frame.image).filter(Boolean),
   ]) {
-    assert.ok(file && resolve(artifacts, file).startsWith(artifacts + "/"));
-    await readFile(resolve(artifacts, file));
+    await readFile(resolveArtifact(artifacts, file));
   }
 }
 await rm(dist, { recursive: true, force: true });
@@ -72,6 +72,8 @@ await cp(resolve(artifacts, manifest.engine.archive), resolve(source, manifest.e
 for (const path of [
   ".gitignore",
   "build.mjs",
+  "artifact-path.mjs",
+  "artifact-path.test.mjs",
   "record.mjs",
   "server.mjs",
   "server.test.mjs",

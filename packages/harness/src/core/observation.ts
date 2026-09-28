@@ -15,6 +15,12 @@ function invalid(message: string): never { throw stepError("resolution", message
 function sameName(a: unknown, b: unknown): boolean {
   return typeof a === "string" && typeof b === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
+// Optional model descriptions may shorten names; perception identity still requires sameName.
+function describesName(text: unknown, name: string): boolean {
+  if (typeof text !== "string") return false;
+  const normalized = text.trim().toLowerCase();
+  return sameName(text, name) || (normalized.length > 0 && name.toLowerCase().includes(normalized));
+}
 
 export class PerceptionObservation {
   readonly render: string;
@@ -70,10 +76,13 @@ export class PerceptionObservation {
     const row = this.table.get(decision.ref);
     if (!row) invalid("unknown or expired observation reference");
     const { element, nth } = row;
-    if ((decision.text !== undefined && !sameName(decision.text, element.name)) ||
+    const description = { text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
+    if ((decision.text !== undefined && !describesName(decision.text, element.name)) ||
         (decision.role !== undefined && decision.role !== element.role) ||
-        (decision.nth !== undefined && decision.nth !== nth)) invalid("reference contradicts element description");
-    const canonical = { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
+        (decision.nth !== undefined && decision.nth !== nth)) {
+      invalid(`reference contradicts element description: selected ${JSON.stringify(description)}`);
+    }
+    const canonical = { ...decision, ...description };
     bindings.set(canonical, { observation: this, ref: element.ref!, token: decision.ref, action: decision.action, value: decision.value, text: element.name, role: element.role, nth, used: false });
     return canonical;
   }

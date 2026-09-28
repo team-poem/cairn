@@ -34,7 +34,7 @@ They can recover on a subsequent valid capture, with the existing step limit bou
 invalid captures. Snapshot/consumer callback errors retain their own error behavior. A valid
 JSON reply with a bad ref receives a binding diagnostic, separate from a JSON parse failure.
 With a trace scope, every rejected capture emits `gate: perception-binding`, and every rejected
-reference decision emits `gate: reference-binding`. Fixed messages describe the rejected contract
+reference decision emits `gate: reference-binding`. Fixed trace messages describe the rejected contract
 without echoing page content, Driver tokens, or model fields. Repeated rejections remain visible
 when the loop exhausts its step cap before any decision. Discovery preserves its caller's phase,
 including outcome-heal. Explore accepts an optional `trace: TraceScope` and emits these two gates
@@ -80,8 +80,12 @@ The semantic page render contains no refs, so rotating handles do not defeat exp
 dead-action comparison. Each independent model request includes the complete current listing
 and a fresh reference table, even when the semantic page is unchanged.
 The reference table reports omitted candidates under the same hard row budget. Discovery,
-exploration and surgical-heal systems teach ref-only target actions; a supplied description
-must agree with the canonical element. Current page/reference data precedes the final action
+exploration and surgical-heal systems teach ref-only target actions. Optional model text agrees
+when it equals the canonical name after trim/case normalization or is a nonempty case-insensitive
+substring of that name; supplied role and ordinal must still match exactly. This tolerance does
+not apply to a consumer's `perceive` callback. Contradiction feedback names the selected element's
+canonical text, role and ordinal for the next decision; trace gates retain their fixed messages.
+Current page/reference data precedes the final action
 instruction. Measured clickable and active-popup facts neither change roles nor prove effects.
 
 A referenced decision is bound before ambiguity and `ActionPolicy` checks, which see its real

@@ -89,6 +89,9 @@ export interface Driver {
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an
    * explicit `waitFor`; `settle` just reduces the race, it doesn't replace them (design §3). */
   settle(options?: SettleOptions): Promise<void>;
+  /** Request evidence is cumulative within the driver session: append new requests and update
+   * pending statuses in place. Navigations must not shrink/reorder the log used by step watermarks.
+   * Independent runs use fresh drivers; a goto within a run is not an evidence reset. */
   observe(): Promise<Evidence>;
   close(): Promise<void>;
 }

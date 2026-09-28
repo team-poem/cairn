@@ -103,7 +103,7 @@ test("coldObservationNegotiatesBeforeItsFirstGuard: all five observation evaluat
     // A first action may select its newly tracked tab; readiness precedes the thirteen observation/action calls.
     expect(capabilityWire.calls.filter(call => call.name !== "select_page").map(call => call.name)).toEqual([
       "evaluate_script", "evaluate_script", "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script",
-      "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script", "click", "list_pages",
+      "take_snapshot", "list_pages", "evaluate_script", "list_pages", "evaluate_script", "click", "list_pages", "list_network_requests",
     ]);
     expect(capabilityWire.calls.find(call => call.name === "click")?.arguments).toEqual({ uid: "1_2" });
   });

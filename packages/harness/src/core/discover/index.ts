@@ -11,7 +11,7 @@ import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt } from "./prompt.js";
+import { discoverSystem, buildPrompt } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -187,7 +187,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = page.render;
     const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
-      system: SYSTEM,
+      system: discoverSystem(Boolean(page.references)),
     });
 
     let decision: Decision;

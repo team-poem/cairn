@@ -88,6 +88,13 @@ canonical text, role and ordinal for the next decision; trace gates retain their
 Current page/reference data precedes the final action
 instruction. Measured clickable and active-popup facts neither change roles nor prove effects.
 
+Reference-specific schemas and rules are included only when this observation has a nonempty
+validated reference table (#246). Otherwise discovery, exploration, and surgical healing explicitly
+say references are unavailable, omit ref action examples, and teach exact names with role and
+duplicate ordinal instead. The choice is refreshed for each observation, including a capable
+Driver temporarily returning no refs or selection filtering every referenced candidate. An
+invented ref still fails the binding gate; guidance does not relax validation or retry limits.
+
 A referenced decision is bound before ambiguity and `ActionPolicy` checks, which see its real
 name, role, and full-snapshot ordinal. Unknown, expired, contradictory, duplicated, or fabricated
 bindings fail; they never fall back to text or a neighboring duplicate. A decision attempt

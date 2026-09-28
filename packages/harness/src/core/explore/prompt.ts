@@ -4,20 +4,23 @@
  * prompt assembly with coverage memory. Pure — no driver, no I/O.
  */
 import type { Step } from "../types.js";
-import { ACTION_RULES, ACTION_VOCABULARY, PERCEPTION_RULES } from "../discover/prompt.js";
+import { actionRules, actionVocabulary, PERCEPTION_RULES } from "../discover/prompt.js";
 import type { Finding } from "./findings.js";
 
-export const EXPLORE_SYSTEM =
-  "You are an exploratory QA agent driving a web browser to survey a web app for problems a real user would hit, guided by a charter. " +
-  PERCEPTION_RULES +
-  ACTION_VOCABULARY +
-  ' · {"action":"note","severity":"info|warn|error","text":"<the problem>"} ' +
-  "(record a UX problem you observe — a confusing state, a dead end, misleading copy, a broken flow; it does not touch the page) · " +
-  '{"action":"done"}. ' +
-  ACTION_RULES +
-  "Prefer destinations you have NOT visited over re-walking covered ground. " +
-  'Use "note" whenever something would confuse or annoy a real user — recording problems is the mission, not a side effect — but never re-note a problem already recorded. ' +
-  'Use "done" when the charter is covered: the distinct areas are visited and nothing new is left to try.';
+export function exploreSystem(hasReferences: boolean): string {
+  return "You are an exploratory QA agent driving a web browser to survey a web app for problems a real user would hit, guided by a charter. " +
+    PERCEPTION_RULES +
+    actionVocabulary(hasReferences) +
+    ' · {"action":"note","severity":"info|warn|error","text":"<the problem>"} ' +
+    "(record a UX problem you observe — a confusing state, a dead end, misleading copy, a broken flow; it does not touch the page) · " +
+    '{"action":"done"}. ' +
+    actionRules(hasReferences) +
+    "Prefer destinations you have NOT visited over re-walking covered ground. " +
+    'Use "note" whenever something would confuse or annoy a real user — recording problems is the mission, not a side effect — but never re-note a problem already recorded. ' +
+    'Use "done" when the charter is covered: the distinct areas are visited and nothing new is left to try.';
+}
+
+export const EXPLORE_SYSTEM = exploreSystem(true);
 
 export function buildExplorePrompt(
   charter: string,

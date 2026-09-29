@@ -7,6 +7,10 @@ attempt. No external application or asset is required; Chrome DevTools MCP may
 need an npm download. The existing `bench:discover`, `bench:replay` and
 `bench:churn` commands retain their behavior.
 
+For a short, human-authored description of the stateful fixture, see the
+[shop app-context proposal example](../../docs/examples/shop-app-context.md). It is not a
+supported configuration file; the engine does not load it.
+
 ## Run a small scripted smoke
 
 Install the lockfile dependencies with `npm ci`, and install Chrome. The runner

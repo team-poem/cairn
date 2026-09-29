@@ -277,9 +277,21 @@ CAIRN_SECRET_PASSWORD=… cairn replay login.skill.json --secret user=alice     
 
 In the library, `secrets: { user: "alice", password: { value: "…", origin: "https://your.app" } }` on `runScenario`, `runSuite` or `discover`. A scoped secret is refused on any page outside its site (host or subdomain, and the port when you give one), during discovery and replay alike, so a flow that wanders to a payment provider's login form cannot type your app's credentials there (exit 3). A placeholder with no value fails the step and skips healing (exit 4: pass it). To type a literal `{word}`, write `{{word}}`. In CI prefer `CAIRN_SECRET_<NAME>`: a `--secret` on the command line shows in `ps` and in the job log.
 
+A secret's `origin` must include `http://` or `https://` and contain only the host and optional
+port (a trailing `/` is allowed). For example, use `http://localhost:3000`, not `localhost:3000`.
+The library and CLI reject malformed scopes before execution, even for unused secrets; this is
+a configuration error, distinct from a valid secret being refused on another site. Origins with
+credentials, a path, query, or fragment are rejected. Hosts can call `validateSecrets(secrets)`
+to perform the same check before starting a run.
+
+
 ## Extend it
 
 Every stage is a replaceable port. Bring your own `Driver` (for example Playwright), `Critic`, `Reporter`, `ContextProvider` (auth, fixtures), or `LlmClient` (any model).
+
+For the browser boundary, see the [custom Driver implementation guide](custom-driver.md). It maps
+the required methods, lifecycle ownership, error kinds, and optional exact-reference capability to
+the current contract.
 
 A Driver that throws can say why: `throw stepError("transport", msg)`, or any Error carrying a plain `kind` (`resolution`, `post-condition`, `timeout`, `transport`, `handler`), decides whether a red is the script's (exit 3, re-discover) or the environment's (exit 4, retry). An untyped throw counts as the script's.
 
@@ -303,6 +315,11 @@ const result = await runHarness({
 }, scenario.name)
 await driver.close() // whoever constructs a Driver owns it, and runHarness never closes yours
 ```
+
+Use a fresh driver for each independent discovery or replay run. The Chrome driver retains network
+evidence for its session across page navigations; calling `goto` does not reset that evidence.
+The suite creates a separate driver per discovery/replay, and outcome healing deliberately stays
+in the current session while judging only the repair attempt's new requests.
 
 Building a UI on top? The engine streams what a screen needs: `signal` (Stop), `screenshots`, `onStep` (a live timeline), and the full lifecycle as a trace stream ([the run is just data, too](#the-run-is-just-data-too)). No Node (a browser or an extension)? Import from `cairn-engine/browser` and compose `runHarness` with your own `Driver`, for example one over `chrome.debugger`.
 

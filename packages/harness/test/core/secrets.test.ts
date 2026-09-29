@@ -1,6 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText } from "../../src/core/secrets.js";
+import { describe, expect, it, vi } from "vitest";
+import { validateSecrets, fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText } from "../../src/core/secrets.js";
 import { errorKindOf } from "../../src/core/errors.js";
+import { runHarness } from "../../src/core/pipeline.js";
+import { runSuite } from "../../src/suite.js";
+import { LlmStepHealer } from "../../src/core/step-heal.js";
+import { SelfHealingDriver } from "../../src/adapters/drivers/self-heal.js";
 import { runScenario } from "../../src/run.js";
 import { discover } from "../../src/core/discover/index.js";
 import { FakeDriver } from "../../src/adapters/drivers/fake.js";
@@ -280,5 +284,69 @@ describe("--secret on the CLI", () => {
   it("rejects a malformed pair and an origin without a value", () => {
     expect(() => secretsFromFlags(parseArgs(["replay", "--secret", "nopair"]).flags, {})).toThrow(/name=value/);
     expect(() => secretsFromFlags(parseArgs(["replay", "--secret-origin", "password=https://x"]).flags, {})).toThrow(/no value for \{password\}/);
+  });
+});
+
+
+describe("scoped secret configuration (#245)", () => {
+  const invalid = ["shop.example", "shop.example:3000", "", "https://", "https:/shop.example",
+    "ftp://shop.example", "https://user:password@shop.example", "https://shop.example?token=private",
+    "https://shop.example/path", "https://shop.example#private", " https://shop.example",
+    "https://shop.example\n", "https://shop.example:99999", "https://@shop.example", "https://shop.example:", "https://shop.example\\evil"];
+  it.each(invalid)("rejects malformed origin %s as configuration, without echoing its contents", origin => {
+    const secrets = { password: { value: "private-value", origin } };
+    expect(() => validateSecrets(secrets)).toThrow(/secret \{password\} origin could not be parsed/);
+    try { validateSecrets(secrets); } catch (error) {
+      expect(String(error)).not.toContain("private-value");
+      expect(String(error)).not.toContain("token=private");
+      expect(String(error)).not.toContain("user:password");
+    }
+    expect(() => fillSecrets("{password}", secrets, "https://shop.example/login")).toThrow(/origin could not be parsed/);
+    expect(() => secretsFromFlags(parseArgs(["replay", "--secret", "password=private-value", "--secret-origin", `password=${origin}`]).flags, {})).toThrow(/origin could not be parsed/);
+  });
+  it.each(["https://shop.example", "http://localhost:3000", "http://[::1]:3000", "HTTPS://SHOP.EXAMPLE:443/"])(
+    "accepts explicit HTTP origins %s without changing the caller's configuration", origin => {
+      const secrets = Object.freeze({ password: Object.freeze({ value: "private-value", origin }) });
+      expect(() => validateSecrets(secrets)).not.toThrow();
+      expect(fillSecrets("{password}", secrets, origin)).toBe("private-value");
+      expect(secrets.password.origin).toBe(origin);
+    });
+  it("fails before replay or discovery touches the driver, model, or reporter, even for an unused secret", async () => {
+    const driver = new StubDriver();
+    const goto = vi.spyOn(driver, "goto");
+    const complete = vi.fn(async () => '{"action":"done"}');
+    const emit = vi.fn(async () => {});
+    const secrets = { unused: { value: "private-value", origin: "shop.example:3000" } };
+    await expect(runScenario({ name: "empty", steps: [], assertions: [] }, {
+      driver, llm: { id: "unused", complete }, reporter: { emit }, secrets, heal: true,
+    })).rejects.toThrow(/origin could not be parsed/);
+    await expect(discover("visit", { driver, llm: { id: "unused", complete }, baseUrl: "https://shop.example", secrets }))
+      .rejects.toThrow(/origin could not be parsed/);
+    expect(goto).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(emit).not.toHaveBeenCalled();
+  });
+  it("validates direct pipeline, suite, handler, and healing entry points before calling host seams", async () => {
+    const secrets = { unused: { value: "private-value", origin: "shop.example" } };
+    const unexpected = vi.fn(() => { throw new Error("unexpected side effect"); });
+    const driver = new StubDriver();
+    const llm = { id: "unused", complete: unexpected };
+    await expect(runHarness({ context: { provide: unexpected }, planner: { plan: unexpected },
+      driver, critic: { judge: unexpected }, reporter: { emit: unexpected },
+    }, "visit", { secrets })).rejects.toThrow(/origin could not be parsed/);
+    await expect(runSuite([{ id: "visit", intent: "visit", url: "https://shop.example" }], {
+      secrets, driverFactory: unexpected,
+    })).rejects.toThrow(/origin could not be parsed/);
+    expect(() => new BuiltinStepHandler(secrets)).toThrow(/origin could not be parsed/);
+    expect(() => new LlmStepHealer(llm, undefined, secrets)).toThrow(/origin could not be parsed/);
+    expect(() => new SelfHealingDriver(driver, llm, { secrets })).toThrow(/origin could not be parsed/);
+    expect(unexpected).not.toHaveBeenCalled();
+  });
+  it("keeps valid site and explicit port refusals distinct from configuration errors", () => {
+    const secrets = { password: { value: "private-value", origin: "https://shop.example:443" } };
+    expect(fillSecrets("{password}", secrets, "https://accounts.shop.example/login")).toBe("private-value");
+    for (const url of ["https://shop.example.evil/login", "http://shop.example/login", "https://shop.example:8443/login", "ftp://shop.example:443/login"]) {
+      expect(() => fillSecrets("{password}", secrets, url)).toThrow(/refused on/);
+    }
   });
 });

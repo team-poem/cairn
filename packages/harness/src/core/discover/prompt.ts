@@ -21,12 +21,13 @@ export const PERCEPTION_RULES =
 /** The closed executable-action vocabulary — ONE definition for every loop prompt, so a prompt
  * can't teach an action the freeze/execution logic doesn't know (#99). Loop-terminal actions
  * (`done`, explore's `note`) are appended by each SYSTEM, not listed here. */
-export const ACTION_VOCABULARY =
+const REFERENCE_ACTIONS =
   "Actions with exact current references: " +
   '{"action":"click","ref":"<ref>"} · {"action":"doubleClick","ref":"<ref>"} · ' +
   '{"action":"hover","ref":"<ref>"} · {"action":"type","ref":"<ref>","value":"<text>"} · ' +
-  '{"action":"select","ref":"<ref>","value":"<option>"}. ' +
-  "Legacy named targets and other actions: " +
+  '{"action":"select","ref":"<ref>","value":"<option>"}. ';
+
+const NAMED_ACTIONS =
   '{"action":"click","text":"<element>"} · {"action":"doubleClick","text":"<element>"} · ' +
   '{"action":"hover","text":"<element>"} (reveals flyout/dropdown menus) · ' +
   '{"action":"type","text":"<element>","value":"<text>"} · {"action":"select","text":"<element>","value":"<option>"} · ' +
@@ -35,13 +36,24 @@ export const ACTION_VOCABULARY =
   '{"action":"waitFor","until":{"url":"<substring>"}|{"requestStatus":{"urlIncludes":"<url-path-substring, optionally with ?key=value pairs that must match exactly (no partial values)>","status":200}}|{"text":"<element>"}} ' +
   "(block until the app is ready before the next step — e.g. an auth redirect lands or a key request returns — instead of racing it)";
 
+/** Select from the validated table for THIS observation, not merely a driver's capability. */
+export function actionVocabulary(hasReferences: boolean): string {
+  return (hasReferences ? REFERENCE_ACTIONS + "Legacy named targets and other actions: " :
+    'No references are available in this observation. Use named targets; do not include "ref". ' +
+    "Named targets and other actions: ") + NAMED_ACTIONS;
+}
+
+export const ACTION_VOCABULARY = actionVocabulary(true);
+
 /** How the model must choose targets — shared by every loop prompt (#99). */
-export const ACTION_RULES =
-  'Always add "reason":"<short>". A "ref" is valid only for the current observation and one decision; ' +
+const REFERENCE_RULES =
+  'A "ref" is valid only for the current observation and one decision; ' +
   'choose it from the current reference table, never invent or reuse it. With a ref, omit text, role, and nth: ' +
   'the ref alone selects the exact element, including duplicates. If you supply a description too, it must agree ' +
   'with that element (names allow surrounding whitespace and case normalization). ' +
-  'The following name/role/nth rules apply only when there is no ref. ' +
+  'The following name/role/nth rules apply only when there is no ref. ';
+
+const NAMED_RULES =
   'Use the exact element name shown. To open a menu before clicking a hidden item, hover it first. ' +
   "When a name appears under more than one role (e.g. a [link] and a [button] both named \"Log in\"), " +
   'always add "role" to say which you mean. When several elements share the SAME role and name, the ' +
@@ -50,14 +62,23 @@ export const ACTION_RULES =
   "duplicate WITHOUT nth is rejected, never guessed. " +
   "Prefer clicking/typing a NAMED element over moving focus with key presses — a blind Tab/key chain lands on the wrong element. ";
 
-export const SYSTEM =
-  "You are a QA agent driving a web browser to satisfy a natural-language intent. " +
-  PERCEPTION_RULES +
-  ACTION_VOCABULARY +
-  ' · {"action":"done"}. ' +
-  ACTION_RULES +
-  'Use "done" when the intent is achieved (or impossible); with "done" you may include "assertions": an array of ' +
-  '{"kind":"navigated"} | {"kind":"no-failed-requests"} | {"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
+export function actionRules(hasReferences: boolean): string {
+  return 'Always add "reason":"<short>". ' + (hasReferences ? REFERENCE_RULES : "") + NAMED_RULES;
+}
+
+export const ACTION_RULES = actionRules(true);
+
+export function discoverSystem(hasReferences: boolean): string {
+  return "You are a QA agent driving a web browser to satisfy a natural-language intent. " +
+    PERCEPTION_RULES +
+    actionVocabulary(hasReferences) +
+    ' · {"action":"done"}. ' +
+    actionRules(hasReferences) +
+    'Use "done" when the intent is achieved (or impossible); with "done" you may include "assertions": an array of ' +
+    '{"kind":"navigated"} | {"kind":"no-failed-requests"} | {"kind":"no-console-errors"} | {"kind":"request-status","urlIncludes":"...","status":200}.';
+}
+
+export const SYSTEM = discoverSystem(true);
 
 export const ELEMENT_LIMIT = 60;
 

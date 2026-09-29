@@ -11,11 +11,11 @@ import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { SYSTEM, buildPrompt } from "./prompt.js";
+import { discoverSystem, buildPrompt } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
-import { missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
+import { validateSecrets, missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
@@ -69,6 +69,7 @@ export interface DiscoverOptions {
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+  validateSecrets(opts.secrets);
   const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
@@ -187,7 +188,7 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = page.render;
     const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
-      system: SYSTEM,
+      system: discoverSystem(Boolean(page.references)),
     });
 
     let decision: Decision;

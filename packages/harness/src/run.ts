@@ -28,7 +28,7 @@ import type { PerceptionAdapter, TraceSink } from "./core/ports.js";
 import type { ContextProvider, Critic, Driver, LlmClient, Reporter, StepHeal } from "./core/ports.js";
 import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
-import type { Secrets } from "./core/secrets.js";
+import { validateSecrets, type Secrets } from "./core/secrets.js";
 import type { TargetChoicePilot } from "./core/target-choice.js";
 
 export interface RunScenarioOptions {
@@ -149,6 +149,7 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  validateSecrets(opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
     validateReplayEntry(scenario, opts.replayEnvironment);

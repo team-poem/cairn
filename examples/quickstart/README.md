@@ -102,3 +102,19 @@ folder, and installs that **tarball** with npm and pnpm separately. It typecheck
 the installed `cairn` executable (exit 0/2/1), bundles `cairn-engine/browser` for the browser without
 externalizing Node dependencies, and runs `verify`. The manifest here deliberately stays on the
 published `cairn-engine@^2.8.0`; only the temporary CI copy substitutes the current tarball.
+
+## Block a destructive action with ActionPolicy
+
+```sh
+npm run action-policy
+```
+
+The scripted client proposes clicking `Delete all orders`, then follows the policy's rejection by
+clicking `View orders`. `ActionPolicy.vet()` runs before execution, so the local fixture's delete
+endpoint remains untouched; the example also checks that the rejected click is absent from the
+frozen Scenario and that the allowed click reaches its endpoint. No model account or API key is
+needed. This demonstrates deterministic enforcement during discovery on this fixture; it does not
+claim that a policy alone secures every path through an application.
+
+`npm run verify` runs this policy example as well as the discovery, freeze and replay quickstart.
+It exits nonzero if the forbidden request reaches the fixture or any other asserted invariant fails.

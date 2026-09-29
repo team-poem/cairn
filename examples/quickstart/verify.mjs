@@ -3,8 +3,8 @@ import { spawnSync } from 'node:child_process';
 import { readFile, writeFile, rm } from 'node:fs/promises';
 import { createServer } from 'node:net';
 
-function run(args, status, pattern) {
-  const result = spawnSync(process.execPath, ['--import', 'tsx', 'quickstart.agentic.ts', ...args], {
+function run(args, status, pattern, entry = 'quickstart.agentic.ts') {
+  const result = spawnSync(process.execPath, ['--import', 'tsx', entry, ...args], {
     encoding: 'utf8', timeout: 120_000,
   });
   const output = result.stdout + result.stderr;
@@ -19,6 +19,7 @@ async function releasedPort() {
   await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 }
 try {
+  run([], 0, /PASS: rejected delete never executed; view executed once; fixture state verified/, 'action-policy.ts');
   run(['discover:scripted'], 0, /DISCOVERED: scripted calls=4/);
   run(['freeze'], 0, /FROZEN:/);
   const skill = JSON.parse(await readFile('submit.skill.json', 'utf8'));

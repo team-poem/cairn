@@ -6,8 +6,8 @@ function fixture() {
   const f = {
     pr: { number: 42, state: "OPEN", isDraft: false, baseRefName: "develop", headRefOid: "head",
       title: "fix(ci): preserve attribution", reviewDecision: "APPROVED", mergeStateStatus: "CLEAN",
-      labels: { nodes: [{ name: "Merge" }] } },
-    candidates: [{ number: 42, labels: [{ name: "Merge" }] }],
+      labels: { nodes: [{ name: "needs-merge" }] } },
+    candidates: [{ number: 42, labels: [{ name: "needs-merge" }] }],
     runs: [{ id: 10, head_sha: "head", event: "pull_request", status: "completed", conclusion: "success" }],
     merged: [], reads: 0,
   };
@@ -67,7 +67,7 @@ for (const [name, patch] of [
   ["conflict", { mergeStateStatus: "DIRTY" }], ["blocked", { mergeStateStatus: "BLOCKED" }],
   ["unknown", { mergeStateStatus: "UNKNOWN" }],
   ["removed label", { labels: { nodes: [] } }],
-  ["different label case", { labels: { nodes: [{ name: "merge" }] } }],
+  ["different label case", { labels: { nodes: [{ name: "Needs-Merge" }] } }],
 ]) {
   test(`does not merge a ${name} PR`, async () => {
     const f = fixture();
@@ -104,7 +104,7 @@ for (const patch of [
   });
 }
 
-test("ignores PRs without Merge on both event and periodic paths", async () => {
+test("ignores PRs without needs-merge on both event and periodic paths", async () => {
   const f = fixture();
   f.candidates[0].labels = [];
   await f.run();

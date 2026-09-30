@@ -32,10 +32,10 @@ Contributions that respect that contract are the most valuable kind.
 5. **Commit** following the [commit convention](#commit-convention).
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
    resolves. `cairn-bot` validates that every PR links an issue.
-7. **Respond to review.** Once approved, a maintainer adds the `Merge` label to request
+7. **Respond to review.** Once approved, a maintainer adds the `needs-merge` label to request
    a squash merge into `develop` by `cairn-pingu`. The bot waits for approval and the
    latest CI workflow to pass. The squashed commit credits the PR author; the bot is
-   recorded as the merger. Remove `Merge` before merging to cancel the request.
+   recorded as the merger. Remove `needs-merge` before merging to cancel the request.
 
 ## Releases
 
@@ -65,7 +65,7 @@ need them:
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.
 
-The `Merge` label is case-sensitive. Create it once in repository settings. The merge
+The `needs-merge` label is case-sensitive. Create it once in repository settings. The merge
 workflow uses the existing App secrets and does not require GitHub's native auto-merge
 setting. Its CI completion and five-minute retry triggers become active when the
 workflow reaches the default branch (`main`); label and same-repository review events

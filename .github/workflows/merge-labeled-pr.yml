@@ -45,7 +45,7 @@ jobs:
           private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
           permission-contents: write
           permission-pull-requests: write
-      - name: Squash merge approved PRs labeled Merge
+      - name: Squash merge approved PRs labeled needs-merge
         uses: actions/github-script@v9
         env:
           CI_READ_TOKEN: ${{ github.token }}

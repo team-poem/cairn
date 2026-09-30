@@ -9,7 +9,7 @@ const query = `query($owner: String!, $repo: String!, $number: Int!) {
 
 function ready(pr) {
   return pr.state === "OPEN" && !pr.isDraft && pr.baseRefName === "develop"
-    && pr.labels.nodes.some(label => label.name === "Merge")
+    && pr.labels.nodes.some(label => label.name === "needs-merge")
     && pr.reviewDecision === "APPROVED" && pr.mergeStateStatus === "CLEAN";
 }
 
@@ -23,10 +23,10 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     : await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", base: "develop", per_page: 100 });
 
   for (const candidate of candidates) {
-    if (!candidate.labels?.some(label => label.name === "Merge")) continue;
+    if (!candidate.labels?.some(label => label.name === "needs-merge")) continue;
     const pr = await read(candidate.number);
     if (!pr || !ready(pr)) {
-      core.info(`PR #${candidate.number}: waiting for Merge label, approval and merge requirements.`);
+      core.info(`PR #${candidate.number}: waiting for needs-merge label, approval and merge requirements.`);
       continue;
     }
 

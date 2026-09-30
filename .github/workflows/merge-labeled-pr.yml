@@ -1,0 +1,57 @@
+name: Merge labeled PR
+
+# workflow_run and schedule become active once this workflow reaches main.
+# Always execute trusted develop code; never check out the PR head or artifacts.
+on:
+  pull_request_target:
+    branches: [develop]
+    types: [labeled, unlabeled, synchronize, reopened, ready_for_review, edited]
+  pull_request_review:
+    types: [submitted, dismissed]
+  workflow_run:
+    workflows: [ci, pr triage]
+    types: [completed]
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: merge-labeled-pr
+  cancel-in-progress: false
+
+jobs:
+  merge:
+    # Fork review events do not receive secrets; the periodic retry handles them.
+    if: >-
+      github.event_name != 'pull_request_review'
+      || (github.event.pull_request.base.ref == 'develop'
+      && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          persist-credentials: false
+      - name: Create cairn-pingu merge token
+        id: app-token
+        uses: actions/create-github-app-token@v3.2.0
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+      - name: Squash merge approved PRs labeled needs-merge
+        uses: actions/github-script@v9
+        env:
+          CI_READ_TOKEN: ${{ github.token }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const { mergeLabeledPullRequests } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/merge-labeled-pr.mjs`);
+            const ciGithub = new github.constructor({ auth: process.env.CI_READ_TOKEN });
+            await mergeLabeledPullRequests({ github, ciGithub, context, core });

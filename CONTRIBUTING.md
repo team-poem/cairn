@@ -32,7 +32,10 @@ Contributions that respect that contract are the most valuable kind.
 5. **Commit** following the [commit convention](#commit-convention).
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
    resolves. `cairn-bot` validates that every PR links an issue.
-7. **Respond to review.** Once approved, a maintainer merges it into `develop` (squash-rebase).
+7. **Respond to review.** Once approved, a maintainer adds the `needs-merge` label to request
+   a squash merge into `develop` by `cairn-pingu`. The bot waits for approval and the
+   latest CI workflow to pass. The squashed commit credits the PR author; the bot is
+   recorded as the merger. Remove `needs-merge` before merging to cancel the request.
 
 ## Releases
 
@@ -55,10 +58,20 @@ need them:
 
 - `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` — the `cairn-bot` GitHub App's client
   ID (not the numeric app ID) and a private key generated from the App settings. Used by
-  PR triage, not the release workflow.
+  PR triage and label-driven squash merging, not the release workflow. Merging uses
+  the App's existing Contents write and Pull requests write permissions. CI reads use
+  the workflow's read-only `GITHUB_TOKEN`, so the App needs no additional permissions.
 - `NPM_TOKEN` — unrelated to `cairn-bot`. An npm granular access token with publish rights
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.
+
+The `needs-merge` label is case-sensitive. Create it once in repository settings. The merge
+workflow uses the existing App secrets and does not require GitHub's native auto-merge
+setting. Its CI completion and five-minute retry triggers become active when the
+workflow reaches the default branch (`main`); label and same-repository review events
+can run once it reaches `develop`. Scheduled runs may be delayed by GitHub. Drafts,
+conflicts, missing approvals, and failed or pending CI leave the PR open. Release PRs
+to `main` remain manual.
 
 ## Development setup
 

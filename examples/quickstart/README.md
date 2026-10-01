@@ -11,7 +11,32 @@ Copy this directory anywhere and install it independently. The runner imports on
 - Network access for dependency installation and the first `npx chrome-devtools-mcp@~1.3.0` launch.
 - No model account or API key for the scripted path below.
 
-## Install → discover → freeze → replay
+## Block an action with ActionPolicy
+
+After `npm install`, run `npm run verify:policy` (or `pnpm run verify:policy`).
+This standalone TypeScript example uses the public `cairn-engine` API and a real
+isolated Chrome browser. Its local fixture uses a dynamically allocated loopback port.
+No model account or paid calls are needed: a scripted `LlmClient` first proposes
+**Delete record**, then **Save record**, then finishes discovery.
+
+The intent says "Never delete it", but that prose is only model guidance. The
+`ActionPolicy.vet` implementation permits only the fixture's named Save action.
+Discovery rejects the Delete proposal before dispatch and accepts the next proposal.
+The command checks the actual driver calls, zero deletion requests, one saved record,
+and observed POST success evidence. A failed check exits nonzero; browser and server
+resources are closed on success and failure.
+
+Expected output ends with:
+
+```text
+PASS: forbidden proposals=1; rejected=1; clicks=Save record; deleted=0; saved=1
+```
+
+This demonstrates discovery enforcement for two known fixture controls. It does not
+turn arbitrary "Never" prose into policy, cover aliases or other destructive paths,
+or establish enforcement during replay or healing. Adapt the policy to your app.
+
+## Discover, freeze, and replay the submission fixture
 
 From this directory, choose one package manager:
 

@@ -1,7 +1,15 @@
 // language-check: non-English by design — these fixtures prove a non-English body is not carried into develop.
 import { strict as assert } from "node:assert";
 import { test } from "node:test";
-import { draftEntry, entryName, issueOf, recordsPullRequest, summaryOf } from "./journal-entry.mjs";
+import { draftEntry, entryName, issueOf, recordsPullRequest, archiveRecordsPullRequest, summaryOf } from "./journal-entry.mjs";
+
+test("archive lookup uses PR metadata rather than references in prose", () => {
+  for (const line of ["*#276 · PR #278*", "*PR #278 · in-progress*", "*#276 · PR #278 · landed*\r"]) {
+    assert.equal(archiveRecordsPullRequest(`## Title\n${line}\n\nBody.`, 278), true);
+    assert.equal(archiveRecordsPullRequest(`## Title\n${line}\n\nBody.`, 27), false);
+  }
+  assert.equal(archiveRecordsPullRequest("Discussed in PR #278 and #276.", 278), false);
+});
 
 const pr = (patch = {}) => ({ number: 240, title: "fix(core): stop the retry from switching pools", body: "## What\n\nScope the verbose retry.\n\n## Related issue\n\nCloses #229\n\n## Checklist\n\n- [x] tests pass\n", mergedAt: "2026-09-20T10:00:00Z", author: "solp721", ...patch });
 

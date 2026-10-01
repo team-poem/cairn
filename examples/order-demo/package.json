@@ -6,7 +6,8 @@
     "start": "node server.mjs",
     "record": "node record.mjs",
     "test": "node --test *.test.mjs",
-    "build": "node build.mjs"
+    "build": "node build.mjs",
+    "build:vercel": "node build-vercel.mjs"
   },
   "engines": {
     "node": ">=22.12"

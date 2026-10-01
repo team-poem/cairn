@@ -264,6 +264,17 @@ cairn is made to be built on, not scattered across your service as test code. A 
 
 You can call `runScenario` straight from a test file. Nothing stops you. But that is not the point: cairn is not a Jest or Playwright you write service tests in. It is the engine those kinds of tools are built from.
 
+## Inconclusive custom checks
+
+Custom checks may return `{ inconclusive: true, detail: "Session request was not observed" }`
+when the current run lacks the evidence needed to judge. Existing boolean and
+`{ passed, detail }` returns continue to work. Inconclusive checks stay in the results
+with `reason: "inconclusive"`, but do not contribute to a pass's proof grade or trigger
+healing. Other judged checks determine the verdict; if none can be judged, the run
+fails closed (CLI exit 3). Repairs with inconclusive checks are not offered for re-freezing.
+Consumers should display this reason separately from pass and fail, even though the
+result's `passed` field is false.
+
 ## Secrets
 
 A `type` step's text can carry `{name}` placeholders. The run fills them for the driver and the skill keeps the placeholder, so a discovered login never commits the password:

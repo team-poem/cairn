@@ -15,8 +15,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.4 — `gate: idle-scroll` (#177), a scroll step dropped at freeze; `stepRef` is its original index.
  * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from.
  * 1.6 — perception/reference binding gates and the explore phase (#221).
- * 1.7 — typed locator-choice evidence; no change to proof grading. */
-export const TRACE_VERSION = "1.7";
+ * 1.7 — typed locator-choice evidence; no change to proof grading.
+ * 1.8 — inconclusive assertion reason (#248). */
+export const TRACE_VERSION = "1.8";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -76,7 +77,7 @@ export type TraceEvent = Envelope &
           /** 1.5 (#212): the structured signals behind the verdict's class, so a viewer can
            * reproduce `classifyFailure` from the trace without reading `detail`. */
           statuses?: number[];
-          reason?: "judge-failed" | "no-handler";
+          reason?: "judge-failed" | "no-handler" | "inconclusive";
           origin: "user" | "derived" | "unknown";
           checkedBy: "code" | "model";
         };

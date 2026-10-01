@@ -47,8 +47,9 @@ export function renderSuiteReport(suite: SuiteResult): string {
     `| --- | --- | --- | --- | --- |`,
   ];
   for (const v of suite.verdicts) {
+    const inconclusive = v.verdict.results.filter(r => r.reason === "inconclusive").length;
     lines.push(
-      `| ${v.id} | ${v.verdict.passed ? `✓ pass${proofLabel(v)}` : "✗ fail"} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
+      `| ${v.id} | ${v.verdict.passed ? `✓ pass${proofLabel(v)}` : "✗ fail"}${inconclusive ? ` · ${inconclusive} inconclusive` : ""} | ${pathLabel(v)}${unprovenLabel(v)}${navigationEvidenceLabel(v)} | ${v.heals || ""} | ${v.usage.llmCalls || ""} |`,
     );
   }
 
@@ -58,8 +59,19 @@ export function renderSuiteReport(suite: SuiteResult): string {
       lines.push(``, `### ✗ ${v.id} — ${v.intent}`);
       if (v.verdict.detail) lines.push(``, `${v.verdict.detail}`);
       if (v.verdict.failure) lines.push(``, `failure: ${v.verdict.failure}`);
-      for (const r of v.verdict.results.filter((x) => !x.passed)) {
+      for (const r of v.verdict.results.filter((x) => !x.passed && x.reason !== "inconclusive")) {
         lines.push(`- **${r.assertion.kind}**${r.detail ? `: ${r.detail}` : ""}`);
+      }
+    }
+  }
+
+  const unjudged = suite.verdicts.filter(v => v.verdict.results.some(r => r.reason === "inconclusive"));
+  if (unjudged.length) {
+    lines.push(``, `## Inconclusive checks`);
+    for (const v of unjudged) {
+      lines.push(``, `### ${v.id} — ${v.intent}`);
+      for (const r of v.verdict.results.filter(r => r.reason === "inconclusive")) {
+        lines.push(`- **${r.assertion.kind}** (inconclusive)${r.detail ? `: ${r.detail}` : ""}`);
       }
     }
   }

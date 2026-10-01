@@ -1,4 +1,4 @@
-// Reproduce the two README charts from author-reported Claude counts and recorded Codex runs.
+// Reproduce the shared README chart and historical provider charts without new model calls.
 import assert from "node:assert/strict";
 import { readFile, writeFile } from "node:fs/promises";
 
@@ -30,6 +30,8 @@ assert.equal(claude.tier, "stateful");
 assert.equal(claude.runsPerArm, 6);
 assert.deepEqual(claude.models.map((row) => row.model), ["claude-sonnet-5", "claude-opus-5"]);
 for (const row of claude.models) {
+  assert.deepEqual(row.cumulativeAgentCalls, agent, "Provider traces differ; do not combine them");
+  assert.deepEqual(row.cumulativeCairnCalls, cairn, "Provider traces differ; do not combine them");
   assert.equal(row.agentCalls, 42);
   assert.equal(row.cairnCalls, 7);
   assert.deepEqual(row.cumulativeAgentCalls, [7, 14, 21, 28, 35, 42]);
@@ -39,6 +41,13 @@ for (const row of claude.models) {
 assert.equal(claude.replaysPerModel, 5);
 assert.equal(claude.replayCallsPerModel, 0);
 const groups = [
+  {
+    file: "228-shared-calls.svg", provider: "Discover once. Replay five times.",
+    names: "Claude Sonnet 5 · Opus 5 / GPT-5.6 Sol · Terra · Luna",
+    agent: [[0, 0], ...agent.map((value, i) => [i + 1, value])],
+    cairn: [[0, 0], ...cairn.map((value, i) => [i + 1, value])],
+    basis: "Claude counts are author-reported; Codex counts are summed from recorded runs. Identical calls do not imply equal cost or quality. No healing was needed in this schedule.",
+  },
   {
     file: "228-claude-calls.svg", provider: "Claude", names: "Sonnet 5 · Opus 5",
     agent: [[0, 0], ...claude.models[0].cumulativeAgentCalls.map((value, i) => [i + 1, value])],
@@ -60,7 +69,7 @@ const line = (points, color) => `
 for (const group of groups) {
   await writeFile(new URL(`./${group.file}`, import.meta.url), `<svg width="1200" height="390" viewBox="0 0 1200 390" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
   <title id="title">${group.provider}: cumulative LLM calls over six checkout runs</title>
-  <desc id="desc">${group.names}. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model counts, not a sum or average across models. ${group.basis} Both provider charts use the same scale.</desc>
+  <desc id="desc">${group.names}. Each model used 42 calls for six discoveries and 7 calls for one discovery followed by five replays. These are per-model counts, not a sum or average across models. ${group.basis}${group.file === "228-shared-calls.svg" ? "" : " Both provider charts use the same scale."}</desc>
   <rect width="1200" height="390" rx="20" fill="#0b1019"/>
   <g font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
     <text x="40" y="45" fill="#ffffff" font-size="30" font-weight="600">${group.provider}</text>

@@ -81,3 +81,8 @@ export function recordsPullRequest(text, number) {
   const front = /^---\n([\s\S]*?)\n---/.exec(text ?? "");
   return Boolean(front) && new RegExp(`^pr:[ \\t]*${number}[ \\t]*$`, "m").test(front[1]);
 }
+
+/** Archive metadata, not incidental references in prose, identifies an already recorded PR. */
+export function archiveRecordsPullRequest(text, number) {
+  return new RegExp(`^\\*(?:#\\d+ · )?PR #${number}(?: · (?:landed|in-progress|blocked|abandoned))?\\*\\r?$`, "m").test(text);
+}

@@ -8,8 +8,9 @@
  * branch may edit it. At release time the cycle's entries fold into one archive file and `entries/`
  * starts empty again, so it holds a cycle rather than a history.
  */
-import { readdir, readFile, writeFile, rm, mkdir } from "node:fs/promises";
-import { join } from "node:path";
+import { readdir, readFile, writeFile, rm, mkdir, rename } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
@@ -33,18 +34,16 @@ function parseEntry(name, text) {
   for (const key of REQUIRED) if (meta[key] === undefined || meta[key] === null) throw new Error(`${name}: front matter needs ${key}`);
   if (!STATUSES.includes(meta.status)) throw new Error(`${name}: status must be one of ${STATUSES.join(", ")}`);
   if (!/^\d{4}-\d{2}-\d{2}-/.test(name)) throw new Error(`${name}: filename must start YYYY-MM-DD-`);
-  return { name, meta, body: text.slice(match[0].length).trim() };
+  return { name, meta, text, body: text.slice(match[0].length).trim() };
 }
 
-async function readEntries() {
+export async function readEntries(directory = dirs.entries) {
   let names;
-  // The directory is kept by a .gitkeep so a fold cannot make it vanish, but a caller may still
-  // arrive before it exists; create it rather than fail, so writing the next entry always works.
-  await mkdir(dirs.entries, { recursive: true });
-  try { names = (await readdir(dirs.entries)).filter((n) => n.endsWith(".md")).sort(); }
+  // A missing directory is an empty cycle. Read-only checks must not create release files.
+  try { names = (await readdir(directory)).filter((n) => n.endsWith(".md")).sort(); }
   catch (error) { if (error.code === "ENOENT") return []; throw error; }
   const out = [];
-  for (const name of names) out.push(parseEntry(name, await readFile(join(dirs.entries, name), "utf8")));
+  for (const name of names) out.push(parseEntry(name, await readFile(join(directory, name), "utf8")));
   return out;
 }
 
@@ -81,31 +80,68 @@ function status(entries) {
 }
 
 /** One file per release, so `entries/` carries a cycle and the repository carries the history. */
-async function archive(version, entries) {
+export async function archive(version, entries, { directories = dirs, refresh = false } = {}) {
   if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) throw new Error("Usage: journal.mjs archive <version>");
-  if (!entries.length) throw new Error("Nothing to archive: entries/ is empty");
-  const path = join(dirs.archive, `${version}.md`);
+  const path = join(directories.archive, `${version}.md`);
+  let existing = null;
+  try { existing = await readFile(path, "utf8"); }
+  catch (error) { if (error.code !== "ENOENT") throw error; }
+  if (existing !== null && !refresh) throw new Error(`Archive already exists: ${path}`);
+  if (refresh && (existing === null || !existing.startsWith(`# ${version}\n`))) {
+    throw new Error(`No matching prepared archive for ${version}`);
+  }
+  if (!entries.length) {
+    if (refresh) return "No new journal entries.";
+    throw new Error("Nothing to archive: entries/ is empty");
+  }
   const date = new Date().toISOString().slice(0, 10);
-  const body = entries.map((entry) => {
+  const additions = entries.map((entry) => {
+    const identity = `<!-- journal-entry:${encodeURIComponent(entry.name)} sha256:`;
+    const marker = `${identity}${createHash("sha256").update(entry.text).digest("hex")} -->`;
+    // A crash after writing the archive but before removing entries is retryable. If the
+    // source changed since that write, keep it for a human rather than silently discard it.
+    if (existing?.includes(identity)) {
+      if (!existing.includes(marker)) throw new Error(`Archived entry changed: ${entry.name}`);
+      return null;
+    }
     // An entry's own H1 repeats the summary, which becomes the section heading here.
     const head = `## ${entry.meta.summary}`;
     const meta = [label(entry), entry.meta.status !== "landed" ? entry.meta.status : null].filter(Boolean).join(" · ");
-    return [head, meta ? `*${meta}*` : null, "", demote(entry.body.replace(/^# .*\n+/, ""))].filter((part) => part !== null).join("\n");
-  }).join("\n\n---\n\n");
-  await mkdir(dirs.archive, { recursive: true });
-  await writeFile(path, `# ${version}\n\nArchived ${date}. ${entries.length} entries from the ${version} cycle.\n\n${body}\n`, { flag: "wx" });
-  for (const entry of entries) await rm(join(dirs.entries, entry.name));
-  return `${path}\n${entries.length} entries archived; entries/ is empty for the next cycle.`;
+    return [marker, head, meta ? `*${meta}*` : null, "", demote(entry.body.replace(/^# .*\n+/, ""))].filter((part) => part !== null).join("\n");
+  }).filter(Boolean);
+  const body = additions.join("\n\n---\n\n");
+  await mkdir(directories.archive, { recursive: true });
+  if (existing === null) {
+    await writeFile(path, `# ${version}\n\nArchived ${date}. ${entries.length} entries from the ${version} cycle.\n\n${body}\n`, { flag: "wx" });
+  } else if (additions.length) {
+    const temporary = `${path}.${process.pid}.tmp`;
+    try {
+      await writeFile(temporary, `${existing}\n---\n\nAdded ${additions.length} entries on ${date} before release.\n\n${body}\n`, { flag: "wx" });
+      if (await readFile(path, "utf8") !== existing) throw new Error("Archive changed during preparation; retry");
+      await rename(temporary, path);
+    } finally {
+      await rm(temporary, { force: true });
+    }
+  }
+  // Only the exact snapshot successfully archived may be removed; new files stay untouched.
+  for (const entry of entries) {
+    const source = join(directories.entries, entry.name);
+    if (await readFile(source, "utf8") !== entry.text) throw new Error(`Entry changed during preparation: ${entry.name}`);
+    await rm(source);
+  }
+  return `${path}\n${additions.length} entries archived; processed entries removed from the active cycle.`;
 }
 
-const [command, argument] = process.argv.slice(2);
-try {
-  const entries = await readEntries();
-  if (command === "status") console.log(status(entries));
-  else if (command === "check") console.log(`Journal OK: ${entries.length} entr${entries.length === 1 ? "y" : "ies"} in the current cycle.`);
-  else if (command === "archive") console.log(await archive(argument, entries));
-  else { console.error("Usage: journal.mjs <status|check|archive <version>>"); process.exit(2); }
-} catch (error) {
-  console.error(`journal: ${error.message}`);
-  process.exit(1);
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [command, argument] = process.argv.slice(2);
+  try {
+    const entries = await readEntries();
+    if (command === "status") console.log(status(entries));
+    else if (command === "check") console.log(`Journal OK: ${entries.length} entr${entries.length === 1 ? "y" : "ies"} in the current cycle.`);
+    else if (command === "archive") console.log(await archive(argument, entries));
+    else { console.error("Usage: journal.mjs <status|check|archive <version>>"); process.exitCode = 2; }
+  } catch (error) {
+    console.error(`journal: ${error.message}`);
+    process.exitCode = 1;
+  }
 }

@@ -60,6 +60,17 @@
    writes the release entry, folds the cycle's entries into `spec/journal/archive/<version>.md`,
    runs the full checks, pushes that to develop and opens the release pull request as a draft.
    `npm run release:prepare <version>` makes the same file changes locally without pushing.
+   Wait for all **Journal entry** jobs to finish successfully before preparing. If additional PRs
+   land before publication, wait for their journal jobs and run **Prepare release** again with the
+   same version. It appends only new entries to the existing archive, preserves edited archive
+   content and an open release PR's title/body, and skips an empty commit. If the earlier release
+   PR was closed, it creates a new draft. Closing a PR does not undo preparation on develop.
+   Review the release notes yourself: refresh deliberately does not regenerate human prose.
+   Use the workflow from `develop` while a workflow fix is there but not yet on `main`.
+   A tag, npm publication, or that version already on main blocks preparation; npm lookup errors
+   also stop it. Local preparation needs network access and freshly fetched remote refs/tags.
+   Avoid merging while preparation runs. A concurrent develop push fails the job rather than
+   overwriting another commit; wait for the journal job and rerun the failed preparation.
 2. Write the release notes into the pull request body and take it out of draft. Merging it triggers
    `release.yml`, which publishes to npm, pushes the tag and drafts the GitHub release. Update this
    file only if a standing decision changed.

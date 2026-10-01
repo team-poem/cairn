@@ -15,6 +15,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: release-prepare
@@ -49,13 +50,21 @@ jobs:
         with:
           node-version: "20"
       - run: npm ci
-      - name: Bump, write the release entry, fold the cycle
+      - name: Require journal generation to finish first
+        uses: actions/github-script@v7
+        with:
+          script: |
+            for (const status of ['queued', 'in_progress', 'waiting', 'pending', 'requested']) {
+              const { data } = await github.rest.actions.listWorkflowRuns({ ...context.repo, workflow_id: 'journal-entry.yml', branch: 'develop', status, per_page: 1 });
+              if (data.total_count) throw new Error('Journal entry is still running. Wait for it to finish, then rerun Prepare release.');
+            }
+      - name: Prepare or refresh the unpublished version
         id: prepare
         env:
           VERSION: ${{ inputs.version }}
         run: |
-          echo "previous=$(node -p "require('./packages/harness/package.json').version")" >> "$GITHUB_OUTPUT"
           npm run release:prepare -- "$VERSION"
+          git add --intent-to-add -- packages/harness/package.json package-lock.json spec/journal
       - name: The result must pass the same checks as any other change
         run: |
           npm run check:language
@@ -71,9 +80,7 @@ jobs:
         run: |
           git config user.name "pingu-cairn[bot]"
           git config user.email "pingu-cairn[bot]@users.noreply.github.com"
-          git add packages/harness/package.json package-lock.json spec/journal
-          git commit -m "chore(release): ${VERSION}" -m "Version bump, release entry and the cycle's journal entries folded into spec/journal/archive/${VERSION}.md."
-          git push origin HEAD:develop
+          node scripts/release-push.mjs "$VERSION"
       - name: How long since a standing decision was written down
         id: standing
         run: |
@@ -87,25 +94,11 @@ jobs:
         with:
           github-token: ${{ steps.token.outputs.token }}
           script: |
-            const version = process.env.VERSION;
-            const { data: open } = await github.rest.pulls.list({ ...context.repo, base: 'main', head: `${context.repo.owner}:develop`, state: 'open' });
-            const body = [
-              `Prepared by \`Prepare release\`. The version bump, the release entry and the archive fold are already on develop.`,
-              ``,
-              `Write the release notes into this body before merging. Merging it publishes ${version} to npm, pushes the tag and drafts the GitHub release.`,
-              ``,
-              `\`spec/journal/state.md\` was last touched ${process.env.STANDING_DAYS} days ago, on ${process.env.STANDING_LAST}. It holds only what outlives a cycle: standing decisions, the release procedure, environment notes. Nothing updates it automatically, so if this cycle changed one of those, change it now. If it did not, leave it alone.`,
-              ``,
-              `Full diff: https://github.com/${context.repo.owner}/${context.repo.repo}/compare/v${process.env.PREVIOUS}...develop`,
-            ].join('\n');
-            if (open.length) {
-              await github.rest.pulls.update({ ...context.repo, pull_number: open[0].number, title: `Release cairn-engine ${version}`, body });
-              core.notice(`Updated existing release pull request #${open[0].number}`);
-              return;
-            }
-            const { data: created } = await github.rest.pulls.create({ ...context.repo, base: 'main', head: 'develop', title: `Release cairn-engine ${version}`, body, draft: true });
-            core.notice(`Opened release pull request #${created.number} as a draft`);
+            const { ensureReleasePullRequest } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/release-pr.mjs`);
+            const result = await ensureReleasePullRequest({ github, repo: context.repo, version: process.env.VERSION, previous: process.env.PREVIOUS, standingDays: process.env.STANDING_DAYS, standingLast: process.env.STANDING_LAST });
+            core.notice(`${result.created ? 'Opened draft' : 'Preserved existing'} release pull request #${result.number}`);
         env:
           VERSION: ${{ inputs.version }}
+          PREVIOUS: ${{ steps.prepare.outputs.previous }}
           STANDING_DAYS: ${{ steps.standing.outputs.days }}
           STANDING_LAST: ${{ steps.standing.outputs.last }}

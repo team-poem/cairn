@@ -32,7 +32,7 @@ export {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
 } from "./adapters/critics/assertion.js";
-export type { CustomCheck, CustomChecks } from "./adapters/critics/assertion.js";
+export type { CustomCheck, CustomChecks, CustomCheckResult } from "./adapters/critics/assertion.js";
 export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";

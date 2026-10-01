@@ -15,6 +15,28 @@ const verdict = (over: Partial<SuiteVerdict> = {}): SuiteVerdict => ({
 });
 
 describe("renderSuiteReport", () => {
+  it("keeps real failures separate from inconclusive checks", () => {
+    const entry = verdict({ verdict: { passed: false, results: [
+      { assertion: { kind: "navigated" }, passed: false, detail: "Wrong destination" },
+      { assertion: { kind: "custom", name: "session" }, passed: false, reason: "inconclusive", detail: "No session evidence" },
+    ] } });
+    const md = renderSuiteReport({ verdicts: [entry], passed: false, usage: emptyUsage() });
+    const failures = md.split("## Inconclusive checks")[0];
+    expect(failures).toContain("**navigated**: Wrong destination");
+    expect(failures).not.toContain("**custom**");
+    expect(md).toContain("**custom** (inconclusive): No session evidence");
+  });
+  it.each([true, false])("shows inconclusive checks separately for passed=%s", passed => {
+    const entry = verdict({ verdict: { passed, results: [
+      { assertion: { kind: "custom", name: "session" }, passed: false, reason: "inconclusive", detail: "No session evidence" },
+      ...(passed ? [{ assertion: { kind: "navigated" as const }, passed: true }] : []),
+    ] } });
+    const md = renderSuiteReport({ verdicts: [entry], passed, usage: emptyUsage() });
+    expect(md).toContain("1 inconclusive");
+    expect(md).toContain("## Inconclusive checks");
+    expect(md).toContain("**custom** (inconclusive): No session evidence");
+    expect(md.split("## Inconclusive checks")[0]).not.toContain("**custom**");
+  });
   it("renders a passing suite with the free-replay count", () => {
     const suite: SuiteResult = {
       verdicts: [verdict(), verdict({ id: "cart", intent: "add to cart", discovered: true, usage: { ...emptyUsage(), llmCalls: 3 } })],

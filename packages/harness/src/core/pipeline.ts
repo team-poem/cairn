@@ -161,7 +161,7 @@ const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-cons
  * function does not see: it filters `results` and never reads `passed` or `detail`.
  */
 export function goalFailures(verdict: Verdict): AssertionResult[] {
-  return verdict.results.filter((r) => !r.passed && !GUARD_KINDS.has(r.assertion.kind));
+  return verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive" && !GUARD_KINDS.has(r.assertion.kind));
 }
 
 /**
@@ -187,7 +187,7 @@ export function finalizeVerdict(
   // already-finalized verdict (a completion check of its own on top of a green), so whichever
   // colour the verdict ends up, the other colour's field is dropped — never both.
   const { proof: _proof, failure: _failure, ...bare } = verdict;
-  if (verdict.passed) return { ...bare, proof: proofOf(verdict.results.map((r) => r.assertion), scenario?.unprovenAction) };
+  if (verdict.passed) return { ...bare, proof: proofOf(verdict.results.filter(r => r.reason !== "inconclusive").map((r) => r.assertion), scenario?.unprovenAction) };
   return { ...bare, failure: classifyFailure(verdict, actions) };
 }
 
@@ -256,7 +256,7 @@ export function classifyFailure(verdict: Verdict, actions: readonly ExecutedActi
   const blocked = actions.find((a) => !a.ok);
   if (blocked) return blocked.errorKind === "transport" || blocked.errorKind === "handler" ? "environment" : "script";
   if (verdict.failClosed !== undefined) return "script";
-  const failed = verdict.results.filter((r) => !r.passed);
+  const failed = verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive");
   const app = failed.filter((r) => r.reason === undefined); // what the app itself did, judge failures set aside
   const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
   if (goals.length > 0) return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r)) ? "environment" : "flow";

@@ -341,7 +341,7 @@ export async function runScenario(
       // Guards (`no-failed-requests`, `no-console-errors`) do not count — a transient 500 during the
       // re-discovery does not make the path it found wrong, and a persistent one is not something a
       // re-discovery can fix (see `goalFailures`).
-      const missedGoal = !truncated && goalFailures(judged).length > 0;
+      const missedGoal = !truncated && (goalFailures(judged).length > 0 || judged.results.some(r => r.reason === "inconclusive"));
       let verdict = finalizeVerdict(
         judged,
         truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
@@ -383,7 +383,9 @@ export async function runScenario(
     // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
     // operator reads "heal did nothing" as "heal found nothing".
     const skipped = opts.heal && !result.verdict.passed && !healable;
-    const why = "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
+    const why = result.verdict.results.some(r => r.reason === "inconclusive")
+      ? "outcome-heal skipped: no failed goal to repair; some checks could not be judged"
+      : "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
     const final = skipped
       ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
       : result;
@@ -393,7 +395,7 @@ export async function runScenario(
       result: final,
       heals,
       stepHeals,
-      healedScenario: !opts.replayEnvironment && (heals.length || stepHeals.length) &&
+      healedScenario: !opts.replayEnvironment && !final.verdict.results.some(r => r.reason === "inconclusive") && (heals.length || stepHeals.length) &&
         (!opts.targetChoice || (!final.evidence.execution.blocked && !final.verdict.failClosed && goalFailures(final.verdict).length === 0)) ? rewritten : undefined,
     };
   } catch (err) {

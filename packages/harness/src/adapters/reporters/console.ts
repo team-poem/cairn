@@ -21,13 +21,14 @@ export class ConsoleReporter implements Reporter {
     }
 
     for (const r of verdict.results) {
-      console.log(`  ${mark(r.passed)} ${r.assertion.kind}${r.detail ? ` — ${r.detail}` : ""}`);
+      console.log(`  ${r.reason === "inconclusive" ? "· inconclusive" : mark(r.passed)} ${r.assertion.kind}${r.detail ? ` — ${r.detail}` : ""}`);
     }
 
-    const failed = verdict.results.filter((r) => !r.passed).length;
+    const inconclusive = verdict.results.filter(r => r.reason === "inconclusive").length;
+    const failed = verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive").length;
     console.log(
       verdict.passed
-        ? `\n${mark(true)} pass — ${verdict.results.length} assertion(s)${proofLabel(verdict.proof)}`
+        ? `\n${mark(true)} pass — ${verdict.results.length - inconclusive} assertion(s)${inconclusive ? ` · ${inconclusive} inconclusive` : ""}${proofLabel(verdict.proof)}`
         : `\n${mark(false)} ${verdict.detail ?? `${failed} issue(s)`} — evidence captured${verdict.failure ? ` [${verdict.failure}]` : ""}`,
     );
   }

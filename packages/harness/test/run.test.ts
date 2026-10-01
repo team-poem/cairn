@@ -1080,7 +1080,7 @@ import type { Heal } from "../src/adapters/drivers/self-heal.js";
       expect(header.kind).toBe("trace");
       expect(header.seq).toBe(0);
       if (header.kind !== "trace") throw new Error("unreachable");
-      expect(header.payload.version).toBe("1.7");
+      expect(header.payload.version).toBe("1.8");
       expect(header.payload.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       expect(header.payload.engine.name).toBe("cairn");
     });

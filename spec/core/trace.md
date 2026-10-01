@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.7**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.8**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.7", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.8", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -157,6 +157,10 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.8 adds `assertion.payload.reason: inconclusive` for missing custom evidence.
+Its `passed: false` does not mean an app failure; render it as inconclusive. Case verdicts
+may carry `failClosed: all-inconclusive` when no check could be judged.
 
 - **minor** = additive: a new `kind`, a new optional payload field, a new value of an existing
   enumerated field (a `gate` reason). Viewer rule: skip unknown kinds/fields *but count them*

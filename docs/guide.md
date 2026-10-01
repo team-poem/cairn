@@ -332,7 +332,16 @@ Discovery is authoring, not running. It happens once, and what it produces is pl
 An `ActionPolicy`, a deterministic gate the discover loop consults before executing each proposed action. It sees the page (the current elements and URL), not just the proposal. Block delete- or checkout-style controls, cap wandering, or stop on a goal. A rejected action never runs, and the LLM picks another path. The same policy gates the unattended re-discovery when `runScenario({ heal: true, policy })` repairs a broken flow.
 
 **What about logins and sessions?**
-Drive them like a user. Put the credentials in the intent and the agent types them. The frozen step carries a post-condition on the auth request itself (method-matched, for example `POST /auth` returning 200), so replay waits for login to really happen instead of racing it. For anything heavier (seeded sessions, 2FA, fixtures), supply a `ContextProvider` or your own `Driver`.
+Drive them like a user. Put placeholders in the intent and supply their values separately through the existing [secret slots](#secrets):
+
+```sh
+# APP_USER and APP_PASSWORD contain your synthetic test account's values.
+CAIRN_SECRET_USER="$APP_USER" CAIRN_SECRET_PASSWORD="$APP_PASSWORD" \
+  cairn discover "log in as {user} with {password}, then open the cart" \
+  --url=https://your.app --freeze=login.skill.json
+```
+
+The driver receives the supplied value while the frozen `type` step retains its placeholder. This does not promise redaction of arbitrary page content or logs. The frozen step carries a post-condition on the auth request itself (method-matched, for example `POST /auth` returning 200), so replay waits for login to really happen instead of racing it. For anything heavier (seeded sessions, 2FA, fixtures), supply a `ContextProvider` or your own `Driver`.
 
 ## Conventions: agentic test files
 

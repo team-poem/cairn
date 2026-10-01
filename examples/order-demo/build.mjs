@@ -72,6 +72,9 @@ await cp(resolve(artifacts, manifest.engine.archive), resolve(source, manifest.e
 for (const path of [
   ".gitignore",
   "build.mjs",
+  "build-vercel.mjs",
+  "vercel",
+  "vercel.test.mjs",
   "artifact-path.mjs",
   "artifact-path.test.mjs",
   "record.mjs",

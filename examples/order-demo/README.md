@@ -4,6 +4,10 @@ This is the first demo for [#255](https://github.com/team-poem/cairn/issues/255)
 It uses the existing public cairn API. It makes no changes to discovery, healing,
 replay, or the app-context experiment in #252.
 
+Visit the [hosted recorded demo](https://cairn-order-demo.vercel.app). It serves the
+verified 2026-09-22 recording below, not live model executions. The sample shop
+also runs on the host with synthetic orders and no payments or external services.
+
 The sample shop sells one fictional notebook. Its orders are ephemeral, with no
 accounts, payments, shipping, or external services. Use only the sample identity
 `Alex Demo` / `alex@example.test`. The sample email is prefilled and read-only;
@@ -107,6 +111,51 @@ recordings, archives, and `dist/` are not committed.
 The initial local server binds to loopback. A Node host can run the built site with
 `HOST=0.0.0.0 PORT=8080 npm start`; use the port required by the hosting platform.
 Do not treat a running local preview as a deployed demo.
+
+### Vercel deployment
+
+The hosting adapter builds from the same verified recording. It copies browser
+captures, scenarios, traces, the original engine archive, and the runnable source
+download into static assets. Two small Node functions reuse the existing order
+contract; orders are not stored across requests. The recorder, engine, and shop
+sources identified by the recording hashes are unchanged.
+
+```sh
+npm run build:vercel
+cd .vercel-site
+vercel link --project cairn-order-demo --scope amazon7737s-projects
+vercel deploy
+# Verify the preview before updating the public demo:
+vercel deploy --prod
+```
+
+The generated `.vercel-site/` directory is ignored. Rebuilding preserves its
+project link and removes other generated content. Authenticate the Vercel CLI
+separately; credentials and model execution are never part of the deployment.
+The source archive includes the hosting adapter so it can be reproduced outside
+the monorepo. A new recording is required if any recorded source hash changes.
+
+On 2026-10-01, the public deployment loaded all six stages and the original
+manifest. Browser inspection verified the replay's zero model calls and work
+proof, and the defect stage's failed result and original POST 500 disclosure.
+The hosted API returned 200 for the original and changed variants and 500 for the
+broken variant. These are deployment checks, not newcomer usability results.
+
+### Newcomer trial still to run
+
+Give developers unfamiliar with cairn the hosted URL and source download without
+a guided walkthrough. Ask them to:
+
+1. Explain what discovery saves and whether replay needs a model.
+2. Connect one saved step to its browser capture and trace.
+3. Explain why the UI change is repairable and the order API defect stays red.
+4. Download the source and reproduce the recording on their own machine.
+
+Record participant count, setup environment, time to first replay, completion of
+each task, verbatim sticking points, and any assistance needed. Do not collect
+credentials. Report unsuccessful attempts as well as successful ones. No trial
+results have been collected yet. Use that feedback to choose the GitHub/npm
+README entry points; the main README positioning remains a follow-up.
 
 ## Limits and the next experiment
 

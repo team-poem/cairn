@@ -11,10 +11,11 @@ equal quality was not verified. So do not use this to divide dollar values betwe
 general price or quality ranking. Claude's provider-reported amounts and the after-the-fact
 unit-price estimates for Codex are presented in separate tables below.
 
-The README splits the call graphs for [Claude](228-claude-calls.svg) and [Codex](228-calls.svg) into a
-top and a bottom panel. Both graphs use the same scale based at 0 and show the cumulative calls over
-6 runs of the order journey for each arm. Every model in each group goes 42 calls → 7 calls, and these
-are not sums or averages across models. For Claude we use the
+The README uses one [shared call graph](228-shared-calls.svg) for Claude and Codex because all five
+models have identical cumulative call counts over the six order-journey runs in each arm.
+Every model goes 42 calls → 7 calls; these are not sums or averages across models, nor evidence of
+equal cost or quality. The historical [Claude](228-claude-calls.svg) and [Codex](228-calls.svg)
+charts remain available. For Claude we use the
 [cumulative call counts the original author read off the run records and reported](https://github.com/team-poem/cairn/pull/228#issuecomment-5629476331),
 [stored together with their source](228-claude-calls.json). For both Sonnet and Opus, explore-every-time
 is 7, 14, 21, 28, 35, 42 calls, and explore-then-replay is a cumulative 7 calls in every run. The original

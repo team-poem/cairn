@@ -6,10 +6,12 @@ import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFroze
 import { unrecognizedLeadingSegment, urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
+export type CustomCheckResult = boolean | { passed: boolean; detail?: string } | { inconclusive: true; detail: string };
+
 export type CustomCheck = (
   params: Record<string, unknown>,
   evidence: Evidence,
-) => boolean | { passed: boolean; detail?: string } | Promise<boolean | { passed: boolean; detail?: string }>;
+) => CustomCheckResult | Promise<CustomCheckResult>;
 
 export type CustomChecks = Record<string, CustomCheck>;
 
@@ -118,7 +120,9 @@ export class CustomAssertionHandler implements AssertionHandler {
     const check = this.custom[assertion.name];
     if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"`, reason: "no-handler" };
     const r = await check(assertion.params ?? {}, evidence);
-    return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: r.passed, detail: r.detail };
+    if (typeof r === "object" && "inconclusive" in r && r.inconclusive === true)
+      return { assertion, passed: false, reason: "inconclusive", detail: r.detail };
+    return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: "passed" in r && r.passed, detail: r.detail };
   }
 }
 
@@ -130,7 +134,11 @@ export function toVerdict(results: AssertionResult[]): Verdict {
   }
   // #137: every check was already true before the flow ran (stamped at freeze) — the scenario
   // cannot go red, so a green would mean nothing. Same fail-closed stance as the empty set.
-  if (results.every((r) => r.assertion.vacuous === true)) {
+  const judged = results.filter(r => r.reason !== "inconclusive");
+  if (judged.length === 0) {
+    return { passed: false, results, failClosed: "all-inconclusive", detail: "no assertion could be judged on this run" };
+  }
+  if (judged.every((r) => r.assertion.vacuous === true)) {
     // Say which kind of nothing it is. A freeze that could not name the destination did watch the
     // flow navigate; calling that "already satisfied before the flow ran" points at the wrong fix.
     const pageless = results.some((r) => r.assertion.vacuousBecause === "no-destination");
@@ -143,7 +151,7 @@ export function toVerdict(results: AssertionResult[]): Verdict {
         : "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
     };
   }
-  return { passed: results.every((r) => r.passed), results };
+  return { passed: judged.every((r) => r.passed), results };
 }
 
 /** Route one assertion to the first handler that supports it (mirror of the Execute-stage step dispatch). */

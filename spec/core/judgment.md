@@ -141,6 +141,22 @@ outcome-heal agree, and a heal is graded from the original assertions it was jud
 Advisory: `passed` is unchanged. A consumer that wants a stricter gate reads `proof.grade` and
 decides; a host rendering a run reads it and says what the green means.
 
+### Missing custom evidence (#248)
+
+A CustomCheck may return `{ inconclusive: true, detail }` when its evidence was not
+observed. The result retains `passed: false` for conservative older consumers and adds
+`reason: inconclusive`. Aggregation ignores these results when deciding whether the
+judged checks passed; the finalizer excludes them from proof grading. The original
+assertions and frozen scenario remain intact. `proofOf` on a freeze still describes
+potential proof; the replay grade describes only the checks judged on that run.
+
+If all results are inconclusive, the run fails closed with `all-inconclusive` and the
+existing `script` classification (CLI exit 3): no verified success, not an app regression.
+If only vacuous checks remain, the existing all-vacuous rule applies. Individual
+inconclusive results do not influence failure classification or trigger outcome healing.
+A repair with an inconclusive original check is withheld from re-freezing, including
+the target-choice pilot. Reporters label those checks inconclusive, not pass or fail.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

@@ -5,6 +5,7 @@ import type { Decision } from "./discover/decision.js";
 import { dupeOrdinals, renderElements, renderSelectionNotices, ELEMENT_LIMIT } from "./discover/prompt.js";
 import { selectElements } from "./perception.js";
 import { stepError } from "./errors.js";
+import type { TargetCandidate } from "./target-choice.js";
 
 let generation = 0;
 const current = new WeakMap<Driver, PerceptionObservation>();
@@ -15,8 +16,16 @@ function invalid(message: string): never { throw stepError("resolution", message
 function sameName(a: unknown, b: unknown): boolean {
   return typeof a === "string" && typeof b === "string" && a.trim().toLowerCase() === b.trim().toLowerCase();
 }
+// Optional model descriptions may shorten names; perception identity still requires sameName.
+function describesName(text: unknown, name: string): boolean {
+  if (typeof text !== "string") return false;
+  const normalized = text.trim().toLowerCase();
+  return sameName(text, name) || (normalized.length > 0 && name.toLowerCase().includes(normalized));
+}
 
 export class PerceptionObservation {
+  readonly id: string;
+  readonly omittedCount: number;
   readonly render: string;
   readonly references: string;
   private consumed = false;
@@ -25,6 +34,7 @@ export class PerceptionObservation {
   constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT) {
     current.set(driver, this);
     const id = ++generation;
+    this.id = `o${id}`;
     const originals = new Map<string, PageElement>();
     for (const e of raw) if (e.ref !== undefined) {
       if (!e.ref || originals.has(e.ref)) invalid("duplicate or empty driver reference");
@@ -44,6 +54,7 @@ export class PerceptionObservation {
       if (nth !== undefined) ordinals.set(e, nth);
     }
     const { elements: ranked, omittedCount } = selectElements(perceived, intent, limit);
+    this.omittedCount = omittedCount;
     const body = renderElements(ranked, ordinals);
     const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
     this.render = body + omitted;
@@ -60,6 +71,15 @@ export class PerceptionObservation {
       : "";
   }
 
+  /** Structured selection over the SAME validated table as bind(); never parse rendered text. */
+  candidates(): TargetCandidate[] {
+    return [...this.table].map(([key, { element: e, nth }]) => ({ key, name: e.name, role: e.role,
+      ...(nth !== undefined ? { nth } : {}), ...(e.checked !== undefined ? { checked: e.checked } : {}),
+      ...(e.disabled !== undefined ? { disabled: e.disabled } : {}),
+      ...(e.inActivePopup !== undefined ? { inActivePopup: e.inActivePopup } : {}),
+      ...(e.clickable !== undefined ? { clickable: e.clickable } : {}) }));
+  }
+
   /** Consume even rejected attempts. Canonicalize BEFORE ambiguity and consumer policy. */
   bind(decision: Decision): Decision {
     if (this.consumed) invalid("observation already consumed");
@@ -70,10 +90,13 @@ export class PerceptionObservation {
     const row = this.table.get(decision.ref);
     if (!row) invalid("unknown or expired observation reference");
     const { element, nth } = row;
-    if ((decision.text !== undefined && !sameName(decision.text, element.name)) ||
+    const description = { text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
+    if ((decision.text !== undefined && !describesName(decision.text, element.name)) ||
         (decision.role !== undefined && decision.role !== element.role) ||
-        (decision.nth !== undefined && decision.nth !== nth)) invalid("reference contradicts element description");
-    const canonical = { ...decision, text: element.name, role: element.role, ...(nth !== undefined ? { nth } : {}) };
+        (decision.nth !== undefined && decision.nth !== nth)) {
+      invalid(`reference contradicts element description: selected ${JSON.stringify(description)}`);
+    }
+    const canonical = { ...decision, ...description };
     bindings.set(canonical, { observation: this, ref: element.ref!, token: decision.ref, action: decision.action, value: decision.value, text: element.name, role: element.role, nth, used: false });
     return canonical;
   }

@@ -9,7 +9,7 @@ import type { Step, WaitUntil } from "./types.js";
 import type { RequestMatchOptions } from "./requests.js";
 import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
-import { assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
+import { validateSecrets, assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 
 const WAIT_POLL_MS = 200;
@@ -153,7 +153,7 @@ export class BuiltinStepHandler implements StepHandler {
   constructor(
     private readonly secrets: Secrets = {},
     private readonly urlMatch: ConditionMatchOptions = {},
-  ) {}
+  ) { validateSecrets(secrets); }
 
   supports(step: Step): boolean {
     return step.kind !== "custom";

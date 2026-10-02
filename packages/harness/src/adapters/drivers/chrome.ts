@@ -4,6 +4,7 @@
  * Chrome-specific, including parsing the MCP's human-readable text, stays here behind the
  * Driver port (invariant #5).
  */
+import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -184,6 +185,7 @@ export class ChromeDevToolsDriver implements Driver {
   private initialUrl?: string;
   private snapshotCache?: string; // raw take_snapshot text, valid until the next action mutates the page
   private readonly seenPages = new Set<number>();
+  private readonly network = new ChromeNetworkLog();
   private closed = false; // close() is terminal — a new session needs a new instance (#98)
   private crashed = false; // transport died mid-run — resuming on a fresh blank browser is worse than failing (#88)
   private lastRaw?: string; // raw snapshot the clickable probe last ran on — re-probe only on change (#132)
@@ -204,7 +206,9 @@ export class ChromeDevToolsDriver implements Driver {
 
   private async trackPages(): Promise<void> {
     try {
-      parsePageIds(await this.call("list_pages")).forEach((id) => this.seenPages.add(id));
+      const pages = await this.call("list_pages");
+      parsePageIds(pages).forEach((id) => this.seenPages.add(id));
+      await this.collectNetwork(pages);
     } catch {
       /* best-effort */
     }
@@ -213,7 +217,11 @@ export class ChromeDevToolsDriver implements Driver {
   /** If the last action opened a new tab, switch to it — else later actions silently hit the wrong page. */
   private async followNewTab(): Promise<void> {
     try {
-      const entries = parsePageEntries(await this.call("list_pages"));
+      const pages = await this.call("list_pages");
+      const entries = parsePageEntries(pages);
+      // Retain the originating tab before a popup becomes selected. IDs are page-local.
+      // An unavailable observation must not prevent following the actual user action.
+      await this.collectNetwork(pages).catch(() => {});
       const followable = followableTab(entries, this.seenPages);
       entries.forEach((e) => this.seenPages.add(e.id));
       if (followable !== undefined) {
@@ -395,6 +403,7 @@ export class ChromeDevToolsDriver implements Driver {
     const uid = await this.actionUid(target, ref);
     this.invalidateObservation();
     await this.call("hover", { uid });
+    await this.collectNetwork().catch(() => {});
   }
 
   async type(target: Target, text: string, ref?: string): Promise<void> {
@@ -485,6 +494,7 @@ export class ChromeDevToolsDriver implements Driver {
     await this.call("evaluate_script", {
       function: `() => { window.scrollBy(0, ${sign}window.innerHeight * 0.9); }`,
     });
+    await this.collectNetwork().catch(() => {});
     this.snapshotCache = undefined;
   }
 
@@ -715,6 +725,12 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
+  private async collectNetwork(pages?: string): Promise<void> {
+    pages ??= await this.call("list_pages");
+    const network = await this.call("list_network_requests", { includePreservedRequests: true });
+    this.network.collect(pages, network);
+  }
+
   async settle(options: SettleOptions = {}): Promise<void> {
     // Chrome defers low-priority resources (favicon, web fonts) past the usual 500ms
     // "network-idle" window, so the idle threshold is generous — missing a late request
@@ -730,8 +746,10 @@ export class ChromeDevToolsDriver implements Driver {
     let windowStart = Date.now();
     let windowBase = -1;
     try {
+      const pages = await this.call("list_pages");
       while (Date.now() < deadline) {
-        const count = parseNetwork(await this.call("list_network_requests")).length;
+        await this.collectNetwork(pages);
+        const count = this.network.size;
         if (windowBase < 0 || count - windowBase > tolerance) {
           windowBase = count;
           windowStart = Date.now();
@@ -748,17 +766,18 @@ export class ChromeDevToolsDriver implements Driver {
   async observe(): Promise<Evidence> {
     const [pages, network, console] = await Promise.all([
       this.call("list_pages"),
-      this.call("list_network_requests"),
+      this.call("list_network_requests", { includePreservedRequests: true }),
       this.call("list_console_messages"),
     ]);
 
+    this.network.collect(pages, network);
     const finalUrl = parseSelectedUrl(pages);
     const navigated = finalUrl !== undefined && isNavigation(this.initialUrl, finalUrl);
 
     return {
       execution: { actions: [], navigated, finalUrl, blocked: false },
       perception: {},
-      logic: { requests: parseNetwork(network), console: parseConsole(console) },
+      logic: { requests: this.network.snapshot(), console: parseConsole(console) },
     };
   }
 
@@ -769,6 +788,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.transport = undefined;
     this.closed = true;
     this.seenPages.clear();
+    this.network.clear();
     this.invalidateObservation();
     this.initialUrl = undefined;
     this.lastRaw = undefined;
@@ -1306,15 +1326,7 @@ export function findUidByName(snapshot: string, text: string): string | undefine
 
 /** `reqid=5 GET https://… [200]` → NetworkRequest[]; a non-numeric status (`[pending]` = in-flight) → 0. */
 export function parseNetwork(text: string): NetworkRequest[] {
-  const out: NetworkRequest[] = [];
-  for (const line of text.split("\n")) {
-    const m = line.match(/^reqid=\d+\s+(\w+)\s+(\S+)\s+\[([^\]]+)\]/);
-    if (m) {
-      const status = /^\d+$/.test(m[3]!) ? Number(m[3]) : 0;
-      out.push({ method: m[1]!, url: m[2]!, status });
-    }
-  }
-  return out;
+  return networkRows(text).map(row => row.request);
 }
 
 /** `msgid=1 [error] message (1 args)` → {type:"error", text:"message"}. */

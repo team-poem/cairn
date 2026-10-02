@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { applyHeals, needsLlmCritic, runScenario } from "../src/run.js";
 import { FakeDriver } from "../src/adapters/drivers/fake.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
@@ -81,6 +81,30 @@ describe("runScenario", () => {
     expect(events.every((e) => e.ok)).toBe(true);
     expect(events[0]?.screenshot).toBe("data:image/png;base64,AAA");
   });
+
+  it.each(["none", "events-only", "callback", "attachments"] as const)(
+    "captures pilot screenshots only for a real consumer: %s",
+    async consumer => {
+      const shot = "data:image/png;base64,AAA";
+      const driver = new FakeDriver({ evidence: evidence(), screenshot: shot });
+      const capture = vi.spyOn(driver, "screenshot");
+      const onStep = vi.fn();
+      const attach = vi.fn();
+      const select = vi.fn(async () => { throw new Error("Replay must not call the selector"); });
+      await runScenario(scenario, {
+        driver, reporter: new CaptureReporter(), screenshots: true,
+        targetChoice: { selector: { select }, minConfidence: null },
+        ...(consumer === "callback" ? { onStep } : {}),
+        ...(consumer === "events-only" ? { trace: { emit: () => {} } } : {}),
+        ...(consumer === "attachments" ? { trace: { emit: () => {}, attach } } : {}),
+      });
+      const consumes = consumer === "callback" || consumer === "attachments";
+      expect(capture).toHaveBeenCalledTimes(consumes ? scenario.steps.length : 0);
+      if (consumer === "callback") expect(onStep.mock.calls[0]?.[0].screenshot).toBe(shot);
+      if (consumer === "attachments") expect(attach).toHaveBeenCalledTimes(scenario.steps.length);
+      expect(select).not.toHaveBeenCalled();
+    },
+  );
 
   it("threads localePrefixes from RunScenarioOptions into the final navigated verdict, not just step expects (#86 follow-up)", async () => {
     // "xx" is not in the engine's default locale list — pipeline.test.ts covers this for the
@@ -1049,14 +1073,14 @@ import type { Heal } from "../src/adapters/drivers/self-heal.js";
 
   // trace-header-version-literal.test.ts
   {
-    it("traceHeaderVersionLiteral: the header says version 1.6 literally (spec/core/trace.md) and carries a UUID runId", async () => {
+    it("traceHeaderVersionLiteral: the header says version 1.7 literally (spec/core/trace.md) and carries a UUID runId", async () => {
       const events: TraceEvent[] = [];
       await runScenario(traceScenario, { driver: new FakeDriver({ evidence: traceEvidence }), reporter: silent, trace: { emit: (e) => events.push(e) } });
       const header = events[0]!;
       expect(header.kind).toBe("trace");
       expect(header.seq).toBe(0);
       if (header.kind !== "trace") throw new Error("unreachable");
-      expect(header.payload.version).toBe("1.6");
+      expect(header.payload.version).toBe("1.8");
       expect(header.payload.runId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       expect(header.payload.engine.name).toBe("cairn");
     });

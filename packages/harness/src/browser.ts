@@ -14,7 +14,7 @@ export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
-export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
+export { validateSecrets, fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
 export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
@@ -32,7 +32,7 @@ export {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
 } from "./adapters/critics/assertion.js";
-export type { CustomCheck, CustomChecks } from "./adapters/critics/assertion.js";
+export type { CustomCheck, CustomChecks, CustomCheckResult } from "./adapters/critics/assertion.js";
 export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";

@@ -30,6 +30,37 @@ describe("shared perception facts", () => {
 });
 
 describe("observation bindings", () => {
+  const longName = "Wireless Earbuds Pro 2 $129.00 free shipping 4.8 (1,204)";
+  const products = rows.map(row => ({ ...row, name: longName }));
+  it.each([longName, "Wireless Earbuds Pro 2", "earbuds pro 2 $129.00", "  FREE SHIPPING  ", "4.8 (1,204)"])(
+    "accepts a shortened ref description %j and keeps the full name and duplicate ordinal", text => {
+      const driver = new RefDriver();
+      const view = new PerceptionObservation(driver, products, products, "earbuds");
+      expect(view.bind({ action: "click", ref: token(view.references), text })).toMatchObject({
+        text: longName, role: "button", nth: 1,
+      });
+    },
+  );
+  it.each(["Wireless Headphones Pro", `${longName} discounted`, "", "   "])(
+    "rejects a contradictory or empty ref description %j with the selected element", text => {
+      const driver = new RefDriver();
+      const view = new PerceptionObservation(driver, products, products, "earbuds");
+      expect(() => view.bind({ action: "click", ref: token(view.references), text })).toThrow(
+        `reference contradicts element description: selected ${JSON.stringify({ text: longName, role: "button", nth: 1 })}`,
+      );
+      expect(driver.dispatched).toEqual([]);
+    },
+  );
+  it.each([{ role: "link" }, { nth: 0 }])("does not let shortened text bypass role or ordinal contradictions: %j", description => {
+    const driver = new RefDriver();
+    const view = new PerceptionObservation(driver, products, products, "earbuds");
+    expect(() => view.bind({ action: "click", ref: token(view.references), text: "Earbuds", ...description })).toThrow(/contradict/);
+  });
+  it("does not allow perception to shorten a referenced name", () => {
+    const driver = new RefDriver();
+    expect(() => new PerceptionObservation(driver, products, [{ ...products[0]!, name: "Wireless Earbuds Pro 2" }], "earbuds"))
+      .toThrow(/perception changed/);
+  });
   it("binds exact duplicate before policy and freezes only persistent locators", async () => {
     const driver = new RefDriver();
     const view = new PerceptionObservation(driver, rows, rows, "remove");

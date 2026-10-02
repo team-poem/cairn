@@ -9,6 +9,7 @@
  * Assembly layer like `run.ts`: composes core + adapters behind the ports; a host can inject
  * every seam (store, driver factory, llm, policy, reporter).
  */
+import { validateSecrets } from "./core/secrets.js";
 import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
@@ -159,6 +160,7 @@ function validateCases(cases: SuiteCase[], opts: SuiteOptions): void {
 }
 
 export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Promise<SuiteResult> {
+  validateSecrets(opts.secrets);
   validateCases(cases, opts);
   if (opts.replayEnvironment) validateReplayEnvironment(opts.replayEnvironment);
   const {

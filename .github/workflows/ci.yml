@@ -27,6 +27,8 @@ jobs:
         run: npm run test:workspace
       - name: Offline benchmark contract tests
         run: npm run test:bench
+      - name: Demo application contracts
+        run: npm run test:demo
 
   # The in-page probe (#176) decides what a click resolves to by reading element boxes, hit tests
   # and computed overflow/position — answers only a layout engine has. jsdom returns zeros for all
@@ -86,6 +88,19 @@ jobs:
           CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
           CAIRN_DOCUMENT_REFS_REPORT: ${{ runner.temp }}/document-refs.json
         run: npm run test:document-refs
+      - name: Cumulative network evidence and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+          CAIRN_NETWORK_REPORT: ${{ runner.temp }}/network-evidence.json
+        run: npm run test:network-evidence
+      - name: Preserve network evidence results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: network-evidence
+          path: ${{ runner.temp }}/network-evidence.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve document reference results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

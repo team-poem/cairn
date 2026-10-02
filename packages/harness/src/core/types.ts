@@ -233,8 +233,9 @@ export interface AssertionResult {
    * `0` for a request still pending. Structured so a reader never parses `detail` (#212). */
   statuses?: number[];
   /** The critic could not judge this check at all: the LLM behind an `expect` failed, or no
-   * handler exists for the kind or the `custom` name. Not the app's failure. */
-  reason?: "judge-failed" | "no-handler";
+   * handler exists for the kind or the `custom` name. `inconclusive` means the host lacked
+   * evidence on this run; passed is false but this is neither a pass nor an app failure. */
+  reason?: "judge-failed" | "no-handler" | "inconclusive";
 }
 
 /**
@@ -291,7 +292,7 @@ export interface Verdict {
   proof?: VerdictProof;
   /** Why the verdict failed closed regardless of the results: no assertions (#69), every one
    * vacuous (#137), a replay that blocked (#90), a re-discovery that ended before `done` (#186). */
-  failClosed?: "no-assertions" | "all-vacuous" | "blocked" | "truncated";
+  failClosed?: "no-assertions" | "all-vacuous" | "all-inconclusive" | "blocked" | "truncated";
 }
 
 /** What one completion cost, reported by a backend that can measure (HTTP APIs report exact

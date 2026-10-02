@@ -5,6 +5,7 @@
  * is fire-and-forget: a sink that throws is swallowed, a trace must never change a verdict.
  */
 import type { TraceSink } from "./ports.js";
+import type { TargetChoiceAudit } from "./target-choice.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
@@ -13,8 +14,10 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.3 — `freeze.payload.observedBeforeLastMutation` (#203), destination advisory summary.
  * 1.4 — `gate: idle-scroll` (#177), a scroll step dropped at freeze; `stepRef` is its original index.
  * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from.
- * 1.6 — perception/reference binding gates and the explore phase (#221). */
-export const TRACE_VERSION = "1.6";
+ * 1.6 — perception/reference binding gates and the explore phase (#221).
+ * 1.7 — typed locator-choice evidence; no change to proof grading.
+ * 1.8 — inconclusive assertion reason (#248). */
+export const TRACE_VERSION = "1.8";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -33,6 +36,7 @@ interface Envelope {
 
 export type TraceEvent = Envelope &
   (
+    | { kind: "target-choice"; payload: TargetChoiceAudit }
     | { kind: "trace"; payload: { version: string; runId: string; engine: { name: "cairn"; version: string } } }
     | { kind: "run-end"; payload: { passed: boolean; usage?: RunUsage } }
     | { kind: "case-start"; payload: { id: string; intent: string; skillRef?: string; cached: boolean } }
@@ -73,7 +77,7 @@ export type TraceEvent = Envelope &
           /** 1.5 (#212): the structured signals behind the verdict's class, so a viewer can
            * reproduce `classifyFailure` from the trace without reading `detail`. */
           statuses?: number[];
-          reason?: "judge-failed" | "no-handler";
+          reason?: "judge-failed" | "no-handler" | "inconclusive";
           origin: "user" | "derived" | "unknown";
           checkedBy: "code" | "model";
         };

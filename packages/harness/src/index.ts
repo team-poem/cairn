@@ -6,7 +6,7 @@ export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
 export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
-export { fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
+export { validateSecrets, fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
 export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES } from "./core/steps.js";
@@ -33,7 +33,7 @@ export {
   MechanicalAssertionHandler,
   CustomAssertionHandler,
 } from "./adapters/critics/assertion.js";
-export type { CustomCheck, CustomChecks } from "./adapters/critics/assertion.js";
+export type { CustomCheck, CustomChecks, CustomCheckResult } from "./adapters/critics/assertion.js";
 export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { JsonReporter } from "./adapters/reporters/json.js";
@@ -41,6 +41,11 @@ export { FakeDriver } from "./adapters/drivers/fake.js";
 export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
+export { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";
+export type { TargetChoiceRepairOptions } from "./adapters/drivers/target-choice.js";
+export { JevTargetSelector, JEV_TARGET_QUESTION_VERSION } from "./adapters/decisions/jev.js";
+export type { JevTargetSelectorOptions } from "./adapters/decisions/jev.js";
+export type { TargetSelector, TargetChoiceRequest, TargetChoiceResult, TargetChoicePilot, TargetChoiceAudit, TargetCandidate } from "./core/target-choice.js";
 
 export { ClaudeCodeLlmClient } from "./adapters/llm/claude-code.js";
 export { CodexLlmClient } from "./adapters/llm/codex.js";

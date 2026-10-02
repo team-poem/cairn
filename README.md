@@ -1,6 +1,6 @@
 <div align="center">
   <img alt="cairn banner" src="banner.svg">
-  <p>An AI writes your browser test once. It replays forever with no AI at all, and heals itself when the UI changes.</p>
+  <p>Discover a browser flow with AI. Save it as a test. Replay without a model; attempt repair when the UI changes.</p>
 </div>
 
 # cairn
@@ -14,18 +14,79 @@ Agentic-testing engine and CLI for the browser, written in TypeScript.
 
 cairn turns a browser task into a reusable JSON test. Use the CLI, or embed `cairn-engine` in your own QA tools with your choice of model and browser driver.
 
-![Claude — Sonnet 5 and Opus 5 each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-claude-calls.svg)
+## Where it fits
 
-![Codex — Sol, Terra and Luna each show cumulative discovery calls of 7, 14, 21, 28, 35, 42, while discovery plus replay stays at 7.](docs/benchmarks/228-calls.svg)
+- **Repeat a browser flow after each change.** Discover a login, form submission or checkout once, save the steps and assertions as `*.skill.json`, then replay them in a regression check.
+- **Build your own QA tool.** Embed `cairn-engine` in a CLI, internal agent or browser extension, supplying your own model, driver and application context through public interfaces.
+
+The loop is **discover → freeze → replay → self-heal**. Ordinary replay executes saved steps and mechanical assertions without a model. Healing is opt-in and must pass verification before a repair is saved; an application defect should remain a failure. Review the saved assertions to make sure they check your actual goal, not just arrival at a page. Optional semantic checks require a model and are outside the zero-LLM path.
+
+## See it work
+
+[**Open the order demo →**](https://cairn-order-demo.vercel.app)
+
+Follow one checkout through discovery, zero-call replay, a changed control, verified repair, another zero-call replay, and an order API failure that stays red. Inspect the saved code, browser captures and verdicts, or download the runnable source from the viewer.
+
+The viewer shows **recorded engine executions**, not live model calls. Its interactive shop uses synthetic orders with no payments. The recording uses a preserved 2.9.2 engine build and discloses an evidence-retention limitation in the failure stage; it is not a general repair-success benchmark. [Recording details and reproduction](examples/order-demo).
+
+External newcomer testing has not been completed. The setup below can be checked independently; that does not establish how easy it is for a first-time user.
+
+## Try it locally
+
+Start with the standalone submission fixture: no API key, model account or application setup needed.
+
+You need **Git, npm, Google Chrome, and Node 22.12+** (or Node 20.19+ on the 20.x line). Keep `127.0.0.1:4318` free. The first run needs network access to download the browser adapter; it launches its own isolated headless Chrome.
+
+```sh
+git clone --depth 1 https://github.com/team-poem/cairn.git
+cp -R cairn/examples/quickstart ./cairn-quickstart
+cd cairn-quickstart
+npm install
+npm run discover:scripted
+npm run freeze
+npm run replay
+```
+
+The copy runs outside the monorepo and installs the published engine from npm. Scripted discovery supplies four fixed responses through the public model interface while **real Chrome** fills and submits the form. This checks the integration, not a model's ability to discover an unfamiliar app.
+
+Expected results:
+
+- `discover:scripted` prints `DISCOVERED: scripted calls=4`.
+- `freeze` saves `submit.skill.json`, a readable scenario with steps and assertions.
+- `replay` runs it twice in fresh browsers; both print `llmCalls=0; attemptedLlmCalls=0`.
+
+Then try `npm run replay:broken`: the form reaches its success page but its API returns 500. The saved request assertion must fail, with exit code 1 and zero model calls. [Full quickstart and troubleshooting](examples/quickstart).
+
+### Use a model on your own app
+
+Install the CLI with `npm install -g cairn-engine`. Configure one [supported backend](#llm-backends) first; discovery and healing consume model usage.
+
+```sh
+# Replace the URL and intent with a flow on your test app.
+cairn discover "open the products page" --url=https://your.app --freeze=products.skill.json
+cairn replay products.skill.json
+# If the UI changes, explicitly allow a repair attempt:
+cairn replay products.skill.json --heal
+```
+
+Check the saved steps and assertions before treating them as a regression test. For authenticated flows, use [secret placeholders](spec/core/secrets.md), not credentials in the intent. For library usage, install `cairn-engine` locally and follow the [embedding guide](docs/guide.md#embed-it). The [quickstart](examples/quickstart#discover-with-a-real-model-optional) also supports real-model discovery against its local fixture.
+
+## Benchmarks
+
+![Across Sonnet 5, Opus 5, GPT-5.6 Sol, Terra and Luna, each model used cumulative calls of 7, 14, 21, 28, 35, 42 for repeated discovery, versus 7 throughout discovery plus replay.](docs/benchmarks/228-shared-calls.svg)
+
+**One order journey, six runs, the same call counts for all five measured models.** The shared lines show per-model counts, not totals or averages: 42 calls for repeated discovery versus 7 for one discovery and five replays. The rename on run 4 needed no healing. Identical call counts do not imply equal cost or quality, or identical results on other journeys.
+
+[Claude author-reported counts and source](docs/benchmarks/228-claude-calls.json) · [Codex recorded evidence and measurement conditions](docs/benchmarks/228-codex.md). The chart combines existing measurements; no new benchmark was run.
 
 The following cost tables show six runs per journey and approach. These rename-only runs needed no healing; a separate repair measurement follows below.
-
-**Claude reported costs**
 
 - **Journey:** The user flow being tested, such as login → cart → order.
 - **Discover:** AI performs the task and creates the steps to replay.
 - **Replay:** Run the saved steps again without LLM calls.
 - **Heal:** AI repairs a step that broke after a UI change, then saves the repair for later runs. See [measured self-heal](#measured-self-heal).
+
+**Claude reported costs**
 
 | Model | Journey | Discover every run | Discover once + replay |
 | --- | --- | ---: | ---: |
@@ -90,36 +151,6 @@ This measures one locator change, with the order verified by the fixture's order
 - Seven replaceable ports: `ContextProvider`, `Planner`, `Driver`, `SkillStore`, `Critic`, `Reporter`, `TraceSink`
 - Multiple LLM backends, including key-less Claude Code and Codex CLI
 - A browser and extension entry (`cairn-engine/browser`) for environments without Node
-
-## Installation
-
-You need Node 20 or later, Chrome, and a model (see [LLM backends](#llm-backends)). The browser is driven via Chrome DevTools MCP and launched automatically.
-
-```sh
-npm install -g cairn-engine
-```
-
-## Usage
-
-- as a [CLI](docs/guide.md#try-it-in-60-seconds)
-- as a [library](docs/guide.md#embed-it)
-- a standalone [npm/pnpm quickstart](examples/quickstart) with discovery, freeze, and zero-LLM replay
-
-```sh
-cairn discover "log in and open the cart" --url=https://your.app --freeze=cart.skill.json
-cairn replay cart.skill.json            # deterministic; exit 1 flow broke · 3 script aged · 4 environment (retry, or fix the setup)
-cairn replay cart.skill.json --heal     # UI drifted? repair the broken step and re-freeze
-```
-
-```ts
-import { runScenario, loadSkillFile, saveSkillFile } from "cairn-engine"
-
-const scenario = await loadSkillFile("cart.skill.json")
-const { result, healedScenario } = await runScenario(scenario, { heal: true })
-
-if (healedScenario) await saveSkillFile("cart.skill.json", healedScenario)
-if (!result.verdict.passed) process.exit(1)
-```
 
 ## Documentation
 

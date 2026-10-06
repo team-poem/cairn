@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Settle fixture</title>
+<style>
+  main { width: 320px; min-height: 160px; padding: 24px; font: 16px sans-serif; }
+  .skeleton { background: #e9eef4; border-radius: 8px; }
+</style>
+<main class="skeleton"><p>Loading data</p></main>
+<script>
+  const main = document.querySelector('main');
+  const mode = new URLSearchParams(location.search).get('mode');
+  if (mode === 'skeleton') {
+    fetch('/api/data').then(r => r.text()).then(text => {
+      // Rendering outlasts a network-only quiet window. Revisions remain observable throughout.
+      let beat = 0;
+      const rendering = setInterval(() => main.dataset.renderBeat = String(++beat), 100);
+      setTimeout(() => {
+        clearInterval(rendering);
+        main.className = '';
+        main.innerHTML = '<h1>' + text + '</h1><button>Commit</button><p role="status"></p>';
+        document.querySelector('button').onclick = async () => {
+          const response = await fetch('/api/commit', { method: 'POST' });
+          const result = await response.text();
+          setTimeout(() => document.querySelector('[role=status]').textContent = result, 150);
+        };
+      }, 650);
+    });
+  } else if (mode === 'polling') {
+    main.className = '';
+    main.innerHTML = '<h1>Polling page</h1>';
+    fetch('/api/poll');
+    let poll = 0;
+    setInterval(() => fetch(++poll % 3 === 0 ? '/api/poll/failing' : '/api/poll'), 75);
+  } else if (mode === 'mutating') {
+    main.className = '';
+    main.innerHTML = '<h1>Mutating page</h1><p role="status">Counter 0</p>';
+    let count = 0;
+    setInterval(() => document.querySelector('[role=status]').textContent = 'Counter ' + (++count), 40);
+  }
+</script>
+</html>

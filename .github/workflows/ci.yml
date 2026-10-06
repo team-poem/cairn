@@ -93,6 +93,18 @@ jobs:
           CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
           CAIRN_NETWORK_REPORT: ${{ runner.temp }}/network-evidence.json
         run: npm run test:network-evidence
+      - name: Skeleton readiness, polling exclusions and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: npm run test:settle -- --out "${{ runner.temp }}/settle.json"
+      - name: Preserve settle results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: settle
+          path: ${{ runner.temp }}/settle.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Preserve network evidence results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

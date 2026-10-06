@@ -155,6 +155,9 @@ export interface ChromeDriverOptions {
    * legacy snapshots promote matching StaticText listing roles to button. False disables
    * those hints and legacy promotion; other perception facts and exact refs remain available. */
   promoteClickables?: boolean;
+  /** Defaults for every settle, including waits inside type/select and engine replay.
+   * Per-call SettleOptions override these fields. */
+  settle?: SettleOptions;
 }
 
 /**
@@ -192,6 +195,7 @@ export class ChromeDevToolsDriver implements Driver {
   private lastClickable?: Set<string>; // labels of roleless clickable regions, keyed by that raw
   private readonly driverId = ++nextDriverId;
   private observationVersion = 0;
+  private settleVersion = 0;
   private observedRows: SnapshotRow[] = [];
   private documentObservation?: ChromeDocumentObservation;
   private observedPage?: string;
@@ -735,32 +739,72 @@ export class ChromeDevToolsDriver implements Driver {
     // Chrome defers low-priority resources (favicon, web fonts) past the usual 500ms
     // "network-idle" window, so the idle threshold is generous — missing a late request
     // would mean missing a real failure. Tune via SettleOptions.
-    const idleMs = options.idleMs ?? 1_000;
-    const timeoutMs = options.timeoutMs ?? 10_000;
-    const pollMs = options.pollMs ?? 250;
-    // Tolerate a trickle of background traffic (analytics beacons, polling, websockets) so
-    // those sites reach "idle" instead of always burning the full timeout; a real load
-    // burst (>1 new request in the window) still resets the wait.
-    const tolerance = 1;
+    const config = { ...this.opts.settle, ...options };
+    const duration = (value: number | undefined, fallback: number) =>
+      value !== undefined && Number.isFinite(value) && value >= 0 ? value : fallback;
+    const idleMs = duration(config.idleMs, 1_000);
+    const timeoutMs = duration(config.timeoutMs, 10_000);
+    const pollMs = Math.max(1, duration(config.pollMs, 250));
+    const ignore = config.ignoreRequests ?? [];
     const deadline = Date.now() + timeoutMs;
     let windowStart = Date.now();
-    let windowBase = -1;
+    let previous: string | undefined;
+    const probe = this.settleProbe(++this.settleVersion, timeoutMs);
+    // A late render may invalidate the lookup cache even though no action ran.
+    this.snapshotCache = undefined;
     try {
-      const pages = await this.call("list_pages");
       while (Date.now() < deadline) {
-        await this.collectNetwork(pages);
-        const count = this.network.size;
-        if (windowBase < 0 || count - windowBase > tolerance) {
-          windowBase = count;
+        const [pages, network, dom] = await this.withTimeout(Promise.all([
+          this.call("list_pages"),
+          this.call("list_network_requests", { includePreservedRequests: true }),
+          this.call("evaluate_script", { function: probe }, "observation").catch(() => ""),
+        ]), Math.max(0, deadline - Date.now()), "settle");
+        this.network.collect(pages, network);
+        // Only the current listing gates readiness. Evicted pending rows stay unknown in
+        // cumulative evidence, and a failed fetch (also status 0) is no longer in flight.
+        const rows = networkRows(network).filter(({ request }) => !ignore.some(url => request.url.includes(url)));
+        const state = extractFirstJsonObject(dom) as Record<string, unknown> | undefined;
+        const signature = JSON.stringify([
+          pages.match(/^\s*\d+:[^\n]*\[selected\](?:\s|$)/m)?.[0],
+          rows.map(({ id, pending, request }) => [id, request.status, pending]),
+          state?.documentEpoch, state?.revision, state?.ready,
+        ]);
+        if (signature !== previous || rows.some(row => row.pending) || state?.ready === false) {
+          previous = signature;
           windowStart = Date.now();
         } else if (Date.now() - windowStart >= idleMs) {
-          return; // at most a trickle over idleMs — treat as network-idle
+          return;
         }
-        await delay(pollMs);
+        await delay(Math.min(pollMs, Math.max(0, deadline - Date.now())));
       }
     } catch {
       // best-effort: settling must never fail a run (port contract).
+    } finally {
+      this.snapshotCache = undefined;
     }
+  }
+
+  /** Separate from exact-reference guards: retain only a revision, never nodes or records.
+   * The page timer cleans up even if a tool hangs or the host stops waiting. */
+  private settleProbe(version: number, timeoutMs: number): string {
+    return `() => {
+      const key = Symbol.for(${JSON.stringify(`cairn:settle:${this.driverId}`)});
+      const sessions = globalThis[key] ??= new Map();
+      let state = sessions.get(${version});
+      if (!state) {
+        state = { revision: 0 };
+        state.observer = new MutationObserver(() => state.revision++);
+        state.observer.observe(document, { subtree: true, childList: true, characterData: true, attributes: true });
+        state.timer = setTimeout(() => {
+          state.observer.disconnect();
+          sessions.delete(${version});
+          if (!sessions.size && globalThis[key] === sessions) delete globalThis[key];
+        }, ${Math.max(1, timeoutMs)});
+        sessions.set(${version}, state);
+      }
+      if (state.observer.takeRecords().length) state.revision++;
+      return { ready: document.readyState !== "loading", revision: state.revision, documentEpoch: performance.timeOrigin };
+    }`;
   }
 
   async observe(): Promise<Evidence> {

@@ -173,6 +173,9 @@ export interface SettleOptions {
   idleMs?: number;
   timeoutMs?: number;
   pollMs?: number;
+  /** URL substrings excluded only from the network-idle wait. Requests remain in evidence
+   * and assertions; this is separate from the product's benign failure policy. */
+  ignoreRequests?: readonly string[];
 }
 
 export interface NetworkRequest {

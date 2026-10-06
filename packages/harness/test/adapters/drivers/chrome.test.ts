@@ -725,7 +725,8 @@ describe("ChromeDevToolsDriver audit coverage", () => {
     const calls: Array<{ name: string; args: Record<string, unknown> }> = [];
     (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
       calls.push({ name, args });
-      const r = responses[name] ?? (name === "list_pages" ? "0: https://x/ [selected]" : undefined);
+      const r = responses[name] ?? (name === "list_pages" ? "0: https://x/ [selected]" :
+        name === "evaluate_script" ? 'Script ran on page and returned:\n```json\n{"ready":true,"revision":0,"documentEpoch":1}\n```' : undefined);
       if (r === undefined) return "";
       return typeof r === "function" ? r(args) : r;
     };
@@ -1369,35 +1370,168 @@ describe("ChromeDevToolsDriver audit coverage", () => {
     });
   }
 
-  // chrome-settle-tolerates-one-background-request.test.ts
+  // Readiness regressions (#175): every request and DOM change restarts the quiet window.
   {
     describe("chrome settle", () => {
       afterEach(() => vi.useRealTimers());
 
-      it("chromeSettleToleratesOneBackgroundRequest: one new request inside the window does not reset it, two do", async () => {
+      it("restarts the idle window for a single new request", async () => {
         vi.useFakeTimers();
         let count = 5;
         const { driver } = stubbedDriver({ list_network_requests: () => net(count) });
-        // one trickle beacon at 250ms → still idle at ~1s
         let done = false;
         const p = driver.settle().then(() => (done = true));
-        await vi.advanceTimersByTimeAsync(200);
+        await vi.advanceTimersByTimeAsync(400);
         count = 6;
-        await vi.advanceTimersByTimeAsync(1_100);
+        await vi.advanceTimersByTimeAsync(700); // the new request was seen at 500ms
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(500);
         await p;
         expect(done).toBe(true);
+      });
 
-        // a burst of two resets the window: not idle at 1.1s, idle by ~1.6s
-        count = 10;
-        let done2 = false;
-        const p2 = driver.settle().then(() => (done2 = true));
+      it("waits for a lone pending request and then for the response's idle window", async () => {
+        vi.useFakeTimers();
+        let status = "pending";
+        const { driver } = stubbedDriver({
+          list_network_requests: () => `reqid=1 POST https://x/api/order [${status}]`,
+        });
+        let done = false;
+        const p = driver.settle().then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(1_100);
+        expect(done).toBe(false);
+        status = "200";
+        await vi.advanceTimersByTimeAsync(750);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(500);
+        await p;
+        expect(done).toBe(true);
+      });
+
+      it.each([
+        ["DOM revision", { ready: true, revision: 1, documentEpoch: 1 }],
+        ["document replacement", { ready: true, revision: 0, documentEpoch: 2 }],
+      ])("restarts the idle window after %s with no new network requests", async (_name, changed) => {
+        vi.useFakeTimers();
+        let dom = { ready: true, revision: 0, documentEpoch: 1 };
+        const { driver } = stubbedDriver({
+          list_network_requests: net(1),
+          evaluate_script: () => `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify(dom)}\n\`\`\``,
+        });
+        let done = false;
+        const p = driver.settle().then(() => (done = true));
         await vi.advanceTimersByTimeAsync(400);
-        count = 12; // seen on the poll at 500ms → reset
-        await vi.advanceTimersByTimeAsync(700); // t=1.1s
-        expect(done2).toBe(false);
-        await vi.advanceTimersByTimeAsync(600); // t=1.7s
-        await p2;
-        expect(done2).toBe(true);
+        dom = changed;
+        await vi.advanceTimersByTimeAsync(700);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(500);
+        await p;
+        expect(done).toBe(true);
+      });
+
+      it("does not count a loading document as idle", async () => {
+        vi.useFakeTimers();
+        let ready = false;
+        const { driver } = stubbedDriver({
+          evaluate_script: () => `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ ready, revision: 0, documentEpoch: 1 })}\n\`\`\``,
+        });
+        let done = false;
+        const p = driver.settle({ idleMs: 200, pollMs: 100 }).then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(500);
+        expect(done).toBe(false);
+        ready = true;
+        await vi.advanceTimersByTimeAsync(200);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(100);
+        await p;
+        expect(done).toBe(true);
+      });
+
+      it("bounds continuous DOM activity by the overall deadline and clips the final poll", async () => {
+        vi.useFakeTimers();
+        let revision = 0;
+        const { driver } = stubbedDriver({
+          evaluate_script: () => `Script ran on page and returned:\n\`\`\`json\n${JSON.stringify({ ready: true, revision: revision++, documentEpoch: 1 })}\n\`\`\``,
+        });
+        let done = false;
+        const p = driver.settle({ idleMs: 200, pollMs: 250, timeoutMs: 1_100 }).then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(1_099);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(done).toBe(true);
+      });
+
+      it("merges per-call settle options over driver defaults", async () => {
+        vi.useFakeTimers();
+        const { driver } = stubbedDriver({}, { settle: { idleMs: 200, pollMs: 50, timeoutMs: 500 } });
+        let done = false;
+        const p = driver.settle().then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(199);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+
+        done = false;
+        const override = driver.settle({ idleMs: 350 }).then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(349);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await override;
+        expect(done).toBe(true);
+      });
+
+      it("falls back to bounded defaults for invalid timings without emitting invalid script literals", async () => {
+        vi.useFakeTimers();
+        const { driver, calls } = stubbedDriver({});
+        let done = false;
+        const p = driver.settle({ idleMs: Infinity, pollMs: -1, timeoutMs: NaN }).then(() => (done = true));
+        await vi.advanceTimersByTimeAsync(999);
+        expect(done).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        await p;
+        expect(done).toBe(true);
+        const scripts = calls.filter(call => call.name === "evaluate_script").map(call => String(call.args.function));
+        expect(scripts.length).toBeGreaterThan(0);
+        expect(scripts.every(script => !/Infinity|NaN/.test(script))).toBe(true);
+      });
+
+      it("uses negotiated fast observation while preserving the guard that rejects an earlier stale ref", async () => {
+        vi.useFakeTimers();
+        let connected = true;
+        const { driver, client } = withClient(async ({ name, arguments: args }) => {
+          let text = "";
+          if (name === "list_pages") text = "0: https://x/ [selected]";
+          if (name === "take_snapshot") text = 'uid=1_1 button "Save"';
+          if (name === "evaluate_script") {
+            const script = String(args.function);
+            if (script.includes("cairn:settle:")) text = JSON.stringify({ ready: true, revision: 1, documentEpoch: 1 });
+            else if (script.includes("const connected =")) text = JSON.stringify({ connected, revision: 1 });
+            else if (script.includes("const ids =")) text = JSON.stringify({ "1_1": { referenceReady: true } });
+            else text = "{}";
+          }
+          return { content: [{ type: "text", text }] };
+        }, { promoteClickables: false });
+        // Capability state after negotiation; the injected client retains real argument preparation.
+        (driver as unknown as { observationWaitOverride: boolean }).observationWaitOverride = true;
+        const ref = (await driver.snapshot({ perception: true }))[0]!.ref!;
+        expect(ref).toBeTypeOf("string");
+        const references = (driver as unknown as { references: Map<string, unknown> }).references;
+        const captured = references.get(ref);
+        connected = false;
+        client.callTool.mockClear();
+        const p = driver.settle({ idleMs: 100, pollMs: 50 });
+        await vi.advanceTimersByTimeAsync(100);
+        await p;
+        const evaluations = client.callTool.mock.calls.map(([req]) => req).filter(req => req.name === "evaluate_script");
+        expect(evaluations.length).toBeGreaterThan(0);
+        expect(evaluations.every(req => req.arguments.waitForStableDom === false)).toBe(true);
+        expect(evaluations.every(req => !String(req.arguments.function).includes("cairn-observation-guard"))).toBe(true);
+        expect(client.callTool.mock.calls.some(([req]) => req.name === "take_snapshot")).toBe(false);
+        expect(references.get(ref)).toBe(captured);
+        await expect(driver.click({ text: "Save", role: "button" }, ref)).rejects.toThrow(/ref|expired|detached/i);
+        expect(client.callTool.mock.calls.some(([req]) => req.name === "click")).toBe(false);
+        await driver.close();
       });
     });
   }

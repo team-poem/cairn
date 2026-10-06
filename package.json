@@ -23,6 +23,7 @@
     "test:compatibility": "node bench/ci-smoke.mjs",
     "test:document-refs": "node scripts/test-document-refs.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
+    "test:settle": "node bench/local/settle.mjs",
     "check:language": "node scripts/check-language.mjs",
     "journal:status": "node scripts/journal.mjs status",
     "journal:check": "node scripts/journal.mjs check",

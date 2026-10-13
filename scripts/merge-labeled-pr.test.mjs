@@ -9,17 +9,24 @@ function fixture() {
       labels: { nodes: [{ name: "needs-merge" }] } },
     candidates: [{ number: 42, labels: [{ name: "needs-merge" }] }],
     runs: [{ id: 10, head_sha: "head", event: "pull_request", status: "completed", conclusion: "success" }],
-    merged: [], reads: 0, ciReads: 0, messages: [],
+    merged: [], removedLabels: [], addedLabels: [], operations: [], reads: 0, ciReads: 0, messages: [],
     summary: { headings: [], items: [], writes: 0 },
   };
   const github = {
     graphql: async () => ({ repository: { pullRequest: ++f.reads === 1 ? f.pr : f.current ?? f.pr } }),
     rest: {
       pulls: { list() {}, merge: async args => {
+        f.operations.push("merge");
         if (f.error) throw f.error;
         f.merged.push(args);
-        return { data: { merged: true, sha: "squash" } };
+        return { data: f.mergeResult ?? { merged: true, sha: "squash" } };
       } },
+      issues: { removeLabel: async args => {
+        f.operations.push("removeLabel");
+        f.removedLabels.push(args);
+        if (f.cleanupError) throw f.cleanupError;
+        return { data: [] };
+      }, addLabels: async args => { f.addedLabels.push(args); return { data: [] }; } },
       actions: { listWorkflowRuns() {} },
     },
     paginate: async (method, args, map) => {
@@ -47,6 +54,9 @@ test("squashes the reviewed head through GitHub without overriding the author's 
   await f.run();
   assert.deepEqual(f.merged, [{ owner: "team", repo: "cairn", pull_number: 42, sha: "head",
     merge_method: "squash", commit_title: "fix(ci): preserve attribution (#42)" }]);
+  assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
+  assert.deepEqual(f.addedLabels, []);
+  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
   assert.equal(f.reads, 2);
 });
 
@@ -97,6 +107,7 @@ for (const [name, patch] of [
     Object.assign(f.pr, patch);
     await f.run();
     assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, []);
   });
 }
 
@@ -112,6 +123,7 @@ for (const [name, runs] of [
     if (!runs.length || ["old head", "push only"].includes(name)) f.runs.shift();
     await f.run();
     assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, []);
   });
 }
 
@@ -124,10 +136,11 @@ for (const patch of [
     f.current = { ...f.pr, ...patch };
     await f.run({ pull_request: f.candidates[0] });
     assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, []);
   });
 }
 
-test("ignores periodic candidates without either merge label", async () => {
+test("ignores periodic candidates without merge or review labels", async () => {
   const f = fixture();
   f.candidates[0].labels = [];
   await f.run();
@@ -161,6 +174,8 @@ for (const labels of [["needs-merge", "no-merge"], ["no-merge"]]) {
       assert.equal(f.reads, 1);
       assert.equal(f.ciReads, 0);
       assert.deepEqual(f.merged, []);
+      assert.deepEqual(f.removedLabels, []);
+      assert.deepEqual(f.addedLabels, []);
       assert.match(f.messages.join("\n"), /no-merge/);
       assert.match(f.summary.items.join("\n"), /no-merge/);
       assert.equal(f.summary.writes, 1);
@@ -175,7 +190,47 @@ test("no-merge added during CI lookup cancels an otherwise eligible merge", asyn
   assert.equal(f.reads, 2);
   assert.equal(f.ciReads, 1);
   assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.removedLabels, []);
   assert.match(f.summary.items.join("\n"), /no-merge/);
+});
+
+for (const labels of [["needs-merge", "status/1-needs-review"], ["status/1-needs-review"]]) {
+  for (const path of ["event", "periodic"]) {
+    test(`needs-review blocks ${labels.join(" and ")} on the ${path} path without changing labels`, async () => {
+      const f = fixture();
+      f.pr.labels.nodes = labels.map(name => ({ name }));
+      f.candidates[0].labels = labels.map(name => ({ name }));
+      await f.run(path === "event" ? { pull_request: f.candidates[0] } : undefined);
+      assert.equal(f.reads, 1);
+      assert.equal(f.ciReads, 0);
+      assert.deepEqual(f.merged, []);
+      assert.deepEqual(f.removedLabels, []);
+      assert.deepEqual(f.addedLabels, []);
+      assert.match(f.messages.join("\n"), /status\/1-needs-review/);
+      assert.match(f.summary.items.join("\n"), /status\/1-needs-review/);
+    });
+  }
+}
+
+test("needs-review added during CI lookup cancels an otherwise approved clean merge", async () => {
+  const f = fixture();
+  f.current = { ...f.pr, labels: { nodes: [{ name: "needs-merge" }, { name: "status/1-needs-review" }] } };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.equal(f.reads, 2);
+  assert.equal(f.ciReads, 1);
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.removedLabels, []);
+  assert.deepEqual(f.addedLabels, []);
+  assert.match(f.summary.items.join("\n"), /status\/1-needs-review/);
+});
+
+test("a maintainer's transition from needs-review to needs-merge permits a merge despite the stale event", async () => {
+  const f = fixture();
+  await f.run({ pull_request: { ...f.candidates[0], labels: [{ name: "status/1-needs-review" }] } });
+  assert.equal(f.merged.length, 1);
+  assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
+  assert.deepEqual(f.addedLabels, []);
+  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
 });
 
 for (const stage of ["initial", "final"]) {
@@ -214,6 +269,78 @@ test("a head race is deferred, while permission errors fail visibly", async () =
   const f = fixture();
   f.error = Object.assign(new Error("Head changed"), { status: 409 });
   await f.run();
+  assert.deepEqual(f.removedLabels, []);
+  f.error = Object.assign(new Error("Merge requirements changed"), { status: 405 });
+  await f.run();
+  assert.deepEqual(f.removedLabels, []);
   f.error = Object.assign(new Error("Forbidden"), { status: 403 });
   await assert.rejects(f.run(), /Forbidden/);
+  assert.deepEqual(f.removedLabels, []);
 });
+
+test("an unsuccessful merge response leaves needs-merge in place", async () => {
+  const f = fixture();
+  f.mergeResult = { merged: false, message: "Merge declined" };
+  await assert.rejects(f.run(), /Merge declined/);
+  assert.equal(f.merged.length, 1);
+  assert.deepEqual(f.removedLabels, []);
+  assert.deepEqual(f.addedLabels, []);
+  assert.deepEqual(f.operations, ["merge"]);
+});
+
+test("a label already removed after a successful merge is an idempotent cleanup", async () => {
+  const f = fixture();
+  f.cleanupError = Object.assign(new Error("Label not found"), { status: 404 });
+  await f.run();
+  assert.equal(f.merged.length, 1);
+  assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
+  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
+  assert.equal(f.summary.writes, 1);
+});
+
+for (const status of [403, 405, 409, 500]) {
+  test(`a ${status} cleanup failure is surfaced after merging rather than treated as a merge race`, async () => {
+    const f = fixture();
+    f.cleanupError = Object.assign(new Error(`Label cleanup failed (${status})`), { status });
+    await assert.rejects(f.run(), /Label cleanup failed/);
+    assert.equal(f.merged.length, 1);
+    assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
+    assert.deepEqual(f.operations, ["merge", "removeLabel"]);
+    assert.deepEqual(f.addedLabels, []);
+    assert.match(f.messages.join("\n"), /merged.*needs-merge cleanup failed/);
+  });
+}
+
+for (const status of [undefined, 404]) {
+  test(`an event for a confirmed merged develop PR retries only label cleanup (${status ?? "success"})`, async () => {
+    const f = fixture();
+    f.pr.state = "MERGED";
+    f.pr.reviewDecision = null;
+    f.pr.mergeStateStatus = "UNKNOWN";
+    f.pr.labels.nodes.push({ name: "status/1-needs-review" });
+    if (status) f.cleanupError = Object.assign(new Error("Label not found"), { status });
+    await f.run({ pull_request: f.candidates[0] });
+    assert.equal(f.reads, 1);
+    assert.equal(f.ciReads, 0);
+    assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
+    assert.deepEqual(f.operations, ["removeLabel"]);
+    assert.deepEqual(f.addedLabels, []);
+  });
+}
+
+for (const [name, patch] of [
+  ["closed without merging", { state: "CLOSED" }],
+  ["merged to main", { state: "MERGED", baseRefName: "main" }],
+  ["merged without a merge-request label", { state: "MERGED", labels: { nodes: [] } }],
+]) {
+  test(`an event for a PR ${name} does not clean up labels`, async () => {
+    const f = fixture();
+    Object.assign(f.pr, patch);
+    await f.run({ pull_request: f.candidates[0] });
+    assert.equal(f.ciReads, 0);
+    assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, []);
+    assert.deepEqual(f.addedLabels, []);
+  });
+}

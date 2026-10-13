@@ -36,6 +36,8 @@ Contributions that respect that contract are the most valuable kind.
    a squash merge into `develop` by `cairn-pingu`. The bot waits for approval and the
    latest CI workflow to pass. The squashed commit credits the PR author; the bot is
    recorded as the merger. Remove `needs-merge` before merging to cancel the request.
+   Add `no-merge` to block the bot even when `needs-merge` is present. Removing `no-merge`
+   resumes an existing request, so remove `needs-merge` too if you want to cancel it.
 
 ## Releases
 
@@ -65,13 +67,18 @@ need them:
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.
 
-The `needs-merge` label is case-sensitive. Create it once in repository settings. The merge
-workflow uses the existing App secrets and does not require GitHub's native auto-merge
+The `needs-merge` and `no-merge` labels are case-sensitive. Create them once in repository
+settings. `no-merge` takes precedence and is checked again immediately before the merge
+API call. This controls cairn-pingu's automatic merges; it does not restrict manual merges
+by users with bypass permission. The merge workflow uses the existing App secrets and
+does not require GitHub's native auto-merge
 setting. Its CI completion and five-minute retry triggers become active when the
 workflow reaches the default branch (`main`); label and same-repository review events
 can run once it reaches `develop`. Scheduled runs may be delayed by GitHub. Drafts,
 conflicts, missing approvals, and failed or pending CI leave the PR open. Release PRs
-to `main` remain manual.
+to `main` remain manual. The Actions run's **Merge decisions** summary explains whether
+the bot merged a PR or is waiting for a label, approval, CI, or GitHub merge requirements.
+A successful workflow run means the evaluation completed, not necessarily that a PR merged.
 
 ## Development setup
 

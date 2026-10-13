@@ -9,7 +9,8 @@ function fixture() {
       labels: { nodes: [{ name: "needs-merge" }] } },
     candidates: [{ number: 42, labels: [{ name: "needs-merge" }] }],
     runs: [{ id: 10, head_sha: "head", event: "pull_request", status: "completed", conclusion: "success" }],
-    merged: [], reads: 0,
+    merged: [], reads: 0, ciReads: 0, messages: [],
+    summary: { headings: [], items: [], writes: 0 },
   };
   const github = {
     graphql: async () => ({ repository: { pullRequest: ++f.reads === 1 ? f.pr : f.current ?? f.pr } }),
@@ -23,13 +24,20 @@ function fixture() {
     },
     paginate: async (method, args, map) => {
       if (method === github.rest.pulls.list) return f.candidates;
+      f.ciReads++;
       assert.equal(args.workflow_id, "ci.yml");
       assert.equal(args.head_sha, "head");
       return map({ data: { workflow_runs: f.runs } });
     },
   };
+  const summary = {
+    addHeading(heading) { f.summary.headings.push(heading); return this; },
+    addList(items) { f.summary.items.push(...items); return this; },
+    async write() { f.summary.writes++; },
+  };
   f.run = async payload => mergeLabeledPullRequests({ github, ciGithub: f.ciGithub,
-    context: { repo: { owner: "team", repo: "cairn" }, payload: payload ?? {} }, core: { info() {} } });
+    context: { repo: { owner: "team", repo: "cairn" }, payload: payload ?? {} },
+    core: { info(message) { f.messages.push(message); }, summary } });
   return f;
 }
 
@@ -104,12 +112,87 @@ for (const patch of [
   });
 }
 
-test("ignores PRs without needs-merge on both event and periodic paths", async () => {
+test("ignores periodic candidates without either merge label", async () => {
   const f = fixture();
   f.candidates[0].labels = [];
   await f.run();
-  await f.run({ pull_request: f.candidates[0] });
   assert.equal(f.reads, 0);
+});
+
+test("reads current labels when the event snapshot lacks needs-merge", async () => {
+  const f = fixture();
+  await f.run({ pull_request: { ...f.candidates[0], labels: [] } });
+  assert.equal(f.reads, 2);
+  assert.equal(f.merged.length, 1);
+});
+
+test("does not merge an event PR whose current labels have no merge request", async () => {
+  const f = fixture();
+  f.pr.labels.nodes = [];
+  await f.run({ pull_request: { ...f.candidates[0], labels: [] } });
+  assert.equal(f.reads, 1);
+  assert.equal(f.ciReads, 0);
+  assert.deepEqual(f.merged, []);
+  assert.match(f.messages.join("\n"), /needs-merge/);
+});
+
+for (const labels of [["needs-merge", "no-merge"], ["no-merge"]]) {
+  for (const path of ["event", "periodic"]) {
+    test(`no-merge blocks ${labels.join(" and ")} on the ${path} path and reports the reason`, async () => {
+      const f = fixture();
+      f.pr.labels.nodes = labels.map(name => ({ name }));
+      f.candidates[0].labels = labels.map(name => ({ name }));
+      await f.run(path === "event" ? { pull_request: f.candidates[0] } : undefined);
+      assert.equal(f.reads, 1);
+      assert.equal(f.ciReads, 0);
+      assert.deepEqual(f.merged, []);
+      assert.match(f.messages.join("\n"), /no-merge/);
+      assert.match(f.summary.items.join("\n"), /no-merge/);
+      assert.equal(f.summary.writes, 1);
+    });
+  }
+}
+
+test("no-merge added during CI lookup cancels an otherwise eligible merge", async () => {
+  const f = fixture();
+  f.current = { ...f.pr, labels: { nodes: [{ name: "needs-merge" }, { name: "no-merge" }] } };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.equal(f.reads, 2);
+  assert.equal(f.ciReads, 1);
+  assert.deepEqual(f.merged, []);
+  assert.match(f.summary.items.join("\n"), /no-merge/);
+});
+
+for (const stage of ["initial", "final"]) {
+  test(`an incomplete label list at the ${stage} read cannot hide no-merge`, async () => {
+    const f = fixture();
+    const labels = { nodes: [{ name: "needs-merge" }], pageInfo: { hasNextPage: true } };
+    if (stage === "initial") f.pr.labels = labels;
+    else f.current = { ...f.pr, labels };
+    await f.run();
+    assert.deepEqual(f.merged, []);
+    assert.equal(f.ciReads, stage === "initial" ? 0 : 1);
+    assert.match(f.summary.items.join("\n"), /incomplete.*no-merge/);
+  });
+}
+
+test("removing no-merge allows a retained needs-merge request despite the stale event", async () => {
+  const f = fixture();
+  await f.run({ pull_request: { ...f.candidates[0], labels: [{ name: "needs-merge" }, { name: "no-merge" }] } });
+  assert.equal(f.reads, 2);
+  assert.equal(f.ciReads, 1);
+  assert.equal(f.merged.length, 1);
+});
+
+test("reports failed CI when GitHub also reports an unstable merge state", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "UNSTABLE";
+  f.runs[0].conclusion = "failure";
+  await f.run();
+  assert.equal(f.ciReads, 1);
+  assert.deepEqual(f.merged, []);
+  assert.ok(f.messages.some(message => /CI/i.test(message) && /failure/i.test(message)));
+  assert.ok(f.summary.items.some(message => /CI/i.test(message) && /failure/i.test(message)));
 });
 
 test("a head race is deferred, while permission errors fail visibly", async () => {

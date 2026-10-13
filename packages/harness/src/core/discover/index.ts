@@ -7,6 +7,7 @@
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
 import { PerceptionObservation } from "../observation.js";
+import { identifyScenario } from "../contract.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
@@ -136,9 +137,10 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
         payload: { gate: "unproven-action", action: unproven.unprovenAction, reason: "no stable URL to check" },
       });
     }
-    return truncated
+    const scenario: Scenario = truncated
       ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
+    return identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes });
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

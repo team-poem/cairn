@@ -94,6 +94,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   let run: Awaited<ReturnType<typeof runScenario>>;
   try {
     run = await runScenario(scenario, {
+      judgmentKey: flagStr(flags, "judgment-key"),
       replayEnvironment,
       reporter: reporterFor(flags),
       model: flagStr(flags, "model"),
@@ -368,6 +369,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    judgmentKey: flagStr(flags, "judgment-key"),
     replayEnvironment,
     skillDir: flagStr(flags, "skills"),
     baseUrl: flagStr(flags, "base-url") ?? baseUrl,
@@ -410,6 +412,7 @@ usage: cairn <command> [options]
 
   --secret name=value        fill {name} in type steps at run time; repeatable; or CAIRN_SECRET_<NAME> in the env
   --secret-origin name=url   refuse to type {name} on any page outside that origin
+  --judgment-key key        host version of custom/semantic judgment semantics (run, replay, suite)
   --help, -h       print this message
   --version, -v    print the engine version
 

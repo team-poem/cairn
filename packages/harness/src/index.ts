@@ -1,6 +1,8 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";
+export type { IdentifyScenarioOptions, JudgmentOptions } from "./core/contract.js";
 export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
@@ -13,7 +15,7 @@ export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOC
 export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
-export { runSuite } from "./suite.js";
+export { runSuite, hashCase } from "./suite.js";
 export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite.js";
 export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
 export { ENGINE_VERSION } from "./version.js";

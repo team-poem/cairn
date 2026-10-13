@@ -12,6 +12,8 @@ import type { RequestMatchOptions } from "./requests.js";
 import type { ConditionMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
+import { scenarioContract, copyProvenance } from "./contract.js";
+import type { JudgmentOptions } from "./contract.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -26,6 +28,9 @@ const DEFAULT_EXPECT_TIMEOUT_MS = 2_000;
  * these put UI in the engine.
  */
 export interface RunHarnessOptions {
+  /** Declared judge configuration. A generic Critic is opaque by default: supply a
+   * judgmentKey or explicitly describe built-in semantics with opaque: false. */
+  judgment?: JudgmentOptions;
   signal?: AbortSignal;
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
@@ -274,7 +279,12 @@ export async function runHarness(
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
-  const scenario = await planner.plan(ctx);
+  const planned = await planner.plan(ctx);
+  // Snapshot judgment data before browser work; keep step/target identities for healer seams.
+  const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })) };
+  const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
+  const contract = await scenarioContract(scenario, judgment());
+  const provenance = copyProvenance(scenario.provenance);
   // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
   // segment" is a property of the file being replayed, and an older file predates the notation.
   const urlMatch: ConditionMatchOptions = {
@@ -324,7 +334,12 @@ export async function runHarness(
   // Judge assertions, then require step completion too — either alone can miss a failure.
   const judged = await critic.judge(evidence, scenario.assertions, ctx);
   for (const r of judged.results) opts.trace?.emit({ kind: "assertion", phase: "replay", payload: assertionPayload(r) });
-  const verdict = finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions, scenario);
+  // Custom params retain their reference identity for existing integrations. If a host mutates
+  // those shared inputs during execution/judgment, do not claim a comparable fixed contract.
+  const after = await scenarioContract(scenario, judgment());
+  const verdict = { ...finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions, scenario),
+    contract: after.complete && after.fingerprint === contract.fingerprint ? contract : { ...contract, complete: false },
+    ...(provenance ? { provenance } : {}) };
   const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);

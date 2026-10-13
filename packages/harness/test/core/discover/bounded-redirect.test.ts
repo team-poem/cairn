@@ -4,6 +4,9 @@ import { observeOutcomes } from "../../../src/core/discover/capture.js";
 import type { OutcomeMark } from "../../../src/core/discover/capture.js";
 import type { Evidence, NetworkRequest, SettleOptions, Target } from "../../../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "../../support/doubles.js";
+import { useClockDigest } from "../../support/clock-digest.js";
+
+useClockDigest();
 
 class DelayedRedirectDriver extends StubDriver {
   readonly requests: NetworkRequest[] = [];

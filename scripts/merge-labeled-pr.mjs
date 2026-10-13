@@ -11,7 +11,8 @@ function blocker(pr) {
   if (!pr) return "pull request is unavailable.";
   const labels = pr.labels.nodes.map(label => label.name);
   if (labels.includes("no-merge")) return "blocked by no-merge; remove it before requesting a merge.";
-  if (pr.labels.pageInfo?.hasNextPage) return "label list is incomplete; cannot rule out no-merge.";
+  if (labels.includes("status/1-needs-review")) return "blocked by status/1-needs-review; a maintainer must remove it before requesting a merge.";
+  if (pr.labels.pageInfo?.hasNextPage) return "label list is incomplete; cannot rule out no-merge or status/1-needs-review.";
   if (!labels.includes("needs-merge")) return "no needs-merge request is active.";
   if (pr.state !== "OPEN") return "pull request is not open.";
   if (pr.isDraft) return "pull request is a draft.";
@@ -31,6 +32,17 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     messages.push(line);
   };
   const read = async number => (await github.graphql(query, { owner, repo, number })).repository.pullRequest;
+  const clearMergeRequest = async number => {
+    try {
+      await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: "needs-merge" });
+    } catch (error) {
+      if (error.status !== 404) {
+        report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
+        throw error;
+      }
+    }
+    report(number, "merged; needs-merge request cleared.");
+  };
   const candidates = context.payload.pull_request
     ? [context.payload.pull_request]
     : await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", base: "develop", per_page: 100 });
@@ -38,8 +50,14 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
   for (const candidate of candidates) {
     // Event labels can be stale after queuing; always read the affected PR again.
     if (!context.payload.pull_request
-      && !candidate.labels?.some(label => ["needs-merge", "no-merge"].includes(label.name))) continue;
+      && !candidate.labels?.some(label => ["needs-merge", "no-merge", "status/1-needs-review"].includes(label.name))) continue;
     const pr = await read(candidate.number);
+    // A rerun after a cleanup failure must not attempt the merge a second time.
+    if (pr?.state === "MERGED" && pr.baseRefName === "develop"
+      && pr.labels.nodes.some(label => label.name === "needs-merge")) {
+      await clearMergeRequest(pr.number);
+      continue;
+    }
     const reason = blocker(pr);
     if (reason) {
       report(candidate.number, reason);
@@ -64,7 +82,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       continue;
     }
 
-    // Re-read after CI lookup so no-merge, a removed request or a changed review stops merging.
+    // Re-read after CI lookup so blocking labels, a removed request or a changed review stop merging.
     const current = await read(pr.number);
     const currentReason = blocker(current);
     if (currentReason) {
@@ -86,12 +104,14 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       // Head changes, conflicts and newly unmet rules are retried on the next event.
       if ([405, 409].includes(error.status)) report(pr.number, error.message);
       else throw error;
+      continue;
     }
+    await clearMergeRequest(pr.number);
   }
 
   if (core.summary) {
     await core.summary.addHeading("Merge decisions")
-      .addList(messages.length ? messages : ["No open develop PRs have needs-merge or no-merge."])
+      .addList(messages.length ? messages : ["No open develop PRs have needs-merge, no-merge, or status/1-needs-review."])
       .write();
   }
 }

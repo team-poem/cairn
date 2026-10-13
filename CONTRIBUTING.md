@@ -32,10 +32,13 @@ Contributions that respect that contract are the most valuable kind.
 5. **Commit** following the [commit convention](#commit-convention).
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
    resolves. `cairn-bot` validates that every PR links an issue.
-7. **Respond to review.** Once approved, a maintainer adds the `needs-merge` label to request
-   a squash merge into `develop` by `cairn-pingu`. The bot waits for approval and the
+7. **Respond to review.** Once approved, a maintainer removes `status/1-needs-review` and
+   adds `needs-merge` to request a squash merge into `develop` by `cairn-pingu`.
+   This transition is manual: approval does not replace the review label, and leaving both
+   labels present blocks merging. The bot waits for approval and the
    latest CI workflow to pass. The squashed commit credits the PR author; the bot is
-   recorded as the merger. Remove `needs-merge` before merging to cancel the request.
+   recorded as the merger. After a successful merge the bot removes `needs-merge`.
+   Remove `needs-merge` before merging to cancel the request.
    Add `no-merge` to block the bot even when `needs-merge` is present. Removing `no-merge`
    resumes an existing request, so remove `needs-merge` too if you want to cancel it.
 
@@ -67,9 +70,11 @@ need them:
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.
 
-The `needs-merge` and `no-merge` labels are case-sensitive. Create them once in repository
-settings. `no-merge` takes precedence and is checked again immediately before the merge
-API call. This controls cairn-pingu's automatic merges; it does not restrict manual merges
+The `needs-merge`, `no-merge`, and `status/1-needs-review` labels are case-sensitive.
+Create the merge labels once in repository settings; PR triage creates the review label.
+`no-merge` and `status/1-needs-review` take precedence over `needs-merge` and are checked
+again immediately before the merge API call. This controls cairn-pingu's automatic merges;
+it does not restrict manual merges
 by users with bypass permission. The merge workflow uses the existing App secrets and
 does not require GitHub's native auto-merge
 setting. Its CI completion and five-minute retry triggers become active when the
@@ -79,6 +84,9 @@ conflicts, missing approvals, and failed or pending CI leave the PR open. Releas
 to `main` remain manual. The Actions run's **Merge decisions** summary explains whether
 the bot merged a PR or is waiting for a label, approval, CI, or GitHub merge requirements.
 A successful workflow run means the evaluation completed, not necessarily that a PR merged.
+If label cleanup fails after a merge, the run reports the failure. The PR's closed event
+also attempts cleanup; rerun that event job if cleanup still fails. The bot checks that
+the PR is merged without merging it again. Periodic scans only consider open PRs.
 
 ## Development setup
 

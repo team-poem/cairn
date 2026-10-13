@@ -5,7 +5,7 @@ name: Merge labeled PR
 on:
   pull_request_target:
     branches: [develop]
-    types: [labeled, unlabeled, synchronize, reopened, ready_for_review, edited]
+    types: [labeled, unlabeled, synchronize, reopened, ready_for_review, edited, closed]
   pull_request_review:
     types: [submitted, dismissed]
   workflow_run:

@@ -25,6 +25,7 @@ import { ENGINE_VERSION } from "./version.js";
 import type { TraceEvent, Tracer } from "./core/trace.js";
 import type { Driver, LlmClient, Reporter, SkillStore, TraceSink } from "./core/ports.js";
 import type { Assertion, RunUsage, Scenario, Verdict } from "./core/types.js";
+import { identifyScenario, copyProvenance } from "./core/contract.js";
 
 export interface SuiteCase {
   /** Names the frozen skill (`<skillDir>/<id>.skill.json`) — stable across runs, no path separators. */
@@ -79,6 +80,7 @@ export interface SuiteOptions
     | "expectTimeoutMs"
     | "screenshots"
     | "replayEnvironment"
+    | "judgmentKey"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -206,6 +208,8 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
   return {
     ref,
     caseHash: s.caseHash,
+    ...(s.contract ? { contract: { ...s.contract } } : {}),
+    ...(copyProvenance(s.provenance) ? { provenance: copyProvenance(s.provenance) } : {}),
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
@@ -307,7 +311,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         return { ...base, discovered, truncated: true, heals: 0, usage: discoveryUsage, verdict };
       }
 
-      const frozenScenario: FrozenSuiteScenario = {
+      const frozenScenario: FrozenSuiteScenario = await identifyScenario({
         ...found,
         // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
         // deriveAssertions) — so a trace/report can say which greens the USER vouched for
@@ -318,7 +322,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
         ],
         caseHash: hashCase(c, ctx.baseUrl),
-      };
+      }, { intent: c.intent, benign: ctx.benign, benignConsole: ctx.benignConsole,
+        localePrefixes: ctx.localePrefixes, judgmentKey: ctx.judgmentKey });
       scenario = frozenScenario;
       await ctx.store.freeze(ref, scenario);
       scope?.emit({ kind: "freeze", phase: "discover", payload: freezePayload(ref, frozenScenario) });
@@ -328,6 +333,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     const driver = ctx.driverFactory();
     try {
       const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
+        judgmentKey: ctx.judgmentKey,
         driver,
         replayEnvironment: ctx.replayEnvironment,
         heal: ctx.heal,

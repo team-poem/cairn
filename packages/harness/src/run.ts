@@ -30,8 +30,13 @@ import type { Heal } from "./adapters/drivers/self-heal.js";
 import type { Result, RunUsage, Scenario, StepProgress, Verdict } from "./core/types.js";
 import { validateSecrets, type Secrets } from "./core/secrets.js";
 import type { TargetChoicePilot } from "./core/target-choice.js";
+import { identifyScenario, scenarioContract } from "./core/contract.js";
+import type { JudgmentOptions } from "./core/contract.js";
 
 export interface RunScenarioOptions {
+  /** Host version for custom checks, evidence interpretation or an injected/semantic critic.
+   * Without it opaque judgments have an incomplete identity and compare as unknown. */
+  judgmentKey?: string;
   /** Opt-in locator-only pilot. Mutually exclusive with heal: no surgical/outcome LLM fallback.
    * Requires original step intent, nonempty expect, and original goal assertions. */
   targetChoice?: TargetChoicePilot;
@@ -155,6 +160,8 @@ export async function runScenario(
     validateReplayEntry(scenario, opts.replayEnvironment);
     scenario = reanchorScenario(scenario, opts.replayEnvironment);
   }
+  scenario = { ...scenario, assertions: scenario.assertions.map(a => ({ ...a })),
+    contract: scenario.contract && { ...scenario.contract }, provenance: scenario.provenance && { ...scenario.provenance } };
   // Build the LLM lazily and once — only if the critic or heal needs it. The meter wraps
   // whichever client is used (host-injected included), so `result.usage` counts every call;
   // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.
@@ -179,6 +186,10 @@ export async function runScenario(
   const requestMatch = opts.replayEnvironment
     ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
     : undefined;
+  const judgment: JudgmentOptions = {
+    benign: opts.benign, benignConsole: opts.benignConsole, localePrefixes: opts.localePrefixes,
+    requestMatch, judgmentKey: opts.judgmentKey, opaque: opts.critic !== undefined,
+  };
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
@@ -263,6 +274,7 @@ export async function runScenario(
       },
       scenario.name,
       {
+        judgment,
         signal: opts.signal,
         onStep: opts.targetChoice ? progress => {
           if ("target" in progress.step) healer?.confirmChoice(progress.step.target, progress.ok && !progress.skipped);
@@ -331,6 +343,7 @@ export async function runScenario(
       };
       // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
       // else a path that reaches a different end-state passes as green (P2 false green).
+      const repairContract = await scenarioContract(scenario, { ...judgment, judgmentIntent: ctx.intent ?? null });
       const judged = await critic.judge(evidence, scenario.assertions, ctx);
       for (const r of judged.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
       // Same finalizer as replay (#186). A re-discovery that ended before `done` is an unverified path,
@@ -348,6 +361,13 @@ export async function runScenario(
         evidence.execution.actions,
         scenario, // the ORIGINAL: its assertions were judged, so its proof is what a green is worth
       );
+      // This attempt still judged the original checks, not discover's replacement proposals.
+      const afterRepair = await scenarioContract(scenario, { ...judgment, judgmentIntent: ctx.intent ?? null });
+      verdict = { ...verdict,
+        contract: result.verdict.contract?.complete && afterRepair.complete && afterRepair.fingerprint === repairContract.fingerprint
+          ? repairContract : { ...repairContract, complete: false },
+        provenance: result.verdict.provenance,
+      };
       if (missedGoal) {
         const why = "outcome-heal re-discovery reached `done` but the goal assertions did not hold on it — nothing re-frozen";
         verdict = { ...verdict, detail: verdict.detail ? `${verdict.detail}; ${why}` : why };
@@ -371,11 +391,12 @@ export async function runScenario(
         // that reached the goal.
         healedScenario: opts.replayEnvironment || truncated || missedGoal
           ? undefined
-          : {
+          : await identifyScenario({
               ...repaired,
+              contract: scenario.contract,
               assertions: scenario.assertions,
               ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
-            },
+            }, { ...judgment, judgmentIntent: ctx.intent ?? null }),
         ...(truncated ? { truncated: true as const } : {}),
       };
     }
@@ -396,7 +417,7 @@ export async function runScenario(
       heals,
       stepHeals,
       healedScenario: !opts.replayEnvironment && !final.verdict.results.some(r => r.reason === "inconclusive") && (heals.length || stepHeals.length) &&
-        (!opts.targetChoice || (!final.evidence.execution.blocked && !final.verdict.failClosed && goalFailures(final.verdict).length === 0)) ? rewritten : undefined,
+        (!opts.targetChoice || (!final.evidence.execution.blocked && !final.verdict.failClosed && goalFailures(final.verdict).length === 0)) ? await identifyScenario(rewritten, { ...judgment, judgmentIntent: final.context.intent ?? null }) : undefined,
     };
   } catch (err) {
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.

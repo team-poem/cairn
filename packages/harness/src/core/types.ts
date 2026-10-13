@@ -110,8 +110,25 @@ export type Assertion = AssertionMeta &
   | { kind: "custom"; name: string; params?: Record<string, unknown> }
   );
 
+/** Declared judgment inputs, not a content hash of the steps or a guarantee of equal outcomes. */
+export interface ContractIdentity {
+  version: 1;
+  fingerprint: string;
+  intentHash?: string;
+  /** False when intent/judge inputs are unknown or cannot be represented without loss. */
+  complete: boolean;
+}
+
+/** Creation inputs are separate from the contract that judges replay. No raw app description. */
+export interface ScenarioProvenance {
+  appContextHash?: string;
+}
+
 export interface Scenario {
   name: string;
+  /** Optional on legacy files. Recomputed from current inputs for each verdict. */
+  contract?: ContractIdentity;
+  provenance?: ScenarioProvenance;
   steps: Step[];
   assertions: Assertion[];
   /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
@@ -286,6 +303,10 @@ export interface VerdictProof {
 
 export interface Verdict {
   passed: boolean;
+  /** Contract actually used for this judgment; missing on historical/unevaluated results. */
+  contract?: ContractIdentity;
+  /** Provenance of the scenario being judged, not the host's current description. */
+  provenance?: ScenarioProvenance;
   results: AssertionResult[];
   /** Set when the verdict didn't come from the results alone — e.g. failing closed on an empty assertion set. */
   detail?: string;

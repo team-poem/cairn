@@ -9,6 +9,8 @@
  */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";
+export type { IdentifyScenarioOptions, JudgmentOptions } from "./core/contract.js";
 export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";

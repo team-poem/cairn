@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.8**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.9**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.8", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.9", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -137,6 +137,14 @@ truncated run already wrote stays readable.
 **A sink that stores no bytes gets no refs.** `TraceSink.attach` is optional; when it is absent
 the engine never captures a screenshot for the trace at all (same zero-cost stance as an absent
 sink) and the field stays off the payload — a ref nothing can resolve is worse than no ref.
+
+## Contract identity (#196, version 1.9)
+
+Optional `contract` and `provenance` fields are added to freeze payloads and verdicts in `case-end`.
+The freeze describes authoring; the verdict describes the current declared judgment inputs.
+Missing/legacy identity remains unknown. See [contract-identity.md](contract-identity.md) for
+canonicalization, opaque judges and context hashes. No raw app description is included and no
+existing event envelope changes.
 
 ## Binding diagnostics (#221, version 1.6)
 

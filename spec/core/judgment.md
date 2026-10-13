@@ -2,6 +2,9 @@
 
 ## Principle
 
+For identifying the checks behind a freeze/verdict without changing their outcome, see
+[contract-identity.md](contract-identity.md) (#196). Identity is advisory, not another success gate.
+
 cairn **does not judge by "the screen looked right."** It judges on observable facts in *three layers* — pressing the chronic AI-QA failure (*false pass*) down with evidence.
 
 ## Three-layer evidence (`Evidence`)

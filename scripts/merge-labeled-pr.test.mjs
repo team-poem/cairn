@@ -27,7 +27,8 @@ function fixture() {
       f.ciReads++;
       assert.equal(args.workflow_id, "ci.yml");
       assert.equal(args.head_sha, "head");
-      return map({ data: { workflow_runs: f.runs } });
+      // Octokit normalizes each page's workflow_runs envelope to response.data first.
+      return (f.pages ?? [f.runs]).flatMap(data => map ? map({ data }) : data);
     },
   };
   const summary = {
@@ -58,13 +59,27 @@ test("reads CI with a separate client when the App has no Actions permission", a
       assert.equal(method, f.ciGithub.rest.actions.listWorkflowRuns);
       assert.equal(args.head_sha, "head");
       read = true;
-      return map({ data: { workflow_runs: f.runs } });
+      return [].concat(map ? map({ data: f.runs }) : f.runs);
     },
   };
   await f.run();
   assert.equal(read, true);
   assert.equal(f.merged.length, 1);
 });
+
+for (const conclusion of ["success", "failure"]) {
+  test(`uses the latest matching CI run across normalized pages (${conclusion})`, async () => {
+    const f = fixture();
+    f.pages = [
+      f.runs,
+      [{ ...f.runs[0], id: 13, head_sha: "old" }, { ...f.runs[0], id: 12, event: "push" }],
+      [{ ...f.runs[0], id: 11, conclusion }],
+    ];
+    await f.run();
+    assert.equal(f.merged.length, conclusion === "success" ? 1 : 0);
+    if (conclusion === "failure") assert.match(f.messages.join("\n"), /CI run 11.*failure/);
+  });
+}
 
 for (const [name, patch] of [
   ["draft", { isDraft: true }], ["closed", { state: "CLOSED" }],

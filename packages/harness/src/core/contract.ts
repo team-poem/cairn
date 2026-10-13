@@ -61,8 +61,10 @@ function canonical(value: unknown, parents = new Set<object>(), strict = false):
 
 /** UTF-8 SHA-256; same implementation on the Node and browser entry points. */
 export async function hashContractValue(value: unknown): Promise<string> {
+  const subtle = globalThis.crypto?.subtle;
+  if (typeof subtle?.digest !== "function") throw new Error("WebCrypto SHA-256 is unavailable in this execution context");
   const bytes = new TextEncoder().encode(canonical(value));
-  const digest = await globalThis.crypto.subtle.digest("SHA-256", bytes);
+  const digest = await subtle.digest("SHA-256", bytes);
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -88,9 +90,16 @@ export function copyProvenance(value: ScenarioProvenance | undefined): ScenarioP
 
 /** Compute from current assertions, never trust a possibly stale stored fingerprint. */
 export async function scenarioContract(scenario: Scenario, opts: IdentifyScenarioOptions = {}): Promise<ContractIdentity> {
+  const recordedIntentHash = opts.intent === undefined && isContractIdentity(scenario.contract) ? scenario.contract.intentHash : undefined;
+  if (typeof globalThis.crypto?.subtle?.digest !== "function") {
+    // Advisory identity must not block non-secure browser embedders. This is a reserved
+    // unavailable marker, not a computed digest; never hash again in this fallback.
+    return { version: 1, fingerprint: "0".repeat(64), complete: false,
+      ...(recordedIntentHash ? { intentHash: recordedIntentHash } : {}) };
+  }
   const intentHash = opts.intent !== undefined
     ? await hashContractValue(opts.intent)
-    : isContractIdentity(scenario.contract) ? scenario.contract.intentHash : undefined;
+    : recordedIntentHash;
   const opaque = opts.opaque || scenario.assertions.some(a => a.kind === "custom" || a.kind === "expect");
   const usesContext = opts.opaque || scenario.assertions.some(a => a.kind === "expect");
   const judgmentIntentHash = usesContext && typeof opts.judgmentIntent === "string"

@@ -9,6 +9,42 @@ let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch()); });
 afterAll(async () => { await browser?.close(); });
 
+test("an engine embedded in a non-secure HTTP page replays without WebCrypto or a trace sink", async () => {
+  const page = await browser.newPage();
+  try {
+    await page.route("http://contract.test/**", route => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>HTTP embedder</title>" }));
+    await page.goto("http://contract.test/");
+    expect(await page.evaluate(() => ({ secure: (globalThis as unknown as { isSecureContext: boolean }).isSecureContext, subtle: typeof crypto.subtle })))
+      .toEqual({ secure: false, subtle: "undefined" });
+    const bundle = await build({ entryPoints: ["src/browser.ts"], bundle: true, write: false,
+      platform: "browser", format: "iife", globalName: "Cairn" });
+    await page.addScriptTag({ content: bundle.outputFiles[0]!.text });
+    const frozen = await identifyScenario({ name: "HTTP page", steps: [{ kind: "goto", url: "http://contract.test/cart" }],
+      assertions: [{ kind: "navigated", to: "contract.test/cart" }] }, { intent: "Open the cart" });
+    const results = await page.evaluate(async recorded => {
+      const api = (globalThis as unknown as { Cairn: typeof import("../../src/browser.js") }).Cairn;
+      const window = globalThis as unknown as { history: { pushState(data: unknown, unused: string, url: string): void }; location: { href: string } };
+      const { contract: _contract, ...legacy } = recorded;
+      const results = [];
+      for (const scenario of [legacy, recorded]) {
+        const driver = new api.FakeDriver({ evidence: {
+          execution: { actions: [], navigated: true, blocked: false, finalUrl: "http://contract.test/cart" },
+          perception: {}, logic: { requests: [], console: [] },
+        } });
+        const goto = driver.goto.bind(driver);
+        driver.goto = async url => { await goto(url); window.history.pushState({}, "", url); };
+        const result = await api.runHarness({ context: new api.InlineContextProvider(), planner: new api.StaticPlanner(scenario),
+          driver, critic: new api.AssertionCritic(), reporter: { emit: async () => {} },
+        }, "Open the cart");
+        results.push({ passed: result.verdict.passed, actions: driver.visited.length, url: window.location.href,
+          comparison: api.compareContracts(recorded.contract, result.verdict.contract), complete: result.verdict.contract?.complete });
+      }
+      return results;
+    }, frozen);
+    expect(results).toEqual(Array(2).fill({ passed: true, actions: 1, url: "http://contract.test/cart", comparison: "unknown", complete: false }));
+  } finally { await page.close(); }
+});
+
 test("browser WebCrypto agrees with Node and a real DOM flow replays without models", async () => {
   const page = await browser.newPage();
   try {

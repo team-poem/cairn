@@ -116,6 +116,43 @@ describe("contract canonicalization", () => {
 });
 
 describe("contract identity on engine paths", () => {
+  it.each([undefined, {}, { subtle: {} }])("preserves traceless execution without a digest API (%s)", async crypto => {
+    const frozen = await stamp();
+    const previous = JSON.stringify(frozen);
+    vi.stubGlobal("crypto", crypto);
+    try {
+      for (const scenario of [base(), frozen]) {
+        const driver = new StubDriver();
+        const goto = vi.spyOn(driver, "goto");
+        const result = await browser.runHarness({ context: new browser.InlineContextProvider(),
+          planner: new browser.StaticPlanner(scenario), driver, critic: new browser.AssertionCritic(), reporter: silent,
+        }, "open cart");
+        expect(result.verdict.passed).toBe(true);
+        expect(goto).toHaveBeenCalledOnce();
+        expect(result.verdict.contract?.complete).toBe(false);
+        expect(compareContracts(frozen.contract, result.verdict.contract)).toBe("unknown");
+        const run = await runScenario(scenario, { driver: new StubDriver(), reporter: silent });
+        expect(run.result.verdict.passed).toBe(true);
+        expect(run.result.usage?.llmCalls).toBe(0);
+        expect(run.result.verdict.contract?.complete).toBe(false);
+      }
+      expect(JSON.stringify(frozen)).toBe(previous);
+      expect((await scenarioContract(frozen)).intentHash).toBe(frozen.contract.intentHash);
+      // Explicit re-authoring must not retain the old intent hash when the new intent cannot be hashed.
+      const authored = await identifyScenario(frozen, { intent: "different intent" });
+      expect(authored.contract.complete).toBe(false);
+      expect(authored.contract.intentHash).toBeUndefined();
+      const semantic = await scenarioContract({ ...frozen, assertions: [{ kind: "expect", criterion: "done" }] },
+        { judgmentIntent: "new judging intent", judgmentKey: "judge-v1" });
+      expect(semantic.complete).toBe(false);
+      const custom = await identifyScenario({ ...base(), assertions: [{ kind: "custom", name: "proof", params: { n: 1n } }] },
+        { intent: "new intent" });
+      expect(custom.contract.complete).toBe(false); // No recursive hashing in an unavailable fallback.
+      await expect(hashContractValue("explicit request")).rejects.toThrow("WebCrypto SHA-256 is unavailable");
+    } finally { vi.unstubAllGlobals(); }
+    expect(compareContracts(frozen.contract, await scenarioContract(frozen))).toBe("same");
+  });
+
   it("distinguishes the effective semantic intent without changing authoring identity", async () => {
     const s = await identifyScenario({ ...base(), name: "approve", assertions: [{ kind: "expect", criterion: "matches intent" }] },
       { intent: "original intent", judgmentKey: "judge-v1" });

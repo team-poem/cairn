@@ -70,8 +70,14 @@ check with its original params, including Date, BigInt, functions or cycles. Cus
 validated more strictly than optional metadata: explicit undefined fields (including nested ones),
 accessors, symbols, non-enumerable properties, extra array properties and negative zero cannot be
 silently erased or normalized, since a custom check can distinguish them. They yield `unknown`.
-WebCrypto is used
-on both public entry points (Node 20+; secure browser/extension contexts); it makes no network call.
+WebCrypto is used on both public entry points and makes no network call. When its digest API is
+absent (for example, an engine embedded in a non-secure HTTP page), automatic identification returns
+`complete: false` with a reserved all-zero fingerprint marker. It does not call WebCrypto again or
+prevent traceless replay. `compareContracts` therefore returns `unknown`, even against another
+unavailable marker. An existing authoring-intent hash may be retained, but an explicit new intent
+never inherits the old hash. Direct calls to `hashContractValue` still require WebCrypto and reject
+with a descriptive error when it is absent. This does not change the trace subsystem's pre-existing
+random-UUID requirements.
 
 ## Unknown is not equal
 

@@ -245,6 +245,48 @@ describe("contract identity on engine paths", () => {
     expect(getter).not.toHaveBeenCalled();
   });
 
+  it.each(["4294967295", "4294967296", "9007199254740993"])("does not equate custom arrays with an extra numeric property (%s)", async key => {
+    const run = async (present: boolean) => {
+      const items = present ? Object.assign([], { [key]: true }) : [];
+      expect(items).toHaveLength(0); // These numeric-looking properties are not array indices.
+      const params = { items };
+      const scenario = await identifyScenario({ ...base(), assertions: [{ kind: "custom", name: "proof", params }] },
+        { intent: "open cart", judgmentKey: "proof-v1" });
+      const { result } = await runScenario(scenario, { driver: new StubDriver(), reporter: silent, judgmentKey: "proof-v1",
+        custom: { proof: received => {
+          expect(received).toBe(params);
+          return Object.hasOwn(received.items as object, key);
+        } },
+      });
+      expect(result.usage?.llmCalls).toBe(0);
+      expect(scenario.contract.complete).toBe(!present);
+      return result.verdict;
+    };
+    const plain = await run(false);
+    const extra = await run(true);
+    expect([plain.passed, extra.passed]).toEqual([false, true]);
+    expect(plain.contract?.complete).toBe(true);
+    expect(extra.contract?.complete).toBe(false);
+    expect(compareContracts(plain.contract, extra.contract)).toBe("unknown");
+  });
+
+  it("keeps ordinary custom array indices complete and distinguishes their values", async () => {
+    const run = async (value: boolean) => {
+      const scenario = await identifyScenario({ ...base(), assertions: [{ kind: "custom", name: "proof", params: { items: [value] } }] },
+        { intent: "open cart", judgmentKey: "proof-v1" });
+      expect(scenario.contract.complete).toBe(true);
+      return (await runScenario(scenario, { driver: new StubDriver(), reporter: silent, judgmentKey: "proof-v1",
+        custom: { proof: params => (params.items as boolean[])[0]! },
+      })).result.verdict;
+    };
+    const before = await run(false);
+    const after = await run(true);
+    expect([before.passed, after.passed]).toEqual([false, true]);
+    expect(before.contract?.complete).toBe(true);
+    expect(after.contract?.complete).toBe(true);
+    expect(compareContracts(before.contract, after.contract)).toBe("changed");
+  });
+
   it("captures newly fetched context when judging an outcome repair", async () => {
     const s = await identifyScenario({ ...base(), assertions: [{ kind: "expect", criterion: "matches intent" }] },
       { intent: "original intent", judgmentKey: "judge-v1" });

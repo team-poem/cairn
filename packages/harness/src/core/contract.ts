@@ -43,7 +43,7 @@ function canonical(value: unknown, parents = new Set<object>(), strict = false):
     const descriptor = Object.getOwnPropertyDescriptor(value, key)!;
     if (typeof key !== "string" || !descriptor.enumerable || !("value" in descriptor) || descriptor.value === undefined)
       throw new ContractValueError("Contract inputs must have plain JSON data properties");
-    if (Array.isArray(value) && !/^(0|[1-9][0-9]*)$/.test(key))
+    if (Array.isArray(value) && (!/^(0|[1-9][0-9]*)$/.test(key) || Number(key) >= value.length))
       throw new ContractValueError("Contract inputs must not have extra array properties");
   }
   parents.add(value);

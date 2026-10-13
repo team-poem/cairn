@@ -47,9 +47,10 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     }
 
     // Inspect the actual CI workflow, not an arbitrary check named "verify".
+    // Octokit paginate already unwraps each workflow_runs page into this array.
     const runs = await ciGithub.paginate(ciGithub.rest.actions.listWorkflowRuns, {
       owner, repo, workflow_id: "ci.yml", event: "pull_request", head_sha: pr.headRefOid, per_page: 100,
-    }, response => response.data.workflow_runs);
+    });
     const latest = runs.filter(run => run.head_sha === pr.headRefOid && run.event === "pull_request")
       .sort((a, b) => b.id - a.id)[0];
     if (!latest || latest.status !== "completed" || latest.conclusion !== "success") {

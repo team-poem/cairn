@@ -45,6 +45,7 @@ import {
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
 import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
 import { secretsFromFlags } from "./cli-secrets.js";
+import { appContextFromFlags } from "./cli-app-context.js";
 import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
 import type { Flags } from "./cli-args.js";
 
@@ -86,6 +87,7 @@ function reporterFor(flags: Flags): Reporter {
 
 /** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  const appContext = await appContextFromFlags(flags);
   // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
   const replayEnvironment = flagReplayEnvironment(flags);
   if (replayEnvironment) validateReplayEntry(scenario, replayEnvironment);
@@ -94,6 +96,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   let run: Awaited<ReturnType<typeof runScenario>>;
   try {
     run = await runScenario(scenario, {
+      appContext,
       judgmentKey: flagStr(flags, "judgment-key"),
       replayEnvironment,
       reporter: reporterFor(flags),
@@ -167,6 +170,7 @@ async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
 }
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
+  const appContext = await appContextFromFlags(flags);
   const intent = positionals[0];
   if (!intent) {
     throw new Error(
@@ -199,6 +203,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
     // --max-steps: step cap for the loop — a realistic form flow can need more than the default (#95).
     scenario = await discover(intent, {
+      appContext,
       driver,
       llm,
       baseUrl: url,
@@ -298,6 +303,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 }
 
 async function cmdExplore(positionals: string[], flags: Flags): Promise<number> {
+  const appContext = await appContextFromFlags(flags);
   const charter = positionals[0];
   const url = flagStr(flags, "url");
   if (!charter || !url) {
@@ -314,6 +320,7 @@ async function cmdExplore(positionals: string[], flags: Flags): Promise<number> 
   let report: ExploreReport;
   try {
     report = await explore(charter, {
+      appContext,
       driver,
       llm,
       baseUrl: url,
@@ -358,6 +365,7 @@ async function loadCasesFile(path: string): Promise<{ cases: SuiteCase[]; baseUr
 }
 
 async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
+  const appContext = await appContextFromFlags(flags);
   const file = positionals[0];
   if (!file) {
     throw new Error(
@@ -369,6 +377,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    appContext,
     judgmentKey: flagStr(flags, "judgment-key"),
     replayEnvironment,
     skillDir: flagStr(flags, "skills"),
@@ -403,6 +412,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
 const HELP = `cairn ${ENGINE_VERSION} — agentic-testing engine CLI
 
 usage: cairn <command> [options]
+  --app-context <file>  Optional host app description (UTF-8, max 16 KiB); discovery, explore and repair only.
 
   run --dogfood | --scenario <file.json> [--base-url u --allowed-hosts hosts] [--json out]
   replay <skill.json> [--base-url u --allowed-hosts hosts] [--heal] [--freeze f] [--max-steps n] [--json out] [--expect-timeout ms] [--secret name=value…]

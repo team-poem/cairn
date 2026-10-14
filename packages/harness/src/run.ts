@@ -32,8 +32,12 @@ import { validateSecrets, type Secrets } from "./core/secrets.js";
 import type { TargetChoicePilot } from "./core/target-choice.js";
 import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
+import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
 
 export interface RunScenarioOptions {
+  /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
+   * Fixed at run entry; never required for mechanical replay. Max 16 KiB UTF-8. */
+  appContext?: string;
   /** Host version for custom checks, evidence interpretation or an injected/semantic critic.
    * Without it opaque judgments have an incomplete identity and compare as unknown. */
   judgmentKey?: string;
@@ -155,6 +159,7 @@ export async function runScenario(
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
   validateSecrets(opts.secrets);
+  const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
     validateReplayEntry(scenario, opts.replayEnvironment);
@@ -182,6 +187,9 @@ export async function runScenario(
     },
     complete: (prompt, completeOpts) => getLlm().complete(prompt, completeOpts),
   };
+  // Wrap once for ALL repair phases. Never wrap the final critic or re-slot an already captured
+  // description: a secret value can itself look like another secret's generated placeholder.
+  const repairLlm = withAppContext(lazyLlm, appContext);
 
   const requestMatch = opts.replayEnvironment
     ? { allowedHosts: [...opts.replayEnvironment.allowedHosts, new URL(opts.replayEnvironment.baseUrl).host] }
@@ -240,7 +248,7 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal || opts.targetChoice
-    ? (healer = new SelfHealingDriver(baseDriver, lazyLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
+    ? (healer = new SelfHealingDriver(baseDriver, repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
         ...(opts.targetChoice ? { choice: createTargetChoiceRepair({ ...opts.targetChoice, secrets: opts.secrets,
           context: target => {
             const matches = scenario.steps.map((step, stepRef) => ({ step, stepRef })).filter(({ step }) => "target" in step && step.target === target);
@@ -261,7 +269,7 @@ export async function runScenario(
         }) } : {}),
       }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(lazyLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
 
   try {
     const result = await runHarness(
@@ -318,7 +326,7 @@ export async function runScenario(
 
       const repaired = await discover(scenario.name, {
         driver: baseDriver,
-        llm: getLlm(),
+        llm: repairLlm,
         baseUrl: firstGotoUrl(scenario),
         signal: opts.signal,
         policy: opts.policy,
@@ -332,6 +340,7 @@ export async function runScenario(
         trace: scope,
         tracePhase: "heal",
       });
+      repaired.provenance = await appContextProvenance(appContext);
       const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
       const observed = await baseDriver.observe();
       const evidence = {
@@ -412,6 +421,9 @@ export async function runScenario(
       : result;
     closeOwnTrace(final.verdict, final.usage, heals.length + stepHeals.length);
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
+    // A returned legacy repair is a new artifact; never rewrite the source or replay's provenance.
+    if (opts.heal && appContext !== undefined && (heals.length || stepHeals.length))
+      rewritten.provenance = await appContextProvenance(appContext);
     return {
       result: final,
       heals,

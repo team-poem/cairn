@@ -163,6 +163,7 @@ This measures one locator change, with the order verified by the fixture's order
 | [`spec/core/targeting.md`](spec/core/targeting.md) | multi-locator targets that survive redesigns |
 | [`spec/core/judgment.md`](spec/core/judgment.md) | three-layer evidence and deterministic verdicts |
 | [`spec/core/trace.md`](spec/core/trace.md) | the versioned trace event contract |
+| [`spec/core/app-context.md`](spec/core/app-context.md) | optional host app knowledge: input, lifecycle, repair and provenance |
 | [`spec/core/secrets.md`](spec/core/secrets.md) | `{name}` secrets: filled at run time, scoped to a site, never frozen |
 
 ## LLM backends

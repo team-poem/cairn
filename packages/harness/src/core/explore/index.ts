@@ -11,6 +11,7 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
+import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { RunUsage, Step } from "../types.js";
@@ -24,6 +25,8 @@ import { dedupeFindings, deriveActionFindings } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
 export interface ExploreOptions {
+  /** Optional host app knowledge, fixed for this exploration. Max 16 KiB UTF-8; never evidence. */
+  appContext?: string;
   driver: Driver;
   llm: LlmClient;
   /** Where the survey starts. */
@@ -73,6 +76,7 @@ const MAX_CONSECUTIVE_BLOCKS = 3;
 const DEFAULT_MAX_STEPS = 40;
 
 export async function explore(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
+  const appContext = snapshotAppContext(opts.appContext);
   const {
     driver,
     baseUrl,
@@ -105,7 +109,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
     }
   };
   // Meter at the seam so the report always carries what the survey cost (#100).
-  const llm = new UsageMeter(opts.llm);
+  const llm = new UsageMeter(withAppContext(opts.llm, appContext));
 
   const steps: Step[] = [];
   const findings: Finding[] = [];

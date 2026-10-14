@@ -125,6 +125,37 @@ if (healedScenario) {
 if (!result.verdict.passed) process.exit(1) // a deterministic gate for CI
 ```
 
+### Optional app knowledge
+
+Pass reusable terminology and flow prerequisites separately from the task:
+
+```ts
+const appContext = "Cart lines distinguish product, option and quantity. Adding to cart is not checkout.";
+const scenario = await discover("Add two units to the cart", { driver, llm, appContext });
+// Healthy mechanical replay needs neither context nor a model.
+await runScenario(scenario, { driver: replayDriver });
+// On a UI change, explicitly opt into context-assisted repair.
+await runScenario(scenario, { driver: repairDriver, llm, heal: true, appContext });
+```
+
+`explore` and `runSuite` accept the same option. Each run captures its description once; suite
+cases capture it independently. Context is guidance, never proof or permission: ActionPolicy,
+live target binding and original repair goals still apply. It is not injected into final semantic
+judgment or the finite-choice pilot. Changing it does not invalidate saved tests or their cache.
+
+For the CLI, explicitly read a local UTF-8 file (up to 16 KiB, no required filename):
+
+```sh
+cairn discover "open the cart" --url https://your.app --app-context ./app.txt --freeze cart.skill.json
+cairn replay cart.skill.json --heal --app-context ./app.txt
+```
+
+The engine stores a description hash as creation/repair provenance, not a raw-description field.
+Descriptions go to your model provider and may be echoed by a model, so keep credentials out.
+See the [input, lifecycle and support contract](../spec/core/app-context.md) and the
+[runnable browser example](../examples/app-context.mjs). The example uses scripted replies to
+verify behavior; it is not a model-quality or savings benchmark.
+
 ### Models
 
 Set a key and cairn picks the backend: Anthropic (`ANTHROPIC_API_KEY`), OpenAI (`OPENAI_API_KEY`), or Gemini (`GEMINI_API_KEY`). No key at all? A local Claude Code install (the default fallback) or the OpenAI Codex CLI (reuses your ChatGPT login) both work key-less. Force one with `createLlmClient({ backend: "codex" })` or the `CAIRN_LLM_BACKEND` env var, or implement the `LlmClient` port for any other model.

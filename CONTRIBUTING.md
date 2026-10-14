@@ -92,6 +92,12 @@ conflicts, missing approvals, and failed or pending CI leave the PR open. Releas
 to `main` remain manual. The Actions run's **Merge decisions** summary explains whether
 the bot merged a PR or is waiting for a label, approval, CI, or GitHub merge requirements.
 A successful workflow run means the evaluation completed, not necessarily that a PR merged.
+cairn-pingu also keeps one short English comment on each blocked develop PR. It explains
+the current label, approval, CI, or merge-requirement blocker. A changed reason updates
+that comment; unchanged scheduled evaluations do not post again. After merging, an
+existing notice becomes `Merged.`; closing without merging also resolves it. The bot
+rechecks the PR before publishing a queued reason. Comment failures are logged without
+changing merge eligibility, and the bot only updates its own marked comment.
 If label cleanup fails after a merge, the run reports the failure. The PR's closed event
 also attempts cleanup; rerun that event job if cleanup still fails. The bot checks that
 the PR is merged without merging it again. Periodic scans only consider open PRs.

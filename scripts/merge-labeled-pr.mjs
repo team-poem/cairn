@@ -1,4 +1,5 @@
 import { mergeLabelBlocker } from "./merge-label-policy.mjs";
+import { postMergeDecisionComment } from "./merge-decision-comment.mjs";
 
 const query = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -24,18 +25,45 @@ function blocker(pr) {
 export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core }) {
   const { owner, repo } = context.repo;
   const messages = [];
+  const notices = new Map();
   const report = (number, message) => {
     const line = `PR #${number}: ${message}`;
     core.info(line);
     messages.push(line);
   };
+  const notice = (pr, message, createIfMissing = true) => {
+    if (pr?.baseRefName === "develop" && ["OPEN", "MERGED", "CLOSED"].includes(pr.state)) {
+      notices.set(pr.number, { pr, message, createIfMissing });
+    }
+  };
   const read = async number => (await github.graphql(query, { owner, repo, number })).repository.pullRequest;
+  const snapshot = pr => JSON.stringify([
+    pr.headRefOid, pr.isDraft, pr.reviewDecision, pr.mergeStateStatus,
+    pr.labels.pageInfo?.hasNextPage, pr.labels.nodes.map(label => label.name).sort(),
+  ]);
+  const flushNotices = async () => {
+    // Comments are informational. Posting failures must not change merge decisions.
+    for (const update of notices.values()) {
+      try {
+        const current = await read(update.pr.number);
+        if (!current || current.baseRefName !== "develop") continue;
+        // A queued reason can become stale without a new commit (labels, review, or draft).
+        if (current.state === "OPEN" && (update.pr.state !== "OPEN"
+          || snapshot(current) !== snapshot(update.pr))) continue;
+        await postMergeDecisionComment({ github, context, ...update, pr: current });
+      } catch (error) {
+        core.warning(`PR #${update.pr.number}: could not update the merge notice: ${error.message}`);
+      }
+    }
+    notices.clear();
+  };
   const clearMergeRequest = async number => {
     try {
       await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: "needs-merge" });
     } catch (error) {
       if (error.status !== 404) {
         report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
+        await flushNotices();
         throw error;
       }
     }
@@ -50,6 +78,9 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     if (!context.payload.pull_request
       && !candidate.labels?.some(label => ["needs-merge", "no-merge", "status/1-needs-review"].includes(label.name))) continue;
     const pr = await read(candidate.number);
+    // Resolve an earlier pending comment when a PR was merged manually or by a prior run.
+    if (pr?.state === "MERGED") notice(pr, "Merged.", false);
+    if (pr?.state === "CLOSED") notice(pr, "Closed without merging.", false);
     // A rerun after a cleanup failure must not attempt the merge a second time.
     if (pr?.state === "MERGED" && pr.baseRefName === "develop"
       && pr.labels.nodes.some(label => label.name === "needs-merge")) {
@@ -59,6 +90,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     const reason = blocker(pr);
     if (reason) {
       report(candidate.number, reason);
+      if (pr?.state === "OPEN") notice(pr, `Merge pending: ${reason}`);
       continue;
     }
 
@@ -73,10 +105,16 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       report(pr.number, latest
         ? `waiting for CI run ${latest.id}: ${latest.status}/${latest.conclusion ?? "pending"}.`
         : "waiting for a CI pull-request run on the current head.");
+      notice(pr, !latest || latest.status !== "completed"
+        ? "Merge pending: waiting for CI on the current commit."
+        : `Merge pending: CI ${latest.conclusion ?? "did not pass"}. Please fix or rerun it.`);
       continue;
     }
     if (pr.mergeStateStatus !== "CLEAN") {
       report(pr.number, `waiting for GitHub merge requirements (merge state: ${pr.mergeStateStatus}).`);
+      notice(pr, pr.mergeStateStatus === "DIRTY"
+        ? "Merge pending: resolve the merge conflicts."
+        : `Merge pending: GitHub merge requirements are not met (${pr.mergeStateStatus}).`);
       continue;
     }
 
@@ -85,10 +123,12 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     const currentReason = blocker(current);
     if (currentReason) {
       report(pr.number, currentReason);
+      if (current?.state === "OPEN") notice(current, `Merge pending: ${currentReason}`);
       continue;
     }
     if (current.headRefOid !== pr.headRefOid || current.mergeStateStatus !== "CLEAN") {
       report(pr.number, "head or merge requirements changed; waiting for the next evaluation.");
+      notice(current, "Merge pending: the commit or merge requirements changed. Rechecking soon.");
       continue;
     }
     try {
@@ -98,14 +138,20 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       });
       if (!data.merged) throw new Error(data.message ?? `PR #${pr.number} was not merged.`);
       report(pr.number, `squash merged: ${data.sha}`);
+      notice(current, "Merged.", false);
     } catch (error) {
       // Head changes, conflicts and newly unmet rules are retried on the next event.
-      if ([405, 409].includes(error.status)) report(pr.number, error.message);
+      if ([405, 409].includes(error.status)) {
+        report(pr.number, error.message);
+        notice(current, "Merge pending: GitHub declined the merge. Rechecking the current requirements soon.");
+      }
       else throw error;
       continue;
     }
     await clearMergeRequest(pr.number);
   }
+
+  await flushNotices();
 
   if (core.summary) {
     await core.summary.addHeading("Merge decisions")

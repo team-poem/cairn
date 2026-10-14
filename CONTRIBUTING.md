@@ -65,9 +65,12 @@ need them:
 
 - `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` — the `cairn-bot` GitHub App's client
   ID (not the numeric app ID) and a private key generated from the App settings. Used by
-  PR triage and label-driven squash merging, not the release workflow. Merging uses
-  the App's existing Contents write and Pull requests write permissions. CI reads use
-  the workflow's read-only `GITHUB_TOKEN`, so the App needs no additional permissions.
+  PR triage, label-driven squash merging, and the trusted OCI CI relay, not the release
+  workflow. Merging uses the App's existing Contents write and Pull requests write
+  permissions. Merge-eligibility CI reads use the workflow's read-only `GITHUB_TOKEN`.
+  The OCI relay separately requests a token
+  restricted to `team-poem/oci-ci`, with Contents write for dispatch and Actions read
+  for polling. See [OCI verification](docs/oci-ci.md).
 - `NPM_TOKEN` — unrelated to `cairn-bot`. An npm granular access token with publish rights
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.

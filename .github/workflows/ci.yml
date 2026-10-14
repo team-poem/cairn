@@ -4,30 +4,88 @@ on:
   pull_request:
   push:
     branches: [main, develop]
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      OCI_TRUSTED_SOURCE: ${{ github.actor != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
     steps:
+      # The OCI runners belong to a private execution repository. A public fork
+      # cannot route a modified workflow to the permanent host with runs-on.
+      - name: Set up OCI relay runtime
+        if: env.OCI_TRUSTED_SOURCE == 'true'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: "22"
+      - name: Create private CI dispatch token
+        if: env.OCI_TRUSTED_SOURCE == 'true'
+        id: oci-token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3
+        with:
+          client-id: ${{ secrets.CAIRN_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.CAIRN_BOT_PRIVATE_KEY }}
+          owner: team-poem
+          repositories: oci-ci
+          permission-contents: write
+          permission-actions: read
+      - name: Check out pinned CI relay
+        if: env.OCI_TRUSTED_SOURCE == 'true'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: team-poem/oci-ci
+          ref: 4747e2fe7fff1782fc77c5b017d137f555b4e874
+          token: ${{ steps.oci-token.outputs.token }}
+          path: .oci-ci-tools
+          persist-credentials: false
+      - name: Verify on OCI and mirror its result
+        if: env.OCI_TRUSTED_SOURCE == 'true'
+        env:
+          GH_TOKEN: ${{ steps.oci-token.outputs.token }}
+          OCI_SOURCE_REPOSITORY: ${{ github.repository }}
+          OCI_SOURCE_SHA: ${{ github.sha }}
+          OCI_SOURCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          OCI_SOURCE_PR_NUMBER: ${{ github.event.pull_request.number || 0 }}
+          OCI_SOURCE_REF: ${{ github.head_ref && format('refs/heads/{0}', github.head_ref) || github.ref }}
+        run: node .oci-ci-tools/scripts/relay.mjs
       - uses: actions/checkout@v7
+        if: env.OCI_TRUSTED_SOURCE != 'true'
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v7
+        if: env.OCI_TRUSTED_SOURCE != 'true'
         with:
           node-version: "20"
           cache: npm
       - run: npm ci
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - run: npm run check:boundaries
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - run: npm run check:language
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - run: npm run journal:check
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - run: npm run typecheck
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - run: npm run build
+        if: env.OCI_TRUSTED_SOURCE != 'true'
       - name: Workspace tests
+        if: env.OCI_TRUSTED_SOURCE != 'true'
         run: npm run test:workspace
       - name: Offline benchmark contract tests
+        if: env.OCI_TRUSTED_SOURCE != 'true'
         run: npm run test:bench
       - name: Demo application contracts
+        if: env.OCI_TRUSTED_SOURCE != 'true'
         run: npm run test:demo
 
   # The in-page probe (#176) decides what a click resolves to by reading element boxes, hit tests

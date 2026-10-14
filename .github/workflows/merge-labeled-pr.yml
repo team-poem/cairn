@@ -9,7 +9,7 @@ on:
   pull_request_review:
     types: [submitted, dismissed]
   workflow_run:
-    workflows: [ci, pr triage]
+    workflows: [ci, pr triage, Merge label policy]
     types: [completed]
   schedule:
     - cron: "*/5 * * * *"

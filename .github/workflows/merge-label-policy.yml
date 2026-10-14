@@ -1,0 +1,31 @@
+name: Merge label policy
+
+on:
+  pull_request:
+    branches: [develop]
+    types: [opened, reopened, synchronize, edited, labeled, unlabeled, ready_for_review, converted_to_draft]
+
+# This is ordinary read-only PR CI, including for forks. No App token or secrets.
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: merge-label-policy-${{ github.event.pull_request.head.sha }}
+  cancel-in-progress: false
+
+jobs:
+  merge-label-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # Never skip this job: a skipped required check counts as passing.
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Require a manual transition from review to merge
+        uses: actions/github-script@v9
+        with:
+          script: |
+            const { checkMergeLabelPolicy } = await import(`${process.env.GITHUB_WORKSPACE}/scripts/merge-label-policy.mjs`);
+            await checkMergeLabelPolicy({ github, context, core });

@@ -1,3 +1,5 @@
+import { mergeLabelBlocker } from "./merge-label-policy.mjs";
+
 const query = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
@@ -8,12 +10,8 @@ const query = `query($owner: String!, $repo: String!, $number: Int!) {
 }`;
 
 function blocker(pr) {
-  if (!pr) return "pull request is unavailable.";
-  const labels = pr.labels.nodes.map(label => label.name);
-  if (labels.includes("no-merge")) return "blocked by no-merge; remove it before requesting a merge.";
-  if (labels.includes("status/1-needs-review")) return "blocked by status/1-needs-review; a maintainer must remove it before requesting a merge.";
-  if (pr.labels.pageInfo?.hasNextPage) return "label list is incomplete; cannot rule out no-merge or status/1-needs-review.";
-  if (!labels.includes("needs-merge")) return "no needs-merge request is active.";
+  const labelReason = mergeLabelBlocker(pr);
+  if (labelReason) return labelReason;
   if (pr.state !== "OPEN") return "pull request is not open.";
   if (pr.isDraft) return "pull request is a draft.";
   if (pr.baseRefName !== "develop") return "only pull requests targeting develop can be merged.";

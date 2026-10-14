@@ -8,8 +8,10 @@ const body = message => `${marker}\n${message}`;
 function fixture() {
   const f = {
     repo: { owner: "team", repo: "cairn" },
-    pr: { number: 42, state: "OPEN", baseRefName: "develop", headRefOid: "head" },
-    current: { state: "open", merged: false, base: { ref: "develop" }, head: { sha: "head" } },
+    pr: { number: 42, state: "OPEN", baseRefName: "develop", headRefOid: "head",
+      labels: { nodes: [{ name: "needs-merge" }] } },
+    current: { state: "open", merged: false, base: { ref: "develop" }, head: { sha: "head" },
+      labels: [{ name: "needs-merge" }] },
     bot: { id: 123, type: "Bot", login: "cairn-pingu[bot]" },
     pages: [[]], calls: [], sent: [], message: "Waiting for review.",
   };
@@ -81,6 +83,32 @@ test("updates a changed reason in the existing bot comment", async () => {
   assert.deepEqual(f.sent, [{ method: "update", ...f.repo, comment_id: 8, body: body(f.message) }]);
   assert.deepEqual(f.calls, ["bot", "comments", "pr", "update"]);
 });
+
+for (const labels of [[], ["needs-review"], ["status/1-needs-review"], ["no-merge"], ["Needs-Merge"]]) {
+  for (const existing of [false, true]) {
+    test(`does not publish an open decision without exact needs-merge: ${JSON.stringify({ labels, existing })}`, async () => {
+      const f = fixture();
+      f.pr.labels.nodes = labels.map(name => ({ name }));
+      if (existing) f.pages = [[f.ownComment()]];
+      await f.publish();
+      assert.deepEqual(f.sent, []);
+      assert.deepEqual(f.calls, []);
+      if (existing) assert.equal(f.pages[0][0].body, body("Waiting for CI."));
+    });
+  }
+}
+
+for (const existing of [false, true]) {
+  test(`a final label reread suppresses a cancelled request (existing: ${existing})`, async () => {
+    const f = fixture();
+    f.current.labels = [{ name: "no-merge" }];
+    if (existing) f.pages = [[f.ownComment()]];
+    await f.publish();
+    assert.deepEqual(f.sent, []);
+    assert.deepEqual(f.calls, ["bot", "comments", "pr"]);
+    if (existing) assert.equal(f.pages[0][0].body, body("Waiting for CI."));
+  });
+}
 
 test("updates only the marked comment owned by the verified numeric bot ID across all pages", async () => {
   const f = fixture();
@@ -162,6 +190,22 @@ for (const [name, merged, message] of [
     await f.publish();
     assert.deepEqual(f.sent, []);
   });
+
+  for (const existing of [false, true]) {
+    test(`a ${name} snapshot can only resolve an existing notice without needs-merge (existing: ${existing})`, async () => {
+      const f = fixture();
+      f.pr.state = merged ? "MERGED" : "CLOSED";
+      f.pr.labels.nodes = [];
+      f.current.state = "closed";
+      f.current.merged = merged;
+      f.current.labels = [];
+      if (existing) f.pages = [[f.ownComment()]];
+      await f.publish();
+      assert.deepEqual(f.sent, existing
+        ? [{ method: "update", ...f.repo, comment_id: 8, body: body(message) }]
+        : []);
+    });
+  }
 }
 
 test("createIfMissing false leaves an uncommented open PR alone but can update an existing comment", async () => {

@@ -159,7 +159,6 @@ for (const [name, change, reason] of [
   ["failed CI", f => { f.runs[0].conclusion = "failure"; }, /CI failure/],
   ["pending CI", f => { f.runs[0].status = "in_progress"; f.runs[0].conclusion = null; }, /waiting for CI/],
   ["conflicts", f => { f.pr.mergeStateStatus = "DIRTY"; }, /resolve the merge conflicts/],
-  ["missing needs-merge", f => { f.pr.labels.nodes = []; }, /no needs-merge request/],
 ]) {
   test(`posts the current merge decision for ${name} without changing eligibility`, async () => {
     const f = fixture();
@@ -199,6 +198,21 @@ test("a different blocker updates the same decision comment", async () => {
   assert.match(f.commentWrites[1].body, /waiting for approval/);
   assert.deepEqual(f.merged, []);
 });
+
+for (const path of ["event", "periodic"]) {
+  test(`cancelling a merge request leaves its existing notice unchanged on the ${path} path`, async () => {
+    const f = fixture();
+    f.pr.labels.nodes = [{ name: "status/1-needs-review" }];
+    const previous = `${commentMarker}\nMerge pending: waiting for CI.`;
+    f.comments.push({ id: 100, user: f.bot, body: previous });
+    await f.run(path === "event" ? { pull_request: f.candidates[0] } : undefined);
+    assert.deepEqual(f.commentWrites, []);
+    assert.equal(f.comments[0].body, previous);
+    assert.deepEqual(f.merged, []);
+    assert.deepEqual(f.removedLabels, []);
+    assert.deepEqual(f.warnings, []);
+  });
+}
 
 for (const existing of [false, true]) {
   test(`a successful merge resolves an existing notice without creating one (existing: ${existing})`, async () => {
@@ -242,6 +256,7 @@ for (const patch of [{ state: "CLOSED" }, { baseRefName: "main" }, { baseRefName
 test("a closed develop PR resolves its existing notice without requesting a merge", async () => {
   const f = fixture();
   f.pr.state = "CLOSED";
+  f.pr.labels.nodes = [];
   f.comments.push({ id: 100, user: f.bot, body: `${commentMarker}\nMerge pending: waiting for approval.` });
   await f.run({ pull_request: f.candidates[0] });
   assert.deepEqual(f.merged, []);
@@ -270,6 +285,7 @@ for (const patch of [
   { state: "CLOSED" }, { headRefOid: "new-head" }, { isDraft: true },
   { reviewDecision: "CHANGES_REQUESTED" }, { mergeStateStatus: "DIRTY" },
   { labels: { nodes: [{ name: "needs-merge" }] } },
+  { labels: { nodes: [{ name: "no-merge" }] } },
 ]) {
   test(`does not post a queued notice after its PR snapshot changes: ${JSON.stringify(patch)}`, async () => {
     const f = fixture();
@@ -290,6 +306,21 @@ test("a queued open notice is not revived after the PR closes and reopens during
   f.comments.push({ id: 100, user: f.bot, body: `${commentMarker}\nMerge pending: waiting for CI.` });
   await f.run();
   assert.deepEqual(f.commentWrites, []);
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.warnings, []);
+});
+
+test("cancelling a request during the final comment reread leaves its queued notice unchanged", async () => {
+  const f = fixture();
+  f.pr.labels.nodes.push({ name: "no-merge" });
+  f.restCurrent = { state: "open", merged: false, base: { ref: "develop" }, head: { sha: "head" },
+    labels: [{ name: "no-merge" }] };
+  const previous = `${commentMarker}\nMerge pending: waiting for CI.`;
+  f.comments.push({ id: 100, user: f.bot, body: previous });
+  await f.run();
+  assert.equal(f.restReads, 1);
+  assert.deepEqual(f.commentWrites, []);
+  assert.equal(f.comments[0].body, previous);
   assert.deepEqual(f.merged, []);
   assert.deepEqual(f.warnings, []);
 });
@@ -344,6 +375,7 @@ test("does not merge an event PR whose current labels have no merge request", as
   assert.equal(f.reads, 2);
   assert.equal(f.ciReads, 0);
   assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.commentWrites, []);
   assert.match(f.messages.join("\n"), /needs-merge/);
 });
 
@@ -359,6 +391,7 @@ for (const labels of [["needs-merge", "no-merge"], ["no-merge"]]) {
       assert.deepEqual(f.merged, []);
       assert.deepEqual(f.removedLabels, []);
       assert.deepEqual(f.addedLabels, []);
+      assert.equal(f.commentWrites.length, labels.includes("needs-merge") ? 1 : 0);
       assert.match(f.messages.join("\n"), /no-merge/);
       assert.match(f.summary.items.join("\n"), /no-merge/);
       assert.equal(f.summary.writes, 1);
@@ -389,6 +422,7 @@ for (const labels of [["needs-merge", "status/1-needs-review"], ["status/1-needs
       assert.deepEqual(f.merged, []);
       assert.deepEqual(f.removedLabels, []);
       assert.deepEqual(f.addedLabels, []);
+      assert.equal(f.commentWrites.length, labels.includes("needs-merge") ? 1 : 0);
       assert.match(f.messages.join("\n"), /status\/1-needs-review/);
       assert.match(f.summary.items.join("\n"), /status\/1-needs-review/);
     });

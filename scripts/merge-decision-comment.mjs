@@ -1,9 +1,11 @@
 const marker = "<!-- cairn-pingu-merge-decision -->";
 const botLogin = "cairn-pingu[bot]";
+const hasMergeRequest = labels => Array.isArray(labels) && labels.some(label => label?.name === "needs-merge");
 
 // Keep one decision comment owned by the verified App, without reviving stale decisions.
 export async function postMergeDecisionComment({ github, context, pr, message, createIfMissing = true }) {
   if (pr.baseRefName !== "develop") return;
+  if (pr.state === "OPEN" && !hasMergeRequest(pr.labels?.nodes)) return;
   const { data: bot } = await github.rest.users.getByUsername({ username: botLogin });
   if (bot?.type !== "Bot" || bot.login !== botLogin || !Number.isSafeInteger(bot.id) || bot.id <= 0) {
     throw new Error("Could not verify the cairn-pingu GitHub App bot identity");
@@ -20,7 +22,7 @@ export async function postMergeDecisionComment({ github, context, pr, message, c
   } else if (current.state !== "open") {
     message = "Closed without merging.";
     createIfMissing = false;
-  } else if (pr.state !== "OPEN") return;
+  } else if (pr.state !== "OPEN" || !hasMergeRequest(current.labels)) return;
 
   const body = `${marker}\n${message}`;
   if (existing?.body === body) return;

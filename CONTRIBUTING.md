@@ -95,9 +95,12 @@ conflicts, missing approvals, and failed or pending CI leave the PR open. Releas
 to `main` remain manual. The Actions run's **Merge decisions** summary explains whether
 the bot merged a PR or is waiting for a label, approval, CI, or GitHub merge requirements.
 A successful workflow run means the evaluation completed, not necessarily that a PR merged.
-cairn-pingu also keeps one short English comment on each blocked develop PR. It explains
-the current label, approval, CI, or merge-requirement blocker. A changed reason updates
-that comment; unchanged scheduled evaluations do not post again. After merging, an
+cairn-pingu also keeps one short English comment on blocked develop PRs with an active
+`needs-merge` request. Review or `no-merge` labels alone do not create or update a comment.
+While `needs-merge` is present, the comment explains the current label, approval, CI, or
+merge-requirement blocker. A changed reason updates that comment; unchanged scheduled
+evaluations do not post again. Removing `needs-merge` stops pending notices, including
+ones queued before the request was removed. After merging, an
 existing notice becomes `Merged.`; closing without merging also resolves it. The bot
 rechecks the PR before publishing a queued reason. Comment failures are logged without
 changing merge eligibility, and the bot only updates its own marked comment.

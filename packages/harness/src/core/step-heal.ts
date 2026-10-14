@@ -11,8 +11,11 @@ import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "
 import { describeAmbiguity } from "./discover/decision.js";
 import { actionRules, actionVocabulary, PERCEPTION_RULES } from "./discover/prompt.js";
 import { PerceptionObservation } from "./observation.js";
+import { snapshotAppContext, withAppContext } from "./app-context.js";
 
 export interface StepHealOptions {
+  /** Optional app guidance, snapshotted at healer construction for this run. */
+  appContext?: string;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
 }
@@ -36,7 +39,10 @@ export class LlmStepHealer implements StepHealer {
     /** Values for `{name}` placeholders (#174): the healer types them and never writes them. */
     private readonly secrets: Secrets = {},
     private readonly options: StepHealOptions = {},
-  ) { validateSecrets(secrets); }
+  ) {
+    validateSecrets(secrets);
+    this.llm = withAppContext(llm, snapshotAppContext(options.appContext, secrets));
+  }
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
     if (this.attempts >= this.maxHeals) return null;

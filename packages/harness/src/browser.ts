@@ -63,3 +63,4 @@ export { LlmStepHealer } from "./core/step-heal.js";
 export type { StepHealOptions } from "./core/step-heal.js";
 export { scoreTarget, scoreScenario, weakTargets } from "./core/freeze.js";
 export type { TargetScore, ScoredTarget } from "./core/freeze.js";
+export { MAX_APP_CONTEXT_BYTES, validateAppContext } from "./core/app-context.js";

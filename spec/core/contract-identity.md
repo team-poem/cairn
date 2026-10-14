@@ -14,14 +14,16 @@ execution script. It is advisory: it never changes assertions, verdict classific
 - `Scenario.provenance.appContextHash` identifies a host-declared creation input independently.
   Changing it alone does not change the judgment fingerprint. `Verdict.provenance` refers to the
   scenario judged, not today's app description. Only a SHA-256 digest is copied; no raw description.
-  This metadata seam does not load or inject context. Those behaviors belong to #282.
+  Loading and injection follow [app context](app-context.md); identity stays independent of guidance.
 
 The engine does not rewrite stored records on replay. A returned repaired scenario is a new object;
 the host/store owns retaining previous artifacts. A repair preserving all judgment inputs can have
 the **same** contract fingerprint despite different steps. Outcome re-discovery is judged against
 the original checks, not its newly proposed checks; its returned freeze is stamped after restoring
 the original assertions and intent identity. It does not inherit an app-context digest for context
-it was never supplied. Locator/step replacements preserve the source scenario's creation provenance.
+it was never supplied. Locator/step replacements preserve the source scenario's creation provenance
+when no app context is supplied. A new context-assisted repair artifact records its current context
+hash without altering the original scenario or the verdict's historical provenance.
 
 ## Version 1 material
 

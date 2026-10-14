@@ -83,3 +83,4 @@ export { UsageMeter, emptyUsage } from "./core/usage.js";
 /** Shared diagnostics for hosts displaying discovery and freeze evidence (see docs/package-boundaries.md). */
 export { describeAction } from "./core/discover/decision.js";
 export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";
+export { MAX_APP_CONTEXT_BYTES, validateAppContext } from "./core/app-context.js";

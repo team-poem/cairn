@@ -10,6 +10,7 @@
  * every seam (store, driver factory, llm, policy, reporter).
  */
 import { validateSecrets } from "./core/secrets.js";
+import { snapshotAppContext } from "./core/app-context.js";
 import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
@@ -81,6 +82,7 @@ export interface SuiteOptions
     | "screenshots"
     | "replayEnvironment"
     | "judgmentKey"
+    | "appContext"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -161,9 +163,19 @@ function validateCases(cases: SuiteCase[], opts: SuiteOptions): void {
   }
 }
 
+/** Capture before host callbacks. Keep raw text + copied secrets so each phase slots exactly once. */
+function captureCaseInputs(opts: SuiteOptions): SuiteOptions {
+  const captured = { ...opts };
+  if (captured.secrets) captured.secrets = Object.fromEntries(Object.entries(captured.secrets)
+    .map(([name, secret]) => [name, typeof secret === "string" ? secret : { value: secret.value, origin: secret.origin }]));
+  validateSecrets(captured.secrets);
+  snapshotAppContext(captured.appContext, captured.secrets); // Validate, do not pass already-slotted text.
+  return captured;
+}
+
 export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Promise<SuiteResult> {
-  validateSecrets(opts.secrets);
-  validateCases(cases, opts);
+  const firstInputs = captureCaseInputs(opts);
+  validateCases(cases, firstInputs);
   if (opts.replayEnvironment) validateReplayEnvironment(opts.replayEnvironment);
   const {
     store = new FileSkillStore(),
@@ -181,8 +193,9 @@ export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Pro
   const tracer = opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
 
   const verdicts: SuiteVerdict[] = [];
-  for (const c of cases) {
-    const verdict = await runCase(c, { ...opts, store, skillDir, heal, driverFactory, getLlm, tracer });
+  for (const [index, c] of cases.entries()) {
+    const inputs = index === 0 ? firstInputs : captureCaseInputs(opts);
+    const verdict = await runCase(c, { ...inputs, store, skillDir, heal, driverFactory, getLlm, tracer });
     verdicts.push(verdict);
     onCase?.(verdict);
   }
@@ -278,6 +291,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       let found: Scenario;
       try {
         found = await discover(c.intent, {
+          appContext: ctx.appContext,
           driver,
           llm: meter,
           baseUrl: c.url ?? ctx.baseUrl,
@@ -333,6 +347,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     const driver = ctx.driverFactory();
     try {
       const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
+        appContext: ctx.appContext,
         judgmentKey: ctx.judgmentKey,
         driver,
         replayEnvironment: ctx.replayEnvironment,

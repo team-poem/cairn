@@ -8,6 +8,7 @@
  */
 import { PerceptionObservation } from "../observation.js";
 import { identifyScenario } from "../contract.js";
+import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
@@ -26,6 +27,8 @@ export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
 export { rankElements, renderElements, renderRankedElements } from "./prompt.js";
 
 export interface DiscoverOptions {
+  /** Optional host app knowledge, snapshotted once; guidance only, not live evidence. Max 16 KiB UTF-8. */
+  appContext?: string;
   driver: Driver;
   llm: LlmClient;
   baseUrl?: string;
@@ -71,7 +74,9 @@ const MAX_CONSECUTIVE_BLOCKS = 3;
 
 export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   validateSecrets(opts.secrets);
-  const { driver, llm, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
+  const appContext = snapshotAppContext(opts.appContext, opts.secrets);
+  const llm = withAppContext(opts.llm, appContext);
+  const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -140,7 +145,8 @@ export async function discover(intent: string, opts: DiscoverOptions): Promise<S
     const scenario: Scenario = truncated
       ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
-    return identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes });
+    return identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
+      provenance: await appContextProvenance(appContext) });
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,

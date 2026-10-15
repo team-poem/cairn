@@ -80,6 +80,40 @@ Long flows and slow apps have knobs. `discover --max-steps=30` raises the explor
 
 To replay an existing freeze against another origin, pair `--base-url` with `--allowed-hosts`. The [replay environment guide](replay-environments.md) covers the library option, suite cache reuse, and temporary healing.
 
+## Execution budgets
+
+Limit the combined work of discovery, assertion proposals, judgment and repair:
+
+```ts
+const suite = await runSuite(cases, {
+  budget: { maxModelCalls: 20, timeoutMs: 60_000 }, // independently per case
+});
+```
+
+The same `budget` option works on `discover`, `explore`, `runHarness` and `runScenario`.
+Separate calls get separate budgets; a suite case shares its allowance across all its phases.
+Omit it for existing behavior. Zero model calls still permits healthy mechanical replay.
+
+```sh
+cairn suite cases.json --max-model-calls 20 --run-timeout 60000
+cairn replay checkout.skill.json --heal --max-model-calls 3 --run-timeout 30000
+```
+
+A stopped run has `verdict.failure === 'budget'` and structured `verdict.budget` metadata;
+the CLI exits 5. `discover`/`explore` instead throw `BudgetExceededError` with `budget`,
+`evidence` and `usage` (the CLI prints these diagnostics to stderr, without freezing).
+Caller cancellation remains distinct. No incomplete repair is returned for re-freezing.
+
+Calls count engine admissions, **not provider billing**: failed calls consume their allowance,
+and HTTP retries/internal subprocess work can make additional provider requests. The deadline
+cancels supported model transports, but an already dispatched browser action cannot be undone.
+Non-cancellable operations are awaited, then their late result is rejected; this is not a hard
+wall-clock kill switch. Hidden model calls in custom host hooks are outside the count.
+
+Run `npm run build && node examples/run-budget.mjs` from the repository for a real-browser,
+scripted-model example: discovery consumes three calls, then a changed control needs a fourth
+to repair. See the [budget contract](../spec/core/run-budget.md) for boundaries and limitations.
+
 ## Explore it: a freeze-less UX survey
 
 `discover` builds a test. `explore` files a report. Give it a charter instead of an intent and the same loop wanders your app looking for what would annoy a real user. Nothing is frozen:

@@ -34,7 +34,7 @@ export interface TargetChoiceResult {
 }
 
 export interface TargetSelector {
-  select(request: TargetChoiceRequest): Promise<TargetChoiceResult>;
+  select(request: TargetChoiceRequest, options?: { signal?: AbortSignal }): Promise<TargetChoiceResult>;
 }
 
 export interface TargetChoicePilot {

@@ -43,7 +43,8 @@ import {
   proofOf,
 } from "./index.js";
 import type { ExploreReport, Reporter, Scenario, SuiteCase, SuiteResult, SuiteVerdict } from "./index.js";
-import { flagNum, flagStr, flagReplayEnvironment, parseArgs } from "./cli-args.js";
+import { flagNum, flagStr, flagReplayEnvironment, flagBudget, parseArgs } from "./cli-args.js";
+import { BudgetExceededError } from "./index.js";
 import { secretsFromFlags } from "./cli-secrets.js";
 import { appContextFromFlags } from "./cli-app-context.js";
 import { FAIL_EXIT_CODE, USAGE_EXIT_CODE, exitCodeFor, suiteExitCode } from "./cli-exit.js";
@@ -87,6 +88,7 @@ function reporterFor(flags: Flags): Reporter {
 
 /** Run a scenario through the library and surface CLI-specific output (heal log, freeze). */
 async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number> {
+  const budget = flagBudget(flags);
   const appContext = await appContextFromFlags(flags);
   // Configuration errors stay usage errors (exit 2), before the run/crash boundary.
   const replayEnvironment = flagReplayEnvironment(flags);
@@ -96,6 +98,7 @@ async function runScenarioCli(scenario: Scenario, flags: Flags): Promise<number>
   let run: Awaited<ReturnType<typeof runScenario>>;
   try {
     run = await runScenario(scenario, {
+      budget,
       appContext,
       judgmentKey: flagStr(flags, "judgment-key"),
       replayEnvironment,
@@ -170,6 +173,7 @@ async function cmdReplay(positionals: string[], flags: Flags): Promise<number> {
 }
 
 async function cmdDiscover(positionals: string[], flags: Flags): Promise<number> {
+  const budget = flagBudget(flags);
   const appContext = await appContextFromFlags(flags);
   const intent = positionals[0];
   if (!intent) {
@@ -203,6 +207,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
     // #16: --semantic lets the freeze carry LLM-judged `expect` checks (replay then needs an LlmCritic).
     // --max-steps: step cap for the loop — a realistic form flow can need more than the default (#95).
     scenario = await discover(intent, {
+      budget,
       appContext,
       driver,
       llm,
@@ -303,6 +308,7 @@ async function cmdDiscover(positionals: string[], flags: Flags): Promise<number>
 }
 
 async function cmdExplore(positionals: string[], flags: Flags): Promise<number> {
+  const budget = flagBudget(flags);
   const appContext = await appContextFromFlags(flags);
   const charter = positionals[0];
   const url = flagStr(flags, "url");
@@ -320,6 +326,7 @@ async function cmdExplore(positionals: string[], flags: Flags): Promise<number> 
   let report: ExploreReport;
   try {
     report = await explore(charter, {
+      budget,
       appContext,
       driver,
       llm,
@@ -377,6 +384,7 @@ async function cmdSuite(positionals: string[], flags: Flags): Promise<number> {
   console.log(`suite: ${cases.length} case(s)`);
 
   const suite: SuiteResult = await runSuite(cases, {
+    budget: flagBudget(flags),
     appContext,
     judgmentKey: flagStr(flags, "judgment-key"),
     replayEnvironment,
@@ -423,6 +431,8 @@ usage: cairn <command> [options]
   --secret name=value        fill {name} in type steps at run time; repeatable; or CAIRN_SECRET_<NAME> in the env
   --secret-origin name=url   refuse to type {name} on any page outside that origin
   --judgment-key key        host version of custom/semantic judgment semantics (run, replay, suite)
+  --max-model-calls n       shared discovery/judgment/repair call allowance (per suite case)
+  --run-timeout ms          elapsed run deadline (per suite case); cooperative cancellation
   --help, -h       print this message
   --version, -v    print the engine version
 
@@ -431,7 +441,7 @@ replay environment: pair the runtime base flag with --allowed-hosts (comma-separ
   --freeze cannot be combined with a runtime base. Suite --replay-base-url requires a cached skill;
   suite --base-url remains the canonical discovery URL.
 
-exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup)
+exit codes: 0 pass · 1 flow broke (block) · 2 usage · 3 script aged (re-discover) · 4 environment (retry, or fix the setup) · 5 budget exhausted
 
 discover once with an LLM → freeze to plain JSON → replay forever with zero LLM calls → heal only when it breaks.
 Docs: https://github.com/team-poem/cairn`;
@@ -477,6 +487,10 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
+  if (err instanceof BudgetExceededError) {
+    console.error(JSON.stringify({ error: err.name, budget: err.budget, evidence: err.evidence, usage: err.usage }));
+    process.exit(FAIL_EXIT_CODE.budget);
+  }
   // No verdict was reached: a bad argument, a missing file, a driver that never started. That is
   // setup, not an app regression — 1 now means "the flow broke" (#173), so this must not be 1.
   console.error(err instanceof Error ? err.stack ?? err.message : err);

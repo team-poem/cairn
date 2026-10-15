@@ -13,6 +13,7 @@ import {
 } from "./assertion.js";
 import type { RequestMatchOptions } from "../../core/requests.js";
 import type { CustomChecks } from "./assertion.js";
+import { rethrowBudget } from "../../core/budget.js";
 import type { AssertionHandler, Critic, LlmClient } from "../../core/ports.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 import type {
@@ -94,6 +95,7 @@ export class ExpectAssertionHandler implements AssertionHandler {
         detail: v.detail ?? `judged by ${this.llm.id}`,
       };
     } catch (err) {
+      rethrowBudget(err);
       return {
         assertion,
         passed: false,

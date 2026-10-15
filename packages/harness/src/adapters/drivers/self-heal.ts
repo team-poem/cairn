@@ -6,6 +6,7 @@
  */
 import type { Driver, LlmClient, PerceptionAdapter } from "../../core/ports.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
+import { rethrowBudget } from "../../core/budget.js";
 import type {
   Evidence,
   PageElement,
@@ -128,6 +129,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await dispatch(target, ref);
     } catch (cause) {
+      rethrowBudget(cause);
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
       if (ref !== undefined) throw cause;
       // Transport, script, and handler failures are not evidence of a stale target.

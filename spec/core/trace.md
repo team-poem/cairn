@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.9**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.10**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.9", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.10", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -64,6 +64,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `run-end` | `passed`, `usage` | `SuiteResult` |
 | lifecycle | `case-start` | `id`, `intent`, `skillRef`, `cached` (hit vs. discover) | `SuiteCase` + cache check |
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
+| lifecycle | `budget-exhausted` | `limit`, `configured`, `modelCalls`, `elapsedMs`, `phase`, `operation?` | [run budget](run-budget.md); precedes owned `case-end` with `failure: "budget"` |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
 | discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these two diagnostics only |
@@ -169,6 +170,9 @@ two gate values and one phase value; the envelope is unchanged.
 Version 1.8 adds `assertion.payload.reason: inconclusive` for missing custom evidence.
 Its `passed: false` does not mean an app failure; render it as inconclusive. Case verdicts
 may carry `failClosed: all-inconclusive` when no check could be judged.
+
+Version 1.10 adds `budget-exhausted` and `verdict.budget`, with `failure: "budget"`.
+This is an execution stop, not an app regression. See [run budgets](run-budget.md).
 
 - **minor** = additive: a new `kind`, a new optional payload field, a new value of an existing
   enumerated field (a `gate` reason). Viewer rule: skip unknown kinds/fields *but count them*

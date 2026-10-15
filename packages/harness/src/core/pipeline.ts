@@ -4,6 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
+import { withBudget, budgetScope, BudgetExceededError, budgetResult, rethrowBudget, type BudgetOptions, type BudgetScope } from "./budget.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
 import { validateSecrets, type Secrets } from "./secrets.js";
@@ -27,7 +28,7 @@ const DEFAULT_EXPECT_TIMEOUT_MS = 2_000;
  * replay, `signal` for a Stop button, `actions` for product-defined interactions. None of
  * these put UI in the engine.
  */
-export interface RunHarnessOptions {
+export interface RunHarnessOptions extends BudgetOptions {
   /** Declared judge configuration. A generic Critic is opaque by default: supply a
    * judgmentKey or explicitly describe built-in semantics with opaque: false. */
   judgment?: JudgmentOptions;
@@ -61,13 +62,16 @@ export interface RunHarnessOptions {
 }
 
 /** Route one step to the first handler that supports it; record success/failure either way. */
-async function executeStep(handlers: StepHandler[], step: Step, driver: Driver): Promise<ExecutedAction> {
+async function executeStep(handlers: StepHandler[], step: Step, driver: Driver, budget?: BudgetScope): Promise<ExecutedAction> {
   try {
+    budget?.check();
     const handler = handlers.find((h) => h.supports(step));
     if (!handler) throw stepError("handler", `no step handler for kind "${step.kind}"`);
-    await handler.execute(step, driver);
+    if (budget) await budget.operation("step.execute", () => handler.execute(step, driver));
+    else await handler.execute(step, driver);
     return { step, ok: true };
   } catch (err) {
+    rethrowBudget(err);
     const errorKind = errorKindOf(err);
     return { step, ok: false, error: err instanceof Error ? err.message : String(err), ...(errorKind ? { errorKind } : {}) };
   }
@@ -88,6 +92,8 @@ async function runStep(
   urlMatch: ConditionMatchOptions,
   healer?: StepHealer,
   trace?: TraceScope,
+  onExecuted?: (action: ExecutedAction) => void,
+  budget?: BudgetScope,
 ): Promise<ExecutedAction> {
   // A `requestStatus` expect is event evidence over the run's CUMULATIVE request log, not page
   // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
@@ -104,7 +110,8 @@ async function runStep(
   const sinceRequestIndex = expect?.requestStatus
     ? (await driver.observe()).logic.requests.length
     : 0;
-  const result = await executeStep(handlers, step, driver);
+  const result = await executeStep(handlers, step, driver, budget);
+  onExecuted?.(result); // retain dispatch evidence if post-condition polling/repair is interrupted
   if (!result.ok || !expect) return result;
 
   // Wait for the post-condition (readiness), don't check once — an async effect may land after the step.
@@ -112,8 +119,10 @@ async function runStep(
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
   if (healer) {
-    const healed = await healer.heal(step, index, driver);
+    const healed = await (budget ? budget.operation("step.heal", () => healer.heal(step, index, driver))
+      : healer.heal(step, index, driver));
     if (healed) {
+      onExecuted?.({ step: healed.step, ok: true });
       if (await pollCondition(driver, healed.step.expect ?? expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
         trace?.emit({
           kind: "heal",
@@ -183,6 +192,10 @@ export function finalizeVerdict(
   actions: readonly ExecutedAction[] = [],
   scenario?: Pick<Scenario, "unprovenAction">,
 ): Verdict {
+  if (judged.budget) {
+    const { proof: _proof, ...stopped } = judged;
+    return { ...stopped, passed: false, failure: "budget" };
+  }
   // A bare string is what `blockedReason` returns, so it means a blocked replay; a re-discovery
   // that ended before `done` says so with the object form.
   const cut = typeof incomplete === "string" ? { reason: incomplete, kind: "blocked" as const } : incomplete;
@@ -258,6 +271,7 @@ const refusedOnly = (r: AssertionResult) => r.statuses !== undefined && r.status
  * - otherwise `flow`: when unsure, a red is a regression until shown otherwise.
  */
 export function classifyFailure(verdict: Verdict, actions: readonly ExecutedAction[] = []): FailureClass {
+  if (verdict.budget) return "budget";
   const blocked = actions.find((a) => !a.ok);
   if (blocked) return blocked.errorKind === "transport" || blocked.errorKind === "handler" ? "environment" : "script";
   if (verdict.failClosed !== undefined) return "script";
@@ -275,6 +289,32 @@ export async function runHarness(
   task: string,
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
+  let result: Result;
+  try {
+    result = await withBudget(opts, "replay", async (options, scope) => {
+      if (!scope) return runHarnessWithinBudget(harness, task, options);
+      return runHarnessWithinBudget({ ...harness, driver: scope.driver(harness.driver),
+        context: { provide: task => scope.operation("context.provide", () => harness.context.provide(task)) },
+        planner: { plan: ctx => scope.operation("planner.plan", () => harness.planner.plan(ctx)) },
+        critic: { judge: (evidence, assertions, ctx) => {
+          scope.phase = "judge";
+          scope.evidence = evidence;
+          return scope.operation("critic.judge", () => harness.critic.judge(evidence, assertions, ctx));
+        } },
+        reporter: { emit: async () => {} },
+      }, task, options);
+    });
+  } catch (error) {
+    if (!(error instanceof BudgetExceededError) || opts[budgetScope]) throw error;
+    opts.trace?.emit({ kind: "budget-exhausted", payload: error.budget });
+    result = budgetResult(task, error);
+  }
+  // Publish only after the owner has accepted the final value, never a late green.
+  if (opts.budget !== undefined || opts[budgetScope]) await harness.reporter.emit(result);
+  return result;
+}
+
+async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
   validateSecrets(opts.secrets);
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
@@ -298,9 +338,18 @@ export async function runHarness(
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).
   const actions: ExecutedAction[] = [];
   for (const step of scenario.steps) {
+    if (opts[budgetScope]) opts[budgetScope].phase = "replay";
     opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
-    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace);
+    const budget = opts[budgetScope];
+    let recorded: number | undefined;
+    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
+      budget ? action => { recorded = budget.recordAction(action); } : undefined, budget);
+    opts[budgetScope]?.check();
     actions.push(result);
+    if (budget) {
+      if (recorded === undefined) budget.recordAction(result);
+      else budget.updateAction(recorded, result);
+    }
     // One capture serves both consumers — and only when someone stores it: a host timeline
     // (`onStep`) or a sink that keeps attachment bytes. Nobody watching = no screenshot taken.
     const wantsShot = opts.captureScreenshots && (opts.onStep !== undefined || opts.trace?.acceptsAttachments === true);

@@ -73,6 +73,10 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
 
 ### Naming the red (#173)
 
+[Budget exhaustion](run-budget.md) is a separate execution stop: `failure: "budget"`, CLI exit 5,
+with structured `verdict.budget`. It bypasses application classification and never earns a green
+proof, even when finalized again. The classification below applies to completed app judgments.
+
 A red means one of three next actions, and they are different people's jobs: the app did not do
 what the flow asserts (block the build), the frozen scenario no longer fits the app (re-discover),
 or neither — the run's machinery or the host's setup failed, or the app refused the caller (retry,

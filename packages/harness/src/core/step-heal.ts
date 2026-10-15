@@ -5,6 +5,7 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer, PerceptionAdapter } from "./ports.js";
 import type { Step } from "./types.js";
+import { rethrowBudget } from "./budget.js";
 import { validateSecrets, redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
@@ -64,14 +65,16 @@ export class LlmStepHealer implements StepHealer {
         const evidence = await driver.observe();
         if (!this.options.policy.vet(decision, { elements, url: evidence.execution.finalUrl }).ok) return null;
       }
-    } catch {
+    } catch (error) {
+      rethrowBudget(error);
       return null;
     }
     if (decision.action === "done") return null;
     let healed: Step;
     try {
       healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself
-    } catch {
+    } catch (error) {
+      rethrowBudget(error);
       return null;
     }
     // Keep the original intent + expect on the re-frozen step so it stays verifiable next replay.

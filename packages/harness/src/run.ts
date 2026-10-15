@@ -4,6 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { reanchorScenario, validateReplayEntry } from "./core/replay-environment.js";
+import { withBudget, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
 import type { ReplayEnvironment } from "./core/replay-environment.js";
 import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
@@ -34,7 +35,7 @@ import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
 
-export interface RunScenarioOptions {
+export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
    * Fixed at run entry; never required for mechanical replay. Max 16 KiB UTF-8. */
   appContext?: string;
@@ -158,6 +159,45 @@ export async function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
+  const controlled = opts.budget !== undefined || opts[budgetScope] !== undefined;
+  if (!controlled) return runScenarioWithinBudget(scenario, opts);
+  const tracer = !opts.traceScope && opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
+  const scope = opts.traceScope ?? tracer?.scope(scenario.name);
+  let ended = false;
+  if (tracer) scope?.emit({ kind: "case-start", payload: { id: scenario.name, intent: scenario.name, cached: true } });
+  const end = (result: RunScenarioResult) => {
+    if (!tracer || ended) return;
+    ended = true;
+    scope?.emit({ kind: "case-end", payload: { verdict: result.result.verdict, usage: result.result.usage,
+      discovered: false, heals: result.heals.length + result.stepHeals.length, ...(result.truncated ? { truncated: true } : {}) } });
+    tracer.emit({ kind: "run-end", payload: { passed: result.result.verdict.passed, usage: result.result.usage } });
+  };
+  let output: RunScenarioResult;
+  try {
+    output = await withBudget({ ...opts, traceScope: scope }, "replay", options =>
+      runScenarioWithinBudget(scenario, { ...options, reporter: { emit: async () => {} } }));
+  } catch (error) {
+    if (!(error instanceof BudgetExceededError)) {
+      if (tracer && !ended) {
+        const verdict: Verdict = { passed: false, results: [], failure: "environment", detail: `run crashed: ${error instanceof Error ? error.message : String(error)}` };
+        scope?.emit({ kind: "case-end", payload: { verdict, usage: emptyUsage(), discovered: false, heals: 0 } });
+        tracer.emit({ kind: "run-end", payload: { passed: false, usage: emptyUsage() } });
+      }
+      throw error;
+    }
+    if (opts[budgetScope]) throw error;
+    const result = budgetResult(scenario.name, error);
+    scope?.emit({ kind: "budget-exhausted", payload: error.budget });
+    output = { result, heals: [], stepHeals: [] };
+  }
+  end(output);
+  await (opts.reporter ?? new ConsoleReporter()).emit(output.result);
+  return output;
+}
+
+async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOptions): Promise<RunScenarioResult> {
+  const budget = opts[budgetScope];
+  const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
@@ -177,6 +217,7 @@ export async function runScenario(
   const usage = (): RunUsage => {
     const result = meter?.snapshot() ?? emptyUsage();
     if (choiceUsage) for (const key of Object.keys(choiceUsage) as (keyof RunUsage)[]) result[key] += choiceUsage[key];
+    if (budget) result.llmCalls = budget.modelCalls - initialModelCalls;
     return result;
   };
   // Both heal layers take their client up front but only call it on a break, so hand them one
@@ -201,7 +242,7 @@ export async function runScenario(
   const critic =
     opts.critic ??
     (needsLlmCritic(scenario)
-      ? new LlmCritic(getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch)
+      ? new LlmCritic(budget?.llm(lazyLlm, "judge") ?? getLlm(), opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch)
       : new AssertionCritic(opts.custom, opts.benign, opts.benignConsole, opts.localePrefixes, scenario.wildcards, requestMatch));
 
   // Trace (spec/core/trace.md): a suite-scoped run emits into the suite's scope; a bare run with a
@@ -234,7 +275,8 @@ export async function runScenario(
 
   // Lifecycle ownership (#98): the engine closes only the driver it constructed here. A
   // caller-supplied driver is the caller's to close — a host may run many scenarios on one session.
-  const baseDriver = opts.driver ?? new ChromeDevToolsDriver();
+  const rawDriver = opts.driver ?? new ChromeDevToolsDriver();
+  const baseDriver = budget?.driver(rawDriver) ?? rawDriver;
   const ownsDriver = !opts.driver;
   const onHeal = (heal: Heal): void => {
     const stepRef = opts.targetChoice ? scenario.steps.findIndex(step => "target" in step && step.target === heal.original) : -1;
@@ -248,8 +290,17 @@ export async function runScenario(
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal || opts.targetChoice
-    ? (healer = new SelfHealingDriver(baseDriver, repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
+    ? (healer = new SelfHealingDriver(baseDriver, budget?.llm(repairLlm, "locator-heal") ?? repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
         ...(opts.targetChoice ? { choice: createTargetChoiceRepair({ ...opts.targetChoice, secrets: opts.secrets,
+          selector: budget ? { select: async (request) => {
+            budget.phase = "target-choice";
+            budget.reserve();
+            return budget.operation("model.select", async () => {
+              const selected = await opts.targetChoice!.selector.select(request, { signal: budget.signal });
+              if (selected.usage) budget.recordUsage(selected.usage);
+              return selected;
+            });
+          } } : opts.targetChoice.selector,
           context: target => {
             const matches = scenario.steps.map((step, stepRef) => ({ step, stepRef })).filter(({ step }) => "target" in step && step.target === target);
             if (matches.length !== 1) return undefined;
@@ -269,7 +320,7 @@ export async function runScenario(
         }) } : {}),
       }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(budget?.llm(repairLlm, "step-heal") ?? repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
 
   try {
     const result = await runHarness(
@@ -282,6 +333,7 @@ export async function runScenario(
       },
       scenario.name,
       {
+        [budgetScope]: budget,
         judgment,
         signal: opts.signal,
         onStep: opts.targetChoice ? progress => {
@@ -315,7 +367,7 @@ export async function runScenario(
     // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
     // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
     const healable =
-      result.verdict.failure !== "environment" &&
+      result.verdict.failure !== "environment" && result.verdict.failure !== "budget" &&
       (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
     if (opts.heal && !result.verdict.passed && healable) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
@@ -325,6 +377,7 @@ export async function runScenario(
       const sinceConsole = before.logic.console.length;
 
       const repaired = await discover(scenario.name, {
+        [budgetScope]: budget,
         driver: baseDriver,
         llm: repairLlm,
         baseUrl: firstGotoUrl(scenario),
@@ -341,7 +394,10 @@ export async function runScenario(
         tracePhase: "heal",
       });
       repaired.provenance = await appContextProvenance(appContext);
-      const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
+      const context = opts.context ?? new InlineContextProvider();
+      const ctx = budget
+        ? await budget.operation("context.provide", () => context.provide(scenario.name))
+        : await context.provide(scenario.name);
       const observed = await baseDriver.observe();
       const evidence = {
         ...observed,
@@ -353,7 +409,10 @@ export async function runScenario(
       // Judge against the ORIGINAL goal assertions, not the ones the re-discovery derived for itself —
       // else a path that reaches a different end-state passes as green (P2 false green).
       const repairContract = await scenarioContract(scenario, { ...judgment, judgmentIntent: ctx.intent ?? null });
-      const judged = await critic.judge(evidence, scenario.assertions, ctx);
+      if (budget) budget.phase = "outcome-judge";
+      const judged = budget
+        ? await budget.operation("critic.judge", () => critic.judge(evidence, scenario.assertions, ctx))
+        : await critic.judge(evidence, scenario.assertions, ctx);
       for (const r of judged.results) scope?.emit({ kind: "assertion", phase: "heal", payload: assertionPayload(r) });
       // Same finalizer as replay (#186). A re-discovery that ended before `done` is an unverified path,
       // and the goal assertions holding on its partial state is not a heal. Not "the step cap":
@@ -363,7 +422,7 @@ export async function runScenario(
       // Guards (`no-failed-requests`, `no-console-errors`) do not count — a transient 500 during the
       // re-discovery does not make the path it found wrong, and a persistent one is not something a
       // re-discovery can fix (see `goalFailures`).
-      const missedGoal = !truncated && (goalFailures(judged).length > 0 || judged.results.some(r => r.reason === "inconclusive"));
+      const missedGoal = !truncated && (judged.budget !== undefined || goalFailures(judged).length > 0 || judged.results.some(r => r.reason === "inconclusive"));
       let verdict = finalizeVerdict(
         judged,
         truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
@@ -383,6 +442,7 @@ export async function runScenario(
       }
       // `truncated` rides here too, so a library caller with its own sink reads the same shape as
       // the suite's case-end (spec/core/trace.md: one implicit case, one shape).
+      budget?.check();
       closeOwnTrace(verdict, usage(), heals.length + stepHeals.length, truncated);
       return {
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
@@ -412,13 +472,14 @@ export async function runScenario(
 
     // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
     // operator reads "heal did nothing" as "heal found nothing".
-    const skipped = opts.heal && !result.verdict.passed && !healable;
+    const skipped = opts.heal && !result.verdict.passed && !healable && result.verdict.failure !== "budget";
     const why = result.verdict.results.some(r => r.reason === "inconclusive")
       ? "outcome-heal skipped: no failed goal to repair; some checks could not be judged"
       : "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
     const final = skipped
       ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
       : result;
+    budget?.check();
     closeOwnTrace(final.verdict, final.usage, heals.length + stepHeals.length);
     const rewritten = applyStepHeals(applyHeals(scenario, heals), stepHeals);
     // A returned legacy repair is a new artifact; never rewrite the source or replay's provenance.
@@ -428,10 +489,15 @@ export async function runScenario(
       result: final,
       heals,
       stepHeals,
-      healedScenario: !opts.replayEnvironment && !final.verdict.results.some(r => r.reason === "inconclusive") && (heals.length || stepHeals.length) &&
+      healedScenario: final.verdict.failure !== "budget" && !opts.replayEnvironment && !final.verdict.results.some(r => r.reason === "inconclusive") && (heals.length || stepHeals.length) &&
         (!opts.targetChoice || (!final.evidence.execution.blocked && !final.verdict.failClosed && goalFailures(final.verdict).length === 0)) ? await identifyScenario(rewritten, { ...judgment, judgmentIntent: final.context.intent ?? null }) : undefined,
     };
   } catch (err) {
+    if (err instanceof BudgetExceededError) {
+      if (ownTracer) scope?.emit({ kind: "budget-exhausted", payload: err.budget });
+      closeOwnTrace(budgetVerdict(err), { ...usage(), llmCalls: err.budget.modelCalls }, 0);
+      throw err;
+    }
     // A crashed run (abort, driver died) still ends its implicit case and run in its own trace.
     // This keeps the bare-run stream in the same lifecycle shape as a suite's crashed case.
     closeOwnTrace(

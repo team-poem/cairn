@@ -200,6 +200,8 @@ export interface LlmClient {
 }
 
 export interface CompleteOptions {
+  /** Cooperative cancellation, including a run's remaining deadline. */
+  signal?: AbortSignal;
   system?: string;
   maxTokens?: number;
   /** Report what this completion cost, when the backend can measure it (HTTP APIs). Call at most

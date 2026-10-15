@@ -35,4 +35,7 @@ Pure `freeze→replay` **assumes a static state** → it breaks on stateful/dyna
 
 ## Invariants (summary — canonical in `architecture.md`)
 
+Optional [shared execution budgets](run-budget.md) bound model admissions and elapsed time
+across these phases. They do not reset at repair, alter a frozen contract, or replace local caps.
+
 deterministic replay · loop only in discovery · pattern ≠ data · extend through ports only · model/driver agnostic · dependency direction qa→harness.

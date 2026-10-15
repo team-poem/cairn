@@ -4,6 +4,7 @@
  * deterministic (invariant #4).
  */
 import type { LlmClient } from "../ports.js";
+import { rethrowBudget } from "../budget.js";
 import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
 import {
   findRequestStatus,
@@ -454,7 +455,8 @@ export async function proposeAssertions(
   try {
     const reply = await llm.complete(prompt, { system });
     return extractJsonArray(reply);
-  } catch {
+  } catch (error) {
+    rethrowBudget(error);
     return [];
   }
 }

@@ -1,6 +1,8 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { BudgetExceededError, validateRunBudget } from "./core/budget.js";
+export type { RunBudget, BudgetExhaustion } from "./core/budget.js";
 export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";
 export type { IdentifyScenarioOptions, JudgmentOptions } from "./core/contract.js";
 export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";

@@ -66,7 +66,7 @@ export function makeHttpLlmClient(
       const json = await postJsonWithRetry<unknown>(
         req.url,
         { headers: req.headers, body: JSON.stringify(req.body) },
-        { timeoutMs: opts.timeoutMs, maxRetries: opts.maxRetries, label: spec.label },
+        { timeoutMs: opts.timeoutMs, maxRetries: opts.maxRetries, label: spec.label, signal: options.signal },
       );
       if (options.onUsage) {
         const usage = spec.parseUsage?.(json);

@@ -267,7 +267,7 @@ export interface AssertionResult {
  * the verdict already holds; leans to `flow` when unsure, so a real regression is never filed
  * under "retry".
  */
-export type FailureClass = "flow" | "script" | "environment";
+export type FailureClass = "flow" | "script" | "environment" | "budget";
 
 /**
  * What a green verdict actually proves (#197), the mirror of `failure` on a red. A green from a
@@ -302,6 +302,8 @@ export interface VerdictProof {
 }
 
 export interface Verdict {
+  /** Runtime stop, not an application assertion failure. */
+  budget?: import("./budget.js").BudgetExhaustion;
   passed: boolean;
   /** Contract actually used for this judgment; missing on historical/unevaluated results. */
   contract?: ContractIdentity;

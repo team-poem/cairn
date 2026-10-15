@@ -6,8 +6,9 @@ import type { FailureClass, Verdict } from "./index.js";
  * died, the host's setup is wrong, the app refused the caller (retry, or fix the setup). 2 is
  * usage: a bad command, a missing argument, an unreadable skill file, before any run starts. A
  * plain `!= 0` gate keeps working; one that read `1` as "any failure" now sees only regressions.
+ * 5 means an optional run budget stopped execution, not an application failure.
  */
-export const FAIL_EXIT_CODE: Record<FailureClass, number> = { flow: 1, script: 3, environment: 4 };
+export const FAIL_EXIT_CODE: Record<FailureClass, number> = { flow: 1, script: 3, environment: 4, budget: 5 };
 export const USAGE_EXIT_CODE = 2;
 
 export function exitCodeFor(verdict: Verdict): number {
@@ -16,11 +17,12 @@ export function exitCodeFor(verdict: Verdict): number {
 }
 
 /** A suite exits with the most demanding class among its failures: any regression blocks before
- * a stale script asks for re-discovery, which comes before an environment asks for a retry. */
+ * a stale script asks for re-discovery, then budget exhaustion, then an environment retry. */
 export function suiteExitCode(verdicts: readonly Verdict[]): number {
   const codes = verdicts.filter((v) => !v.passed).map(exitCodeFor);
   if (codes.length === 0) return 0;
   if (codes.includes(FAIL_EXIT_CODE.flow)) return FAIL_EXIT_CODE.flow;
   if (codes.includes(FAIL_EXIT_CODE.script)) return FAIL_EXIT_CODE.script;
+  if (codes.includes(FAIL_EXIT_CODE.budget)) return FAIL_EXIT_CODE.budget;
   return FAIL_EXIT_CODE.environment;
 }

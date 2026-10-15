@@ -1,4 +1,5 @@
 import { validTargetAnswer } from "../../core/target-choice.js";
+import { combineSignals } from "../../core/abort.js";
 import { createHash } from "node:crypto";
 import type { TargetChoiceRequest, TargetChoiceResult, TargetSelector } from "../../core/target-choice.js";
 
@@ -31,7 +32,8 @@ export class JevTargetSelector implements TargetSelector {
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw new Error("Jev timeout must be positive");
   }
 
-  async select(request: TargetChoiceRequest): Promise<TargetChoiceResult> {
+  async select(request: TargetChoiceRequest, options?: { signal?: AbortSignal }): Promise<TargetChoiceResult> {
+    options?.signal?.throwIfAborted();
     const start = performance.now();
     // Whitelist fields: runtime handles and extension data never enter the request or trace.
     const original = Object.fromEntries(Object.entries(request.original).filter(([k]) => ["text", "role", "selector", "index", "nth"].includes(k)));
@@ -54,13 +56,14 @@ export class JevTargetSelector implements TargetSelector {
     const apiKey = this.options.apiKey ?? process.env.TYPESAFE_API_KEY;
     if (!apiKey) return fail("credentials");
     const controller = new AbortController();
+    const combined = combineSignals(options?.signal ? [controller.signal, options.signal] : [controller.signal]);
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
       base.requested = true;
       const operation = async (): Promise<unknown> => {
         const response = await (this.options.fetch ?? fetch)(ENDPOINT, {
           method: "POST", redirect: "error", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-          body, signal: controller.signal,
+          body, signal: combined.signal,
         });
         if (!response.ok) throw new Error("api-error");
         try { return await response.json(); } catch { throw new Error("invalid-response"); }
@@ -68,6 +71,7 @@ export class JevTargetSelector implements TargetSelector {
       const result = await Promise.race([operation(), new Promise<never>((_, reject) => {
         timeout = setTimeout(() => { controller.abort(); reject(new Error("timeout")); }, this.timeoutMs);
       })]);
+      options?.signal?.throwIfAborted();
       if (!record(result) || typeof result.model !== "string" || !/^jev-[\w.-]+$/.test(result.model) ||
           !record(result.usage) || !tokens(result.usage.input_tokens) || !tokens(result.usage.output_tokens)) return fail("invalid-response");
       base.model = result.model;
@@ -78,8 +82,9 @@ export class JevTargetSelector implements TargetSelector {
       const { choice, confidence, probabilities } = result.answers.target;
       return { ...base, latencyMs: performance.now() - start, answer: { choice, confidence, probabilities } };
     } catch (error) {
+      options?.signal?.throwIfAborted();
       // Never echo response bodies, request headers, SDK errors, or page text to traces.
       return fail(controller.signal.aborted ? "timeout" : error instanceof Error && error.message === "invalid-response" ? "invalid-response" : "api-error");
-    } finally { if (timeout !== undefined) clearTimeout(timeout); }
+    } finally { if (timeout !== undefined) clearTimeout(timeout); combined.dispose(); }
   }
 }

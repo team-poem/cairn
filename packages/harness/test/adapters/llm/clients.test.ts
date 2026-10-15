@@ -93,18 +93,42 @@ describe("subprocess client audit coverage", () => {
     const child = new EventEmitter() as EventEmitter & {
       stdout: EventEmitter;
       stderr: EventEmitter;
-      stdin: { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
+      stdin: EventEmitter & { write: ReturnType<typeof vi.fn>; end: ReturnType<typeof vi.fn> };
       kill: ReturnType<typeof vi.fn>;
     };
     child.stdout = new EventEmitter();
     child.stderr = new EventEmitter();
-    child.stdin = { write: vi.fn(), end: vi.fn() };
+    child.stdin = Object.assign(new EventEmitter(), { write: vi.fn(), end: vi.fn() });
     child.kill = vi.fn();
     return child;
   }
 
   beforeEach(() => {
     cp.spawn.mockReset();
+  });
+
+  it.each([ClaudeCodeLlmClient, CodexLlmClient])("cancellation kills the child and rejects even a late successful exit: %s", async Client => {
+    const child = fakeChild();
+    const caller = new AbortController();
+    const reason = new Error("budget deadline");
+    cp.spawn.mockImplementation(() => {
+      queueMicrotask(() => {
+        caller.abort(reason);
+        child.stdout.emit("data", "late success");
+        child.emit("close", 0);
+      });
+      return child;
+    });
+    await expect(new Client().complete("x", { signal: caller.signal })).rejects.toBe(reason);
+    expect(child.kill).toHaveBeenCalledTimes(1);
+    expect(child.kill).toHaveBeenCalledWith("SIGKILL");
+  });
+
+  it.each([ClaudeCodeLlmClient, CodexLlmClient])("pre-cancelled calls never spawn: %s", async Client => {
+    const caller = new AbortController();
+    caller.abort(new Error("stopped"));
+    await expect(new Client().complete("x", { signal: caller.signal })).rejects.toThrow("stopped");
+    expect(cp.spawn).not.toHaveBeenCalled();
   });
 
   // claude-code-kills-on-timeout.test.ts

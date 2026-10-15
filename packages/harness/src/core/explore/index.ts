@@ -11,6 +11,7 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
+import { withBudget, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
 import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
@@ -24,7 +25,7 @@ import { exploreSystem, buildExplorePrompt } from "./prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
-export interface ExploreOptions {
+export interface ExploreOptions extends BudgetOptions {
   /** Optional host app knowledge, fixed for this exploration. Max 16 KiB UTF-8; never evidence. */
   appContext?: string;
   driver: Driver;
@@ -76,6 +77,16 @@ const MAX_CONSECUTIVE_BLOCKS = 3;
 const DEFAULT_MAX_STEPS = 40;
 
 export async function explore(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
+  try {
+    return await withBudget(opts, "explore", (options, scope) =>
+      exploreWithinBudget(charter, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));
+  } catch (error) {
+    if (error instanceof BudgetExceededError && !opts[budgetScope]) opts.trace?.emit({ kind: "budget-exhausted", payload: error.budget });
+    throw error;
+  }
+}
+
+async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
   const appContext = snapshotAppContext(opts.appContext);
   const {
     driver,
@@ -132,6 +143,7 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
 
   await driver.goto(baseUrl);
   steps.push({ kind: "goto", url: baseUrl });
+  opts[budgetScope]?.recordAction({ step: steps[steps.length - 1]!, ok: true });
   let currentUrl: string | undefined = baseUrl;
   visit(baseUrl);
 
@@ -277,10 +289,12 @@ export async function explore(charter: string, opts: ExploreOptions): Promise<Ex
       const step = await applyDecision(driver, decision);
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
+      opts[budgetScope]?.recordAction({ step, ok: true });
       pending = { mark, decision, stepIndex: steps.length - 1 };
       onStep?.(decision, step);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
+      rethrowBudget(err);
       pushFailure(`${describeAction(decision)} — ${message}`);
       // An action the page wouldn't take is itself a UX signal — an overlay-covered button, a
       // control that exists in the tree but can't be driven.

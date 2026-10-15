@@ -258,16 +258,26 @@ export function deriveAssertions(
       // The observed destination wins — but a model that expected the success page while the run
       // sat on an error page is exactly what a reader needs to see, and silently replacing one with
       // the other is the kind of substitution `onDrop` exists to surface.
-      else if (
-        a.kind === "navigated" &&
-        a.to &&
-        grounded.kind === "navigated" &&
+      else if (a.kind === "navigated" && a.to && grounded.kind === "navigated") {
         // `urlReached`, not string equality: the frozen value is normalized while the proposal may
         // carry a scheme or a trailing slash, and a signal that cries on formatting is one readers
         // learn to skip. Same predicate the verdict uses, so trace and judgment agree.
-        !(grounded.to !== undefined && urlReached(grounded.to, a.to))
-      )
-        onDrop?.(a, `the run reached ${grounded.to ?? "no recorded destination"}, not ${a.to}`);
+        if (grounded.to !== undefined) {
+          if (!urlReached(grounded.to, a.to)) onDrop?.(a, `the run reached ${grounded.to}, not ${a.to}`);
+        }
+        // #290: the destination WAS observed but refused at freeze, so "no recorded destination"
+        // would send a reader after a URL capture that worked. Judge the proposal against the raw
+        // URL — a real mismatch must stay visible — but print only the generalized form, so the
+        // reason carries no run-minted id the proposal did not already.
+        else if (grounded.vacuousBecause === "no-destination" && finalUrl && destination) {
+          onDrop?.(
+            a,
+            urlReached(finalUrl, a.to)
+              ? `the run reached the proposed destination, but it generalizes to ${destination}, which does not name a page, so no destination check was frozen`
+              : `the run reached ${destination}, not ${a.to}`,
+          );
+        } else onDrop?.(a, `the run recorded no destination URL, so ${a.to} could not be checked`);
+      }
     } else {
       onDrop?.(a, `unknown proposed kind "${(a as { kind: string }).kind}"`);
     }

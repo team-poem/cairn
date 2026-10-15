@@ -2,6 +2,9 @@
 
 ## Principle
 
+For identifying the checks behind a freeze/verdict without changing their outcome, see
+[contract-identity.md](contract-identity.md) (#196). Identity is advisory, not another success gate.
+
 cairn **does not judge by "the screen looked right."** It judges on observable facts in *three layers* — pressing the chronic AI-QA failure (*false pass*) down with evidence.
 
 ## Three-layer evidence (`Evidence`)
@@ -69,6 +72,10 @@ Three composition rules keep `verdict.passed` honest for the CI-gate use case:
   `benign`, the seam for app-specific noise.
 
 ### Naming the red (#173)
+
+[Budget exhaustion](run-budget.md) is a separate execution stop: `failure: "budget"`, CLI exit 5,
+with structured `verdict.budget`. It bypasses application classification and never earns a green
+proof, even when finalized again. The classification below applies to completed app judgments.
 
 A red means one of three next actions, and they are different people's jobs: the app did not do
 what the flow asserts (block the build), the frozen scenario no longer fits the app (re-discover),

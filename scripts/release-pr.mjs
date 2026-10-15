@@ -8,6 +8,7 @@ export async function ensureReleasePullRequest({ github, repo, version, previous
   const body = [
     "Prepared by `Prepare release`. The version bump, release entry and journal archive are on develop.", "",
     `Write the release notes here before merging. Merging publishes ${version} to npm, pushes the tag and drafts the GitHub release.`, "",
+    "Merge this develop -> main PR with **Create a merge commit** only. Squash/rebase disconnects release history and can cause repeated changes and conflicts in the next release.", "",
     `\`spec/journal/state.md\` was last touched ${standingDays} days ago, on ${standingLast}. Review it if a standing decision changed.`, "",
     `Full diff: https://github.com/${repo.owner}/${repo.repo}/compare/v${previous}...develop`,
   ].join("\n");

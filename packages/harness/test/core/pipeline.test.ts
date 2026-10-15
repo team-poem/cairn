@@ -11,6 +11,9 @@ import type { TraceEvent } from "../../src/core/trace.js";
 import { startTrace } from "../../src/core/trace.js";
 import { ENGINE_VERSION } from "../../src/version.js";
 import { StubDriver } from "../support/doubles.js";
+import { useClockDigest } from "../support/clock-digest.js";
+
+useClockDigest();
 
 class CaptureReporter implements Reporter {
   last?: Result;

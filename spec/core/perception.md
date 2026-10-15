@@ -164,6 +164,22 @@ require a fresh observation or cause a ref to be refused. Fast guard/facts/valid
 retain navigation detection. Scroll, native inputs, legacy probes and other evaluations keep
 ordinary waiting. Negotiation caching never caches a node validation.
 
+Chrome `settle()` uses one bounded quiet window for current network activity and document
+mutations (#175). A single nonexcluded request, an in-flight `[pending]` row, or a changed
+document/revision restarts the window. Failed fetches and evicted pending evidence do not
+stand in for active requests. A separate, expiring DOM observer retains only a revision;
+it never clears or reuses exact-reference guards. Its probes use the negotiated fast
+evaluation mode where available; a missing DOM measurement falls back to network waiting.
+The wait clears the lookup snapshot cache so late rendering is visible to subsequent lookup.
+
+`ChromeDriverOptions.settle` supplies defaults for engine and internal waits; per-call
+`SettleOptions` override individual fields. `ignoreRequests` declares URL substrings that
+do not count toward network idle. It neither removes evidence nor changes assertions or
+the product's `benign` policy. Polling knowledge belongs to the consumer, not a universal
+traffic heuristic. Both waits remain best-effort: a deadline or probe failure is not proof
+of readiness. CSS-only animation, shadow/frame rendering and work scheduled after the
+quiet window still require a step `expect` or explicit `waitFor`.
+
 Opt-in Chrome capture requests the full MCP accessibility tree because compact snapshots can
 omit listbox options. It excludes virtual `InlineTextBox` runs, which can share non-actionable
 UIDs; the owning text row remains. Ordinary no-options snapshots keep their existing shape.

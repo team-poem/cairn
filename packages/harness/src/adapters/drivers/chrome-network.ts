@@ -2,11 +2,11 @@ import { stepError } from "../../core/errors.js";
 import type { NetworkRequest } from "../../core/types.js";
 
 /** MCP request IDs are stable across navigations, but local to a page's collector. */
-export function networkRows(text: string): { id: string; request: NetworkRequest }[] {
-  const rows: { id: string; request: NetworkRequest }[] = [];
+export function networkRows(text: string): { id: string; pending: boolean; request: NetworkRequest }[] {
+  const rows: { id: string; pending: boolean; request: NetworkRequest }[] = [];
   for (const line of text.split("\n")) {
     const m = line.match(/^reqid=(\d+)\s+(\w+)\s+(\S+)\s+\[([^\]]+)\]/);
-    if (m) rows.push({ id: m[1]!, request: {
+    if (m) rows.push({ id: m[1]!, pending: m[4] === "pending", request: {
       method: m[2]!, url: m[3]!, status: /^\d+$/.test(m[4]!) ? Number(m[4]) : 0,
     } });
   }

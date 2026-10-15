@@ -586,6 +586,55 @@ describe("a destination that names no page degrades to bare navigated (#182 revi
 });
 
 
+describe("a refused destination is reported as refused, not missing (#290)", () => {
+  const ran = (finalUrl: string | undefined): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl, blocked: false },
+    perception: {},
+    logic: { requests: [], console: [] },
+  });
+  const dropsFor = (to: string, evidence: Evidence) => {
+    const drops: string[] = [];
+    const out = deriveAssertions([{ kind: "navigated", to }], evidence, false, [], (_a, reason) => drops.push(reason));
+    return { out, drops };
+  };
+
+  it("an observed id-leaf destination says it was observed and refused, without the run-minted id", () => {
+    const { out, drops } = dropsFor("shop.co/products/586738", ran("https://shop.co/products/586738"));
+    expect(drops).toHaveLength(1);
+    expect(drops[0]).toContain("generalizes to shop.co/products/*");
+    expect(drops[0]).not.toContain("no recorded destination");
+    expect(drops[0]).not.toContain("586738");
+    // the safety decision stands: a wildcard leaf is still not frozen as a destination
+    expect(out.some((a) => a.kind === "navigated" && a.to !== undefined)).toBe(false);
+  });
+
+  it("a refused destination that differs from the proposal is still a mismatch", () => {
+    const { drops } = dropsFor("shop.co/cart", ran("https://shop.co/products/586738"));
+    expect(drops).toEqual(["the run reached shop.co/products/*, not shop.co/cart"]);
+  });
+
+  it("navigation with no observed URL stays distinguishable", () => {
+    const { out, drops } = dropsFor("shop.co/checkout/complete", ran(undefined));
+    expect(drops).toEqual(["the run recorded no destination URL, so shop.co/checkout/complete could not be checked"]);
+    expect(out).toContainEqual({ kind: "navigated", origin: "derived" });
+  });
+
+  it("a literal destination and a literal-leaf wildcard keep their behavior", () => {
+    const literal = dropsFor("https://shop.co/checkout/complete/", ran("https://shop.co/checkout/complete"));
+    expect(literal.drops).toEqual([]);
+    expect(literal.out).toContainEqual({ kind: "navigated", to: "shop.co/checkout/complete", origin: "derived" });
+    // Only the freeze is pinned here: the drop for this case compares the wildcard form against
+    // the proposal's literal id, which is pre-existing behavior outside #290.
+    const done = dropsFor("shop.co/orders/586738/done", ran("https://shop.co/orders/586738/done"));
+    expect(done.out).toContainEqual({ kind: "navigated", to: "shop.co/orders/*/done", origin: "derived" });
+  });
+
+  it("a frozen destination that differs from the proposal is reported as before", () => {
+    const { drops } = dropsFor("shop.co/checkout/complete", ran("https://shop.co/login"));
+    expect(drops).toEqual(["the run reached shop.co/login, not shop.co/checkout/complete"]);
+  });
+});
+
 describe("generalizing a destination also widens vacuity (#137 interaction)", () => {
   it("entering on one detail page and landing on another is now marked vacuous", () => {
     // The frozen check `shop.co/p/*` cannot tell the two apart, so the starting state already

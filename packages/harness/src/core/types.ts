@@ -77,7 +77,7 @@ export interface AssertionMeta {
   vacuous?: true;
   /** Why the check cannot discriminate, when it is not the usual reason. Absent means the starting
    * state already satisfied it; `no-destination` means the freeze had a destination it could not
-   * name (every path segment was run-minted), so "the flow navigated somewhere" is all that is
+   * name (no path, or a run-minted last segment), so "the flow navigated somewhere" is all that is
    * left. The verdict says which, instead of reporting a flow that did navigate as one that
    * changed nothing. */
   vacuousBecause?: "no-destination";
@@ -110,8 +110,25 @@ export type Assertion = AssertionMeta &
   | { kind: "custom"; name: string; params?: Record<string, unknown> }
   );
 
+/** Declared judgment inputs, not a content hash of the steps or a guarantee of equal outcomes. */
+export interface ContractIdentity {
+  version: 1;
+  fingerprint: string;
+  intentHash?: string;
+  /** False when intent/judge inputs are unknown or cannot be represented without loss. */
+  complete: boolean;
+}
+
+/** Creation inputs are separate from the contract that judges replay. No raw app description. */
+export interface ScenarioProvenance {
+  appContextHash?: string;
+}
+
 export interface Scenario {
   name: string;
+  /** Optional on legacy files. Recomputed from current inputs for each verdict. */
+  contract?: ContractIdentity;
+  provenance?: ScenarioProvenance;
   steps: Step[];
   assertions: Assertion[];
   /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
@@ -173,6 +190,9 @@ export interface SettleOptions {
   idleMs?: number;
   timeoutMs?: number;
   pollMs?: number;
+  /** URL substrings excluded only from the network-idle wait. Requests remain in evidence
+   * and assertions; this is separate from the product's benign failure policy. */
+  ignoreRequests?: readonly string[];
 }
 
 export interface NetworkRequest {
@@ -247,7 +267,7 @@ export interface AssertionResult {
  * the verdict already holds; leans to `flow` when unsure, so a real regression is never filed
  * under "retry".
  */
-export type FailureClass = "flow" | "script" | "environment";
+export type FailureClass = "flow" | "script" | "environment" | "budget";
 
 /**
  * What a green verdict actually proves (#197), the mirror of `failure` on a red. A green from a
@@ -282,7 +302,13 @@ export interface VerdictProof {
 }
 
 export interface Verdict {
+  /** Runtime stop, not an application assertion failure. */
+  budget?: import("./budget.js").BudgetExhaustion;
   passed: boolean;
+  /** Contract actually used for this judgment; missing on historical/unevaluated results. */
+  contract?: ContractIdentity;
+  /** Provenance of the scenario being judged, not the host's current description. */
+  provenance?: ScenarioProvenance;
   results: AssertionResult[];
   /** Set when the verdict didn't come from the results alone — e.g. failing closed on an empty assertion set. */
   detail?: string;

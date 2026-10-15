@@ -32,16 +32,30 @@ Contributions that respect that contract are the most valuable kind.
 5. **Commit** following the [commit convention](#commit-convention).
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
    resolves. `cairn-bot` validates that every PR links an issue.
-7. **Respond to review.** Once approved, a maintainer adds the `needs-merge` label to request
-   a squash merge into `develop` by `cairn-pingu`. The bot waits for approval and the
+7. **Respond to review.** Once approved, a maintainer removes `status/1-needs-review` and
+   adds `needs-merge` to request a squash merge into `develop` by `cairn-pingu`.
+   This transition is manual: approval does not replace the review label, and leaving both
+   labels present blocks the bot. Without `needs-merge`, the merge label check is skipped
+   and the bot does not evaluate an open PR for merging.
+   The bot waits for approval and the
    latest CI workflow to pass. The squashed commit credits the PR author; the bot is
-   recorded as the merger. Remove `needs-merge` before merging to cancel the request.
+   recorded as the merger. After a successful merge the bot removes `needs-merge`.
+   Remove `needs-merge` before merging to cancel the request.
+   Add `no-merge` to block the bot even when `needs-merge` is present. Removing `no-merge`
+   resumes an existing request, so remove `needs-merge` too if you want to cancel it.
 
 ## Releases
 
 `develop` is where work accumulates; `main` holds the latest published release. A maintainer
 cuts a release by bumping `packages/harness/package.json`'s version on `develop`, then merging
 `develop` → `main`. **Only maintainers merge to `main`** — that merge _is_ the release.
+
+Use **Create a merge commit** for every PR into `main`; its ruleset allows only that method.
+Feature PRs into `develop` can still be squash-merged. Never squash or rebase a release or a
+main-to-develop history repair: the shared branch ancestry must survive. Preparation checks the
+history before writing release files and again before pushing. If it reports disconnected history,
+merge `origin/main` into `develop`, resolve and verify the content, then retry; do not force-push
+either shared branch or blindly discard main-only changes. Fetch full, current refs first.
 
 Once the merge lands, `.github/workflows/release.yml` takes over: it publishes the new
 version to npm, tags the merge commit `vX.Y.Z`, and opens a draft GitHub release with
@@ -58,20 +72,57 @@ need them:
 
 - `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` — the `cairn-bot` GitHub App's client
   ID (not the numeric app ID) and a private key generated from the App settings. Used by
-  PR triage and label-driven squash merging, not the release workflow. Merging uses
-  the App's existing Contents write and Pull requests write permissions. CI reads use
-  the workflow's read-only `GITHUB_TOKEN`, so the App needs no additional permissions.
+  PR triage, label-driven squash merging, and the trusted OCI CI relay, not the release
+  workflow. Merging uses the App's existing Contents write and Pull requests write
+  permissions. Merge-eligibility CI reads use the workflow's read-only `GITHUB_TOKEN`.
+  The OCI relay separately requests a token
+  restricted to `team-poem/oci-ci`, with Contents write for dispatch and Actions read
+  for polling. See [OCI verification](docs/oci-ci.md).
 - `NPM_TOKEN` — unrelated to `cairn-bot`. An npm granular access token with publish rights
   on `cairn-engine` (bypass-2FA "Automation"-style token, since `release.yml` publishes
   unattended). Only whoever owns the npm package registers this.
 
-The `needs-merge` label is case-sensitive. Create it once in repository settings. The merge
-workflow uses the existing App secrets and does not require GitHub's native auto-merge
+The `needs-merge`, `no-merge`, and `status/1-needs-review` labels are case-sensitive.
+Create the merge labels once in repository settings; PR triage creates the review label.
+`no-merge` and `status/1-needs-review` take precedence over `needs-merge` and are checked
+again immediately before the merge API call. The separate, optional `merge-label-policy`
+job runs only when the event includes `needs-merge`. It rechecks live labels and finishes
+without failure if the request was removed while queued or running. Ordinary review and
+`no-merge` labels without a merge request do not fail this check. The workflow uses read-only
+permissions, including on forks, and never changes labels. Check status is shared by commits,
+so every requested open develop PR using the same head must have eligible labels;
+unrequested PRs sharing that head are ignored.
+If another PR sharing that head closes, changes base, or moves to a different head,
+rerun the remaining PR's **Merge label policy** job to refresh a previously blocked result.
+The merge workflow uses the existing App secrets and
+does not require GitHub's native auto-merge
 setting. Its CI completion and five-minute retry triggers become active when the
 workflow reaches the default branch (`main`); label and same-repository review events
 can run once it reaches `develop`. Scheduled runs may be delayed by GitHub. Drafts,
 conflicts, missing approvals, and failed or pending CI leave the PR open. Release PRs
-to `main` remain manual.
+to `main` remain manual. The Actions run's **Merge decisions** summary explains whether
+the bot merged a PR or is waiting for a label, approval, CI, or GitHub merge requirements.
+A successful workflow run means the evaluation completed, not necessarily that a PR merged.
+cairn-pingu also keeps one short English comment on blocked develop PRs with an active
+`needs-merge` request. Review or `no-merge` labels alone do not create or update a comment.
+While `needs-merge` is present, the comment explains the current label, approval, CI, or
+merge-requirement blocker. A changed reason updates that comment; unchanged scheduled
+evaluations do not post again. Removing `needs-merge` stops pending notices, including
+ones queued before the request was removed. After merging, an
+existing notice becomes `Merged.`; closing without merging also resolves it. The bot
+rechecks the PR before publishing a queued reason. Comment failures are logged without
+changing merge eligibility, and the bot only updates its own marked comment.
+If label cleanup fails after a merge, the run reports the failure. The PR's closed event
+also attempts cleanup; rerun that event job if cleanup still fails. The bot checks that
+the PR is merged without merging it again. Periodic scans only consider open PRs.
+
+The legacy required-check configuration in `.github/rulesets/merge-label-policy.json`
+is disabled. Do not enable it as a manual merge guard: GitHub accepts skipped checks, so
+this request-only job cannot enforce labels on the manual merge button. Maintainers must
+follow the label transition themselves when merging manually. The bot still applies its
+own label, approval and full-CI checks before merging. The JSON file alone does not change
+live GitHub settings or other rulesets. Actions are asynchronous, so a label change is not
+an atomic lock on the merge API.
 
 ## Development setup
 

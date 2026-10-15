@@ -11,6 +11,19 @@ For a short, human-authored description of the stateful fixture, see the
 [shop app-context proposal example](../../docs/examples/shop-app-context.md). It is not a
 supported configuration file; the engine does not load it.
 
+## Readiness regression (#175)
+
+`npm run build -w cairn-engine && node bench/local/settle.mjs --out bench/results/settle.json`
+runs public-driver checks in real isolated Chrome without model calls. It holds a single
+fetch behind a skeleton, checks deferred rendering, compares ordinary and explicitly excluded
+continuous polling, retains excluded HTTP failures for `no-failed-requests`, caps continuous DOM
+mutation, and replays a load-and-commit scenario with page and server assertions. The report path
+must be new. `CAIRN_MCP_ENTRY` optionally selects an installed MCP entry point.
+
+Add `--baseline-engine /absolute/path/to/old/dist/index.js` to first reproduce the original
+pending-fetch and DOM-quiet defects and the absence of polling exclusions using the same fixtures.
+This script uses public driver methods and reports observed timings; it does not patch transport.
+
 ## Run a small scripted smoke
 
 Install the lockfile dependencies with `npm ci`, and install Chrome. The runner

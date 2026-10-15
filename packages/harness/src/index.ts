@@ -1,6 +1,10 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { BudgetExceededError, validateRunBudget } from "./core/budget.js";
+export type { RunBudget, BudgetExhaustion } from "./core/budget.js";
+export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";
+export type { IdentifyScenarioOptions, JudgmentOptions } from "./core/contract.js";
 export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
@@ -13,7 +17,7 @@ export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers, DEFAULT_LOC
 export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 export { runScenario, needsLlmCritic, applyHeals, applyStepHeals } from "./run.js";
 export type { RunScenarioOptions, RunScenarioResult } from "./run.js";
-export { runSuite } from "./suite.js";
+export { runSuite, hashCase } from "./suite.js";
 export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite.js";
 export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
 export { ENGINE_VERSION } from "./version.js";
@@ -39,6 +43,7 @@ export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { JsonReporter } from "./adapters/reporters/json.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";
 export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
+export type { ChromeDriverOptions } from "./adapters/drivers/chrome.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 export { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";
@@ -80,3 +85,4 @@ export { UsageMeter, emptyUsage } from "./core/usage.js";
 /** Shared diagnostics for hosts displaying discovery and freeze evidence (see docs/package-boundaries.md). */
 export { describeAction } from "./core/discover/decision.js";
 export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";
+export { MAX_APP_CONTEXT_BYTES, validateAppContext } from "./core/app-context.js";

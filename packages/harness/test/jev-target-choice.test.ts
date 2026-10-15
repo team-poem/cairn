@@ -19,6 +19,20 @@ function response(choice = "o1-0", confidence = 0.8) {
 const transport = (value: unknown, status = 200) => vi.fn<typeof fetch>(async () => new Response(JSON.stringify(value), { status }));
 
 describe("official Jev contract (mock HTTP, not model quality)", () => {
+  it("composes a caller signal without AbortSignal.any and disposes its listener", async () => {
+    vi.stubGlobal("AbortSignal", new Proxy(AbortSignal, { get: (target, key, receiver) =>
+      key === "any" ? undefined : Reflect.get(target, key, receiver) }));
+    try {
+      const caller = new AbortController();
+      const remove = vi.spyOn(caller.signal, "removeEventListener");
+      const http = transport(response());
+      const selected = await new JevTargetSelector({ apiKey: "test-key", fetch: http }).select(request, { signal: caller.signal });
+      expect(selected.answer?.choice).toBe("o1-0");
+      expect(http).toHaveBeenCalledTimes(1);
+      expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    } finally { vi.unstubAllGlobals(); }
+  });
+
   it("sends a single finite Choice, separates probability from confidence, and pins the model", async () => {
     const http = transport(response());
     const selected = await new JevTargetSelector({ apiKey: "test-key", fetch: http }).select(request);
@@ -125,6 +139,23 @@ async function run(driver = new ExactDriver(), http = choiceTransport(), s = sce
 }
 
 describe("locator-only pilot safety (scripted choices)", () => {
+  it.each([0, 1])("separately configured target-choice providers respect the shared allowance: %s", async maxModelCalls => {
+    const http = choiceTransport();
+    const driver = new ExactDriver();
+    const result = await runScenario(scenario(), { driver, budget: { maxModelCalls },
+      targetChoice: { selector: new JevTargetSelector({ apiKey: "test", fetch: http }), minConfidence: 0.7 },
+      expectTimeoutMs: 0, reporter: { emit: async () => {} },
+    });
+    expect(http).toHaveBeenCalledTimes(maxModelCalls);
+    expect(result.result.usage?.llmCalls).toBe(maxModelCalls);
+    expect(result.result.verdict.passed).toBe(maxModelCalls === 1);
+    if (!maxModelCalls) {
+      expect(result.result.verdict.budget?.phase).toBe("target-choice");
+      expect(driver.executed).toEqual([]);
+      expect(result.healedScenario).toBeUndefined();
+    }
+  });
+
   it("keeps finite-choice policy and provider out of the complete browser bundle", async () => {
     const result = await build({ entryPoints: [fileURLToPath(new URL("../src/browser.ts", import.meta.url))],
       bundle: true, write: false, platform: "browser", format: "esm", metafile: true });

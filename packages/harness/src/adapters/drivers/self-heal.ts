@@ -6,6 +6,7 @@
  */
 import type { Driver, LlmClient, PerceptionAdapter } from "../../core/ports.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
+import { rethrowBudget } from "../../core/budget.js";
 import type {
   Evidence,
   PageElement,
@@ -17,6 +18,7 @@ import { PerceptionObservation, assertDecisionCurrent, decisionReference } from 
 import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { validateSecrets, redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
+import { snapshotAppContext, withAppContext } from "../../core/app-context.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
  * role/index, not a brittle text-only one) was used instead. */
@@ -27,6 +29,8 @@ export interface Heal {
 }
 
 export interface SelfHealOptions {
+  /** Optional app guidance, fixed at construction. Not supplied to the finite-choice pilot. */
+  appContext?: string;
   /** Experimental finite selection. The host supplies context only for steps with original
    * post-conditions, then calls confirmChoice after the existing step verifier finishes. */
   choice?: {
@@ -89,6 +93,7 @@ export class SelfHealingDriver implements Driver {
     private readonly opts: SelfHealOptions = {},
   ) {
     validateSecrets(opts.secrets);
+    this.llm = withAppContext(llm, snapshotAppContext(opts.appContext, opts.secrets));
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
@@ -124,6 +129,7 @@ export class SelfHealingDriver implements Driver {
     try {
       await dispatch(target, ref);
     } catch (cause) {
+      rethrowBudget(cause);
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
       if (ref !== undefined) throw cause;
       // Transport, script, and handler failures are not evidence of a stale target.

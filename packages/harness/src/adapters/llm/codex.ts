@@ -36,6 +36,7 @@ export class CodexLlmClient implements LlmClient {
   }
 
   async complete(prompt: string, opts: CompleteOptions = {}): Promise<string> {
+    opts.signal?.throwIfAborted();
     // codex exec has no system-prompt flag; carry it as a labelled block in the prompt.
     const input = opts.system ? `<system>\n${opts.system}\n</system>\n\n${prompt}` : prompt;
 
@@ -57,8 +58,12 @@ export class CodexLlmClient implements LlmClient {
     ];
 
     try {
+      opts.signal?.throwIfAborted();
       await new Promise<void>((resolve, reject) => {
         const child = spawn(this.bin, args, { stdio: ["pipe", "ignore", "pipe"] });
+        const abort = () => { child.kill("SIGKILL"); };
+        opts.signal?.addEventListener("abort", abort, { once: true });
+        child.stdin.on("error", () => {});
         let stderr = "";
         const timer = setTimeout(() => {
           child.kill("SIGKILL");
@@ -67,19 +72,24 @@ export class CodexLlmClient implements LlmClient {
 
         child.stderr.on("data", (d) => (stderr += d));
         child.on("error", (err) => {
+          opts.signal?.removeEventListener("abort", abort);
           clearTimeout(timer);
           reject(err);
         });
         child.on("close", (code) => {
+          opts.signal?.removeEventListener("abort", abort);
           clearTimeout(timer);
-          if (code === 0) resolve();
+          if (opts.signal?.aborted) reject(opts.signal.reason);
+          else if (code === 0) resolve();
           else reject(new Error(`codex exec exited ${code}: ${stderr.trim()}`));
         });
 
         child.stdin.write(input);
         child.stdin.end();
       });
-      return (await readFile(outFile, "utf8")).trim();
+      const reply = (await readFile(outFile, "utf8")).trim();
+      opts.signal?.throwIfAborted();
+      return reply;
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

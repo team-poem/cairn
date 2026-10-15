@@ -77,6 +77,29 @@ heuristic and best-effort: it is time-bounded and must not throw if the wait its
 not prove that a step succeeded. Deterministic readiness comes from a step's `expect` post-condition
 or an explicit `waitFor`, which the engine polls against `observe()` and `snapshot()`.
 
+The Chrome Driver waits for both network and DOM activity to quiet down. A single pending
+request or a new document mutation keeps the wait active, up to the configured timeout.
+Declare an application's background polling explicitly through the Driver's wait defaults:
+
+```ts
+import { ChromeDevToolsDriver, runScenario } from "cairn-engine";
+
+const driver = new ChromeDevToolsDriver({
+  settle: { ignoreRequests: ["/api/notification-count", "/api/keepalive"] },
+});
+try {
+  await runScenario(scenario, { driver });
+} finally {
+  await driver.close();
+}
+```
+
+These defaults also apply to discovery and waits inside `type`/`select`. A direct call such
+as `driver.settle({ timeoutMs: 2_000 })` overrides that field and retains the exclusions;
+`ignoreRequests: []` clears them. Matching uses URL substrings, so choose patterns that do
+not also match the flow's important requests. Excluded requests still appear in evidence
+and can fail assertions. This option does not mark a failure `benign`.
+
 When a Driver throws during a step, it can attach the structured `kind` from the existing
 [`StepErrorKind`](../packages/harness/src/core/types.ts) contract. Create one with
 [`stepError`](../packages/harness/src/core/errors.ts), or set the same plain `kind` property on

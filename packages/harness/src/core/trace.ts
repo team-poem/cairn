@@ -6,7 +6,7 @@
  */
 import type { TraceSink } from "./ports.js";
 import type { TargetChoiceAudit } from "./target-choice.js";
-import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind } from "./types.js";
+import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind, ContractIdentity, ScenarioProvenance } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
  * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it.
@@ -16,8 +16,10 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.5 — `step.payload.errorKind`, `assertion.payload.statuses`/`reason` (#212): the typed signals a verdict's class is read from.
  * 1.6 — perception/reference binding gates and the explore phase (#221).
  * 1.7 — typed locator-choice evidence; no change to proof grading.
- * 1.8 — inconclusive assertion reason (#248). */
-export const TRACE_VERSION = "1.8";
+ * 1.8 — inconclusive assertion reason (#248).
+ * 1.9 — freeze/verdict contract identity and context provenance (#196).
+ * 1.10 — budget-exhausted and structured budget verdict metadata (#284). */
+export const TRACE_VERSION = "1.10";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -36,6 +38,7 @@ interface Envelope {
 
 export type TraceEvent = Envelope &
   (
+    | { kind: "budget-exhausted"; payload: import("./budget.js").BudgetExhaustion }
     | { kind: "target-choice"; payload: TargetChoiceAudit }
     | { kind: "trace"; payload: { version: string; runId: string; engine: { name: "cairn"; version: string } } }
     | { kind: "run-end"; payload: { passed: boolean; usage?: RunUsage } }
@@ -57,6 +60,8 @@ export type TraceEvent = Envelope &
         payload: {
           ref: string;
           caseHash?: string;
+          contract?: ContractIdentity;
+          provenance?: ScenarioProvenance;
           assertions: { user: number; derived: number; unknown: number };
           truncated?: boolean;
           /** `METHOD url` of a flow action no frozen check can prove (#184) — advisory. */

@@ -5,14 +5,18 @@
  */
 import type { Driver, LlmClient, StepHeal, StepHealer, PerceptionAdapter } from "./ports.js";
 import type { Step } from "./types.js";
+import { rethrowBudget } from "./budget.js";
 import { validateSecrets, redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
 import { describeAmbiguity } from "./discover/decision.js";
 import { actionRules, actionVocabulary, PERCEPTION_RULES } from "./discover/prompt.js";
 import { PerceptionObservation } from "./observation.js";
+import { snapshotAppContext, withAppContext } from "./app-context.js";
 
 export interface StepHealOptions {
+  /** Optional app guidance, snapshotted at healer construction for this run. */
+  appContext?: string;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
 }
@@ -36,7 +40,10 @@ export class LlmStepHealer implements StepHealer {
     /** Values for `{name}` placeholders (#174): the healer types them and never writes them. */
     private readonly secrets: Secrets = {},
     private readonly options: StepHealOptions = {},
-  ) { validateSecrets(secrets); }
+  ) {
+    validateSecrets(secrets);
+    this.llm = withAppContext(llm, snapshotAppContext(options.appContext, secrets));
+  }
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
     if (this.attempts >= this.maxHeals) return null;
@@ -58,14 +65,16 @@ export class LlmStepHealer implements StepHealer {
         const evidence = await driver.observe();
         if (!this.options.policy.vet(decision, { elements, url: evidence.execution.finalUrl }).ok) return null;
       }
-    } catch {
+    } catch (error) {
+      rethrowBudget(error);
       return null;
     }
     if (decision.action === "done") return null;
     let healed: Step;
     try {
       healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself
-    } catch {
+    } catch (error) {
+      rethrowBudget(error);
       return null;
     }
     // Keep the original intent + expect on the re-frozen step so it stays verifiable next replay.

@@ -5,11 +5,11 @@ name: Merge labeled PR
 on:
   pull_request_target:
     branches: [develop]
-    types: [labeled, unlabeled, synchronize, reopened, ready_for_review, edited]
+    types: [labeled, unlabeled, synchronize, reopened, ready_for_review, edited, closed]
   pull_request_review:
     types: [submitted, dismissed]
   workflow_run:
-    workflows: [ci, pr triage]
+    workflows: [ci, pr triage, Merge label policy]
     types: [completed]
   schedule:
     - cron: "*/5 * * * *"
@@ -26,10 +26,14 @@ concurrency:
 jobs:
   merge:
     # Fork review events do not receive secrets; the periodic retry handles them.
+    # Closed events still resolve prior notices and clean up merged requests.
     if: >-
-      github.event_name != 'pull_request_review'
+      (github.event_name != 'pull_request_review'
       || (github.event.pull_request.base.ref == 'develop'
-      && github.event.pull_request.head.repo.full_name == github.repository)
+      && github.event.pull_request.head.repo.full_name == github.repository))
+      && (!github.event.pull_request
+      || github.event.action == 'closed'
+      || contains(github.event.pull_request.labels.*.name, 'needs-merge'))
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

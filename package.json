@@ -23,11 +23,12 @@
     "test:compatibility": "node bench/ci-smoke.mjs",
     "test:document-refs": "node scripts/test-document-refs.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
+    "test:settle": "node bench/local/settle.mjs",
     "check:language": "node scripts/check-language.mjs",
     "journal:status": "node scripts/journal.mjs status",
     "journal:check": "node scripts/journal.mjs check",
     "journal:archive": "node scripts/journal.mjs archive",
-    "release:prepare": "node scripts/release-prepare.mjs"
+    "release:prepare": "node scripts/release-history.mjs && node scripts/release-prepare.mjs"
   },
   "devDependencies": {
     "esbuild": "0.28.1"

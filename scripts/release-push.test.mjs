@@ -19,12 +19,16 @@ async function setup(t) {
   git(local, "config", "commit.gpgsign", "false");
   await mkdir(join(local, "packages/harness"), { recursive: true });
   await mkdir(join(local, "spec/journal/entries"), { recursive: true });
-  await writeFile(join(local, "packages/harness/package.json"), '{"version":"2.9.3"}\n');
+  await writeFile(join(local, "packages/harness/package.json"), '{"version":"2.9.2"}\n');
   await writeFile(join(local, "package-lock.json"), '{}\n');
   await writeFile(join(local, "spec/journal/entries/.gitkeep"), '');
   git(local, "add", ".");
   git(local, "commit", "-m", "initial");
   git(local, "remote", "add", "origin", remote);
+  git(local, "push", "origin", "HEAD:main");
+  await writeFile(join(local, "packages/harness/package.json"), '{"version":"2.9.3"}\n');
+  git(local, "add", "packages/harness/package.json");
+  git(local, "commit", "-m", "prepare next version");
   git(local, "push", "-u", "origin", "develop");
   return { root, remote, local };
 }
@@ -69,4 +73,18 @@ test("publication that happens during checks prevents the preparation push", asy
   await assert.rejects(pushPreparedRelease(local, "2.9.3", { published: async () => true }), /already released/);
   assert.equal(git(remote, "rev-parse", "develop"), before);
   assert.equal(git(local, "rev-parse", "HEAD"), before);
+});
+
+test("main-only changes arriving during checks prevent the preparation push", async t => {
+  const { root, local, remote } = await setup(t);
+  const other = join(root, "main-change");
+  git(root, "clone", "--branch", "main", remote, other);
+  git(other, "-c", "user.name=Test", "-c", "user.email=test@example.test", "-c", "commit.gpgsign=false",
+    "commit", "--allow-empty", "-m", "main-only change");
+  git(other, "push", "origin", "main");
+  const before = git(local, "rev-parse", "HEAD");
+  await writeFile(join(local, "package-lock.json"), '{"prepared":true}\n');
+  await assert.rejects(pushPreparedRelease(local, "2.9.3", unpublished), /main history is not connected/);
+  assert.equal(git(local, "rev-parse", "HEAD"), before);
+  assert.equal(git(remote, "rev-parse", "develop"), before);
 });

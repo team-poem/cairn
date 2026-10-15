@@ -23,6 +23,8 @@ test("no open release PR (including a closed predecessor) creates a draft with t
       assert.equal(args.head, "develop");
       assert.equal(args.base, "main");
       assert.match(args.body, /compare\/v2\.9\.2\.\.\.develop/);
+      assert.match(args.body, /Create a merge commit/);
+      assert.match(args.body, /Squash\/rebase disconnects release history/);
       assert.doesNotMatch(args.body, /undefined/);
       return { data: { number: 280 } };
     },

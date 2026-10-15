@@ -1,5 +1,18 @@
 import { validateReplayEnvironment } from "./index.js";
 import type { ReplayEnvironment } from "./index.js";
+import { validateRunBudget, type RunBudget } from "./index.js";
+
+export function flagBudget(flags: Flags): RunBudget | undefined {
+  if (!flags.has("max-model-calls") && !flags.has("run-timeout")) return undefined;
+  const budget: RunBudget = {};
+  for (const [flag, key] of [["max-model-calls", "maxModelCalls"], ["run-timeout", "timeoutMs"]] as const) {
+    if (!flags.has(flag)) continue;
+    const value = flags.get(flag);
+    if (typeof value !== "string" || !/^\d+$/.test(value.trim())) throw new Error(`--${flag} expects a nonnegative integer`);
+    budget[key] = Number(value);
+  }
+  return validateRunBudget(budget);
+}
 
 export type Flags = Map<string, string | boolean | string[]>;
 

@@ -10,6 +10,8 @@
  * every seam (store, driver factory, llm, policy, reporter).
  */
 import { validateSecrets } from "./core/secrets.js";
+import { withBudget, budgetScope, validateRunBudget, BudgetExceededError, budgetVerdict, budgetResult, type BudgetOptions } from "./core/budget.js";
+import { snapshotAppContext } from "./core/app-context.js";
 import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
@@ -19,12 +21,14 @@ import type { RunScenarioOptions } from "./run.js";
 import { UsageMeter, emptyUsage } from "./core/usage.js";
 import { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 import { FileSkillStore } from "./adapters/skills/file-store.js";
+import { ConsoleReporter } from "./adapters/reporters/console.js";
 import { createLlmClient } from "./adapters/llm/factory.js";
 import { startTrace } from "./core/trace.js";
 import { ENGINE_VERSION } from "./version.js";
 import type { TraceEvent, Tracer } from "./core/trace.js";
 import type { Driver, LlmClient, Reporter, SkillStore, TraceSink } from "./core/ports.js";
-import type { Assertion, RunUsage, Scenario, Verdict } from "./core/types.js";
+import type { Assertion, Result, RunUsage, Scenario, Verdict } from "./core/types.js";
+import { identifyScenario, copyProvenance } from "./core/contract.js";
 
 export interface SuiteCase {
   /** Names the frozen skill (`<skillDir>/<id>.skill.json`) — stable across runs, no path separators. */
@@ -79,6 +83,9 @@ export interface SuiteOptions
     | "expectTimeoutMs"
     | "screenshots"
     | "replayEnvironment"
+    | "judgmentKey"
+    | "appContext"
+    | "budget"
   > {
   /** Where frozen skills live. Default: a FileSkillStore with refs under `skillDir`. */
   store?: SkillStore;
@@ -159,9 +166,20 @@ function validateCases(cases: SuiteCase[], opts: SuiteOptions): void {
   }
 }
 
+/** Capture before host callbacks. Keep raw text + copied secrets so each phase slots exactly once. */
+function captureCaseInputs(opts: SuiteOptions): SuiteOptions {
+  const captured = { ...opts };
+  captured.budget = validateRunBudget(opts.budget);
+  if (captured.secrets) captured.secrets = Object.fromEntries(Object.entries(captured.secrets)
+    .map(([name, secret]) => [name, typeof secret === "string" ? secret : { value: secret.value, origin: secret.origin }]));
+  validateSecrets(captured.secrets);
+  snapshotAppContext(captured.appContext, captured.secrets); // Validate, do not pass already-slotted text.
+  return captured;
+}
+
 export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Promise<SuiteResult> {
-  validateSecrets(opts.secrets);
-  validateCases(cases, opts);
+  const firstInputs = captureCaseInputs(opts);
+  validateCases(cases, firstInputs);
   if (opts.replayEnvironment) validateReplayEnvironment(opts.replayEnvironment);
   const {
     store = new FileSkillStore(),
@@ -179,8 +197,9 @@ export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Pro
   const tracer = opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
 
   const verdicts: SuiteVerdict[] = [];
-  for (const c of cases) {
-    const verdict = await runCase(c, { ...opts, store, skillDir, heal, driverFactory, getLlm, tracer });
+  for (const [index, c] of cases.entries()) {
+    const inputs = index === 0 ? firstInputs : captureCaseInputs(opts);
+    const verdict = await runCase(c, { ...inputs, store, skillDir, heal, driverFactory, getLlm, tracer });
     verdicts.push(verdict);
     onCase?.(verdict);
   }
@@ -190,13 +209,16 @@ export async function runSuite(cases: SuiteCase[], opts: SuiteOptions = {}): Pro
   return { verdicts, passed, usage };
 }
 
-interface CaseContext extends SuiteOptions {
+interface CaseContext extends SuiteOptions, BudgetOptions {
   store: SkillStore;
   skillDir: string;
   heal: boolean;
   driverFactory: () => Driver;
   getLlm: () => LlmClient;
   tracer?: Tracer;
+  caseStarted?: () => void;
+  caseDiscovered?: () => void;
+  caseEnded?: (payload: Extract<TraceEvent, { kind: "case-end" }>["payload"]) => void;
 }
 
 /** The suite owns the `freeze` event: `caseHash` and assertion-provenance counts are suite/freeze
@@ -206,6 +228,8 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
   return {
     ref,
     caseHash: s.caseHash,
+    ...(s.contract ? { contract: { ...s.contract } } : {}),
+    ...(copyProvenance(s.provenance) ? { provenance: copyProvenance(s.provenance) } : {}),
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
@@ -225,13 +249,57 @@ function navigationEvidenceSummary(scenario: Scenario): Pick<SuiteVerdict, "obse
 }
 
 async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
+  if (ctx.budget === undefined) return runCaseWithinBudget(c, ctx);
+  const scope = ctx.tracer?.scope(c.id);
+  let started = false;
+  let discovered = false;
+  let ending: Extract<TraceEvent, { kind: "case-end" }>["payload"] | undefined;
+  let reported: Result | undefined;
+  let result: SuiteVerdict;
+  try {
+    result = await withBudget(ctx, "prepare", async (options, budget) => {
+      const bound = budget ? { ...options, driverFactory: () => { budget.check(); return budget.driver(ctx.driverFactory()); },
+        caseStarted: () => { started = true; },
+        caseDiscovered: () => { discovered = true; },
+        caseEnded: (payload: Extract<TraceEvent, { kind: "case-end" }>["payload"]) => { ending = payload; },
+        reporter: { emit: async (value: Result) => { reported = value; } },
+        store: {
+          load: (ref: string) => budget.operation("store.load", () => ctx.store.load(ref)),
+          freeze: (ref: string, scenario: Scenario) => budget.operation("store.freeze", () => ctx.store.freeze(ref, scenario)),
+        },
+      } : options;
+      return runCaseWithinBudget(c, bound);
+    });
+  } catch (error) {
+    if (!(error instanceof BudgetExceededError)) throw error;
+    const verdict = budgetVerdict(error);
+    const usage = error.usage ?? { ...emptyUsage(), llmCalls: error.budget.modelCalls };
+    if (!started) scope?.emit({ kind: "case-start", payload: { id: c.id, intent: c.intent, cached: false } });
+    scope?.emit({ kind: "budget-exhausted", payload: error.budget });
+    ending = { verdict, usage, discovered, heals: 0 };
+    reported = { ...budgetResult(c.intent, error), scenario: c.id };
+    result = { id: c.id, intent: c.intent, skillRef: `${ctx.skillDir}/${c.id}.skill.json`, verdict, usage, discovered, heals: 0 };
+  }
+  if (ending) scope?.emit({ kind: "case-end", payload: ending });
+  if (reported) await (ctx.reporter ?? new ConsoleReporter()).emit({ ...reported, verdict: result.verdict, usage: result.usage });
+  return result;
+}
+
+async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
   const scope = ctx.tracer?.scope(c.id);
+  let discovered = false;
+  let completedUsage = emptyUsage();
+  let completedHeals = 0;
+  const end = (payload: Extract<TraceEvent, { kind: "case-end" }>["payload"]) => {
+    if (ctx.caseEnded) ctx.caseEnded(payload);
+    else scope?.emit({ kind: "case-end", payload });
+  };
   const notRun = (reason: NonNullable<SuiteVerdict["notRun"]>, detail: string): SuiteVerdict => {
     const verdict: Verdict = { passed: false, results: [], failure: "script", detail };
     const usage = emptyUsage();
-    scope?.emit({ kind: "case-end", payload: { verdict, usage, discovered: false, heals: 0 } });
+    end({ verdict, usage, discovered: false, heals: 0 });
     return { ...base, verdict, usage, discovered: false, heals: 0, notRun: reason };
   };
   try {
@@ -255,6 +323,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       kind: "case-start",
       payload: { id: c.id, intent: c.intent, skillRef: ref, cached: !!scenario },
     });
+    ctx.caseStarted?.();
     // Environment replay consumes the canonical freeze only. A miss must be repaired by
     // discovery in the canonical environment, never persisted from a temporary target.
     if (!scenario && ctx.replayEnvironment) {
@@ -264,7 +333,6 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       try { validateReplayEntry(scenario, ctx.replayEnvironment); }
       catch (err) { return notRun("invalid-entry", err instanceof Error ? err.message : String(err)); }
     }
-    let discovered = false;
     let discoveryUsage = emptyUsage();
 
     // 2. Miss → discover once, merge the USER's criteria, freeze.
@@ -274,6 +342,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       let found: Scenario;
       try {
         found = await discover(c.intent, {
+          [budgetScope]: ctx[budgetScope],
+          appContext: ctx.appContext,
           driver,
           llm: meter,
           baseUrl: c.url ?? ctx.baseUrl,
@@ -288,7 +358,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         await driver.close().catch(() => {});
       }
       discovered = true;
+      ctx.caseDiscovered?.();
       discoveryUsage = meter.snapshot();
+      completedUsage = discoveryUsage;
 
       if (found.truncated) {
         // Fail closed (same stance as #69/#90): a capped discovery is an unverified path —
@@ -300,14 +372,11 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           failClosed: "truncated",
           failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap
         };
-        scope?.emit({
-          kind: "case-end",
-          payload: { verdict, usage: discoveryUsage, discovered, heals: 0, truncated: true },
-        });
+        end({ verdict, usage: discoveryUsage, discovered, heals: 0, truncated: true });
         return { ...base, discovered, truncated: true, heals: 0, usage: discoveryUsage, verdict };
       }
 
-      const frozenScenario: FrozenSuiteScenario = {
+      const frozenScenario: FrozenSuiteScenario = await identifyScenario({
         ...found,
         // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
         // deriveAssertions) — so a trace/report can say which greens the USER vouched for
@@ -318,7 +387,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
           ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
         ],
         caseHash: hashCase(c, ctx.baseUrl),
-      };
+      }, { intent: c.intent, benign: ctx.benign, benignConsole: ctx.benignConsole,
+        localePrefixes: ctx.localePrefixes, judgmentKey: ctx.judgmentKey });
       scenario = frozenScenario;
       await ctx.store.freeze(ref, scenario);
       scope?.emit({ kind: "freeze", phase: "discover", payload: freezePayload(ref, frozenScenario) });
@@ -328,6 +398,9 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
     const driver = ctx.driverFactory();
     try {
       const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
+        [budgetScope]: ctx[budgetScope],
+        appContext: ctx.appContext,
+        judgmentKey: ctx.judgmentKey,
         driver,
         replayEnvironment: ctx.replayEnvironment,
         heal: ctx.heal,
@@ -351,6 +424,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         screenshots: ctx.screenshots,
         traceScope: scope,
       });
+      completedUsage = addUsage(discoveryUsage, result.usage ?? emptyUsage());
+      completedHeals = heals.length + stepHeals.length;
       // A heal means the frozen path aged — persist the repair so the NEXT run replays clean.
       // Re-stamp the caseHash: locator/step heals spread the original scenario (hash rides
       // through), but an outcome-heal comes back from discover() without the suite-local field —
@@ -363,15 +438,12 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
         scope?.emit({ kind: "freeze", phase: "heal", payload: freezePayload(ref, restamped) });
       }
       const usage = addUsage(discoveryUsage, result.usage ?? emptyUsage());
-      scope?.emit({
-        kind: "case-end",
-        payload: {
+      end({
           verdict: result.verdict,
           usage,
           discovered,
           heals: heals.length + stepHeals.length,
           ...(truncated ? { truncated: true } : {}),
-        },
       });
       return {
         ...base,
@@ -401,10 +473,7 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
       failure: "environment", // the run's machinery died, not the app (#173): retry
     };
     // A crashed case still ENDED — the trace records it rather than falling silent.
-    scope?.emit({
-      kind: "case-end",
-      payload: { verdict, usage: emptyUsage(), discovered: false, heals: 0 },
-    });
-    return { ...base, discovered: false, heals: 0, usage: emptyUsage(), verdict };
+    end({ verdict, usage: completedUsage, discovered, heals: completedHeals });
+    return { ...base, discovered, heals: completedHeals, usage: completedUsage, verdict };
   }
 }

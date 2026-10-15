@@ -11,7 +11,10 @@ only pin the script's *text*, which is how three real bugs shipped past green te
   candidate's own centre sat);
 - a `position: fixed` modal read as clipped by an ancestor whose overflow it escapes.
 
-Each file is one layout, and the expectation lives next to it in `probe.browser.test.ts`. Every
+Each reachability file is one layout, and the expectation lives next to it in `probe.browser.test.ts`. Every
 element that matters is named "Continue", because the probe's whole job is telling same-named
 elements apart. Add a fixture when a review turns up a layout the probe gets wrong — the file is the
 report, and the test is the fix's proof.
+
+`settle.html` supplies skeleton rendering, background polling and continuous DOM mutation for
+the public Chrome Driver regression in `bench/local/settle.mjs` (#175).

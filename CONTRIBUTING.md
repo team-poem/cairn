@@ -35,8 +35,8 @@ Contributions that respect that contract are the most valuable kind.
 7. **Respond to review.** Once approved, a maintainer removes `status/1-needs-review` and
    adds `needs-merge` to request a squash merge into `develop` by `cairn-pingu`.
    This transition is manual: approval does not replace the review label, and leaving both
-   labels present blocks merging. The required `merge-label-policy` check enforces this for
-   manual merges too: it fails if either blocking label is present or `needs-merge` is absent.
+   labels present blocks the bot. Without `needs-merge`, the merge label check is skipped
+   and the bot does not evaluate an open PR for merging.
    The bot waits for approval and the
    latest CI workflow to pass. The squashed commit credits the PR author; the bot is
    recorded as the merger. After a successful merge the bot removes `needs-merge`.
@@ -78,12 +78,13 @@ need them:
 The `needs-merge`, `no-merge`, and `status/1-needs-review` labels are case-sensitive.
 Create the merge labels once in repository settings; PR triage creates the review label.
 `no-merge` and `status/1-needs-review` take precedence over `needs-merge` and are checked
-again immediately before the merge API call. The separate `merge-label-policy` job enforces
-the same label conditions for manual merges through a develop-only required-check ruleset.
-Label changes trigger a fresh check; wait for it to finish before merging. Actions are
-asynchronous, so a label change is not an atomic lock on the merge API. The workflow uses
-read-only permissions, including on forks, and never changes labels. Check status is shared
-by commits, so every open develop PR using the same head must have eligible labels.
+again immediately before the merge API call. The separate, optional `merge-label-policy`
+job runs only when the event includes `needs-merge`. It rechecks live labels and finishes
+without failure if the request was removed while queued or running. Ordinary review and
+`no-merge` labels without a merge request do not fail this check. The workflow uses read-only
+permissions, including on forks, and never changes labels. Check status is shared by commits,
+so every requested open develop PR using the same head must have eligible labels;
+unrequested PRs sharing that head are ignored.
 If another PR sharing that head closes, changes base, or moves to a different head,
 rerun the remaining PR's **Merge label policy** job to refresh a previously blocked result.
 The merge workflow uses the existing App secrets and
@@ -108,23 +109,13 @@ If label cleanup fails after a merge, the run reports the failure. The PR's clos
 also attempts cleanup; rerun that event job if cleanup still fails. The bot checks that
 the PR is merged without merging it again. Periodic scans only consider open PRs.
 
-The repository-specific required-check configuration is recorded in
-`.github/rulesets/merge-label-policy.json`. It requires `merge-label-policy` from the
-GitHub Actions App (15368) on `develop` only. It adds no human bypass and preserves the
-existing cairn-pingu App bypass (4138904) for journal and release-preparation pushes.
-The bot still applies its own label, approval and full-CI checks before merging.
-The existing approval and `verify` ruleset is unchanged; release branches and `main`
-are outside this label rule.
-
-For initial setup, first open the workflow PR and confirm its `merge-label-policy` job
-actually fails for the current review labels. Then create the rule with an administrator
-credential using `gh api --method POST repos/team-poem/cairn/rulesets --input
-.github/rulesets/merge-label-policy.json`. If the named rule already exists, update its ID
-with PUT instead of creating a duplicate. The JSON file alone does not configure GitHub.
-This read-only PR workflow runs on the setup PR, so it does not require a main release
-or a temporary human bypass to bootstrap. As with other PR CI, workflow and policy changes
-are reviewed as part of the PR; this is a guard against accidental merges, not protection
-against a maintainer deliberately changing the enforcement code or repository settings.
+The legacy required-check configuration in `.github/rulesets/merge-label-policy.json`
+is disabled. Do not enable it as a manual merge guard: GitHub accepts skipped checks, so
+this request-only job cannot enforce labels on the manual merge button. Maintainers must
+follow the label transition themselves when merging manually. The bot still applies its
+own label, approval and full-CI checks before merging. The JSON file alone does not change
+live GitHub settings or other rulesets. Actions are asynchronous, so a label change is not
+an atomic lock on the merge API.
 
 ## Development setup
 

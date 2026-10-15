@@ -76,7 +76,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
   for (const candidate of candidates) {
     // Event labels can be stale after queuing; always read the affected PR again.
     if (!context.payload.pull_request
-      && !candidate.labels?.some(label => ["needs-merge", "no-merge", "status/1-needs-review"].includes(label.name))) continue;
+      && !candidate.labels?.some(label => label.name === "needs-merge")) continue;
     const pr = await read(candidate.number);
     // Resolve an earlier pending comment when a PR was merged manually or by a prior run.
     if (pr?.state === "MERGED") notice(pr, "Merged.", false);
@@ -85,6 +85,11 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     if (pr?.state === "MERGED" && pr.baseRefName === "develop"
       && pr.labels.nodes.some(label => label.name === "needs-merge")) {
       await clearMergeRequest(pr.number);
+      continue;
+    }
+    if (pr?.state === "OPEN" && !pr.labels.pageInfo?.hasNextPage
+      && !pr.labels.nodes.some(label => label.name === "needs-merge")) {
+      report(pr.number, "no needs-merge request is active; skipping merge evaluation.");
       continue;
     }
     const reason = blocker(pr);
@@ -155,7 +160,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
 
   if (core.summary) {
     await core.summary.addHeading("Merge decisions")
-      .addList(messages.length ? messages : ["No open develop PRs have needs-merge, no-merge, or status/1-needs-review."])
+      .addList(messages.length ? messages : ["No open develop PRs have an active needs-merge request."])
       .write();
   }
 }

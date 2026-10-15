@@ -206,6 +206,9 @@ for (const path of ["event", "periodic"]) {
     const previous = `${commentMarker}\nMerge pending: waiting for CI.`;
     f.comments.push({ id: 100, user: f.bot, body: previous });
     await f.run(path === "event" ? { pull_request: f.candidates[0] } : undefined);
+    assert.equal(f.reads, 1);
+    assert.equal(f.ciReads, 0);
+    assert.equal(f.restReads, 0);
     assert.deepEqual(f.commentWrites, []);
     assert.equal(f.comments[0].body, previous);
     assert.deepEqual(f.merged, []);
@@ -354,12 +357,25 @@ for (const patch of [
   });
 }
 
-test("ignores periodic candidates without merge or review labels", async () => {
-  const f = fixture();
-  f.candidates[0].labels = [];
-  await f.run();
-  assert.equal(f.reads, 0);
-});
+for (const labels of [[], ["status/1-needs-review"], ["no-merge"], ["status/1-needs-review", "no-merge"], ["Needs-Merge"]]) {
+  for (const path of ["event", "periodic"]) {
+    test(`does not evaluate an unrequested PR on the ${path} path: ${JSON.stringify(labels)}`, async () => {
+      const f = fixture();
+      f.pr.labels.nodes = labels.map(name => ({ name }));
+      f.candidates[0].labels = labels.map(name => ({ name }));
+      await f.run(path === "event" ? { pull_request: f.candidates[0] } : undefined);
+      assert.equal(f.reads, path === "event" ? 1 : 0);
+      assert.equal(f.ciReads, 0);
+      assert.equal(f.restReads, 0);
+      assert.deepEqual(f.merged, []);
+      assert.deepEqual(f.removedLabels, []);
+      assert.deepEqual(f.addedLabels, []);
+      assert.deepEqual(f.commentWrites, []);
+      assert.deepEqual(f.warnings, []);
+      assert.doesNotMatch(f.messages.join("\n"), /blocked by/);
+    });
+  }
+}
 
 test("reads current labels when the event snapshot lacks needs-merge", async () => {
   const f = fixture();
@@ -372,14 +388,14 @@ test("does not merge an event PR whose current labels have no merge request", as
   const f = fixture();
   f.pr.labels.nodes = [];
   await f.run({ pull_request: { ...f.candidates[0], labels: [] } });
-  assert.equal(f.reads, 2);
+  assert.equal(f.reads, 1);
   assert.equal(f.ciReads, 0);
   assert.deepEqual(f.merged, []);
   assert.deepEqual(f.commentWrites, []);
   assert.match(f.messages.join("\n"), /needs-merge/);
 });
 
-for (const labels of [["needs-merge", "no-merge"], ["no-merge"]]) {
+for (const labels of [["needs-merge", "no-merge"]]) {
   for (const path of ["event", "periodic"]) {
     test(`no-merge blocks ${labels.join(" and ")} on the ${path} path and reports the reason`, async () => {
       const f = fixture();
@@ -410,7 +426,7 @@ test("no-merge added during CI lookup cancels an otherwise eligible merge", asyn
   assert.match(f.summary.items.join("\n"), /no-merge/);
 });
 
-for (const labels of [["needs-merge", "status/1-needs-review"], ["status/1-needs-review"]]) {
+for (const labels of [["needs-merge", "status/1-needs-review"]]) {
   for (const path of ["event", "periodic"]) {
     test(`needs-review blocks ${labels.join(" and ")} on the ${path} path without changing labels`, async () => {
       const f = fixture();

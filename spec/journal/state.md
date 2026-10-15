@@ -56,6 +56,14 @@
 
 ## Release procedure
 
+- **Preserve release ancestry.** All PRs into `main` use **Create a merge commit**, enforced by
+  `main-rule`; feature PRs into `develop` can still use squash. A main-to-develop history repair
+  also needs a merge commit. The 2.9.3 squash left the common ancestor at 2.9.2 and caused the
+  next release's duplicate history and conflicts. `release:prepare` now checks ancestry before
+  writing, and the push helper rechecks after fetching. Normal two-parent release merges do not
+  require a back-merge; disconnected history or later main-only changes require a reviewed sync.
+  Fetch full current refs for local preparation. Do not bypass this guard or force shared history.
+
 1. Run the **Prepare release** workflow with the version. It bumps the manifest and the lockfile,
    writes the release entry, folds the cycle's entries into `spec/journal/archive/<version>.md`,
    runs the full checks, pushes that to develop and opens the release pull request as a draft.

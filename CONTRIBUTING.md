@@ -50,6 +50,13 @@ Contributions that respect that contract are the most valuable kind.
 cuts a release by bumping `packages/harness/package.json`'s version on `develop`, then merging
 `develop` → `main`. **Only maintainers merge to `main`** — that merge _is_ the release.
 
+Use **Create a merge commit** for every PR into `main`; its ruleset allows only that method.
+Feature PRs into `develop` can still be squash-merged. Never squash or rebase a release or a
+main-to-develop history repair: the shared branch ancestry must survive. Preparation checks the
+history before writing release files and again before pushing. If it reports disconnected history,
+merge `origin/main` into `develop`, resolve and verify the content, then retry; do not force-push
+either shared branch or blindly discard main-only changes. Fetch full, current refs first.
+
 Once the merge lands, `.github/workflows/release.yml` takes over: it publishes the new
 version to npm, tags the merge commit `vX.Y.Z`, and opens a draft GitHub release with
 generated notes for the maintainer to edit and publish. The workflow is idempotent — if

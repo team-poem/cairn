@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { assertUnreleased, isPublished } from "./release-prepare.mjs";
+import { assertReleaseHistory } from "./release-history.mjs";
 
 export async function pushPreparedRelease(directory, version, { published = isPublished } = {}) {
   if (!/^\d+\.\d+\.\d+$/.test(version ?? "")) throw new Error("A release version is required");
@@ -11,6 +12,7 @@ export async function pushPreparedRelease(directory, version, { published = isPu
   if (git(["rev-parse", "origin/develop"]) !== base) {
     throw new Error("develop changed during preparation. Wait for Journal entry, then rerun Prepare release; no changes were pushed.");
   }
+  assertReleaseHistory(directory);
   await assertUnreleased(directory, version, published);
   git(["add", "--", "packages/harness/package.json", "package-lock.json", "spec/journal"]);
   const diff = spawnSync("git", ["diff", "--cached", "--quiet"], { cwd: directory });

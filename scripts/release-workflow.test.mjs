@@ -4,6 +4,13 @@ import { readFile } from "node:fs/promises";
 
 const workflow = await readFile(new URL("../.github/workflows/release-prepare.yml", import.meta.url), "utf8");
 const journal = await readFile(new URL("../.github/workflows/journal-entry.yml", import.meta.url), "utf8");
+const pkg = JSON.parse(await readFile(new URL("../package.json", import.meta.url), "utf8"));
+
+test("release history is checked before any preparation writes, with full Git history available", () => {
+  assert.equal(pkg.scripts["release:prepare"], "node scripts/release-history.mjs && node scripts/release-prepare.mjs");
+  assert.match(workflow, /fetch-depth: 0/);
+  assert.match(workflow, /ref: develop/);
+});
 
 test("release workflow wires the original previous version and preserves PR notes", () => {
   assert.match(workflow, /PREVIOUS: \$\{\{ steps\.prepare\.outputs\.previous \}\}/);

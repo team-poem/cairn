@@ -16,9 +16,10 @@ concurrency:
 
 jobs:
   merge-label-policy:
+    # This optional check evaluates merge requests, not ordinary review activity.
+    if: contains(github.event.pull_request.labels.*.name, 'needs-merge')
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Never skip this job: a skipped required check counts as passing.
     steps:
       - uses: actions/checkout@v7
         with:

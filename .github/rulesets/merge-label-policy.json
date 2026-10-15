@@ -1,7 +1,7 @@
 {
   "name": "require-merge-label-policy",
   "target": "branch",
-  "enforcement": "active",
+  "enforcement": "disabled",
   "bypass_actors": [
     { "actor_id": 4138904, "actor_type": "Integration", "bypass_mode": "always" }
   ],

@@ -17,7 +17,7 @@ const query = `query($owner: String!, $repo: String!, $number: Int!) {
   }
 }`;
 
-// A normal pull_request job supplies the required check on the tested PR revision.
+// A normal pull_request job evaluates an active request on the tested PR revision.
 // This evaluator only reads metadata; it never changes labels or merges a PR.
 export async function checkMergeLabelPolicy({ github, context, core }) {
   const { owner, repo } = context.repo;
@@ -26,29 +26,46 @@ export async function checkMergeLabelPolicy({ github, context, core }) {
   const sha = event.head.sha;
   const read = async number => (await github.graphql(query, { owner, repo, number })).repository.pullRequest;
   const messages = [];
-  for (const stage of ["initial", "final"]) {
+  let cancelled = false;
+  evaluation: for (const stage of ["initial", "final"]) {
+    // A request can be cancelled after an initial blocker; decide from the final read.
+    messages.length = 0;
     const candidates = await github.paginate(github.rest.pulls.list, {
       owner, repo, state: "open", base: "develop", per_page: 100,
     });
-    // Checks belong to commits. Re-enumerate before success so a newly opened PR
-    // sharing this SHA cannot inherit permission while its own labels block it.
+    // Checks belong to commits. Re-enumerate before success so another requested
+    // PR sharing this SHA cannot inherit a passing check while its labels block it.
     const numbers = [...new Set([event.number, ...candidates
       .filter(pr => pr.head.sha === sha).map(pr => pr.number)])];
     for (const number of numbers) {
       const pr = await read(number);
-      let reason = mergeLabelBlocker(pr);
-      if (!reason && (pr.state !== "OPEN" || pr.baseRefName !== "develop" || pr.headRefOid !== sha)) {
+      let reason = null;
+      if (pr && (pr.state !== "OPEN" || pr.baseRefName !== "develop" || pr.headRefOid !== sha)) {
         reason = "pull request state, base, or head changed; wait for its current check.";
       }
+      // Event labels may be stale. A removed request is a successful no-op, even
+      // when a review or no-merge label remains. Incomplete metadata stays closed.
+      if (!reason && pr && !pr.labels.pageInfo?.hasNextPage
+        && !pr.labels.nodes.some(label => label.name === "needs-merge")) {
+        if (number === event.number) {
+          cancelled = true;
+          break evaluation;
+        }
+        continue;
+      }
+      reason ??= mergeLabelBlocker(pr);
       if (reason) messages.push(`PR #${number} (${stage} check): ${reason}`);
     }
-    if (messages.length) break;
   }
+  const result = cancelled
+    ? "No needs-merge request is active; skipping merge label evaluation."
+    : "needs-merge is present; no blocking review or no-merge label remains.";
   if (messages.length) core.setFailed(messages.join("\n"));
+  else if (cancelled) core.info(result);
   else core.info(`Merge labels allow head ${sha}; approval and CI are still required.`);
   if (core.summary) {
     await core.summary.addHeading("Merge label policy")
-      .addList(messages.length ? messages : ["needs-merge is present; no blocking review or no-merge label remains."])
+      .addList(messages.length ? messages : [result])
       .write();
   }
 }

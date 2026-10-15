@@ -12,6 +12,7 @@ import { finalizeVerdict, runHarness } from "../src/core/pipeline.js";
 import type { Evidence, Scenario, TraceEvent } from "../src/index.js";
 import type { Driver, Result } from "../src/index.js";
 import { combineSignals } from "../src/core/abort.js";
+import * as appContext from "../src/core/app-context.js";
 
 const evidence: Evidence = { execution: { actions: [], navigated: true, blocked: false, finalUrl: "https://shop/done" },
   perception: {}, logic: { requests: [], console: [] } };
@@ -22,6 +23,71 @@ function fakeClock(): void {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
 }
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+function outcomeRepairFixture() {
+  const driver = new StubDriver("https://shop");
+  driver.els = [{ role: "button", name: "Checkout" }];
+  driver.navOn.Checkout = "https://shop/done";
+  const llm = new ScriptedLlm(['{"action":"click","text":"Checkout"}', '{"action":"done"}', '[]']);
+  // Replay reaches the entry, but only rediscovery performs the missing checkout action.
+  return { driver, llm, scenario: { ...scenario, steps: [scenario.steps[0]!] } };
+}
+
+it("does not refresh outcome-repair context after provenance hashing exceeds the deadline", async () => {
+  fakeClock();
+  let now = 0;
+  vi.spyOn(performance, "now").mockImplementation(() => now);
+  const provenance = appContext.appContextProvenance;
+  const hash = vi.spyOn(appContext, "appContextProvenance").mockImplementation(async text => {
+    const result = await provenance(text);
+    if (text === "host guidance") now = 11; // elapsed deadline without running its timer
+    return result;
+  });
+  const provide = vi.fn(async () => ({ intent: "checkout" }));
+  const { driver, llm, scenario: original } = outcomeRepairFixture();
+  const out = await runScenario(original, { driver, llm, reporter, heal: true,
+    appContext: "host guidance", context: { provide }, budget: { timeoutMs: 10 },
+  });
+  expect(hash).toHaveBeenCalledWith("host guidance");
+  expect(driver.clicked).toEqual(["Checkout"]);
+  expect(provide).toHaveBeenCalledTimes(1);
+  expect(out.result.verdict).toMatchObject({ passed: false, failure: "budget", budget: { limit: "time" } });
+  expect(out.healedScenario).toBeUndefined();
+});
+
+it("records and awaits an outcome-repair context refresh interrupted by the deadline", async () => {
+  fakeClock();
+  let ready!: () => void;
+  const refreshing = new Promise<void>(resolve => { ready = resolve; });
+  let finish!: () => void;
+  const provide = vi.fn(async () => ({ intent: "checkout" }))
+    .mockImplementationOnce(async () => ({ intent: "checkout" }))
+    .mockImplementationOnce(() => new Promise(resolve => {
+      finish = () => resolve({ intent: "checkout" });
+      ready();
+    }));
+  const { driver, llm, scenario: original } = outcomeRepairFixture();
+  const observe = vi.spyOn(driver, "observe");
+  const emit = vi.fn(async () => {});
+  let returned = false;
+  const pending = runScenario(original, { driver, llm, reporter: { emit }, heal: true,
+    appContext: "host guidance", context: { provide }, budget: { timeoutMs: 10 },
+  }).then(out => { returned = true; return out; });
+  await refreshing;
+  const observations = observe.mock.calls.length;
+  await vi.advanceTimersByTimeAsync(11);
+  expect(returned).toBe(false);
+  expect(emit).not.toHaveBeenCalled();
+  finish();
+  const out = await pending;
+  expect(provide).toHaveBeenCalledTimes(2);
+  expect(observe).toHaveBeenCalledTimes(observations);
+  expect(out.result.verdict).toMatchObject({ passed: false, failure: "budget", budget: {
+    limit: "time", operation: { name: "context.provide", outcome: "unknown" },
+  } });
+  expect(out.healedScenario).toBeUndefined();
+  expect(emit).toHaveBeenCalledTimes(1);
+});
 
 it("checks elapsed time before a custom dispatch even when the deadline timer has not fired", async () => {
   fakeClock();

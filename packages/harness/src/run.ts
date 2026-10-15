@@ -394,7 +394,10 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         tracePhase: "heal",
       });
       repaired.provenance = await appContextProvenance(appContext);
-      const ctx = await (opts.context ?? new InlineContextProvider()).provide(scenario.name);
+      const context = opts.context ?? new InlineContextProvider();
+      const ctx = budget
+        ? await budget.operation("context.provide", () => context.provide(scenario.name))
+        : await context.provide(scenario.name);
       const observed = await baseDriver.observe();
       const evidence = {
         ...observed,

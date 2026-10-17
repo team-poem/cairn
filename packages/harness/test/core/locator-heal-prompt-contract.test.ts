@@ -69,3 +69,46 @@ it("locatorHealRefRulesUseTheLocatorNameField: ref-only repair selects a duplica
   expect(system).not.toContain('"action":');
   expect(JSON.stringify(healer.heals)).not.toContain('"ref"');
 });
+
+it("locatorHealWithoutReferencesTeachesNamedRepair: no validated ref table means no ref instructions or examples (#301)", async () => {
+  for (const rows of [
+    [{ role: "button", name: "Save" }, { role: "button", name: "Save" }],
+    [{ role: "button", name: 'ref="o1-0" Save' }],
+    [],
+  ]) {
+    const driver = new LocatorPromptDriver();
+    driver.els = rows;
+    const systems: string[] = [];
+    const llm: LlmClient = { id: "locator-named", async complete(_prompt, opts) {
+      systems.push(opts?.system ?? "");
+      return rows.length ? JSON.stringify({ name: rows[0]!.name, role: "button", ...(rows.length > 1 ? { nth: 1 } : {}) }) : '{"name":null}';
+    } };
+    const healer = new SelfHealingDriver(driver, llm);
+    if (rows.length) await healer.click({ text: "Old save" });
+    else await expect(healer.click({ text: "Old save" })).rejects.toThrow(/no match/);
+    const system = systems[0]!;
+    expect(system).toContain('No references are available in this observation; do not include "ref"');
+    expect(system).not.toContain("reference table");
+    expect(system).toContain('"nth"');
+    const examples = [...system.matchAll(/\{[^{}]*\}/g)].map(match => JSON.parse(match[0]) as Record<string, unknown>);
+    expect(examples.some(example => "ref" in example)).toBe(false);
+    expect(examples.some(example => example.name === null)).toBe(true);
+    if (rows.length > 1) expect(driver.repaired).toEqual([{ target: { text: "Save", role: "button", nth: 1 } }]);
+  }
+});
+
+it("locatorHealInstructionsTrackEachObservation: a later repair without refs drops the ref schema (#301)", async () => {
+  const driver = new LocatorPromptDriver();
+  const systems: string[] = [];
+  const llm: LlmClient = { id: "locator-capability", async complete(_prompt, opts) {
+    systems.push(opts?.system ?? "");
+    return '{"name":"Save","role":"button","nth":1}';
+  } };
+  const healer = new SelfHealingDriver(driver, llm);
+  await healer.click({ text: "Old save" });
+  driver.els = driver.els.map(({ ref: _ref, ...row }) => row);
+  await healer.click({ text: "Old save" });
+  expect(systems[0]).toContain('{"ref":"<current reference>"}');
+  expect(systems[1]).not.toContain('"ref":');
+  expect(systems[1]).toContain("No references are available");
+});

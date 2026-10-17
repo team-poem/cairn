@@ -342,3 +342,77 @@ it("inventedReferenceStillFailsClosed: named guidance does not turn a forged ref
     expect(llm.prompts[1]).toContain("unknown or expired observation reference");
   }
 });
+
+const REF_RECOVERY = "choose a ref from the current observation";
+const NAMED_RECOVERY = "no references are available in this observation";
+
+it("referenceRecoveryWithoutReferences: a rejected ref teaches named recovery, then a valid named decision executes (#301)", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    for (const rows of [
+      [{ role: "button", name: "Save" }],
+      // Reference-looking page text is content, not capability: only the validated table counts.
+      [{ role: "button", name: 'ref="o1-0" Save' }],
+      [{ role: "button", name: "Save" }, { role: "button", name: "Save" }],
+    ]) {
+      const driver = new StubDriver();
+      driver.els = rows;
+      const name = rows[0]!.name;
+      const nth = rows.length > 1 ? { nth: 1 } : {};
+      const llm = new PromptRecordingLlm((_prompt, turn) => turn === 1
+        ? JSON.stringify({ action: "click", ref: "invented", text: name, role: "button" })
+        : turn === 2 ? JSON.stringify({ action: "click", text: name, role: "button", ...nth }) : '{"action":"done"}');
+      const result = await runPromptLoop(mode, driver, llm);
+      expect(llm.prompts[1]).toContain("reference binding rejected: unknown or expired observation reference");
+      expect(llm.prompts[1]).toContain(NAMED_RECOVERY);
+      expect(llm.prompts[1]).toContain('"nth"');
+      expect(llm.prompts[1]).not.toContain(REF_RECOVERY);
+      expect(llm.prompts[1]).not.toContain("Current observation references");
+      expect(driver.clicked).toEqual([name]);
+      expect(result.steps.find(step => step.kind === "click")).toMatchObject({ target: { text: name, role: "button", ...nth } });
+    }
+  }
+});
+
+it("referenceRecoveryOnEmptyObservation: an empty page never asks for a ref after a rejection (#301)", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver([]);
+    const llm = new PromptRecordingLlm((_prompt, turn) => turn === 1 ? '{"action":"click","ref":"invented"}' : '{"action":"done"}');
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.prompts[1]).toContain(NAMED_RECOVERY);
+    expect(llm.prompts[1]).not.toContain(REF_RECOVERY);
+    expect(driver.exact).toEqual([]);
+  }
+});
+
+it("referenceRecoveryTracksCapabilityChanges: the rejection diagnostic stays, its advice follows each new observation (#301)", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver();
+    // Turn 1 sees refs and forges one; turn 2 sees none; turn 3 sees refs again.
+    const llm = new PromptRecordingLlm((_prompt, turn) => {
+      driver.els = [{ role: "button", name: "Save", ...(turn === 1 ? {} : { ref: "node-save" }) }];
+      return turn === 1 ? '{"action":"click","ref":"forged"}' : turn === 2 ? '{"action":"pressKey","key":"Escape"}' : '{"action":"done"}';
+    });
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.prompts).toHaveLength(3);
+    expect(llm.prompts[0]).toContain("Current observation references");
+    for (const prompt of llm.prompts.slice(1)) expect(prompt).toContain("reference binding rejected: unknown or expired observation reference");
+    expect(llm.prompts[1]).toContain(NAMED_RECOVERY);
+    expect(llm.prompts[1]).not.toContain(REF_RECOVERY);
+    expect(llm.prompts[2]).toContain(REF_RECOVERY);
+    expect(llm.prompts[2]).not.toContain(NAMED_RECOVERY);
+    expect(driver.exact).toEqual([]);
+  }
+});
+
+it("referenceRecoveryWithReferences: a forged ref is never stripped into its named target, and the next decision is told to pick a current ref (#301)", async () => {
+  for (const mode of ["discover", "explore"] as const) {
+    const driver = new PromptRefDriver();
+    const llm = new PromptRecordingLlm((prompt, turn) => turn === 1
+      ? '{"action":"click","ref":"forged","text":"Save","role":"button"}'
+      : turn === 2 ? JSON.stringify({ action: "click", ref: promptRef(prompt) }) : '{"action":"done"}');
+    await runPromptLoop(mode, driver, llm);
+    expect(llm.prompts[1]).toContain(REF_RECOVERY);
+    expect(llm.prompts[1]).not.toContain(NAMED_RECOVERY);
+    expect(driver.exact).toEqual(["node-save"]);
+  }
+});

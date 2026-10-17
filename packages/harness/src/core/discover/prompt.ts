@@ -62,6 +62,29 @@ const NAMED_RULES =
   "duplicate WITHOUT nth is rejected, never guessed. " +
   "Prefer clicking/typing a NAMED element over moving focus with key presses — a blind Tab/key chain lands on the wrong element. ";
 
+/** Diagnostic prefix for a rejected reference. The failure line records only what happened; the
+ * recovery advice is derived per prompt from the observation used for the next decision (#301). */
+export const REFERENCE_REJECTION = "reference binding rejected";
+
+/** Recovery after a rejected reference — follows the same capability boundary as the vocabulary. */
+export function referenceRecovery(hasReferences: boolean): string {
+  return hasReferences
+    ? "After a rejected reference, choose a ref from the current observation references below; never reuse a rejected one."
+    : 'After a rejected reference: no references are available in this observation. Use the exact element name shown, ' +
+      'add "role" and the listing\'s "nth" for duplicates, and do not include "ref".';
+}
+
+/** The failure memory block shared by both loop prompts, with capability-aware recovery. */
+export function failureBlock(failures: string[], hasReferences: boolean): string[] {
+  if (!failures.length) return [];
+  return [
+    `These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`,
+    ...failures.map((f) => `- ${f}`),
+    ...(failures.some((f) => f.startsWith(REFERENCE_REJECTION)) ? [referenceRecovery(hasReferences)] : []),
+    ``,
+  ];
+}
+
 export function actionRules(hasReferences: boolean): string {
   return 'Always add "reason":"<short>". ' + (hasReferences ? REFERENCE_RULES : "") + NAMED_RULES;
 }
@@ -172,13 +195,7 @@ export function buildPrompt(
     // #116 — where the browser is (from the last action's observation; may lag one action).
     `Current page: ${currentUrl ?? "(unknown)"}`,
     ``,
-    ...(failures.length
-      ? [
-          `These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`,
-          ...failures.map((f) => `- ${f}`),
-          ``,
-        ]
-      : []),
+    ...failureBlock(failures, Boolean(references)),
     `Actions taken so far:`,
     history,
     ``,

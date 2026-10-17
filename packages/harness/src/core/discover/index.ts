@@ -14,7 +14,7 @@ import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { discoverSystem, buildPrompt } from "./prompt.js";
+import { discoverSystem, buildPrompt, REFERENCE_REJECTION } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -239,7 +239,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
         phase: tracePhase,
         payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
       });
-      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
+      pushFailure(`${REFERENCE_REJECTION}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 

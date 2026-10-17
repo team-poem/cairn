@@ -22,6 +22,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
 import { exploreSystem, buildExplorePrompt } from "./prompt.js";
+import { REFERENCE_REJECTION } from "../discover/prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
@@ -221,7 +222,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         phase: "explore",
         payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
       });
-      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
+      pushFailure(`${REFERENCE_REJECTION}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 

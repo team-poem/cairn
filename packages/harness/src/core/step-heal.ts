@@ -13,12 +13,15 @@ import { describeAmbiguity } from "./discover/decision.js";
 import { actionRules, actionVocabulary, PERCEPTION_RULES } from "./discover/prompt.js";
 import { PerceptionObservation } from "./observation.js";
 import { snapshotAppContext, withAppContext } from "./app-context.js";
+import type { TraceScope } from "./trace.js";
 
 export interface StepHealOptions {
   /** Optional app guidance, snapshotted at healer construction for this run. */
   appContext?: string;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
+  /** Prepared-selection diagnostics only; the host owns the trace lifecycle. */
+  trace?: TraceScope;
 }
 
 const MAX_STEP_HEALS = 5;
@@ -51,12 +54,14 @@ export class LlmStepHealer implements StepHealer {
     const elements = redactSecrets(this.options.perceive ? await this.options.perceive(raw.map(e => ({ ...e }))) : raw, this.secrets);
     let decision: Decision;
     try {
-      const page = new PerceptionObservation(driver, raw, elements, step.intent ?? step.kind);
+      const page = new PerceptionObservation(driver, raw, elements, step.intent ?? step.kind, undefined, Boolean(this.options.trace));
       // Observation can await other work. Reserve immediately before the request so even
       // concurrent calls and failed repairs share the same finite model-call budget.
       if (this.attempts >= this.maxHeals) return null;
       this.attempts++;
-      const reply = await this.llm.complete(stepHealPrompt(step, page), { system: stepHealSystem(Boolean(page.references)) });
+      const prompt = stepHealPrompt(step, page);
+      page.tracePrepared(this.options.trace, "step-heal", "heal");
+      const reply = await this.llm.complete(prompt, { system: stepHealSystem(Boolean(page.references)) });
       decision = parseDecision(reply);
       if (decision.action === "type" && decision.value !== undefined) decision.value = slotSecretText(decision.value, this.secrets);
       decision = page.bind(decision);

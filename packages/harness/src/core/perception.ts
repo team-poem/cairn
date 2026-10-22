@@ -1,5 +1,6 @@
 /** Pure ranking and clickable quota policy. No DOM access or driver handles. */
 import type { PageElement } from "./types.js";
+import { candidateCounts, type SelectionSummary } from "./selection-diagnostics.js";
 
 const INTERACTIVE_ROLES = new Set([
   "button",
@@ -36,7 +37,8 @@ export function selectElements(
   elements: PageElement[],
   intent: string,
   limit: number,
-): { elements: PageElement[]; omittedCount: number } {
+  diagnostics = false,
+): { elements: PageElement[]; omittedCount: number; diagnostics?: Pick<SelectionSummary, "eligible" | "selected" | "excluded" | "capOmitted"> } {
   // Unicode-aware intent tokens also identify evidence BEFORE de-nesting clickable labels.
   const words = (intent.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).filter((w) => w.length >= 2);
   const relevant = (e: PageElement) => words.some(w => e.name.toLowerCase().includes(w));
@@ -71,7 +73,16 @@ export function selectElements(
   const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
   // Policy-filtered rows are not hidden by the prompt cap. Evidence swaps preserve cut length.
   const omittedCount = candidates.length - cut.length;
-  if (!missed.length) return { elements: cut.map((s) => s.e), omittedCount };
+  const result = (selected: PageElement[]) => ({
+    elements: selected,
+    omittedCount,
+    ...(diagnostics ? { diagnostics: {
+      eligible: candidateCounts(candidates), selected: candidateCounts(selected),
+      excluded: { occluded: elements.length - visible.length, clickableRegionOrQuota: visible.length - candidates.length },
+      capOmitted: omittedCount,
+    } } : {}),
+  });
+  if (!missed.length) return result(cut.map((s) => s.e));
 
   // Evict the lowest-ranked non-evidence rows to make room, then restore rank order.
   const evicted = new Set<(typeof cut)[number]>();
@@ -81,7 +92,7 @@ export function selectElements(
   const selected = [...cut.filter((s) => !evicted.has(s)), ...missed.slice(0, evicted.size)]
     .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i)
     .map((s) => s.e);
-  return { elements: selected, omittedCount };
+  return result(selected);
 }
 
 /** Preserve the array-only ranking API; internal renderers also need the cap omission count. */

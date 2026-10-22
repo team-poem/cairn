@@ -193,7 +193,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
     let page: PerceptionObservation;
     try {
-      page = new PerceptionObservation(driver, raw, elements, intent);
+      page = new PerceptionObservation(driver, raw, elements, intent, undefined, Boolean(trace));
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -208,7 +208,9 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
     const render = page.render;
-    const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
+    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.references);
+    page.tracePrepared(trace, "discover", tracePhase);
+    const reply = await llm.complete(prompt, {
       system: discoverSystem(Boolean(page.references)),
     });
 

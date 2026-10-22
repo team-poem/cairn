@@ -6,6 +6,7 @@
  */
 import type { TraceSink } from "./ports.js";
 import type { TargetChoiceAudit } from "./target-choice.js";
+import type { SelectionDiagnostic } from "./selection-diagnostics.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind, ContractIdentity, ScenarioProvenance } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
@@ -18,8 +19,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.7 — typed locator-choice evidence; no change to proof grading.
  * 1.8 — inconclusive assertion reason (#248).
  * 1.9 — freeze/verdict contract identity and context provenance (#196).
- * 1.10 — budget-exhausted and structured budget verdict metadata (#284). */
-export const TRACE_VERSION = "1.10";
+ * 1.10 — budget-exhausted and structured budget verdict metadata (#284).
+ * 1.11 — content-free prepared decision selection summaries (#302). */
+export const TRACE_VERSION = "1.11";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -38,6 +40,7 @@ interface Envelope {
 
 export type TraceEvent = Envelope &
   (
+    | { kind: "selection"; payload: SelectionDiagnostic }
     | { kind: "budget-exhausted"; payload: import("./budget.js").BudgetExhaustion }
     | { kind: "target-choice"; payload: TargetChoiceAudit }
     | { kind: "trace"; payload: { version: string; runId: string; engine: { name: "cairn"; version: string } } }

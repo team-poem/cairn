@@ -22,6 +22,7 @@
     "bench:ci": "node bench/ci-compare.mjs",
     "test:compatibility": "node bench/ci-smoke.mjs",
     "test:document-refs": "node scripts/test-document-refs.mjs",
+    "test:selection": "node scripts/test-selection-diagnostics.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
     "test:settle": "node bench/local/settle.mjs",
     "check:language": "node scripts/check-language.mjs",

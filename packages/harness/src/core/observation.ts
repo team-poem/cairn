@@ -6,6 +6,8 @@ import { dupeOrdinals, renderElements, renderSelectionNotices, ELEMENT_LIMIT } f
 import { selectElements } from "./perception.js";
 import { stepError } from "./errors.js";
 import type { TargetCandidate } from "./target-choice.js";
+import { candidateCounts, type SelectionDiagnostic, type SelectionSummary } from "./selection-diagnostics.js";
+import type { TraceScope, TracePhase } from "./trace.js";
 
 let generation = 0;
 const current = new WeakMap<Driver, PerceptionObservation>();
@@ -29,9 +31,11 @@ export class PerceptionObservation {
   readonly render: string;
   readonly references: string;
   private consumed = false;
+  private decisionAttempt = 0;
+  private readonly selection?: SelectionSummary;
   private readonly table = new Map<string, { element: PageElement; nth?: number }>();
 
-  constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT) {
+  constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT, diagnostics = false) {
     current.set(driver, this);
     const id = ++generation;
     this.id = `o${id}`;
@@ -53,7 +57,8 @@ export class PerceptionObservation {
       const nth = rawOrdinals.get(original);
       if (nth !== undefined) ordinals.set(e, nth);
     }
-    const { elements: ranked, omittedCount } = selectElements(perceived, intent, limit);
+    const { elements: ranked, omittedCount, diagnostics: selected } = selectElements(perceived, intent, limit, diagnostics);
+    if (selected) this.selection = { raw: candidateCounts(raw), perceived: candidateCounts(perceived), ...selected };
     this.omittedCount = omittedCount;
     const body = renderElements(ranked, ordinals);
     const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
@@ -69,6 +74,16 @@ export class PerceptionObservation {
     this.references = lines.length
       ? `Current observation references (valid for this decision only; use "ref" for exact selection):\n${lines.join("\n")}${omitted}`
       : "";
+  }
+
+  /** Call only after constructing an actual decision prompt, never for observation-only capture.
+   * Admission happens inside the supplied model/budget wrappers AFTER this boundary. */
+  tracePrepared(trace: TraceScope | undefined, purpose: SelectionDiagnostic["purpose"], phase: TracePhase): void {
+    if (!trace || !this.selection) return;
+    trace.emit({ kind: "selection", phase, payload: {
+      ...this.selection, stage: "prepared", purpose, observationId: this.id,
+      decisionId: `${this.id}:d${++this.decisionAttempt}`,
+    } });
   }
 
   /** Structured selection over the SAME validated table as bind(); never parse rendered text. */

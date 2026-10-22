@@ -72,6 +72,11 @@ an empty input stays empty. A reference table is emitted only when actual refere
 so an empty reference table remains empty, including under a zero row cap.
 With no optional facts, legacy ranking and evidence selection remain unchanged.
 
+Optional [prepared selection diagnostics](trace.md#prepared-selection-diagnostics-302-version-111)
+summarize raw, post-perceive, eligible and final candidate counts using this same selection result.
+They do not rerank, retain page content, or establish model-call admission. Evidence-slot
+replacements are reflected in final role counts; retained evidence is never counted as excluded.
+
 ## Temporary addressing and durable targets
 
 The engine builds a separate reference table for each decision. Model tokens map to captured

@@ -19,6 +19,7 @@ import { decisionToStep, describeAmbiguity, type Decision, type ActionPolicy } f
 import { validateSecrets, redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 import { snapshotAppContext, withAppContext } from "../../core/app-context.js";
+import type { TraceScope } from "../../core/trace.js";
 
 /** A recorded substitution: `original` could not be found, `healed` (a re-located target carrying
  * role/index, not a brittle text-only one) was used instead. */
@@ -42,6 +43,8 @@ export interface SelfHealOptions {
   maxHeals?: number;
   policy?: ActionPolicy;
   perceive?: PerceptionAdapter;
+  /** Prepared-selection diagnostics for ordinary locator repair (not the finite-choice pilot). */
+  trace?: TraceScope;
   /** Mask configured input values in the repair prompt and policy context. */
   secrets?: Secrets;
   /** Fired when a step is healed — a host's signal that the scenario is aging (re-freeze worthwhile). */
@@ -203,7 +206,7 @@ export class SelfHealingDriver implements Driver {
     const choose = this.opts.choice?.prepare(target);
     const raw = await this.inner.snapshot({ perception: true });
     const elements = redactSecrets(this.opts.perceive ? await this.opts.perceive(raw.map(e => ({ ...e }))) : raw, this.opts.secrets);
-    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "", this.opts.choice ? 254 : undefined);
+    const page = new PerceptionObservation(this.inner, raw, elements, target.text ?? target.selector ?? "", this.opts.choice ? 254 : undefined, Boolean(this.opts.trace) && !this.opts.choice);
     // Observation may yield to another repair. Reserve a request only after it succeeds,
     // and keep this check and increment synchronous so concurrent calls share the limit.
     this.assertHealBudget(target, cause);
@@ -212,7 +215,9 @@ export class SelfHealingDriver implements Driver {
     if (this.opts.choice) {
       unbound = { action, ref: await choose!(page, elements) };
     } else {
-      const reply = await this.llm.complete(healPrompt(target, page), {
+      const prompt = healPrompt(target, page);
+      page.tracePrepared(this.opts.trace, "locator-heal", "heal");
+      const reply = await this.llm.complete(prompt, {
         system: healSystem(Boolean(page.references)),
       });
       const parsed = extractFirstJsonObject(reply) as { name?: string; ref?: string; role?: string; nth?: number } | undefined;

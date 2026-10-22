@@ -290,7 +290,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal || opts.targetChoice
-    ? (healer = new SelfHealingDriver(baseDriver, budget?.llm(repairLlm, "locator-heal") ?? repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
+    ? (healer = new SelfHealingDriver(baseDriver, budget?.llm(repairLlm, "locator-heal") ?? repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets, trace: scope,
         ...(opts.targetChoice ? { choice: createTargetChoiceRepair({ ...opts.targetChoice, secrets: opts.secrets,
           selector: budget ? { select: async (request) => {
             budget.phase = "target-choice";
@@ -320,7 +320,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         }) } : {}),
       }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(budget?.llm(repairLlm, "step-heal") ?? repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(budget?.llm(repairLlm, "step-heal") ?? repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive, trace: scope }) : undefined;
 
   try {
     const result = await runHarness(

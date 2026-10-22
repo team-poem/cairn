@@ -46,7 +46,7 @@ export interface ExploreOptions extends BudgetOptions {
   policy?: ActionPolicy;
   /** Correct state before common selection; preserve each retained candidate ref/name/role. */
   perceive?: PerceptionAdapter;
-  /** Binding-rejection diagnostics (spec/core/trace.md); absent → no emission. */
+  /** Binding and prepared-selection diagnostics (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
   /** URL substrings whose 4xx/5xx is product noise — excluded from failed-request findings. */
   benign?: string[];
@@ -107,7 +107,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const raw = await driver.snapshot({ perception: true });
     const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
     try {
-      return { elements, page: new PerceptionObservation(driver, raw, elements, charter) };
+      return { elements, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -200,8 +200,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       break;
     }
 
+    const prompt = buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references);
+    page.tracePrepared(trace, "explore", "explore");
     const reply = await llm.complete(
-      buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references),
+      prompt,
       { system: exploreSystem(Boolean(page.references)) },
     );
 

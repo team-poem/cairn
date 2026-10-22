@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.10**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.11**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.10", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.11", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -65,6 +65,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | lifecycle | `case-start` | `id`, `intent`, `skillRef`, `cached` (hit vs. discover) | `SuiteCase` + cache check |
 | lifecycle | `case-end` | `verdict`, `usage`, `discovered`, `heals`, `truncated?` | `SuiteVerdict` |
 | lifecycle | `budget-exhausted` | `limit`, `configured`, `modelCalls`, `elapsedMs`, `phase`, `operation?` | [run budget](run-budget.md); precedes owned `case-end` with `failure: "budget"` |
+| discover / explore / heal | `selection` | prepared decision ID, observation ID, purpose, fixed-size selection counts | actual decision input; **not** model admission or dispatch evidence (#302) |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
 | discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these two diagnostics only |
@@ -167,6 +168,8 @@ two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
 
+Version 1.11 adds `selection`, a content-free prepared decision-input summary. See below.
+
 Version 1.8 adds `assertion.payload.reason: inconclusive` for missing custom evidence.
 Its `passed: false` does not mean an app failure; render it as inconclusive. Case verdicts
 may carry `failClosed: all-inconclusive` when no check could be judged.
@@ -265,6 +268,66 @@ This is an execution stop, not an app regression. See [run budgets](run-budget.m
 ## Open
 
 - *(none — the attachment id scheme was the last one, closed in #160.)*
+
+## Prepared selection diagnostics (#302, version 1.11)
+
+Supplying the existing trace scope enables `selection` events for discovery, exploration,
+ordinary locator repair and surgical step repair. `runScenario` forwards its case scope to both
+healers; standalone browser consumers pass `trace` in the healer options. Outcome re-discovery
+uses `purpose: discover` with `phase: heal`. Hosts own standalone trace lifecycles as before.
+
+The event is emitted after building the decision prompt, immediately before calling the wrapped
+model port. `stage: prepared` means **prepared**, not admitted, sent, completed or executed.
+A budget wrapper can still refuse this call, and a custom model client may never make a wire
+request. Model admission/transport outcomes are not tracked by this event. Never count these
+events as usage; use the existing usage/budget records. No new admission hook or budget change
+is introduced. A policy stop before prompt construction, an invalid observation, a healer that
+has reached its attempt limit, and explore's final observation-only capture emit no selection
+event. Existing binding diagnostics still describe rejected observations.
+
+`observationId` is the engine's temporary observation ID, never a Driver ref. `decisionId` adds
+an observation-local attempt suffix. Correlate within the trace/run, not across runs or by
+`stepRef`: invalid JSON or a rejected action can consume a decision without producing a step.
+Selection events deliberately have no `stepRef`. These IDs are not persisted in frozen tests.
+
+The payload contains:
+
+- `raw`, `perceived`, `eligible`, `selected`: each has `count` and fixed role buckets
+  `button`, `link`, `input`, `choice`, `text`, `other`. Unknown/custom roles map to `other`;
+  raw role strings never become keys. Counts are nonnegative integers bounded by their input
+  arrays; payload size does not grow with the number or content of candidates.
+- `excluded.occluded`: post-perceive rows removed by positive occlusion.
+- `excluded.clickableRegionOrQuota`: remaining rows removed by clickable-region de-nesting
+  or the promotion quota. Rows retained for intent evidence are **not** exclusions.
+- `capOmitted`: eligible rows not in the final selection, after evidence-slot replacements.
+- `purpose`: `discover`, `explore`, `locator-heal` or `step-heal`.
+
+`perceived.count = excluded.occluded + excluded.clickableRegionOrQuota + eligible.count`;
+`eligible.count = selected.count + capOmitted`. Role buckets sum to their stage's count.
+The selector supplies these summaries from its actual candidate arrays and final result; tracing
+never reranks. `raw` describes the Driver snapshot, not every DOM node. `perceived` describes
+the input after the host transform and existing value redaction. The difference between raw
+and perceived counts is **not** a removal reason or identity diff: hosts can add, duplicate,
+reorder or transform rows, including with unchanged counts. Counts cannot identify a specific
+missing control or establish which rendered row the model chose. No detailed candidate audit
+is introduced by this issue.
+
+No raw names, values, URLs, HTML, prompts, role strings, region identifiers, Driver refs or
+content hashes enter this new payload. This does **not** sanitize older action/assertion events.
+No additional capture, model call or network request is made. Without tracing, role summaries
+are not computed; throwing sinks remain isolated from dispatch and proof.
+
+The finite-choice locator pilot continues to use its separate `target-choice` audit. It does
+not emit `selection`: its candidate validation/admission is not the ordinary prompt path.
+Injected `LlmClient` implementations used by these built-in paths receive the same diagnostics.
+Model calls outside these paths, custom healer internals, assertion proposals and semantic
+judgment are outside this event's coverage. Healthy mechanical replay emits no selection event
+or model call.
+
+Reproduce the synthetic real-browser check with `npm run build && npm run test:selection`.
+It uses local HTML, real Chrome/MCP and scripted model replies, comparing tracing off/on/throwing
+and then replaying the same frozen scenario without a model. It is not a live-model evaluation
+or evidence of performance improvement.
 
 ## Decided in review (#177)
 

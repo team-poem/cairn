@@ -7,7 +7,7 @@ Copy this directory anywhere and install it independently. The runner imports on
 
 - Node **20.19+ on 20.x, 22.12+ on 22.x, or 23+** (required by Chrome DevTools MCP).
 - Google Chrome installed in its normal location. Each run launches an isolated headless browser.
-- npm, or pnpm 10. Keep local port **127.0.0.1:4318** free and run one quickstart process at a time.
+- npm, pnpm 10, or Yarn 4 (Plug'n'Play). The Chrome adapter still uses `npx`, supplied with npm. Keep local port **127.0.0.1:4318** free and run one quickstart process at a time.
 - Network access for dependency installation and the first `npx chrome-devtools-mcp@~1.3.0` launch.
 - No model account or API key for the scripted path below.
 
@@ -53,6 +53,15 @@ pnpm run discover:scripted
 pnpm run freeze
 pnpm run replay
 ```
+
+```sh
+yarn install
+yarn run discover:scripted
+yarn run freeze
+yarn run replay
+```
+
+The remaining `npm run` examples also work with `pnpm run` or `yarn run`.
 
 `discover:scripted` supplies four fixed responses through the public `LlmClient` port: type `Cairn`
 into `Name`, click `Submit`, finish with a POST success assertion, and propose the final assertions.
@@ -123,7 +132,8 @@ more calls and is **not run in CI**. The fixture, store, and replay code are oth
 ## What CI proves
 
 The repository builds and packs the current engine, copies this directory into an external temporary
-folder, and installs that **tarball** with npm and pnpm separately. It typechecks this consumer, runs
+folder, and installs that **tarball** with npm, pnpm and Yarn 4 PnP separately. The Yarn test requires
+an active PnP loader and no `node_modules` directory. It typechecks this consumer, runs
 the installed `cairn` executable (exit 0/2/1), bundles `cairn-engine/browser` for the browser without
 externalizing Node dependencies, and runs `verify`. The manifest here deliberately stays on the
 published `cairn-engine@^2.8.0`; only the temporary CI copy substitutes the current tarball.

@@ -27,7 +27,7 @@ function fixture() {
       return { repository: { pullRequest: structuredClone(result) } };
     },
     rest: {
-      pulls: { list() {}, listCommits() {}, get: async args => {
+      pulls: { list() {}, listCommits() {}, update: async args => { f.operations.push(`update:${args.state}`); return { data: {} }; }, get: async args => {
         f.restReads++;
         assert.deepEqual(args, { owner: "team", repo: "cairn", pull_number: 42 });
         const pr = f.lastPr ?? f.current ?? f.pr;
@@ -87,7 +87,9 @@ function fixture() {
     addList(items) { f.summary.items.push(...items); return this; },
     async write() { f.summary.writes++; },
   };
+  f.updates = [];
   f.run = async payload => mergeLabeledPullRequests({ github, ciGithub: f.ciGithub,
+    updateBranch: async pr => { f.updates.push(pr.number); return f.update ?? { kind: "conflict" }; },
     context: { repo: { owner: "team", repo: "cairn" }, payload: payload ?? {} },
     core: { info(message) { f.messages.push(message); }, warning(message) { f.warnings.push(message); }, summary } });
   return f;
@@ -141,7 +143,7 @@ for (const [name, patch] of [
   ["missing approval despite bot bypass", { reviewDecision: "REVIEW_REQUIRED" }],
   ["changes requested", { reviewDecision: "CHANGES_REQUESTED" }],
   ["missing review rule", { reviewDecision: null }],
-  ["conflict", { mergeStateStatus: "DIRTY" }],
+  ["conflict", { mergeStateStatus: "DIRTY" }], ["blocked", { mergeStateStatus: "BLOCKED" }],
   ["unknown", { mergeStateStatus: "UNKNOWN" }],
   ["removed label", { labels: { nodes: [] } }],
   ["different label case", { labels: { nodes: [{ name: "Needs-Merge" }] } }],
@@ -178,14 +180,6 @@ for (const [name, change, reason] of [
   });
 }
 
-test("merges an approved, green PR that GitHub keeps reporting BLOCKED to the bypassing App", async () => {
-  const f = fixture();
-  f.pr.mergeStateStatus = "BLOCKED";
-  await f.run();
-  assert.equal(f.merged.length, 1);
-  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
-});
-
 test("does not squash a branch that carries the commits of another open PR", async () => {
   const f = fixture();
   f.candidates.push({ number: 41, labels: [] });
@@ -202,6 +196,45 @@ test("a stack whose lower PR is no longer open merges normally", async () => {
   f.commits = { 41: ["lower-1"], 42: ["upper"] };
   await f.run({ pull_request: f.candidates[0] });
   assert.equal(f.merged.length, 1);
+});
+
+test("closes a conflicting PR whose changes are already on develop", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "DIRTY";
+  f.update = { kind: "landed" };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.updates, [42]);
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.operations, ["update:closed"]);
+  assert.match(f.commentWrites[0].body, /already on develop/);
+});
+
+test("a branch updated from develop waits for a person to request the merge again", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "DIRTY";
+  f.update = { kind: "resolved", sha: "merge-sha" };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.operations, ["removeLabel"]);
+  assert.equal(f.commentWrites.length, 1);
+  assert.match(f.commentWrites[0].body, /merge-sha.*add needs-merge again/);
+});
+
+test("a fork PR with conflicts is left to its author", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "DIRTY";
+  f.pr.isCrossRepository = true;
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.updates, []);
+  assert.match(f.commentWrites[0].body, /resolve the merge conflicts/);
+});
+
+test("a failed branch update is reported as an ordinary conflict", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "DIRTY";
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.operations, []);
+  assert.match(f.commentWrites[0].body, /resolve the merge conflicts/);
 });
 
 test("repeated blocked evaluations leave an unchanged notice alone", async () => {

@@ -1,0 +1,31 @@
+<!doctype html>
+<title>Host ownership with browser-generated accessibility nodes</title>
+<style>
+  #generated::before { content: 'Application prefix '; }
+  #generated::after { content: ' application suffix'; }
+  #host-generated::before { content: 'Host generated secret'; }
+  #custom-marker::marker { content: 'Custom marker '; }
+  #generated-button::before { content: 'Generated button'; }
+</style>
+<ul><li>Application unordered item</li><li><button id="list-action" onclick="document.body.dataset.clicked='yes'">List action</button></li></ul>
+<ol><li>Application ordered item</li></ol>
+<ul><li id="custom-marker">Application custom item</li></ul>
+<p id="generated">Application generated content</p>
+<button id="generated-button" onclick="document.body.dataset.generated='yes'"></button>
+<a href="#shared">Shared action</a><button>Shared action</button>
+<details open><summary>Application summary</summary>Application details</details>
+<label>Application choice <select><option>First choice</option><option>Second choice</option></select></label>
+<label>Application date <input type="date" value="2026-10-23"></label>
+<label>Application number <input type="number" value="3"></label>
+<label>Application range <input type="range"></label>
+<progress aria-label="Application progress" value="1" max="2"></progress>
+<meter aria-label="Application meter" value="0.5"></meter>
+<label>Application color <input type="color" value="#123456"></label>
+<label>Application file <input type="file"></label>
+<div contenteditable="true" role="textbox" aria-label="Application editor">Editable text</div>
+<table><caption>Application table</caption><tr><th>Column</th></tr><tr><td>Application cell</td></tr></table>
+<svg role="img" aria-label="Application icon"><circle cx="10" cy="10" r="5" /></svg>
+<aside id="host">
+  <ul><li>Host list secret</li></ul><p id="host-generated">Host panel secret</p>
+  <label>Host date secret <input type="date" value="2042-01-02"></label>
+</aside>

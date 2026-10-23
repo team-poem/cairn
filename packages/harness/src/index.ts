@@ -1,6 +1,10 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { composePolicies } from "./core/action-policy.js";
+export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";
+export type { ScrollNoProgressOptions } from "./core/scroll-policy.js";
+export type { PolicyContext, PolicyDiagnostic } from "./core/discover/decision.js";
 export { BudgetExceededError, validateRunBudget } from "./core/budget.js";
 export type { RunBudget, BudgetExhaustion } from "./core/budget.js";
 export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";
@@ -22,6 +26,7 @@ export type { SuiteCase, SuiteOptions, SuiteResult, SuiteVerdict } from "./suite
 export { TRACE_VERSION, Tracer, TraceScope, assertionPayload, startTrace } from "./core/trace.js";
 export { ENGINE_VERSION } from "./version.js";
 export type { TraceEmission, TraceEvent, TracePhase } from "./core/trace.js";
+export type { CandidateCounts, SelectionSummary, SelectionDiagnostic } from "./core/selection-diagnostics.js";
 export { renderSuiteReport } from "./adapters/reporters/suite.js";
 export { LlmStepHealer } from "./core/step-heal.js";
 export type { StepHealOptions } from "./core/step-heal.js";
@@ -44,6 +49,8 @@ export { JsonReporter } from "./adapters/reporters/json.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";
 export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 export type { ChromeDriverOptions } from "./adapters/drivers/chrome.js";
+export { createHostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
+export type { HostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 export { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";

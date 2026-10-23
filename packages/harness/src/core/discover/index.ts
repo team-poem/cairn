@@ -7,6 +7,7 @@
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
 import { PerceptionObservation } from "../observation.js";
+import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
 import { identifyScenario } from "../contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
@@ -14,7 +15,7 @@ import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { discoverSystem, buildPrompt } from "./prompt.js";
+import { discoverSystem, buildPrompt, REFERENCE_REJECTION } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -87,7 +88,8 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
   validateSecrets(opts.secrets);
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
-  const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], policy, perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
+  const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
+  const policy = opts.policy?.createRun?.() ?? opts.policy;
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -97,6 +99,9 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
   // Emit the freeze: observe pending mutations and short post-response redirects within one
   // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
+    const incomplete = truncated ? policy?.incomplete?.() : undefined;
+    if (incomplete) trace?.emit({ kind: "gate", phase: tracePhase,
+      payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
     // end of the settled entry load, so a landing-page beacon never reads as the flow's own.
     const firstCount =
@@ -155,7 +160,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       });
     }
     const scenario: Scenario = truncated
-      ? { name: intent, steps, assertions, truncated: true, ...wildcards, ...unproven }
+      ? { name: intent, steps, assertions, truncated: true, ...(incomplete ? { truncationReason: incomplete.diagnostic.code } : {}), ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
     return identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
       provenance: await appContextProvenance(appContext) });
@@ -189,11 +194,16 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
+    const scrollBefore = await readPolicyScroll(policy, driver);
     const raw = await driver.snapshot({ perception: true });
+    const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
+    if (policy?.needsScrollState) currentUrl = (await driver.observe()).execution.finalUrl ?? currentUrl;
+    const ctx = policyContext(elements, currentUrl, scrollBefore, scrollAfter);
+    policy?.observe?.(ctx);
     let page: PerceptionObservation;
     try {
-      page = new PerceptionObservation(driver, raw, elements, intent);
+      page = new PerceptionObservation(driver, raw, elements, intent, undefined, Boolean(trace));
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -206,9 +216,12 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
     }
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
-    if (policy?.stop?.(steps, { elements, url: currentUrl })) return finish(false);
+    if (policy?.stop?.(steps, ctx)) return finish(false);
+    if (policy?.incomplete?.()?.halt) return finish(true);
     const render = page.render;
-    const reply = await llm.complete(buildPrompt(intent, render, steps, failures, currentUrl, page.references), {
+    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.references);
+    page.tracePrepared(trace, "discover", tracePhase);
+    const reply = await llm.complete(prompt, {
       system: discoverSystem(Boolean(page.references)),
     });
 
@@ -239,7 +252,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
         phase: tracePhase,
         payload: { gate: "reference-binding", reason: "reference binding rejected: invalid, expired or contradictory observation reference" },
       });
-      pushFailure(`reference binding rejected: ${err instanceof Error ? err.message : String(err)}; choose a ref from the current observation`);
+      pushFailure(`${REFERENCE_REJECTION}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
     }
 
@@ -249,10 +262,10 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       trace?.emit({
         kind: "action",
         phase: tracePhase,
-        payload: { done: true, ok: true, intent: decision.reason?.trim() || undefined },
+        payload: { done: true, ok: !policy?.incomplete?.(), intent: decision.reason?.trim() || undefined },
       });
       onStep?.(decision);
-      return finish(false, decision.assertions ?? []);
+      return finish(Boolean(policy?.incomplete?.()), decision.assertions ?? []);
     }
 
     // Ambiguity gate (#127): a duplicated name without nth never reaches the driver — the loop
@@ -275,14 +288,14 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
       // vet is a recorded rejection, not a lost discovery. A rejected action never executes.
-      const verdict = policy?.vet(decision, { elements, url: beforeObs.execution.finalUrl }) ?? {
+      const verdict = policy?.vet(decision, { ...ctx, url: beforeObs.execution.finalUrl }) ?? {
         ok: true as const,
       };
       if (!verdict.ok) {
         trace?.emit({
           kind: "gate",
           phase: tracePhase,
-          payload: { gate: "policy", action: describeAction(decision), reason: verdict.reason },
+          payload: { gate: "policy", action: describeAction(decision), reason: verdict.reason, ...(verdict.diagnostic ?? {}) },
         });
         pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
         onStep?.(decision);
@@ -307,6 +320,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       steps.push(step);
       opts[budgetScope]?.recordAction({ step, ok: true });
       marks.push(mark);
+      policy?.executed?.(step, ctx);
       trace?.emit({
         kind: "action",
         phase: tracePhase,
@@ -334,9 +348,28 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
 
   // Step cap reached without an explicit "done". Ask the policy once more on the final page —
   // a goal reached by the last action is a trusted finish, not a truncation (#77).
-  if (policy?.stop) {
+  if (policy?.stop || policy?.observe) {
     await driver.settle();
-    if (policy.stop(steps, { elements: await driver.snapshot() })) return finish(false);
+    const before = await readPolicyScroll(policy, driver);
+    const raw = await driver.snapshot(policy.observe ? { perception: true } : undefined);
+    const after = await readPolicyScroll(policy, driver);
+    const elements = policy.observe ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
+    try {
+      // A final goal check must not trust bindings rejected on an ordinary decision turn.
+      new PerceptionObservation(driver, raw, elements, intent);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
+      return finish(true);
+    }
+    const url = policy.needsScrollState ? (await driver.observe()).execution.finalUrl : undefined;
+    const ctx = policyContext(elements, url, before, after);
+    policy.observe?.(ctx);
+    if (policy.stop?.(steps, ctx)) return finish(false);
   }
   return finish(true);
 }

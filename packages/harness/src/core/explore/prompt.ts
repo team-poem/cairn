@@ -4,7 +4,7 @@
  * prompt assembly with coverage memory. Pure — no driver, no I/O.
  */
 import type { Step } from "../types.js";
-import { actionRules, actionVocabulary, PERCEPTION_RULES } from "../discover/prompt.js";
+import { actionRules, actionVocabulary, failureBlock, PERCEPTION_RULES } from "../discover/prompt.js";
 import type { Finding } from "./findings.js";
 
 export function exploreSystem(hasReferences: boolean): string {
@@ -57,13 +57,7 @@ export function buildExplorePrompt(
           ``,
         ]
       : []),
-    ...(failures.length
-      ? [
-          `These actions ALREADY FAILED — do NOT repeat them, choose a different element or approach:`,
-          ...failures.map((f) => `- ${f}`),
-          ``,
-        ]
-      : []),
+    ...failureBlock(failures, Boolean(references)),
     `Actions taken so far:`,
     history,
     ``,

@@ -38,7 +38,11 @@ Contributions that respect that contract are the most valuable kind.
    labels present blocks the bot. Without `needs-merge`, the merge label check is skipped
    and the bot does not evaluate an open PR for merging.
    The bot waits for approval and the
-   latest CI workflow to pass. The squashed commit credits the PR author; the bot is
+   latest CI workflow to pass. It refuses a branch that carries another open PR's commits;
+   merge the lower PR of a stack first. When a same-repository branch conflicts with develop, the bot
+   merges develop into it: if nothing is left to merge it closes the PR, and if every conflict is one
+   where the PR's side is already on develop it pushes that merge and removes `needs-merge` so a
+   maintainer reviews it and asks again. Other conflicts are left to the author. The squashed commit credits the PR author; the bot is
    recorded as the merger. After a successful merge the bot removes `needs-merge`.
    Remove `needs-merge` before merging to cancel the request.
    Add `no-merge` to block the bot even when `needs-merge` is present. Removing `no-merge`

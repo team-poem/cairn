@@ -1,10 +1,11 @@
 import { mergeLabelBlocker } from "./merge-label-policy.mjs";
 import { postMergeDecisionComment } from "./merge-decision-comment.mjs";
+import { mergeDevelopInto } from "./merge-conflicts.mjs";
 
 const query = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      number state isDraft baseRefName headRefOid title reviewDecision mergeStateStatus
+      number state isDraft baseRefName headRefName headRefOid isCrossRepository title reviewDecision mergeStateStatus
       labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
     }
   }
@@ -22,7 +23,9 @@ function blocker(pr) {
 
 // The App can bypass rulesets, so approval and CI must be checked explicitly.
 // Use GitHub's squash API: GitHub credits the PR author and records the App as merger.
-export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core }) {
+export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core,
+  updateBranch = async pr => mergeDevelopInto({ cwd: process.env.GITHUB_WORKSPACE, number: pr.number,
+    ref: pr.headRefName, head: pr.headRefOid, token: (await github.auth()).token }) }) {
   const { owner, repo } = context.repo;
   const messages = [];
   const notices = new Map();
@@ -57,17 +60,35 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     }
     notices.clear();
   };
-  const clearMergeRequest = async number => {
+  const removeMergeRequest = async number => {
     try {
       await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: "needs-merge" });
     } catch (error) {
-      if (error.status !== 404) {
-        report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
-        await flushNotices();
-        throw error;
-      }
+      if (error.status !== 404) throw error;
+    }
+  };
+  const clearMergeRequest = async number => {
+    try {
+      await removeMergeRequest(number);
+    } catch (error) {
+      report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
+      await flushNotices();
+      throw error;
     }
     report(number, "merged; needs-merge request cleared.");
+  };
+  let openPulls;
+  // ponytail: listCommits stops at 250 commits per PR; enough for stacked feature branches.
+  const commitsOf = async number => (await github.paginate(github.rest.pulls.listCommits,
+    { owner, repo, pull_number: number, per_page: 100 })).map(commit => commit.sha);
+  const stackedOn = async number => {
+    openPulls ??= await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", base: "develop", per_page: 100 });
+    const own = new Set(await commitsOf(number));
+    const carried = [];
+    for (const other of openPulls.filter(other => other.number !== number)) {
+      if ((await commitsOf(other.number)).some(sha => own.has(sha))) carried.push(other.number);
+    }
+    return carried;
   };
   const candidates = context.payload.pull_request
     ? [context.payload.pull_request]
@@ -115,6 +136,31 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
         : `Merge pending: CI ${latest.conclusion ?? "did not pass"}. Please fix or rerun it.`);
       continue;
     }
+    if (pr.mergeStateStatus === "DIRTY" && !pr.isCrossRepository) {
+      // Settle what needs no judgment: a branch already on develop, or conflicts where this PR's
+      // side is already in develop. Resolved conflicts are new code, so a person re-requests the merge.
+      let result;
+      try {
+        result = await updateBranch(pr);
+      } catch (error) {
+        core.warning(`PR #${pr.number}: could not merge develop into the branch: ${error.message}`);
+      }
+      if (result?.kind === "landed") {
+        await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+          body: "Closing: merging develop into this branch changes nothing, so every change here is already on develop." });
+        await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: "closed" });
+        report(pr.number, "already on develop; closed.");
+        continue;
+      }
+      if (result?.kind === "resolved") {
+        await removeMergeRequest(pr.number);
+        report(pr.number, `merged develop into the branch as ${result.sha}; waiting for a new merge request.`);
+        // A plain comment: the queued decision notice is dropped once the head it describes moves.
+        await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+          body: `cairn-pingu merged develop into this branch (${result.sha}), resolving only conflicts where this pull request's side was already on develop. Review that commit, then add needs-merge again.` });
+        continue;
+      }
+    }
     if (pr.mergeStateStatus !== "CLEAN") {
       report(pr.number, `waiting for GitHub merge requirements (merge state: ${pr.mergeStateStatus}).`);
       notice(pr, pr.mergeStateStatus === "DIRTY"
@@ -134,6 +180,16 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     if (current.headRefOid !== pr.headRefOid || current.mergeStateStatus !== "CLEAN") {
       report(pr.number, "head or merge requirements changed; waiting for the next evaluation.");
       notice(current, "Merge pending: the commit or merge requirements changed. Rechecking soon.");
+      continue;
+    }
+    // A squash rewrites every commit on the branch. If the branch is stacked on another open
+    // PR, that PR's work would land under this title and the lower PR would be left open with
+    // conflicts and no journal entry. Merge the lower PR first.
+    const carried = await stackedOn(pr.number);
+    if (carried.length) {
+      const list = carried.map(number => `#${number}`).join(", ");
+      report(pr.number, `branch carries commits of open PR ${list}; merge that first.`);
+      notice(current, `Merge pending: this branch also carries the commits of ${list}. Merge ${list} first, or rebase this branch onto develop without them.`);
       continue;
     }
     try {

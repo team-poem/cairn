@@ -23,6 +23,7 @@ export type { Secret, Secrets } from "./core/secrets.js";
 export type { RunHarnessOptions } from "./core/pipeline.js";
 export { startTrace, Tracer, TraceScope, TRACE_VERSION } from "./core/trace.js";
 export type { TraceEvent, TraceEmission, TracePhase } from "./core/trace.js";
+export type { CandidateCounts, SelectionSummary, SelectionDiagnostic } from "./core/selection-diagnostics.js";
 export { BuiltinStepHandler, CustomStepHandler, defaultStepHandlers } from "./core/steps.js";
 export type { UrlMatchOptions, ConditionMatchOptions } from "./core/steps.js";
 
@@ -40,6 +41,8 @@ export type { CustomCheck, CustomChecks, CustomCheckResult } from "./adapters/cr
 export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";
+export { createHostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
+export type { HostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 
@@ -48,6 +51,10 @@ export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
 export { discover, parseDecision } from "./core/discover/index.js";
+export { composePolicies } from "./core/action-policy.js";
+export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";
+export type { ScrollNoProgressOptions } from "./core/scroll-policy.js";
+export type { PolicyContext, PolicyDiagnostic } from "./core/discover/decision.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
 export { explore } from "./core/explore/index.js";
 export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";

@@ -59,7 +59,17 @@ Then try `npm run replay:broken`: the form reaches its success page but its API 
 
 ### Use a model on your own app
 
-Install the CLI with `npm install -g cairn-engine`. Configure one [supported backend](#llm-backends) first; discovery and healing consume model usage.
+Install locally with your preferred package manager:
+
+```sh
+npm install cairn-engine
+# or
+pnpm add cairn-engine
+# or
+yarn add cairn-engine
+```
+
+Run the local CLI with `npx cairn`, `pnpm exec cairn`, or `yarn exec cairn`. The commands below use a global CLI installed with `npm install -g cairn-engine`. Configure one [supported backend](#llm-backends) first; discovery and healing consume model usage.
 
 ```sh
 # Replace the URL and intent with a flow on your test app.
@@ -70,6 +80,26 @@ cairn replay products.skill.json --heal
 ```
 
 Check the saved steps and assertions before treating them as a regression test. For authenticated flows, use [secret placeholders](https://github.com/team-poem/cairn/blob/main/spec/core/secrets.md), not credentials in the intent. For library usage, install `cairn-engine` locally and follow the [embedding guide](https://github.com/team-poem/cairn/blob/main/docs/guide.md#embed-it). The [quickstart](https://github.com/team-poem/cairn/tree/main/examples/quickstart#discover-with-a-real-model-optional) also supports real-model discovery against its local fixture.
+
+### Add app knowledge and execution limits
+
+Give discovery and repair your app's terminology and workflow rules, separately from the task. With your configured `driver` and `llm`:
+
+```ts
+import { discover } from "cairn-engine";
+
+const scenario = await discover("Add two units to the cart", {
+  driver,
+  llm,
+  baseUrl: "https://your.app",
+  appContext: "Cart lines distinguish product, option and quantity. Adding to cart is not checkout.",
+  budget: { maxModelCalls: 12, timeoutMs: 60_000 },
+});
+```
+
+[App context](https://github.com/team-poem/cairn/blob/main/docs/guide.md#optional-app-knowledge) guides discovery, exploration and repair; it never replaces observed evidence or success checks. Healthy mechanical replay needs neither context nor a model.
+
+[Execution budgets](https://github.com/team-poem/cairn/blob/main/docs/guide.md#execution-budgets) limit engine model-call admissions and elapsed time per run, or per suite case across discovery and repair. Separate calls get separate budgets. The deadline is cooperative, not a hard kill or a billing cap. CLI equivalents: `--app-context ./app.txt`, `--max-model-calls 12`, `--run-timeout 60000`.
 
 ## Benchmarks
 
@@ -142,6 +172,8 @@ This measures one locator change, with the order verified by the fixture's order
 - Freeze it to a flat, readable, diffable `*.skill.json` file
 - Replay it deterministically, with zero LLM calls, and print the proof (`llm: 0 call(s)`)
 - Self-heal a broken step from its recorded intent, then re-freeze
+- Supply reusable app knowledge to discovery, exploration and repair with `appContext`
+- Bound model calls and elapsed time with a shared execution budget per run or suite case
 - Fill `{name}` secrets at run time, scoped to your site, never frozen into a skill
 - Multi-locator targets (accessible name, role and index, CSS) that survive redesigns
 - Three-layer judgment: did it act, what it looked like, what the requests and console said

@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Accessible dependency fixture</title>
+Application saved
+<section>
+  Shared application text
+  <aside id="host"><span id="host-label">Host-only success</span></aside>
+</section>
+<button id="nested"><span aria-labelledby="host-label"></span></button>
+<label for="labelled"><span aria-labelledby="host-label"></span></label>
+<input id="labelled">
+<button id="reflected">Fallback</button>
+<button id="nested-reflected"><span id="reflected-child">Fallback</span></button>
+<input id="described" aria-label="Described application field">
+<button id="independent" onclick="document.body.dataset.clicked='yes'">Application action</button>
+<script>
+  const label = document.getElementById('host-label');
+  document.getElementById('reflected').ariaLabelledByElements = [label];
+  document.getElementById('reflected-child').ariaLabelledByElements = [label];
+  document.getElementById('described').ariaDescribedByElements = [label];
+</script>

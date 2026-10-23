@@ -118,6 +118,7 @@ export interface RunScenarioResult {
   /** The outcome-heal re-discovery ended before `done` (step cap or policy), so nothing was
    * handed back to re-freeze: an unverified path is not a heal. The verdict says so too. */
   truncated?: true;
+  truncationReason?: Scenario["truncationReason"];
 }
 
 export function needsLlmCritic(scenario: Scenario): boolean {
@@ -169,7 +170,8 @@ export async function runScenario(
     if (!tracer || ended) return;
     ended = true;
     scope?.emit({ kind: "case-end", payload: { verdict: result.result.verdict, usage: result.result.usage,
-      discovered: false, heals: result.heals.length + result.stepHeals.length, ...(result.truncated ? { truncated: true } : {}) } });
+      discovered: false, heals: result.heals.length + result.stepHeals.length, ...(result.truncated ? { truncated: true } : {}),
+      ...(result.truncationReason ? { truncationReason: result.truncationReason } : {}) } });
     tracer.emit({ kind: "run-end", payload: { passed: result.result.verdict.passed, usage: result.result.usage } });
   };
   let output: RunScenarioResult;
@@ -258,6 +260,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     runUsage: RunUsage | undefined,
     healCount: number,
     truncated = false,
+    truncationReason?: Scenario["truncationReason"],
   ): void => {
     if (!ownTracer) return;
     scope?.emit({
@@ -268,6 +271,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         discovered: false,
         heals: healCount,
         ...(truncated ? { truncated: true } : {}),
+        ...(truncationReason ? { truncationReason } : {}),
       },
     });
     ownTracer.emit({ kind: "run-end", payload: { passed: verdict.passed, usage: runUsage } });
@@ -290,7 +294,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   };
   let healer: SelfHealingDriver | undefined;
   const driver = opts.heal || opts.targetChoice
-    ? (healer = new SelfHealingDriver(baseDriver, budget?.llm(repairLlm, "locator-heal") ?? repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets,
+    ? (healer = new SelfHealingDriver(baseDriver, budget?.llm(repairLlm, "locator-heal") ?? repairLlm, { onHeal, policy: opts.policy, perceive: opts.perceive, secrets: opts.secrets, trace: scope,
         ...(opts.targetChoice ? { choice: createTargetChoiceRepair({ ...opts.targetChoice, secrets: opts.secrets,
           selector: budget ? { select: async (request) => {
             budget.phase = "target-choice";
@@ -320,7 +324,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         }) } : {}),
       }))
     : baseDriver;
-  const stepHealer = opts.heal ? new LlmStepHealer(budget?.llm(repairLlm, "step-heal") ?? repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive }) : undefined;
+  const stepHealer = opts.heal ? new LlmStepHealer(budget?.llm(repairLlm, "step-heal") ?? repairLlm, undefined, opts.secrets, { policy: opts.policy, perceive: opts.perceive, trace: scope }) : undefined;
 
   try {
     const result = await runHarness(
@@ -418,6 +422,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       // and the goal assertions holding on its partial state is not a heal. Not "the step cap":
       // `discover` also truncates after repeated policy blocks, and that path is live here.
       const truncated = repaired.truncated === true;
+      const truncationReason = truncated ? repaired.truncationReason : undefined;
       // Withheld = not a heal: truncated, or it reached `done` but a goal assertion still failed.
       // Guards (`no-failed-requests`, `no-console-errors`) do not count — a transient 500 during the
       // re-discovery does not make the path it found wrong, and a persistent one is not something a
@@ -425,7 +430,9 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const missedGoal = !truncated && (judged.budget !== undefined || goalFailures(judged).length > 0 || judged.results.some(r => r.reason === "inconclusive"));
       let verdict = finalizeVerdict(
         judged,
-        truncated ? { kind: "truncated", reason: "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
+        truncated ? { kind: "truncated", reason: truncationReason === "no-progress"
+          ? "outcome-heal re-discovery stopped for no-progress — unverified path"
+          : "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
         evidence.execution.actions,
         scenario, // the ORIGINAL: its assertions were judged, so its proof is what a green is worth
       );
@@ -443,7 +450,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       // `truncated` rides here too, so a library caller with its own sink reads the same shape as
       // the suite's case-end (spec/core/trace.md: one implicit case, one shape).
       budget?.check();
-      closeOwnTrace(verdict, usage(), heals.length + stepHeals.length, truncated);
+      closeOwnTrace(verdict, usage(), heals.length + stepHeals.length, truncated, truncationReason);
       return {
         result: { scenario: repaired.name, context: ctx, evidence, verdict, usage: usage() },
         heals,
@@ -467,6 +474,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
               ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
             }, { ...judgment, judgmentIntent: ctx.intent ?? null }),
         ...(truncated ? { truncated: true as const } : {}),
+        ...(truncationReason ? { truncationReason } : {}),
       };
     }
 

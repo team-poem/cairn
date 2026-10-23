@@ -135,6 +135,8 @@ export interface Scenario {
    * policy blocks — so the path may be incomplete and a host can warn before trusting the freeze.
    * Absent on a normal finish. */
   truncated?: boolean;
+  /** Advisory authoring failure, not evidence of a product defect. */
+  truncationReason?: "no-progress";
   /** Set by discover when this freeze wrote a `*` for a segment the run minted, in a `navigated`
    * destination or a step's URL expect. Absent means the file predates the notation, so a `*` in it
    * is a literal path character and is matched as one — a page whose real path contains one keeps
@@ -152,6 +154,20 @@ export interface Scenario {
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
 export interface SnapshotOptions {
   perception?: boolean;
+}
+
+/** Measured state of the region affected by Driver.scroll. Omission means unknown.
+ * Identity must survive snapshots but change across documents/regions. Coverage promises
+ * the snapshot covers this region's accessible content; never infer it from an unchanged list.
+ * These run-local facts are not persisted in scenarios or diagnostic fingerprints. */
+export interface ScrollState {
+  region: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scrollWidth: number;
+  scrollHeight: number;
 }
 
 /** An observed candidate; accessible semantics remain separate from measured interaction facts. */

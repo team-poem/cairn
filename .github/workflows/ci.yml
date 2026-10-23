@@ -155,6 +155,14 @@ jobs:
         env:
           CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
         run: npm run test:settle -- --out "${{ runner.temp }}/settle.json"
+      - name: Foreground selection and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: node scripts/test-foreground.mjs
+      - name: Host-owned instrumentation exclusion and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: node scripts/test-host-owned.mjs
       - name: Preserve settle results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -187,7 +195,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package-manager: [npm, pnpm]
+        package-manager: [npm, pnpm, yarn]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

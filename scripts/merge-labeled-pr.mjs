@@ -20,6 +20,11 @@ function blocker(pr) {
   return null;
 }
 
+// The App bypasses the develop rulesets, and GitHub can keep reporting BLOCKED to it after
+// every rule is met, while its approver sees CLEAN. Approval, labels and CI are checked
+// explicitly before merging, so BLOCKED is not a reason to wait; conflicts still are.
+const mergeable = status => status === "CLEAN" || status === "BLOCKED";
+
 // The App can bypass rulesets, so approval and CI must be checked explicitly.
 // Use GitHub's squash API: GitHub credits the PR author and records the App as merger.
 export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core }) {
@@ -69,6 +74,19 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     }
     report(number, "merged; needs-merge request cleared.");
   };
+  let openPulls;
+  // ponytail: listCommits stops at 250 commits per PR; enough for stacked feature branches.
+  const commitsOf = async number => (await github.paginate(github.rest.pulls.listCommits,
+    { owner, repo, pull_number: number, per_page: 100 })).map(commit => commit.sha);
+  const stackedOn = async number => {
+    openPulls ??= await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", base: "develop", per_page: 100 });
+    const own = new Set(await commitsOf(number));
+    const carried = [];
+    for (const other of openPulls.filter(other => other.number !== number)) {
+      if ((await commitsOf(other.number)).some(sha => own.has(sha))) carried.push(other.number);
+    }
+    return carried;
+  };
   const candidates = context.payload.pull_request
     ? [context.payload.pull_request]
     : await github.paginate(github.rest.pulls.list, { owner, repo, state: "open", base: "develop", per_page: 100 });
@@ -115,7 +133,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
         : `Merge pending: CI ${latest.conclusion ?? "did not pass"}. Please fix or rerun it.`);
       continue;
     }
-    if (pr.mergeStateStatus !== "CLEAN") {
+    if (!mergeable(pr.mergeStateStatus)) {
       report(pr.number, `waiting for GitHub merge requirements (merge state: ${pr.mergeStateStatus}).`);
       notice(pr, pr.mergeStateStatus === "DIRTY"
         ? "Merge pending: resolve the merge conflicts."
@@ -131,9 +149,19 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       if (current?.state === "OPEN") notice(current, `Merge pending: ${currentReason}`);
       continue;
     }
-    if (current.headRefOid !== pr.headRefOid || current.mergeStateStatus !== "CLEAN") {
+    if (current.headRefOid !== pr.headRefOid || !mergeable(current.mergeStateStatus)) {
       report(pr.number, "head or merge requirements changed; waiting for the next evaluation.");
       notice(current, "Merge pending: the commit or merge requirements changed. Rechecking soon.");
+      continue;
+    }
+    // A squash rewrites every commit on the branch. If the branch is stacked on another open
+    // PR, that PR's work would land under this title and the lower PR would be left open with
+    // conflicts and no journal entry. Merge the lower PR first.
+    const carried = await stackedOn(pr.number);
+    if (carried.length) {
+      const list = carried.map(number => `#${number}`).join(", ");
+      report(pr.number, `branch carries commits of open PR ${list}; merge that first.`);
+      notice(current, `Merge pending: this branch also carries the commits of ${list}. Merge ${list} first, or rebase this branch onto develop without them.`);
       continue;
     }
     try {

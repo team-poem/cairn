@@ -27,7 +27,7 @@ function fixture() {
       return { repository: { pullRequest: structuredClone(result) } };
     },
     rest: {
-      pulls: { list() {}, get: async args => {
+      pulls: { list() {}, listCommits() {}, get: async args => {
         f.restReads++;
         assert.deepEqual(args, { owner: "team", repo: "cairn", pull_number: 42 });
         const pr = f.lastPr ?? f.current ?? f.pr;
@@ -68,6 +68,9 @@ function fixture() {
     },
     paginate: async (method, args, map) => {
       if (method === github.rest.pulls.list) return f.candidates;
+      if (method === github.rest.pulls.listCommits) {
+        return (f.commits?.[args.pull_number] ?? [`commit-${args.pull_number}`]).map(sha => ({ sha }));
+      }
       if (method === github.rest.issues.listComments) {
         assert.deepEqual(args, { owner: "team", repo: "cairn", issue_number: 42, per_page: 100 });
         return f.comments;
@@ -138,7 +141,7 @@ for (const [name, patch] of [
   ["missing approval despite bot bypass", { reviewDecision: "REVIEW_REQUIRED" }],
   ["changes requested", { reviewDecision: "CHANGES_REQUESTED" }],
   ["missing review rule", { reviewDecision: null }],
-  ["conflict", { mergeStateStatus: "DIRTY" }], ["blocked", { mergeStateStatus: "BLOCKED" }],
+  ["conflict", { mergeStateStatus: "DIRTY" }],
   ["unknown", { mergeStateStatus: "UNKNOWN" }],
   ["removed label", { labels: { nodes: [] } }],
   ["different label case", { labels: { nodes: [{ name: "Needs-Merge" }] } }],
@@ -174,6 +177,32 @@ for (const [name, change, reason] of [
     assert.deepEqual(f.warnings, []);
   });
 }
+
+test("merges an approved, green PR that GitHub keeps reporting BLOCKED to the bypassing App", async () => {
+  const f = fixture();
+  f.pr.mergeStateStatus = "BLOCKED";
+  await f.run();
+  assert.equal(f.merged.length, 1);
+  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
+});
+
+test("does not squash a branch that carries the commits of another open PR", async () => {
+  const f = fixture();
+  f.candidates.push({ number: 41, labels: [] });
+  f.commits = { 41: ["lower-1", "lower-2"], 42: ["lower-1", "lower-2", "upper"] };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.removedLabels, []);
+  assert.match(f.commentWrites[0].body, /carries the commits of #41\. Merge #41 first/);
+});
+
+test("a stack whose lower PR is no longer open merges normally", async () => {
+  const f = fixture();
+  f.candidates.push({ number: 41, labels: [] });
+  f.commits = { 41: ["lower-1"], 42: ["upper"] };
+  await f.run({ pull_request: f.candidates[0] });
+  assert.equal(f.merged.length, 1);
+});
 
 test("repeated blocked evaluations leave an unchanged notice alone", async () => {
   const f = fixture();

@@ -221,8 +221,8 @@ compact-first/full-tree fallback remains compatible with existing freezes, but i
 promise exact identity when those pools differ. The stronger guarantee belongs to newly
 bound exact refs that pass compact re-anchoring, not to every historical ordinal target.
 
-The DOM probe measures expanded `aria-controls`/`aria-owns` relationships, open dialogs/popovers,
-hit-test coverage, and roleless cursor regions, including delegated click handlers. It treats
+The DOM probe measures foreground membership (see below), hit-test coverage, and roleless cursor
+regions, including delegated click handlers. It treats
 offscreen, clipped, detached, and shadow-tree hit tests as unknown. A cursor is only a candidate
 hint. Complete document topology partitions fact probes into document-local batches without
 changing candidate order or persistent ordinals. Unknown membership keeps the ordinary batch
@@ -280,3 +280,64 @@ frame handle is stored in a frozen target.
 This is not a collector for every DOM node absent from accessibility. Fully nameless/roleless
 widgets with no captured text still require a consumer Driver to supply candidates and durable
 locators. The shared policy then applies to those candidates as it does to Chrome's.
+
+## Foreground measurement contract (#303)
+
+DOM-based adapters measure facts on exact nodes in one document-local batch. `inActivePopup: true`
+means measured membership in a currently rendered foreground region **and** an unobstructed,
+measurable candidate center. Missing membership is unknown, not proof that the node is background.
+This is a selection hint, never permission to bypass targeting, occlusion or reference validation.
+Core selection, duplicate ordinals and replay locators remain unchanged.
+
+Chrome embeds the internal, MCP-independent `dom-foreground.ts` browser function. It is not a new
+public API or an automatically enabled capability of third-party Drivers. Other adapters can use
+the same contract and conformance fixtures without depending on Chrome transport internals.
+
+The current measurement rules are:
+
+- Recognize open native dialogs, visible standalone `dialog`/`alertdialog` roles, open popovers,
+  and visible `dialog`, `alertdialog`, `listbox`, `menu`, `tree` or `grid` roots linked through a
+  visible expanded control's `aria-controls`/`aria-owns`. A generic controlled disclosure region
+  and an unrelated standalone listbox are not automatically foreground popups.
+- For markerless layers, consider only fixed ancestors of supplied candidates. Require at least
+  80% viewport coverage on **both** axes, pointer interception, and hit-test evidence above
+  independent rendered content on at least three of five spread-out sample points. Merely being
+  fixed, large or high-z-index is insufficient. A header, sidebar, click-through layer or lone
+  fullscreen application root does not meet this fallback. This deliberately misses smaller or
+  absolute-positioned unmarked overlays; it is not universal modal recognition.
+- Apply existing center-point occlusion conservatively. Offscreen, detached, zero-size, hidden,
+  transparent, shadow-tree and clipped candidates carry no foreground or occlusion claim.
+  Nonrectangular CSS clipping also abstains. Covered parent controls do not inherit the child
+  popup's priority. A measurable uncovered parent control may remain eligible alongside a child.
+  Candidate visibility uses its computed value, so a descendant can restore inherited hidden
+  visibility without another candidate's cached result suppressing it. `display:none` and
+  `aria-hidden` exclusions still apply through ancestors. Native modal/popover top-layer boxes
+  escape outer opacity and clipping; clipping inside the popup still applies. An exact positive
+  hit takes precedence over nominal overflow ancestor boxes for positioned descendants. A miss
+  outside a possible clip remains unknown rather than being labeled positively occluded.
+- Recompute regions each batch; no active-region or geometry cache crosses capture boundaries.
+  Closing, hiding, replacing or detaching a root cannot transfer its membership to another node.
+  Measurement never focuses, scrolls, types, mutates the DOM or substitutes a same-named node.
+
+Semantic roots are scanned once per batch (one selector query plus the optional popover query).
+Ancestor exploration and style/rectangle reads are shared within the batch, not repeated document
+scans per candidate. The fallback uses a fixed five-point sample per qualifying layer. Sampled
+geometry can still be ambiguous: a fullscreen application over independent rendered siblings can
+resemble an overlay. Hosts with stronger knowledge may supply facts through their own Driver;
+the engine does not infer application-specific selectors or intent from geometry.
+
+Facts are document-local. Frame batches measure their own viewport and cannot establish whether
+an ancestor frame is covered in another document. Shadow DOM, arbitrary transforms, CSS masks,
+animations and state changes after capture are not universally measured. No new frame/shadow
+addressing guarantee or atomic snapshot/dispatch guarantee is introduced. Existing exact-node
+reference validation remains responsible for refusing changed observations.
+
+Reproduce with `npm run build && npm run test:foreground` (installed Chrome required). The shared
+fixture and browser suite exercise both the standalone DOM function and Chrome's probe wrapper,
+positive and negative regions, nested coverage, lifecycle, duplicate labels, unknown facts and
+read-only behavior. They print local warm-probe timing rather than assert a machine-independent
+latency bound. The MCP integration then captures the real accessibility tree, discovers and freezes
+a two-action flow with scripted replies, and replays it with zero model calls. This is a synthetic
+browser check, not a live-model benchmark or a claim of general discovery success improvement.
+The fixture only saves the expected input value; empty and incorrect values are checked not to
+navigate, and discovery/replay must type the correct value before reaching the saved destination.

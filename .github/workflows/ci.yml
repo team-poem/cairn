@@ -191,7 +191,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        package-manager: [npm, pnpm]
+        package-manager: [npm, pnpm, yarn]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7

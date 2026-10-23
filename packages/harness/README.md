@@ -59,7 +59,17 @@ Then try `npm run replay:broken`: the form reaches its success page but its API 
 
 ### Use a model on your own app
 
-Install the CLI with `npm install -g cairn-engine`. Configure one [supported backend](#llm-backends) first; discovery and healing consume model usage.
+Install locally with your preferred package manager:
+
+```sh
+npm install cairn-engine
+# or
+pnpm add cairn-engine
+# or
+yarn add cairn-engine
+```
+
+Run the local CLI with `npx cairn`, `pnpm exec cairn`, or `yarn exec cairn`. The commands below use a global CLI installed with `npm install -g cairn-engine`. Configure one [supported backend](#llm-backends) first; discovery and healing consume model usage.
 
 ```sh
 # Replace the URL and intent with a flow on your test app.

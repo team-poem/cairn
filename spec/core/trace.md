@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.11**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.12**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.11", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.12", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -169,6 +169,15 @@ two gate values and one phase value; the envelope is unchanged.
 ## Versioning — header `major.minor`
 
 Version 1.11 adds `selection`, a content-free prepared decision-input summary. See below.
+
+Version 1.12 adds the optional `no-progress` gate for incomplete discovery/exploration (#309).
+Its payload contains `reason: "no-progress"`, `code: "no-progress"`, `repeatedTransitions` and
+`recoveryTurns`, and optional `lastDirection`. A scroll rejected by that policy uses the existing `policy` gate with the same
+optional counters and an actionable reason. No page text, URL, region identity, state signature
+or reusable fingerprint is included in these new diagnostics. This is an authoring safeguard,
+not proof that the app is defective; ordinary action/evidence events remain unchanged.
+`case-end.payload.truncationReason?: "no-progress"` carries the same stable reason through suite
+and outcome-heal completion, including budget-wrapped runs. It does not replace `truncated`.
 
 Version 1.8 adds `assertion.payload.reason: inconclusive` for missing custom evidence.
 Its `passed: false` does not mean an app failure; render it as inconclusive. Case verdicts

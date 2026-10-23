@@ -63,7 +63,7 @@ describe("suite navigation evidence summaries (#203)", () => {
       observedBeforeLastMutation: ["shop/form"], discovered: true, verdict: { passed: true },
     });
     expect(events.find((e) => e.kind === "freeze")?.payload).toMatchObject({ observedBeforeLastMutation: ["shop/form"] });
-    expect(events[0]?.payload).toMatchObject({ version: "1.11" });
+    expect(events[0]?.payload).toMatchObject({ version: "1.12" });
     expect(cases).toEqual(fresh.verdicts);
     expect(renderSuiteReport(fresh)).toContain("destination observed before last mutation: shop/form");
     expect(store.scenario).not.toHaveProperty("observedBeforeLastMutation");

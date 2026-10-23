@@ -9,6 +9,8 @@ import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { ChromeHostRoots } from "./chrome-host-roots.js";
 import { stripVirtualAXRows } from "./chrome-ax.js";
+import { scrollStateScript } from "./chrome-scroll.js";
+import { scrollStateKey } from "../../core/action-policy.js";
 import type { HostOwnedRootScope } from "./host-owned-roots.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -23,6 +25,7 @@ import type {
   NetworkRequest,
   PageElement,
   SnapshotOptions,
+  ScrollState,
   SettleOptions,
   Target,
 } from "../../core/types.js";
@@ -488,6 +491,37 @@ export class ChromeDevToolsDriver implements Driver {
     });
     await this.collectNetwork().catch(() => {});
     this.snapshotCache = undefined;
+  }
+
+  async scrollState(): Promise<ScrollState | undefined> {
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: scrollStateScript(`cairn-scroll:${this.driverId}`, this.opts.hostOwnedRoots?.key),
+      }, "observation");
+      const state = extractFirstJsonObject(reply) as ScrollState | undefined;
+      if (scrollStateKey(state) === undefined) return undefined;
+      // A DOM walker cannot see closed shadow roots. Probe the actual AX nodes too;
+      // inaccessible/virtual/unresolved nodes are unknown, never evidence of full coverage.
+      const raw = await this.captureSnapshot({ verbose: true });
+      if (documentTopology(raw).framed) return undefined;
+      // Include unnamed wrappers/scrollers too, not just the named candidate parser.
+      const uids = [...raw.matchAll(/^\s*uid=(\S+)\s+\w+/gm)].map(match => match[1]!);
+      if (!uids.length || uids.length > 4096 || new Set(uids).size !== uids.length) return undefined;
+      for (let i = 0; i < uids.length; i += 64) {
+        const coverage = extractFirstJsonObject(await this.call("evaluate_script", {
+          function: "(...nodes) => ({ covered: nodes.every(n => n && n.isConnected && n.getRootNode() === document) })",
+          args: uids.slice(i, i + 64),
+        }, "observation")) as { covered?: boolean } | undefined;
+        if (coverage?.covered !== true) return undefined;
+      }
+      const after = extractFirstJsonObject(await this.call("evaluate_script", {
+        function: scrollStateScript(`cairn-scroll:${this.driverId}`, this.opts.hostOwnedRoots?.key),
+      }, "observation")) as ScrollState | undefined;
+      return scrollStateKey(after) === scrollStateKey(state) ? state : undefined;
+    } catch (error) {
+      if (errorKindOf(error) === "transport") throw error;
+      return undefined;
+    }
   }
 
   async screenshot(): Promise<string | undefined> {

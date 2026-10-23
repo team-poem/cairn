@@ -1,6 +1,10 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
 export * from "./core/ports.js";
+export { composePolicies } from "./core/action-policy.js";
+export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";
+export type { ScrollNoProgressOptions } from "./core/scroll-policy.js";
+export type { PolicyContext, PolicyDiagnostic } from "./core/discover/decision.js";
 export { BudgetExceededError, validateRunBudget } from "./core/budget.js";
 export type { RunBudget, BudgetExhaustion } from "./core/budget.js";
 export { identifyScenario, scenarioContract, compareContracts, hashContractValue } from "./core/contract.js";

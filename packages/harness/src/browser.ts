@@ -51,6 +51,10 @@ export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
 export { discover, parseDecision } from "./core/discover/index.js";
+export { composePolicies } from "./core/action-policy.js";
+export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";
+export type { ScrollNoProgressOptions } from "./core/scroll-policy.js";
+export type { PolicyContext, PolicyDiagnostic } from "./core/discover/decision.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
 export { explore } from "./core/explore/index.js";
 export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";

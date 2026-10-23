@@ -120,8 +120,9 @@ export interface SuiteVerdict {
   discovered: boolean;
   /** Preflight refused this case before any browser/LLM execution. */
   notRun?: "cache-miss" | "invalid-entry";
-  /** True when discovery hit its step cap — the case failed closed and nothing was frozen. */
+  /** True when discovery stopped at its cap or a policy — nothing unverified was frozen. */
   truncated?: boolean;
+  truncationReason?: Scenario["truncationReason"];
   /** `METHOD url` of a flow action the frozen checks cannot prove (#184) — the green says "the page
    * was reached", not "the work was done". Advisory: the verdict does not fail on it. */
   unprovenAction?: string;
@@ -368,12 +369,15 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
         const verdict: Verdict = {
           passed: false,
           results: [],
-          detail: "discovery truncated at the step cap — unverified path, nothing frozen",
+          detail: found.truncationReason === "no-progress"
+            ? "discovery stopped for no-progress — unverified path, nothing frozen"
+            : "discovery truncated at the step cap or policy limit — unverified path, nothing frozen",
           failClosed: "truncated",
           failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap
         };
-        end({ verdict, usage: discoveryUsage, discovered, heals: 0, truncated: true });
-        return { ...base, discovered, truncated: true, heals: 0, usage: discoveryUsage, verdict };
+        const reason = found.truncationReason ? { truncationReason: found.truncationReason } : {};
+        end({ verdict, usage: discoveryUsage, discovered, heals: 0, truncated: true, ...reason });
+        return { ...base, discovered, truncated: true, ...reason, heals: 0, usage: discoveryUsage, verdict };
       }
 
       const frozenScenario: FrozenSuiteScenario = await identifyScenario({
@@ -397,7 +401,7 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
     // 3. Replay on a fresh driver (case isolation). The suite constructed it → the suite closes it.
     const driver = ctx.driverFactory();
     try {
-      const { result, heals, stepHeals, healedScenario, truncated } = await runScenario(scenario, {
+      const { result, heals, stepHeals, healedScenario, truncated, truncationReason } = await runScenario(scenario, {
         [budgetScope]: ctx[budgetScope],
         appContext: ctx.appContext,
         judgmentKey: ctx.judgmentKey,
@@ -444,6 +448,7 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
           discovered,
           heals: heals.length + stepHeals.length,
           ...(truncated ? { truncated: true } : {}),
+          ...(truncationReason ? { truncationReason } : {}),
       });
       return {
         ...base,
@@ -454,6 +459,7 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
         // Structured, like the first-discovery branch above, so the CLI line, the report and a trace
         // consumer see "truncated" rather than an ordinary assertion failure.
         ...(truncated ? { truncated: true } : {}),
+        ...(truncationReason ? { truncationReason } : {}),
         // The flag rides on the frozen skill, so a cached replay reports it too — that is the path
         // people actually run (#190).
         ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : {}),

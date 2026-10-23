@@ -39,3 +39,66 @@ Optional [shared execution budgets](run-budget.md) bound model admissions and el
 across these phases. They do not reset at repair, alter a frozen contract, or replace local caps.
 
 deterministic replay · loop only in discovery · pattern ≠ data · extend through ports only · model/driver agnostic · dependency direction qa→harness.
+
+## Optional observed scroll-cycle policy (#309)
+
+`createScrollNoProgressPolicy()` plugs into `discover` and `explore` through `ActionPolicy`.
+It is disabled unless supplied. It does not change replay, freeze-time idle-scroll pruning,
+assertion grounding, or the shared execution budget. The detector makes no model calls;
+re-decisions and the ordinary freeze assertion proposal can still cost model calls.
+
+```ts
+const policy = composePolicies(
+  originFence,
+  createScrollNoProgressPolicy({ tolerance: 4, recoveryTurns: 3, historySize: 32 }),
+);
+const scenario = await discover(intent, { driver, llm, policy });
+```
+
+The optional `createRun()` factory allocates state once per loop invocation. Both the policy
+configuration and `composePolicies` are reusable across sequential/concurrent runs (each run
+still owns a separate driver). Legacy stateful policies without a factory remain the host's
+responsibility. Lifecycle hooks are trusted synchronous host code: they must not throw.
+`observe(ctx)` runs once per fresh observation, including the final executed action's observation;
+`executed(step, ctx)` runs only after successful dispatch. Neither proposals, another policy's
+veto, nor failed dispatch are execution events. Composition forwards lifecycle notifications
+once to every component, irrespective of vet order.
+
+The optional `Driver.scrollState()` supplies positive region coverage and measured scroll
+position, extent and viewport size. The loop brackets its snapshot with measurements and uses
+them only when they match. An adapter must return `undefined` when it cannot establish coverage
+of the region actually affected by its `scroll()` verb; absence is not zero or a cycle.
+Chrome supports the top-level document only, and abstains for frames, shadow trees, nested
+scroll regions, transformed/zoomed content, and DOMs beyond its 4096-element measurement bound.
+It does not add nested-container scrolling. DOM scanning is supplemented by bounded real AX-node
+root checks: closed-shadow descendants exposed by AX cannot pass as document coverage. An inaccessible
+AX node also abstains. Independent body scrollers and individual CSS translate/rotate/scale are
+unsupported, just like other nested regions and transforms. Fixed registered host
+roots are omitted consistently with snapshot exclusion; in-flow host roots make geometry
+unsupported. Screenshots, network errors and console evidence are not filtered by this policy.
+
+Each run keeps an LRU history of exact, bounded semantic multisets (role/name/value/checked/
+disabled/active-popup/occlusion/clickable state), URL and measured geometry. Row order, refs and rotating interaction
+handles do not count as progress; duplicate counts and control-state changes do. A new position
+counts as progress even if offscreen targets were already listed. Lazy content, recycled virtual
+rows with different semantics, new extents and distinct document/region identities remain distinct.
+The heuristic observes accessible semantics, not hidden application state or goal truth.
+
+After `tolerance` executed scroll transitions revisit known states, tried scroll directions at that
+state are rejected with a structured `no-progress` diagnostic. An untried direction can probe for
+recovery, at most once per direction during the suspicion window; its successful dispatch alone
+does not reset suspicion. Revisited results consume recovery turns too. Other actions get `recoveryTurns` further decisions;
+merely alternating waits/notes/keys does not clear suspicion. A genuinely new observed state clears
+it. Missing/oversized facts clear attribution and abstain, so this is not a substitute for hard
+execution budgets. History eviction also abstains rather than guessing an old state's identity.
+Default bounds are 32 states, 32768 serialized characters/state, tolerance 4 and 3 recovery turns;
+all options are validated and capped. Signatures remain run-local and are never diagnostic hashes.
+
+`incomplete()` reports suspicion and whether the recovery allowance is exhausted. A halt, step cap,
+or model `done` while suspicion remains yields `truncated: true`, `truncationReason: "no-progress"`.
+`done` cannot bypass this by preceding `vet`. A trusted `stop()` goal check still takes precedence,
+and normal completion resumes after observed progress. No-progress is neither goal completion nor
+an application-defect finding. Hosts that have independent valid goal evidence can supply `stop`;
+the policy itself must not fabricate it from a lack of change. Explore also checks trusted goals on
+the final executed action's valid observation. `runSuite`, outcome-heal results and `case-end` traces
+preserve the optional `truncationReason`; incomplete paths still cannot be frozen as verified heals.

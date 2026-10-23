@@ -5,7 +5,7 @@
  * step-heal (invariant #2), instead of a second driver-dispatch switch drifting alongside it.
  */
 import type { Driver } from "../ports.js";
-import type { Assertion, PageElement, Step, Target, WaitUntil } from "../types.js";
+import type { Assertion, PageElement, ScrollState, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
@@ -46,13 +46,20 @@ export interface Decision {
   severity?: "info" | "warn" | "error";
 }
 
-export type PolicyVerdict = { ok: true } | { ok: false; reason: string };
+export interface PolicyDiagnostic {
+  code: "no-progress";
+  repeatedTransitions: number;
+  recoveryTurns: number;
+  lastDirection?: "up" | "down";
+}
+export type PolicyVerdict = { ok: true } | { ok: false; reason: string; diagnostic?: PolicyDiagnostic };
 
 /** What the loop can show a policy about the page (#77): the elements it just snapshotted, and —
  * when an observation is already in hand (vet) — the current URL. */
 export interface PolicyContext {
   elements: readonly PageElement[];
   url?: string;
+  scroll?: ScrollState;
 }
 
 /**
@@ -61,6 +68,17 @@ export interface PolicyContext {
  * seam; a consumer supplies the rules (block destructive controls, cap wandering, stop on a goal).
  */
 export interface ActionPolicy {
+  /** Optional per-run factory. Reusable configuration must allocate mutable state here. */
+  createRun?(): ActionPolicy;
+  /** Opt into measured scroll coverage. Legacy policies add no driver calls. */
+  needsScrollState?: boolean;
+  /** Once per fresh loop observation, before stop/vet. Missing facts are unknown. */
+  observe?(ctx: PolicyContext): void;
+  /** Only after successful dispatch, never for proposals, rejections or failed actions. */
+  executed?(step: Step, ctx: PolicyContext): void;
+  /** An incomplete authoring state. halt permits bounded recovery before terminating.
+   * Does not mean goal reached: only stop() may assert that. */
+  incomplete?(): { diagnostic: PolicyDiagnostic; halt: boolean } | undefined;
   /** Vet an action before it runs. Rejected → recorded as a failure so the LLM re-decides; it never
    * executes. A throwing vet is treated as a rejection, not a crash. A stateful policy may count
    * calls across the run (e.g. a consecutive-scroll cap). */

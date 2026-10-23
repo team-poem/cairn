@@ -10,6 +10,7 @@ import type {
   LlmUsage,
   PageElement,
   SnapshotOptions,
+  ScrollState,
   Result,
   Scenario,
   SettleOptions,
@@ -84,6 +85,9 @@ export interface Driver {
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
   snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
+  /** Optional positive coverage of the region scroll() actually affects. Unknown/unsupported
+   * topology returns undefined. Called only by an opted-in discovery policy, around its snapshot. */
+  scrollState?(): Promise<ScrollState | undefined>;
   /** Auto-wait for the app to quiesce after an action (network idle + any render/JS beat a driver can
    * observe). Best-effort, time-bounded, never throws. It is a *heuristic*, not a guarantee — a step's
    * real readiness is gated deterministically by its `expect` (polled at replay, invariant #4) or an

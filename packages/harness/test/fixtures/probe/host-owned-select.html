@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Verbose-only dropdown fixture</title>
+<select aria-label="Unrelated native choice"><option>Medium</option></select>
+<!-- A named generic region appears only in the verbose MCP accessibility pool. -->
+<div id="size" aria-label="Size" style="display:inline-block;padding:12px;border:1px solid">Size</div>
+<aside id="host"><button>Host stop</button></aside>
+<script>
+  document.getElementById('size').onclick = () => {
+    const popup = document.body.appendChild(document.createElement('div'));
+    popup.setAttribute('role', 'listbox');
+    const option = popup.appendChild(document.createElement('div'));
+    option.setAttribute('role', 'option');
+    option.tabIndex = 0;
+    option.textContent = 'Medium';
+    option.style.cssText = 'display:inline-block;padding:12px;border:1px solid';
+    option.onclick = () => {
+      document.body.dataset.selected = 'Medium';
+      popup.remove();
+      document.body.appendChild(document.createElement('p')).textContent = 'Selected Medium';
+    };
+  };
+</script>

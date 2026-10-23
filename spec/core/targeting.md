@@ -20,6 +20,35 @@ Locate an element by **intent**, not by a *driver handle* → replay doesn't bre
 
 At freeze time, `Driver.locate()` *enriches* the target with strong locators before freezing → replay re-finds the handle with no LLM. When the resolved name is duplicated on the page, `locate()` also records `nth`, so a frozen first-match is explicit about which duplicate it means.
 
+The Chrome adapter removes virtual `ListMarker`/`InlineTextBox` rows, ignored wrappers and
+generated text sharing those virtual UIDs at capture, with or without host ownership. Real
+descendants and frame ancestry remain. Observation, document guards and fresh-ref validation
+consume the same normalized tree: a virtual list marker cannot disable refs for real controls.
+Unmeasurable real nodes still prevent unsafe ref publication; guard coverage is not relaxed.
+
+## Host-owned candidate exclusion (#308)
+
+The Chrome adapter's optional `hostOwnedRoots` scope binds trusted host registrations to exact DOM
+nodes, never page-supplied names/attributes. It filters compact and verbose candidate pools before
+observation, promotion, named/positional/selector/reference lookup and freeze enrichment. DOM text
+conditions and semantic progress use the same sanitized observation. Ownership changes expire refs
+even when no DOM mutation occurred. Exact ownership and current host obstruction are checked again
+before targeted dispatch; excluded overlays do not become click-through.
+
+With active ownership, virtual AX rows, ignored wrappers and ambiguous duplicate UIDs are omitted
+before DOM evaluation, without dropping their real descendants. MCP-unresolvable generated text
+is omitted rather than guessed into an exact target. Other ownership/transport failures remain
+fatal; no measurement failure falls back to an unfiltered candidate pool.
+
+No registrations means no host-based exclusion. Enabling or disabling exclusion is **not** an automatic
+migration of already-frozen positional targets: re-observe and re-freeze affected scenarios, and
+keep the host policy consistent across discovery/replay. Tokens/DOM handles never enter scenarios.
+The first adapter implementation supports top-level light-DOM roots, rejects active frame
+boundaries and does not claim hostile-JavaScript isolation. Human UI, screenshots, network/console
+evidence and conservative DOM settling/reference guards are preserved. See
+[host-owned roots](../../docs/host-owned-roots.md) for the public integration, focus/geometry rules,
+lifetime, unsupported cases and reproducible tests.
+
 ## Freeze stability scoring (#14)
 
 `scoreTarget`: **selector 1.0 > role+index 0.7 > text+nth 0.6 > text-only 0.3 (weak).** An `nth`-qualified name is not penalized like a bare text target — for duplicate labels it *is* the strengthening (the name survives UI change; the position re-derives). Weak (text-only) targets are **warned** at freeze time → the author strengthens them up front, before they trigger a self-heal (LLM cost, non-determinism). Score + warning lower the self-heal trigger rate.

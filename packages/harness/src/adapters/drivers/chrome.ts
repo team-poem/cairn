@@ -7,6 +7,11 @@
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
+import { ChromeHostRoots } from "./chrome-host-roots.js";
+import { stripVirtualAXRows } from "./chrome-ax.js";
+import { scrollStateScript } from "./chrome-scroll.js";
+import { scrollStateKey } from "../../core/action-policy.js";
+import type { HostOwnedRootScope } from "./host-owned-roots.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -20,6 +25,7 @@ import type {
   NetworkRequest,
   PageElement,
   SnapshotOptions,
+  ScrollState,
   SettleOptions,
   Target,
 } from "../../core/types.js";
@@ -125,6 +131,10 @@ export interface ChromeDriverOptions {
   /** Defaults for every settle, including waits inside type/select and engine replay.
    * Per-call SettleOptions override these fields. */
   settle?: SettleOptions;
+  /** Optional exact-node ownership shared with trusted host instrumentation.
+   * Top-level light-DOM roots only; active ownership on framed pages fails closed.
+   * Does not hide UI, bypass overlays, or isolate hostile page JavaScript. */
+  hostOwnedRoots?: HostOwnedRootScope;
 }
 
 /**
@@ -172,8 +182,14 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly capturedReferenceCohorts = new Set<string>();
   private readonly guardKey = `cairn-observation-guard:${this.driverId}`;
   private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
+  private readonly hostRoots?: ChromeHostRoots;
+  private observedHostStamp?: string;
 
-  constructor(private readonly opts: ChromeDriverOptions = {}) {}
+  constructor(private readonly opts: ChromeDriverOptions = {}) {
+    if (opts.hostOwnedRoots) this.hostRoots = new ChromeHostRoots(
+      opts.hostOwnedRoots, (name, args) => this.call(name, args, "observation"), parseSnapshotRows,
+    );
+  }
 
   private async trackPages(): Promise<void> {
     try {
@@ -360,6 +376,7 @@ export class ChromeDevToolsDriver implements Driver {
    * is handled the same way — no per-verb special-casing.
    */
   private async callAccepting(name: string, args: Record<string, unknown>): Promise<void> {
+    if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
     try {
       await this.call(name, args);
     } catch (err) {
@@ -373,6 +390,7 @@ export class ChromeDevToolsDriver implements Driver {
   async hover(target: Target, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
     this.invalidateObservation();
+    await this.hostRoots?.assertNode(uid, true, this.hostRoots.stamp);
     await this.call("hover", { uid });
     await this.collectNetwork().catch(() => {});
   }
@@ -401,7 +419,12 @@ export class ChromeDevToolsDriver implements Driver {
     // case. Open it → wait for ITS options → click the one named `value`. `fill` would no-op here,
     // which used to make discover thrash. One `select` step still freezes as a single stable unit
     // (the control), so replay drives open→pick deterministically (no LLM).
-    const before = new Set(parseSnapshotRows(await this.getSnapshot()).map((r) => r.uid));
+    // Resolution already refreshed the compact watermark before any verbose retry.
+    // Taking another compact snapshot here can retire a verbose-only opener UID.
+    // Validate ownership without changing MCP's last captured node mapping.
+    const watermark = this.snapshotCache ?? await this.getSnapshot();
+    await this.hostRoots?.assertStamp(this.hostRoots.stamp);
+    const before = new Set(parseSnapshotRows(watermark).map((r) => r.uid));
     this.invalidateObservation();
     await this.callAccepting("click", { uid }); // activate/open
     this.snapshotCache = undefined;
@@ -453,6 +476,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async pressKey(key: string): Promise<void> {
+    await this.hostRoots?.keyboard(key);
     this.invalidateObservation();
     // a form submit (Enter) can trigger a confirm() — handle it like any other action.
     await this.callAccepting("press_key", { key });
@@ -467,6 +491,37 @@ export class ChromeDevToolsDriver implements Driver {
     });
     await this.collectNetwork().catch(() => {});
     this.snapshotCache = undefined;
+  }
+
+  async scrollState(): Promise<ScrollState | undefined> {
+    try {
+      const reply = await this.call("evaluate_script", {
+        function: scrollStateScript(`cairn-scroll:${this.driverId}`, this.opts.hostOwnedRoots?.key),
+      }, "observation");
+      const state = extractFirstJsonObject(reply) as ScrollState | undefined;
+      if (scrollStateKey(state) === undefined) return undefined;
+      // A DOM walker cannot see closed shadow roots. Probe the actual AX nodes too;
+      // inaccessible/virtual/unresolved nodes are unknown, never evidence of full coverage.
+      const raw = await this.captureSnapshot({ verbose: true });
+      if (documentTopology(raw).framed) return undefined;
+      // Include unnamed wrappers/scrollers too, not just the named candidate parser.
+      const uids = [...raw.matchAll(/^\s*uid=(\S+)\s+\w+/gm)].map(match => match[1]!);
+      if (!uids.length || uids.length > 4096 || new Set(uids).size !== uids.length) return undefined;
+      for (let i = 0; i < uids.length; i += 64) {
+        const coverage = extractFirstJsonObject(await this.call("evaluate_script", {
+          function: "(...nodes) => ({ covered: nodes.every(n => n && n.isConnected && n.getRootNode() === document) })",
+          args: uids.slice(i, i + 64),
+        }, "observation")) as { covered?: boolean } | undefined;
+        if (coverage?.covered !== true) return undefined;
+      }
+      const after = extractFirstJsonObject(await this.call("evaluate_script", {
+        function: scrollStateScript(`cairn-scroll:${this.driverId}`, this.opts.hostOwnedRoots?.key),
+      }, "observation")) as ScrollState | undefined;
+      return scrollStateKey(after) === scrollStateKey(state) ? state : undefined;
+    } catch (error) {
+      if (errorKindOf(error) === "transport") throw error;
+      return undefined;
+    }
   }
 
   async screenshot(): Promise<string | undefined> {
@@ -486,8 +541,18 @@ export class ChromeDevToolsDriver implements Driver {
 
   /** Cache the page snapshot so resolve + the discover loop don't both re-fetch it; actions invalidate it. */
   private async getSnapshot(): Promise<string> {
-    if (this.snapshotCache === undefined) this.snapshotCache = await this.call("take_snapshot");
+    // Registration need not mutate the DOM. Never reuse a pre-registration pool.
+    if (this.hostRoots || this.snapshotCache === undefined) this.snapshotCache = await this.captureSnapshot();
     return this.snapshotCache;
+  }
+
+  private async captureSnapshot(args?: Record<string, unknown>): Promise<string> {
+    const stamp = await this.hostRoots?.assertStamp();
+    const raw = await this.call("take_snapshot", args);
+    // Normalize virtual AX rows for every consumer, including document guards,
+    // fresh-ref validation and empty/no ownership scopes. A list marker must not
+    // poison the guard coverage of unrelated real application controls.
+    return stripVirtualAXRows(this.hostRoots ? await this.hostRoots.filter(raw, stamp) : raw);
   }
 
   async snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
@@ -512,8 +577,9 @@ export class ChromeDevToolsDriver implements Driver {
     // Perception has a larger candidate pool than ordinary lookup and select's watermark.
     // Keep its full tree local so those compact-snapshot consumers retain their ordinals.
     let raw = options?.perception
-      ? await this.call("take_snapshot", { verbose: true })
+      ? await this.captureSnapshot({ verbose: true })
       : await this.getSnapshot();
+    const hostStamp = this.hostRoots?.stamp;
     assertCapture();
     let documentCoverage = true;
     if (options?.perception && documentTopology(raw).framed) {
@@ -521,7 +587,7 @@ export class ChromeDevToolsDriver implements Driver {
       if (guarded && documentTopology(raw).valid) {
         try {
           const observation = new ChromeDocumentObservation(
-            (name, args) => this.call(name, args, "observation"), this.guardKey, parseSnapshotRows,
+            (name, args) => name === "take_snapshot" ? this.captureSnapshot(args) : this.call(name, args, "observation"), this.guardKey, parseSnapshotRows,
           );
           raw = await observation.start(raw);
           assertCapture();
@@ -538,9 +604,7 @@ export class ChromeDevToolsDriver implements Driver {
       const page = await this.selectedPage();
       assertCapture();
       this.observedPage = page;
-      // MCP's verbose tree includes virtual InlineTextBox entries with shared/unresolvable UIDs.
-      // The owning StaticText remains available; virtual glyph runs cannot be action targets.
-      this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
+      this.observedRows = parseSnapshotRows(raw);
       const named = this.observedRows.filter((row) => row.name.trim());
       const topology = documentTopology(raw);
       const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
@@ -550,7 +614,10 @@ export class ChromeDevToolsDriver implements Driver {
         assertCapture();
         if (currentPage === undefined || currentPage !== page) throw stepError("resolution", "observation page changed during capture");
       }
-      return els.filter(element => element.role !== "InlineTextBox").map((element, i) => {
+      await this.hostRoots?.assertStamp(hostStamp);
+      assertCapture();
+      this.observedHostStamp = hostStamp;
+      return els.map((element, i) => {
         const row = named[i]!;
         const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
         // A failed page measurement preserves candidates but cannot promise exact identity.
@@ -561,7 +628,10 @@ export class ChromeDevToolsDriver implements Driver {
         return { ...element, ...facts.get(row.uid), ...(addressable ? { ref } : {}) };
       });
     }
-    if (this.opts.promoteClickables === false) return els;
+    if (this.opts.promoteClickables === false) {
+      await this.hostRoots?.assertStamp(hostStamp);
+      return els;
+    }
     // Overlay clickable-region promotion (#132) — re-probe only when the raw tree changed, so a
     // waitFor poll on a static page adds no cost. The label's a11y role stays StaticText for
     // resolution (a click on it bubbles to the region); only the listing shows it as clickable.
@@ -575,6 +645,7 @@ export class ChromeDevToolsDriver implements Driver {
         if (el.role === "StaticText" && clickable.has(el.name.trim())) el.role = "button";
       }
     }
+    await this.hostRoots?.assertStamp(hostStamp);
     return els;
   }
 
@@ -810,8 +881,10 @@ export class ChromeDevToolsDriver implements Driver {
 
   async locate(target: Target): Promise<Target> {
     const rows = parseSnapshotRows(await this.getSnapshot());
-    const uid = await this.resolveVisible(rows, target);
+    const uid = (this.hostRoots?.active && target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined)
+      ?? await this.resolveVisible(rows, target);
     if (!uid) return target; // can't enrich right now — freeze what we have
+    await this.hostRoots?.assertNode(uid, false, this.hostRoots.stamp);
     const row = rows.find((r) => r.uid === uid)!;
     const index = rows.filter((r) => r.role === row.role).findIndex((r) => r.uid === uid);
     // Duplicate accessible names (a list UI: "Accept" ×N) make first-match resolution ambiguous —
@@ -829,7 +902,7 @@ export class ChromeDevToolsDriver implements Driver {
     try {
       // Replay starts with the compact pool. Capture it explicitly so the full-tree
       // selection is re-anchored to current replay ordinals before freezing.
-      const raw = await this.call("take_snapshot");
+      const raw = await this.captureSnapshot();
       const rows = parseSnapshotRows(raw);
       const matches = rows.filter((candidate) => candidate.uid === row.uid);
       if (matches.length !== 1 || matches[0]!.role !== row.role || matches[0]!.name !== row.name) {
@@ -865,12 +938,14 @@ export class ChromeDevToolsDriver implements Driver {
       throw stepError("resolution", "observation ref expired: active page continuity is unavailable");
     }
     try {
+      await this.hostRoots?.assertNode(row.uid, false, this.observedHostStamp);
       if (this.documentObservation) {
         const observation = this.documentObservation;
         await observation.validate(row);
         const currentPage = await this.selectedPage();
         if (this.references.get(ref) !== row || this.documentObservation !== observation ||
             currentPage === undefined || currentPage !== this.observedPage) throw new Error("observation superseded during document validation");
+        await this.hostRoots?.assertStamp(this.observedHostStamp);
         return row;
       }
       // Include unnamed peers: role/index counts them as well. These are the captured
@@ -957,7 +1032,7 @@ export class ChromeDevToolsDriver implements Driver {
         // during compact capture, but still fails closed if every fresh AX capture overlaps
         // another mutation. DOM locality alone cannot prove arbitrary CSS/ARIA effects harmless.
         for (let attempt = 0; attempt < 2; attempt++) {
-          const raw = await this.call("take_snapshot", { verbose: true });
+          const raw = await this.captureSnapshot({ verbose: true });
           const refreshed = parseSnapshotRows(raw).filter(candidate => candidate.role === row.role);
           if (JSON.stringify(projection(refreshed)) !== expected) {
             throw new Error("observed accessibility cohort changed");
@@ -974,9 +1049,10 @@ export class ChromeDevToolsDriver implements Driver {
         if (this.references.get(ref) !== row) throw new Error("observation superseded during accessibility validation");
         this.validatedReferenceRevisions.set(ref, validation.revision as number);
       }
+      await this.hostRoots?.assertNode(row.uid, false, this.observedHostStamp);
     } catch (err) {
       this.invalidateObservation();
-      if (errorKindOf(err) === "transport") throw err;
+      if (errorKindOf(err) === "transport" || errorKindOf(err) === "handler") throw err;
       throw stepError("resolution", `observation ref expired: ${err instanceof Error ? err.message : String(err)}`);
     }
     if (this.references.get(ref) !== row) {
@@ -986,7 +1062,9 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async actionUid(target: Target, ref?: string, refreshWatermark = false): Promise<string> {
-    return ref === undefined ? this.resolveUid(target, refreshWatermark) : (await this.referenceRow(ref)).uid;
+    const uid = ref === undefined ? await this.resolveUid(target, refreshWatermark) : (await this.referenceRow(ref)).uid;
+    await this.hostRoots?.assertNode(uid, false, ref === undefined ? this.hostRoots.stamp : this.observedHostStamp);
+    return uid;
   }
 
   private async selectedPage(): Promise<string | undefined> {
@@ -1007,6 +1085,7 @@ export class ChromeDevToolsDriver implements Driver {
     this.unguarded.clear();
     this.observedRows = [];
     this.observedPage = undefined;
+    this.observedHostStamp = undefined;
     this.snapshotCache = undefined;
   }
 
@@ -1042,7 +1121,7 @@ export class ChromeDevToolsDriver implements Driver {
       // A target discovered in the full tree (notably a portal option) may be omitted by MCP's
       // compact snapshot even when present. Keep this retry local to resolution;
       // the ordinary cache retains the compact pool, refreshed above for select.
-      if (!positional) raw = await this.call("take_snapshot", { verbose: true });
+      if (!positional) raw = await this.captureSnapshot({ verbose: true });
     }
   }
 
@@ -1063,7 +1142,12 @@ export class ChromeDevToolsDriver implements Driver {
   private async resolveVisible(rows: SnapshotRow[], target: Target): Promise<string | undefined> {
     const candidates = crossRoleCandidates(rows, target);
     if (!candidates.length) return resolveTargetUid(rows, target); // no probe when nothing is ambiguous
-    const role = probedRole(candidates, await this.probeReachableRoles(target.text!));
+    // The document-wide legacy probe must not pick a role from owned UI. With active
+    // ownership, measure only the exact same-name nodes already in the sanitized pool.
+    const probe = this.hostRoots?.active
+      ? await this.hostRoots.reachable(rows.filter(row => row.name.toLowerCase() === target.text!.trim().toLowerCase()))
+      : await this.probeReachableRoles(target.text!);
+    const role = probedRole(candidates, probe);
     return resolveTargetUid(rows, role ? { ...target, role } : target);
   }
 
@@ -1091,6 +1175,7 @@ export class ChromeDevToolsDriver implements Driver {
   /** Resolve a CSS selector to a snapshot uid: read the element's accessible name in-page, then
    * join it back to the a11y snapshot (the MCP text interface has no direct CSS→uid mapping). */
   private async resolveSelectorUid(rows: SnapshotRow[], selector: string): Promise<string | undefined> {
+    if (this.hostRoots?.active) return this.hostRoots.selector(rows, selector);
     try {
       const reply = await this.call("evaluate_script", { function: selectorProbeScript(selector) });
       const probe = extractFirstJsonObject(reply) as { name?: unknown } | undefined;

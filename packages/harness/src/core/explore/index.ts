@@ -11,6 +11,7 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
+import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
 import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
@@ -68,6 +69,7 @@ export interface ExploreReport {
   /** True when the loop hit the step cap (or gave up on consecutive policy blocks) before the
    * model — or the policy's `stop` — called the charter covered. */
   truncated: boolean;
+  truncationReason?: "no-progress";
   finalUrl?: string;
 }
 
@@ -96,18 +98,22 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     onStep,
     onFinding,
     signal,
-    policy,
     perceive,
     trace,
     benign = [],
     benignConsole = [],
     slowSettleMs,
   } = opts;
+  const policy = opts.policy?.createRun?.() ?? opts.policy;
   const perceivePage = async () => {
+    const before = await readPolicyScroll(policy, driver);
     const raw = await driver.snapshot({ perception: true });
+    const after = await readPolicyScroll(policy, driver);
     const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
+    const ctx = policyContext(elements, currentUrl, before, after);
+    policy?.observe?.(ctx);
     try {
-      return { elements, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
+      return { elements, ctx, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -117,7 +123,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
       });
       pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
-      return { elements, page: undefined };
+      return { elements, ctx, page: undefined };
     }
   };
   // Meter at the seam so the report always carries what the survey cost (#100).
@@ -179,7 +185,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const { elements, page } = await perceivePage();
+    const { elements, ctx, page } = await perceivePage();
     if (!page) continue; // retry with a fresh capture within the existing step bound
     const render = page.render;
 
@@ -195,10 +201,11 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     }
 
     // Coverage check on the fresh page — a policy `stop` here is a trusted "charter covered".
-    if (policy?.stop?.(steps, { elements, url: currentUrl })) {
+    if (policy?.stop?.(steps, ctx)) {
       truncated = false;
       break;
     }
+    if (policy?.incomplete?.()?.halt) break;
 
     const prompt = buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references);
     page.tracePrepared(trace, "explore", "explore");
@@ -229,7 +236,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     }
 
     if (decision.action === "done") {
-      truncated = false;
+      truncated = Boolean(policy?.incomplete?.());
       onStep?.(decision);
       break;
     }
@@ -268,13 +275,16 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     // the page did not, so it must not be reported as a UX problem with the app.
     let verdict: PolicyVerdict;
     try {
-      verdict = policy?.vet(decision, { elements, url: currentUrl }) ?? { ok: true as const };
+      verdict = policy?.vet(decision, ctx) ?? { ok: true as const };
     } catch (err) {
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
       continue;
     }
     if (!verdict.ok) {
+      trace?.emit({ kind: "gate", phase: "explore", payload: {
+        gate: "policy", action: describeAction(decision), reason: verdict.reason, ...(verdict.diagnostic ?? {}),
+      } });
       pushFailure(`${describeAction(decision)} — blocked by policy: ${verdict.reason}`);
       onStep?.(decision);
       if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) break; // report what exists, truncated
@@ -294,6 +304,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       steps.push(step);
       opts[budgetScope]?.recordAction({ step, ok: true });
       pending = { mark, decision, stepIndex: steps.length - 1 };
+      policy?.executed?.(step, ctx);
       onStep?.(decision, step);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -322,7 +333,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const { page } = await perceivePage();
+    const { page, ctx } = await perceivePage();
     if (page) {
       settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
         url: observation.execution.finalUrl,
@@ -331,12 +342,16 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         render: page.render,
         settleMs,
       });
+      if (policy?.stop?.(steps, ctx)) truncated = false;
     } else {
       // No valid semantic comparison exists; do not report a fabricated dead action.
       truncated = true;
     }
   }
 
+  const incomplete = truncated ? policy?.incomplete?.() : undefined;
+  if (incomplete) trace?.emit({ kind: "gate", phase: "explore",
+    payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
   return {
     charter,
     visited,
@@ -344,6 +359,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     findings: dedupeFindings(findings),
     usage: llm.snapshot(),
     truncated,
+    ...(incomplete ? { truncationReason: incomplete.diagnostic.code } : {}),
     finalUrl: currentUrl,
   };
 }

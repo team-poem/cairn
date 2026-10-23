@@ -180,6 +180,10 @@ export class SelfHealingDriver implements Driver {
     return this.inner.snapshot(options);
   }
 
+  scrollState() {
+    return this.inner.scrollState?.() ?? Promise.resolve(undefined);
+  }
+
   settle(options?: SettleOptions): Promise<void> {
     return this.inner.settle(options);
   }

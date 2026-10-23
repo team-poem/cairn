@@ -20,8 +20,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.8 — inconclusive assertion reason (#248).
  * 1.9 — freeze/verdict contract identity and context provenance (#196).
  * 1.10 — budget-exhausted and structured budget verdict metadata (#284).
- * 1.11 — content-free prepared decision selection summaries (#302). */
-export const TRACE_VERSION = "1.11";
+ * 1.11 — content-free prepared decision selection summaries (#302).
+ * 1.12 — opt-in no-progress gates and content-free cycle counters (#309). */
+export const TRACE_VERSION = "1.12";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -48,14 +49,15 @@ export type TraceEvent = Envelope &
     | { kind: "case-start"; payload: { id: string; intent: string; skillRef?: string; cached: boolean } }
     | {
         kind: "case-end";
-        payload: { verdict: Verdict; usage?: RunUsage; discovered: boolean; heals: number; truncated?: boolean };
+        payload: { verdict: Verdict; usage?: RunUsage; discovered: boolean; heals: number; truncated?: boolean; truncationReason?: "no-progress" };
       }
     /** A discover-loop decision: an executed/failed step, or the model's `done` (no `step`). */
     | { kind: "action"; payload: { step?: Step; intent?: string; ok: boolean; error?: string; done?: boolean } }
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll"; action?: string; reason: string };
+        payload: { gate: "policy" | "no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll"; action?: string; reason: string;
+          code?: "no-progress"; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down" };
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {

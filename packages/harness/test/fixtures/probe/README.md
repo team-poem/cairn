@@ -29,3 +29,7 @@ ARIA element references, alongside independent Text nodes sharing ancestors with
 `host-owned-select.html` has a named generic dropdown opener omitted by compact MCP snapshots,
 plus an unrelated native option to verify the before-open watermark in empty and active scopes.
 These fixtures are checked by `scripts/test-host-owned.mjs`, not synthetic `data-name` snapshots.
+
+`host-owned-virtual.html` covers browser-generated AX rows: unordered/ordered/custom list markers,
+CSS-generated text and names, native controls/shadow descendants, details, tables and SVG. Real MCP
+must preserve application content and actions without resolving virtual rows as DOM targets.

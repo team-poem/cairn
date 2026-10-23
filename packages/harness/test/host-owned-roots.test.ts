@@ -59,4 +59,56 @@ describe("host ownership adapter boundary", () => {
     await expect(setup(async () => JSON.stringify(active)).filter('uid=1 RootWebArea "App"\n  uid=2 Iframe\n    uid=3 RootWebArea "Child"'))
       .rejects.toThrow(/frame boundaries/);
   });
+
+  test("virtual rows and ambiguous UIDs never enter ownership batches; children remain", async () => {
+    const tree = 'uid=root RootWebArea "App"\n  uid=wrapper ignored\n    uid=list list\n      uid=item listitem\n' +
+      '        uid=marker ListMarker "bullet"\n          uid=virtual ignored\n' +
+      '        uid=text StaticText "Application item"\n          uid=virtual InlineTextBox "Application item"\n' +
+      '    uid=duplicate StaticText "App generated"\n    uid=duplicate StaticText "Host generated"\n' +
+      '    uid=host button "Host"';
+    const call = vi.fn(async (_name: string, args?: Record<string, unknown>) => {
+      const uids = args?.args as string[];
+      return JSON.stringify({ ...active, excluded: uids.map(uid => uid === "host") });
+    });
+    const filtered = await setup(call).filter(tree);
+    expect(filtered).toContain('uid=text StaticText "Application item"');
+    expect(filtered).toContain('uid=item listitem');
+    expect(filtered).not.toMatch(/ignored|ListMarker|InlineTextBox|generated|Host/);
+    expect(call.mock.calls[1]?.[1]?.args).toEqual(["root", "text", "host"]);
+  });
+
+  test("compact generated StaticText is omitted only for its precise MCP resolution failure", async () => {
+    const call = vi.fn(async (_name: string, args?: Record<string, unknown>) => {
+      const uids = args?.args as string[];
+      if (uids.includes("virtual")) throw new Error("MCP evaluate_script failed: Error: Element with uid virtual no longer exists on the page.");
+      return JSON.stringify({ ...active, excluded: uids.map(() => false) });
+    });
+    expect(await setup(call).filter('uid=virtual StaticText "Generated"\nuid=button button "App"'))
+      .toBe('uid=button button "App"');
+    expect(call).toHaveBeenCalledTimes(4); // initial status, failure, stamp guard, measured remainder
+  });
+
+  test.each([
+    ["button", "MCP evaluate_script failed: Error: Element with uid node no longer exists on the page."],
+    ["StaticText", "MCP evaluate_script failed: Error: Elements from different frames can't be evaluated together."],
+    ["StaticText", "MCP evaluate_script failed: Error: Host ownership node unavailable"],
+    ["StaticText", "MCP evaluate_script failed: Error: Element with uid another no longer exists on the page."],
+  ])("%s measurement fails closed for %s", async (role, message) => {
+    const call = vi.fn().mockResolvedValueOnce(JSON.stringify(active)).mockRejectedValueOnce(new Error(message));
+    await expect(setup(call).filter(`uid=node ${role} "App"`)).rejects.toMatchObject({ kind: "handler" });
+    expect(call).toHaveBeenCalledTimes(2);
+  });
+
+  test("ownership changes while omitting generated text invalidate capture", async () => {
+    const call = vi.fn().mockResolvedValueOnce(JSON.stringify(active))
+      .mockRejectedValueOnce(new Error("MCP evaluate_script failed: Error: Element with uid node no longer exists on the page."))
+      .mockResolvedValueOnce(JSON.stringify({ ...active, stamp: "changed" }));
+    await expect(setup(call).filter('uid=node StaticText "Generated"')).rejects.toThrow(/ownership changed/);
+  });
+
+  test("virtual-only observations still validate the ownership stamp", async () => {
+    const call = vi.fn().mockResolvedValueOnce(JSON.stringify(active))
+      .mockResolvedValueOnce(JSON.stringify({ ...active, stamp: "changed", excluded: [] }));
+    await expect(setup(call).filter('uid=node ListMarker "bullet"')).rejects.toThrow(/ownership changed/);
+  });
 });

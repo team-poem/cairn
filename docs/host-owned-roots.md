@@ -69,6 +69,20 @@ captured AX role when checking ownership: a text row tests subtree ownership, wh
 aggregate name additionally tests descendant/label dependencies. A parent's mixed aggregate row
 may be excluded without excluding an independent application text row under that same parent.
 
+Every Chrome capture omits virtual `ListMarker`/`InlineTextBox` rows, `ignored` wrappers and
+generated text sharing those virtual UIDs, including when ownership is absent or empty. Real
+children and document ancestry remain, so a list marker cannot disable exact references for
+unrelated controls. The same normalization is used for document guards and fresh-ref validation.
+This does not relax continuity checks for unmeasurable real nodes.
+
+With active ownership, ambiguous duplicate UIDs are omitted too: MCP can reuse one UID for
+unrelated CSS-generated text on both sides of the
+boundary. A compact `StaticText` row that MCP explicitly cannot resolve is omitted rather than
+mapped to a guessed ancestor. This can omit application `::before`/`::after` text as an independent
+row, but a measurable control keeps its browser-computed name. No virtual row becomes an exact ref.
+Other node/registry failures, real-control resolution failures and transport errors still fail
+capture. Empty scopes apply no host-based exclusion beyond the common AX normalization.
+
 `RootWebArea`/Document remains the application page, including its title. Registration is not a
 general text-redaction feature: a host writing into application-owned content, changing the page
 title or issuing requests still has observable application effects.
@@ -96,7 +110,8 @@ accessibility tree. It is not silently applied only to the top frame. A host tha
 different-world integration must implement and validate the same contract in its own Driver.
 
 If exact node ownership cannot be measured, capture/lookup fails closed, not with the unfiltered
-tree. Ownership changes invalidate captured refs even without a DOM mutation. Browser capture and
+tree; the narrow virtual/text omissions above remove the affected candidates instead of failing
+the whole observation. Ownership changes invalidate captured refs even without a DOM mutation. Browser capture and
 dispatch are separate operations, so this is not an atomic guarantee against arbitrary concurrent
 page mutation. Re-observe after an ownership or geometry rejection.
 
@@ -141,5 +156,10 @@ discovery, freeze and zero-model replay. `host-owned-names.html` checks browser-
 reflected label names, positive application text and negative host-only conditions.
 `host-owned-select.html` proves that reading the compact option watermark does not retire a
 verbose-only opener UID, with both empty and active ownership. The browser suite also executes
-the Playwright snippets above verbatim. These are synthetic regressions, not a live-model benchmark
+the Playwright snippets above verbatim. `host-owned-virtual.html` covers list markers, CSS-generated
+text, default form controls (including native shadow descendants), details, tables and SVG. The
+minimal list case also verifies selector lookup and exact-reference actions, and the discovery/
+replay fixture includes a normal list. No-scope and empty-scope cases verify real-control refs and
+dispatch with generated text and with lists in both the top document and an iframe.
+These are synthetic regressions, not a live-model benchmark
 or proof of universal instrumentation isolation.

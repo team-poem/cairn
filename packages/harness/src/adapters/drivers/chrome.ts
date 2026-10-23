@@ -8,6 +8,7 @@ import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { ChromeHostRoots } from "./chrome-host-roots.js";
+import { stripVirtualAXRows } from "./chrome-ax.js";
 import type { HostOwnedRootScope } from "./host-owned-roots.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
@@ -514,7 +515,10 @@ export class ChromeDevToolsDriver implements Driver {
   private async captureSnapshot(args?: Record<string, unknown>): Promise<string> {
     const stamp = await this.hostRoots?.assertStamp();
     const raw = await this.call("take_snapshot", args);
-    return this.hostRoots ? this.hostRoots.filter(raw, stamp) : raw;
+    // Normalize virtual AX rows for every consumer, including document guards,
+    // fresh-ref validation and empty/no ownership scopes. A list marker must not
+    // poison the guard coverage of unrelated real application controls.
+    return stripVirtualAXRows(this.hostRoots ? await this.hostRoots.filter(raw, stamp) : raw);
   }
 
   async snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
@@ -566,9 +570,7 @@ export class ChromeDevToolsDriver implements Driver {
       const page = await this.selectedPage();
       assertCapture();
       this.observedPage = page;
-      // MCP's verbose tree includes virtual InlineTextBox entries with shared/unresolvable UIDs.
-      // The owning StaticText remains available; virtual glyph runs cannot be action targets.
-      this.observedRows = parseSnapshotRows(raw).filter(row => row.role !== "InlineTextBox");
+      this.observedRows = parseSnapshotRows(raw);
       const named = this.observedRows.filter((row) => row.name.trim());
       const topology = documentTopology(raw);
       const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
@@ -581,7 +583,7 @@ export class ChromeDevToolsDriver implements Driver {
       await this.hostRoots?.assertStamp(hostStamp);
       assertCapture();
       this.observedHostStamp = hostStamp;
-      return els.filter(element => element.role !== "InlineTextBox").map((element, i) => {
+      return els.map((element, i) => {
         const row = named[i]!;
         const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
         // A failed page measurement preserves candidates but cannot promise exact identity.

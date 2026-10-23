@@ -126,6 +126,28 @@ test("chromeObservationFullCapture: request the full tree and exclude synthetic 
   expect(new Set(rows.map(row => row.ref)).size).toBe(rows.length);
 });
 
+test("virtual list and generated rows cannot disable default refs or enter fresh validation", async () => {
+  const { driver, calls, state } = fixture();
+  state.snapshot = 'uid=wrapper ignored\n  uid=marker ListMarker "bullet"\n    uid=ghost ignored\n' +
+    '  uid=text StaticText "App item"\n    uid=ghost InlineTextBox "App item"\n' +
+    'uid=1_1 button "Save"\nuid=1_2 button "Save"\nuid=ghost StaticText "Generated"';
+  const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;
+  (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
+    if (name === "evaluate_script" && (args.args as string[] | undefined)?.some(uid => ["wrapper", "marker", "ghost"].includes(uid))) {
+      throw new Error("Elements from different frames can't be evaluated together.");
+    }
+    return original(name, args);
+  };
+  const rows = await driver.snapshot({ perception: true });
+  expect(rows.map(row => row.name)).toEqual(["App item", "Save", "Save"]);
+  expect(rows.every(row => typeof row.ref === "string")).toBe(true);
+  const ref = rows[2]!.ref!;
+  const target = await driver.locateRef(ref);
+  expect(target).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
+  await driver.click(target, ref);
+  expect(calls.filter(call => call.name === "click")).toEqual([{ name: "click", args: { uid: "1_2" } }]);
+});
+
 test("chromeObservationBatchIsolation: an unsupported UID cannot erase other nodes' popup facts", async () => {
   const { driver } = fixture();
   const original = (driver as unknown as { call: (name: string, args?: Record<string, unknown>) => Promise<string> }).call;

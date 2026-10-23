@@ -3,6 +3,7 @@ import { errorKindOf, stepError } from "../../core/errors.js";
 import { HOST_ROOT_REGISTRY, type HostOwnedRootScope } from "./host-owned-roots.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { documentTopology } from "./chrome-documents.js";
+import { virtualAXRoles } from "./chrome-ax.js";
 
 type Row = { uid: string; role: string; name: string };
 type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
@@ -53,20 +54,51 @@ export class ChromeHostRoots {
     const status = this.check(await this.evaluate("return status;"), expected);
     this.stamp = status.stamp;
     this.active = status.active > 0;
-    const rows = this.rows(raw).filter(row => row.role !== "InlineTextBox");
-    this.textUids = new Set(rows.filter(row => row.role === "StaticText").map(row => row.uid));
+    const parsed = this.rows(raw);
+    this.textUids = new Set(parsed.filter(row => row.role === "StaticText").map(row => row.uid));
     if (!status.active) return raw;
     if (documentTopology(raw).framed) throw stepError("handler", "Host-owned root exclusion does not support active frame boundaries");
-    const reply = await this.evaluate(`const textRows = ${JSON.stringify(rows.map(row => row.role === "StaticText"))};
-      return { ...status, excluded: nodes.map((node, i) => registry.excluded(node, textRows[i])) };`, rows.map(row => row.uid));
+    // MCP may assign the same UID to unrelated generated text (including app and
+    // host text). Never guess which row that handle identifies or expose it as a ref.
+    const seen = new Set<string>(), excluded = new Set<string>();
+    // The candidate parser only returns quoted-name rows; inspect unnamed AX
+    // wrappers too, since they may share the virtual UID with a named text row.
+    for (const line of raw.split("\n")) {
+      const match = line.match(/uid=(\S+)\s+(\w+)/);
+      if (!match) continue;
+      const [, uid, role] = match as [string, string, string];
+      if (seen.has(uid) || virtualAXRoles.has(role)) excluded.add(uid);
+      seen.add(uid);
+    }
+    let rows = parsed.filter(row => !excluded.has(row.uid));
+    let reply: Record<string, unknown>;
+    for (;;) {
+      try {
+        reply = await this.evaluate(`const textRows = ${JSON.stringify(rows.map(row => row.role === "StaticText"))};
+          return { ...status, excluded: nodes.map((node, i) => registry.excluded(node, textRows[i])) };`, rows.map(row => row.uid));
+        break;
+      } catch (error) {
+        // Compact AX has no virtual-role annotation for CSS-generated StaticText.
+        // Only MCP's precise node-resolution failure may remove that text UID.
+        // Real controls, mixed-frame errors, registry failures and transport errors
+        // remain fatal. Each retry removes a UID, so no unbounded retry is possible.
+        const uid = errorKindOf(error) === "handler" && error instanceof Error
+          ? error.message.match(/^Host ownership measurement failed: MCP evaluate_script failed: (?:Error: )?Element with uid (\S+) no longer exists on the page\.$/)?.[1]
+          : undefined;
+        if (!uid || !rows.some(row => row.uid === uid && row.role === "StaticText")) throw error;
+        excluded.add(uid);
+        rows = rows.filter(row => row.uid !== uid);
+        await this.assertStamp(status.stamp);
+      }
+    }
     this.check(reply, status.stamp);
     if (!Array.isArray(reply.excluded) || reply.excluded.length !== rows.length || reply.excluded.some(value => typeof value !== "boolean")) {
       throw stepError("handler", "Host ownership candidate measurement incomplete");
     }
-    const excluded = new Set(rows.filter((_, i) => (reply.excluded as boolean[])[i]).map(row => row.uid));
+    rows.forEach((row, i) => { if ((reply.excluded as boolean[])[i]) excluded.add(row.uid); });
     return raw.split("\n").filter(line => {
       const match = line.match(/uid=(\S+)\s+(\w+)/);
-      return !match || (match[2] !== "InlineTextBox" && !excluded.has(match[1]!));
+      return !match || !excluded.has(match[1]!);
     }).join("\n");
   }
 

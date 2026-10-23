@@ -6,6 +6,7 @@
  */
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
+import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
@@ -75,36 +76,10 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
     const registry = ${JSON.stringify(registry ?? null)};
     const regions = registry
       ? (globalThis[Symbol.for(registry)] ??= new WeakMap()) : new Map();
-    const active = new Set();
-    const visible = (el) => {
-      const style = getComputedStyle(el);
-      return el.getClientRects().length > 0 && style.display !== "none" &&
-        style.visibility !== "hidden" && el.getAttribute("aria-hidden") !== "true";
-    };
-    for (const control of document.querySelectorAll('[aria-expanded="true"]')) {
-      for (const attr of ["aria-controls", "aria-owns"]) {
-        for (const id of (control.getAttribute(attr) || "").split(/\s+/)) {
-          const popup = id && document.getElementById(id);
-          if (popup && visible(popup) && visible(control)) active.add(popup);
-        }
-      }
-    }
-    for (const popup of document.querySelectorAll('dialog[open]')) if (visible(popup)) active.add(popup);
-    try {
-      for (const popup of document.querySelectorAll(':popover-open')) if (visible(popup)) active.add(popup);
-    } catch { /* Older browsers need no popover selector to report ARIA-controlled popups. */ }
-    const clipped = (el, x, y) => {
-      for (let p = el.parentElement; p && p !== document.body && p !== document.documentElement; p = p.parentElement) {
-        const style = getComputedStyle(p);
-        if (!/(auto|scroll|overlay|hidden|clip)/.test(style.overflowX + " " + style.overflowY)) continue;
-        const box = p.getBoundingClientRect();
-        if (x < box.left || x > box.right || y < box.top || y > box.bottom) return true;
-      }
-      return false;
-    };
+    const foreground = (${DOM_FOREGROUND_PROBE})(...els);
     return Object.fromEntries(els.map((raw, i) => {
       const el = raw && raw.nodeType === 3 ? raw.parentElement : raw;
-      const facts = {};
+      const facts = foreground[i];
       if (${JSON.stringify(guard ?? null)}) {
         // RootWebArea resolves to Document in MCP. It is covered by this observer too.
         facts.referenceReady = !!el && el.isConnected && el.getRootNode() === document &&
@@ -112,14 +87,6 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
           !globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.overflow;
       }
       if (!el || el.nodeType !== 1 || !el.isConnected) return [ids[i], facts];
-      if ([...active].some(root => root === el || root.contains(el))) facts.inActivePopup = true;
-      const box = el.getBoundingClientRect();
-      const x = box.left + box.width / 2, y = box.top + box.height / 2;
-      if (el.getRootNode() === document && box.width && box.height &&
-          x >= 0 && y >= 0 && x < innerWidth && y < innerHeight && !clipped(el, x, y)) {
-        const top = document.elementFromPoint(x, y);
-        if (top) facts.occluded = top !== el && !el.contains(top);
-      }
       if (${clickables}) {
         let elAt = el;
         let region;

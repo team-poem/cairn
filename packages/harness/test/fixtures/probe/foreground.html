@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Foreground conformance</title>
+<style>
+  body { margin: 0; }
+  main { display: grid; grid-template-columns: repeat(7, 1fr); }
+  main button { height: 100px; }
+  #layer { position: fixed; inset: 0; background: rgb(0 0 0 / 40%); z-index: 10; }
+  #panel { position: absolute; left: 35%; top: 35%; padding: 30px; background: white; }
+  #field { width: 160px; height: 30px; }
+</style></head>
+<body>
+<main id="application"></main>
+<div id="layer"><div id="panel"><label>Foreground input <input id="field"></label>
+<button id="save" onclick="if (document.getElementById('field').value === 'fixture') location.href='/done'">Save</button></div></div>
+<script>
+  const app = document.querySelector('#application');
+  for (let i = 0; i < 140; i++) {
+    const button = document.createElement('button');
+    button.id = `background-${i}`;
+    button.textContent = i === 0 ? 'Save' : `Background ${i}`;
+    app.append(button);
+  }
+</script>
+</body></html>

@@ -32,7 +32,9 @@ the engine does not inspect a particular framework's internals.
 Discover and explore reject invalid observation bindings before calling the decision model.
 They can recover on a subsequent valid capture, with the existing step limit bounding repeated
 invalid captures. Snapshot/consumer callback errors retain their own error behavior. A valid
-JSON reply with a bad ref receives a binding diagnostic, separate from a JSON parse failure.
+final capture is also required before accepting policy goal completion at the step cap;
+invalid final bindings leave discovery/exploration truncated and emit the same binding gate.
+A valid JSON reply with a bad ref receives a binding diagnostic, separate from a JSON parse failure.
 With a trace scope, every rejected capture emits `gate: perception-binding`, and every rejected
 reference decision emits `gate: reference-binding`. Fixed trace messages describe the rejected contract
 without echoing page content, Driver tokens, or model fields. Repeated rejections remain visible

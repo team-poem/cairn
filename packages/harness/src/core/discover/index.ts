@@ -354,6 +354,18 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
     const raw = await driver.snapshot(policy.observe ? { perception: true } : undefined);
     const after = await readPolicyScroll(policy, driver);
     const elements = policy.observe ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
+    try {
+      // A final goal check must not trust bindings rejected on an ordinary decision turn.
+      new PerceptionObservation(driver, raw, elements, intent);
+    } catch (err) {
+      if (errorKindOf(err) !== "resolution") throw err;
+      trace?.emit({
+        kind: "gate",
+        phase: tracePhase,
+        payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
+      });
+      return finish(true);
+    }
     const url = policy.needsScrollState ? (await driver.observe()).execution.finalUrl : undefined;
     const ctx = policyContext(elements, url, before, after);
     policy.observe?.(ctx);

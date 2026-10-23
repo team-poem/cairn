@@ -220,6 +220,40 @@ describe.each(["discover", "explore"] as const)("%s lifecycle", mode => {
     expect(result.truncated).not.toBe(true); expect(result.truncationReason).toBeUndefined();
   });
 
+  it.each([false, true])("validates final goal observation bindings (valid=%s)", async valid => {
+    const driver = new ScrollDriver();
+    driver.els = [{ role: "button", name: "Continue", ref: "final-goal-ref" }];
+    driver.scroll = async () => {
+      driver.executed++;
+      if (valid) driver.els = [{ role: "button", name: "Goal reached", ref: "final-goal-ref" }];
+    };
+    const stop = vi.fn((_steps: unknown, ctx: PolicyContext) => ctx.elements.some(e => e.name === "Goal reached"));
+    const policy = composePolicies(createScrollNoProgressPolicy({ tolerance: 1 }), { vet: () => ({ ok: true }), stop });
+    const events: TraceEvent[] = [];
+    const trace = startTrace({ emit: event => events.push(event) }, "test").scope("final-goal");
+    const llm = new ScriptedLlm([down, "[]"]);
+    const complete = vi.spyOn(llm, "complete");
+    const opts = {
+      driver, llm, policy, baseUrl: driver.url, maxSteps: 1, trace, tracePhase: "heal" as const,
+      perceive: async (elements: PageElement[]) => elements.map(e =>
+        driver.executed ? { ...e, name: "Goal reached" } : e),
+    };
+    const result = mode === "discover" ? await discover("Reach the goal", opts) : await explore("Reach the goal", opts);
+    expect(driver.executed).toBe(1);
+    expect(Boolean(result.truncated)).toBe(!valid);
+    expect(stop).toHaveBeenCalledTimes(valid ? 2 : 1);
+    expect(complete).toHaveBeenCalledTimes(mode === "discover" ? 2 : 1);
+    const gates = events.filter(e => e.kind === "gate" && e.payload.gate === "perception-binding");
+    expect(gates).toHaveLength(valid ? 0 : 1);
+    if (!valid) {
+      expect(gates[0]?.phase).toBe(mode === "discover" ? "heal" : "explore");
+      expect(JSON.stringify(gates)).not.toMatch(/Continue|Goal reached|final-goal-ref/);
+      if ("findings" in result) expect(result.findings).toEqual([]);
+    } else {
+      expect(result.truncationReason).toBeUndefined();
+    }
+  });
+
   it("recovers after asynchronous lazy loading following a suspected scroll cycle", async () => {
     const driver = new ScrollDriver();
     let loading: Promise<void> | undefined;

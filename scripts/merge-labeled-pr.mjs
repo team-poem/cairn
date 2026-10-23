@@ -1,10 +1,11 @@
 import { mergeLabelBlocker } from "./merge-label-policy.mjs";
 import { postMergeDecisionComment } from "./merge-decision-comment.mjs";
+import { mergeDevelopInto } from "./merge-conflicts.mjs";
 
 const query = `query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      number state isDraft baseRefName headRefOid title reviewDecision mergeStateStatus
+      number state isDraft baseRefName headRefName headRefOid isCrossRepository title reviewDecision mergeStateStatus
       labels(first: 100) { nodes { name } pageInfo { hasNextPage } }
     }
   }
@@ -22,7 +23,9 @@ function blocker(pr) {
 
 // The App can bypass rulesets, so approval and CI must be checked explicitly.
 // Use GitHub's squash API: GitHub credits the PR author and records the App as merger.
-export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core }) {
+export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core,
+  updateBranch = async pr => mergeDevelopInto({ cwd: process.env.GITHUB_WORKSPACE, number: pr.number,
+    ref: pr.headRefName, head: pr.headRefOid, token: (await github.auth()).token }) }) {
   const { owner, repo } = context.repo;
   const messages = [];
   const notices = new Map();
@@ -57,15 +60,20 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     }
     notices.clear();
   };
-  const clearMergeRequest = async number => {
+  const removeMergeRequest = async number => {
     try {
       await github.rest.issues.removeLabel({ owner, repo, issue_number: number, name: "needs-merge" });
     } catch (error) {
-      if (error.status !== 404) {
-        report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
-        await flushNotices();
-        throw error;
-      }
+      if (error.status !== 404) throw error;
+    }
+  };
+  const clearMergeRequest = async number => {
+    try {
+      await removeMergeRequest(number);
+    } catch (error) {
+      report(number, `merged, but needs-merge cleanup failed: ${error.message}`);
+      await flushNotices();
+      throw error;
     }
     report(number, "merged; needs-merge request cleared.");
   };
@@ -127,6 +135,31 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
         ? "Merge pending: waiting for CI on the current commit."
         : `Merge pending: CI ${latest.conclusion ?? "did not pass"}. Please fix or rerun it.`);
       continue;
+    }
+    if (pr.mergeStateStatus === "DIRTY" && !pr.isCrossRepository) {
+      // Settle what needs no judgment: a branch already on develop, or conflicts where this PR's
+      // side is already in develop. Resolved conflicts are new code, so a person re-requests the merge.
+      let result;
+      try {
+        result = await updateBranch(pr);
+      } catch (error) {
+        core.warning(`PR #${pr.number}: could not merge develop into the branch: ${error.message}`);
+      }
+      if (result?.kind === "landed") {
+        await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+          body: "Closing: merging develop into this branch changes nothing, so every change here is already on develop." });
+        await github.rest.pulls.update({ owner, repo, pull_number: pr.number, state: "closed" });
+        report(pr.number, "already on develop; closed.");
+        continue;
+      }
+      if (result?.kind === "resolved") {
+        await removeMergeRequest(pr.number);
+        report(pr.number, `merged develop into the branch as ${result.sha}; waiting for a new merge request.`);
+        // A plain comment: the queued decision notice is dropped once the head it describes moves.
+        await github.rest.issues.createComment({ owner, repo, issue_number: pr.number,
+          body: `cairn-pingu merged develop into this branch (${result.sha}), resolving only conflicts where this pull request's side was already on develop. Review that commit, then add needs-merge again.` });
+        continue;
+      }
     }
     if (pr.mergeStateStatus !== "CLEAN") {
       report(pr.number, `waiting for GitHub merge requirements (merge state: ${pr.mergeStateStatus}).`);

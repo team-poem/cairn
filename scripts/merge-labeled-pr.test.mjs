@@ -141,7 +141,7 @@ for (const [name, patch] of [
   ["missing approval despite bot bypass", { reviewDecision: "REVIEW_REQUIRED" }],
   ["changes requested", { reviewDecision: "CHANGES_REQUESTED" }],
   ["missing review rule", { reviewDecision: null }],
-  ["conflict", { mergeStateStatus: "DIRTY" }],
+  ["conflict", { mergeStateStatus: "DIRTY" }], ["blocked", { mergeStateStatus: "BLOCKED" }],
   ["unknown", { mergeStateStatus: "UNKNOWN" }],
   ["removed label", { labels: { nodes: [] } }],
   ["different label case", { labels: { nodes: [{ name: "Needs-Merge" }] } }],
@@ -177,14 +177,6 @@ for (const [name, change, reason] of [
     assert.deepEqual(f.warnings, []);
   });
 }
-
-test("merges an approved, green PR that GitHub keeps reporting BLOCKED to the bypassing App", async () => {
-  const f = fixture();
-  f.pr.mergeStateStatus = "BLOCKED";
-  await f.run();
-  assert.equal(f.merged.length, 1);
-  assert.deepEqual(f.operations, ["merge", "removeLabel"]);
-});
 
 test("does not squash a branch that carries the commits of another open PR", async () => {
   const f = fixture();

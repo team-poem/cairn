@@ -20,11 +20,6 @@ function blocker(pr) {
   return null;
 }
 
-// The App bypasses the develop rulesets, and GitHub can keep reporting BLOCKED to it after
-// every rule is met, while its approver sees CLEAN. Approval, labels and CI are checked
-// explicitly before merging, so BLOCKED is not a reason to wait; conflicts still are.
-const mergeable = status => status === "CLEAN" || status === "BLOCKED";
-
 // The App can bypass rulesets, so approval and CI must be checked explicitly.
 // Use GitHub's squash API: GitHub credits the PR author and records the App as merger.
 export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core }) {
@@ -133,7 +128,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
         : `Merge pending: CI ${latest.conclusion ?? "did not pass"}. Please fix or rerun it.`);
       continue;
     }
-    if (!mergeable(pr.mergeStateStatus)) {
+    if (pr.mergeStateStatus !== "CLEAN") {
       report(pr.number, `waiting for GitHub merge requirements (merge state: ${pr.mergeStateStatus}).`);
       notice(pr, pr.mergeStateStatus === "DIRTY"
         ? "Merge pending: resolve the merge conflicts."
@@ -149,7 +144,7 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       if (current?.state === "OPEN") notice(current, `Merge pending: ${currentReason}`);
       continue;
     }
-    if (current.headRefOid !== pr.headRefOid || !mergeable(current.mergeStateStatus)) {
+    if (current.headRefOid !== pr.headRefOid || current.mergeStateStatus !== "CLEAN") {
       report(pr.number, "head or merge requirements changed; waiting for the next evaluation.");
       notice(current, "Merge pending: the commit or merge requirements changed. Rechecking soon.");
       continue;

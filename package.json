@@ -24,6 +24,7 @@
     "test:document-refs": "node scripts/test-document-refs.mjs",
     "test:selection": "node scripts/test-selection-diagnostics.mjs",
     "test:foreground": "npm run test:browser -w cairn-engine -- test/browser/foreground.browser.test.ts && node scripts/test-foreground.mjs",
+    "test:host-owned": "npm run test:browser -w cairn-engine -- test/browser/host-owned.browser.test.ts && node scripts/test-host-owned.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
     "test:settle": "node bench/local/settle.mjs",
     "check:language": "node scripts/check-language.mjs",

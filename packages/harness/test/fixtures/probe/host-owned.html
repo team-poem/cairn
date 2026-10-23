@@ -1,0 +1,21 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Instrumentation fixture</title>
+<style>
+  button, input { margin: 8px; }
+  #host { position: fixed; right: 8px; bottom: 8px; padding: 12px; background: #eee; }
+  #host.overlay { inset: 0; z-index: 1000; }
+</style>
+<main>
+  <button id="first" data-role="button" data-name="Save" onclick="document.body.dataset.saved='first'">Save</button>
+  <button id="second" data-role="button" data-name="Save" onclick="document.body.dataset.saved='second'">Save</button>
+  <input id="field" aria-label="Application input" data-role="textbox" data-name="Application input">
+  <button id="spoof" data-cairn-owned="true" data-role="button" data-name="Application control">Application control</button>
+</main>
+<aside id="host" aria-label="Host tools" data-role="complementary" data-name="Host tools">
+  <button id="host-save" data-role="button" data-name="Save" onclick="document.body.dataset.hostClicked='yes'">Save</button>
+  <input id="host-field" aria-label="Host input" data-role="textbox" data-name="Host input">
+  <span id="counter" data-role="StaticText" data-name="Host count 0">Host count 0</span>
+  <span id="success" data-role="StaticText" data-name="Host-only success">Host-only success</span>
+  <div style="cursor:pointer" onclick="document.body.dataset.hostClicked='yes'"><span id="promoted" data-role="StaticText" data-name="Host action">Host action</span></div>
+</aside>

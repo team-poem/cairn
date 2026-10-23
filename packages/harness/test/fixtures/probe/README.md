@@ -18,3 +18,14 @@ report, and the test is the fix's proof.
 
 `settle.html` supplies skeleton rendering, background polling and continuous DOM mutation for
 the public Chrome Driver regression in `bench/local/settle.mjs` (#175).
+
+`host-owned.html` supplies app and instrumentation controls with duplicate labels, counter text,
+an optional blocking overlay and human input for #308. Run `npm run build && npm run test:host-owned`
+from the repository root for browser conformance plus real MCP discovery/freeze/replay. See
+`docs/host-owned-roots.md` for the exact-node contract and supported boundaries.
+
+`host-owned-names.html` exercises actual browser-computed names from nested labels and reflected
+ARIA element references, alongside independent Text nodes sharing ancestors with the panel.
+`host-owned-select.html` has a named generic dropdown opener omitted by compact MCP snapshots,
+plus an unrelated native option to verify the before-open watermark in empty and active scopes.
+These fixtures are checked by `scripts/test-host-owned.mjs`, not synthetic `data-name` snapshots.

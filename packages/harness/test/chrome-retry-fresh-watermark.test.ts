@@ -1,9 +1,12 @@
 // file: packages/harness/test/chrome-retry-fresh-watermark.test.ts
 import { expect, test } from "vitest";
 import { ChromeDevToolsDriver, parseSnapshotRows } from "../src/adapters/drivers/chrome.js";
+import { createHostOwnedRootScope } from "../src/adapters/drivers/host-owned-roots.js";
 
-function changingRetrySelect(verboseOnlyControl: boolean) {
-  const driver = new ChromeDevToolsDriver({ promoteClickables: false });
+function changingRetrySelect(verboseOnlyControl: boolean, ownership?: "empty" | "active") {
+  const driver = new ChromeDevToolsDriver({ promoteClickables: false,
+    ...(ownership ? { hostOwnedRoots: createHostOwnedRootScope() } : {}),
+  });
   const clicks: string[] = [];
   const calls: string[] = [];
   const control = 'uid=1_1 combobox "Size"';
@@ -32,7 +35,8 @@ function changingRetrySelect(verboseOnlyControl: boolean) {
       for (const uid of (args.args ?? []) as string[]) {
         if (!mapped.has(uid)) throw new Error(`UID ${uid} was omitted from the latest snapshot`);
       }
-      return JSON.stringify({ tag: "BUTTON" });
+      return JSON.stringify({ tag: "BUTTON", stamp: "document:1", active: ownership === "active" ? 1 : 0,
+        unsupported: false, allowed: true, excluded: ((args.args ?? []) as string[]).map(() => false) });
     }
     if (name === "click") {
       if (!mapped.has(String(args.uid))) throw new Error(`UID ${args.uid} was omitted from the latest snapshot`);
@@ -46,14 +50,14 @@ function changingRetrySelect(verboseOnlyControl: boolean) {
   return { driver, clicks, calls };
 }
 
-test("chromeRetryFreshSelectWatermark: an unrelated native option arriving during a successful retry is excluded from the dropdown's new options", async () => {
-  const { driver, clicks } = changingRetrySelect(false);
+test.each([undefined, "empty", "active"] as const)("chromeRetryFreshSelectWatermark (%s scope): an unrelated native option arriving during a successful retry is excluded from the dropdown's new options", async ownership => {
+  const { driver, clicks } = changingRetrySelect(false, ownership);
   await driver.select({ text: "Size", role: "combobox" }, "Medium");
   expect(clicks).toEqual(["1_1", "1_3"]);
 });
 
-test("chromeRetryFreshWatermarkRetainsDispatch: refreshing the before-open watermark preserves a control omitted from compact MCP mappings", async () => {
-  const { driver, clicks } = changingRetrySelect(true);
+test.each([undefined, "empty", "active"] as const)("chromeRetryFreshWatermarkRetainsDispatch (%s scope): refreshing the before-open watermark preserves a control omitted from compact MCP mappings", async ownership => {
+  const { driver, clicks } = changingRetrySelect(true, ownership);
   await driver.select({ text: "Size", role: "combobox" }, "Medium");
   expect(clicks).toEqual(["1_1", "1_3"]);
 });

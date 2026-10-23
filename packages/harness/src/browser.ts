@@ -41,6 +41,8 @@ export type { CustomCheck, CustomChecks, CustomCheckResult } from "./adapters/cr
 export { LlmCritic, ExpectAssertionHandler, summarizeEvidence } from "./adapters/critics/llm.js";
 export { ConsoleReporter } from "./adapters/reporters/console.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";
+export { createHostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
+export type { HostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 

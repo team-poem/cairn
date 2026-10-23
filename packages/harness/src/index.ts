@@ -45,6 +45,8 @@ export { JsonReporter } from "./adapters/reporters/json.js";
 export { FakeDriver } from "./adapters/drivers/fake.js";
 export { ChromeDevToolsDriver } from "./adapters/drivers/chrome.js";
 export type { ChromeDriverOptions } from "./adapters/drivers/chrome.js";
+export { createHostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
+export type { HostOwnedRootScope } from "./adapters/drivers/host-owned-roots.js";
 export { SelfHealingDriver, parseHealChoice } from "./adapters/drivers/self-heal.js";
 export type { Heal, SelfHealOptions } from "./adapters/drivers/self-heal.js";
 export { createTargetChoiceRepair } from "./adapters/drivers/target-choice.js";

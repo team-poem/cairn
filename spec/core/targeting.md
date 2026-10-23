@@ -20,6 +20,24 @@ Locate an element by **intent**, not by a *driver handle* → replay doesn't bre
 
 At freeze time, `Driver.locate()` *enriches* the target with strong locators before freezing → replay re-finds the handle with no LLM. When the resolved name is duplicated on the page, `locate()` also records `nth`, so a frozen first-match is explicit about which duplicate it means.
 
+## Host-owned candidate exclusion (#308)
+
+The Chrome adapter's optional `hostOwnedRoots` scope binds trusted host registrations to exact DOM
+nodes, never page-supplied names/attributes. It filters compact and verbose candidate pools before
+observation, promotion, named/positional/selector/reference lookup and freeze enrichment. DOM text
+conditions and semantic progress use the same sanitized observation. Ownership changes expire refs
+even when no DOM mutation occurred. Exact ownership and current host obstruction are checked again
+before targeted dispatch; excluded overlays do not become click-through.
+
+No registrations means no exclusion. Enabling or disabling exclusion is **not** an automatic
+migration of already-frozen positional targets: re-observe and re-freeze affected scenarios, and
+keep the host policy consistent across discovery/replay. Tokens/DOM handles never enter scenarios.
+The first adapter implementation supports top-level light-DOM roots, rejects active frame
+boundaries and does not claim hostile-JavaScript isolation. Human UI, screenshots, network/console
+evidence and conservative DOM settling/reference guards are preserved. See
+[host-owned roots](../../docs/host-owned-roots.md) for the public integration, focus/geometry rules,
+lifetime, unsupported cases and reproducible tests.
+
 ## Freeze stability scoring (#14)
 
 `scoreTarget`: **selector 1.0 > role+index 0.7 > text+nth 0.6 > text-only 0.3 (weak).** An `nth`-qualified name is not penalized like a bare text target — for duplicate labels it *is* the strengthening (the name survives UI change; the position re-derives). Weak (text-only) targets are **warned** at freeze time → the author strengthens them up front, before they trigger a self-heal (LLM cost, non-determinism). Score + warning lower the self-heal trigger rate.

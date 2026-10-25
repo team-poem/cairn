@@ -15,7 +15,8 @@ import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
 import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
-import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
+import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
+import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, type PageGuidance } from "../page-guidance.js";
 import type { RunUsage, Step } from "../types.js";
 import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
@@ -23,7 +24,7 @@ import { applyDecision, describeAction, describeAmbiguity, parseDecision } from 
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
 import { exploreSystem, buildExplorePrompt } from "./prompt.js";
-import { REFERENCE_REJECTION } from "../discover/prompt.js";
+import { REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "../discover/prompt.js";
 import { dedupeFindings, deriveActionFindings } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
@@ -47,6 +48,8 @@ export interface ExploreOptions extends BudgetOptions {
   policy?: ActionPolicy;
   /** Correct state before common selection; preserve each retained candidate ref/name/role. */
   perceive?: PerceptionAdapter;
+  /** Host advice for each decision observation (spec/core/page-guidance.md). Absent → unchanged. */
+  pageGuidance?: PageGuidanceProvider;
   /** Binding and prepared-selection diagnostics (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
   /** URL substrings whose 4xx/5xx is product noise — excluded from failed-request findings. */
@@ -103,8 +106,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     benign = [],
     benignConsole = [],
     slowSettleMs,
+    pageGuidance,
   } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
+  const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", reason } });
   const perceivePage = async () => {
     const before = await readPolicyScroll(policy, driver);
     const raw = await driver.snapshot({ perception: true });
@@ -113,7 +118,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const ctx = policyContext(elements, currentUrl, before, after);
     policy?.observe?.(ctx);
     try {
-      return { elements, ctx, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
+      return { elements, ctx, capturedState: pageGuidance ? pageGuidanceState(raw) : undefined, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -185,7 +190,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const observation = await driver.observe();
     currentUrl = observation.execution.finalUrl ?? currentUrl;
     visit(observation.execution.finalUrl);
-    const { elements, ctx, page } = await perceivePage();
+    const { elements, ctx, page, capturedState } = await perceivePage();
     if (!page) continue; // retry with a fresh capture within the existing step bound
     const render = page.render;
 
@@ -207,11 +212,13 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     }
     if (policy?.incomplete?.()?.halt) break;
 
-    const prompt = buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references);
+    const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
+      purpose: "explore", page, url: observation.execution.finalUrl, signal, scope: opts[budgetScope], gate: guidanceGate });
+    const prompt = buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references, guidance?.text);
     page.tracePrepared(trace, "explore", "explore");
     const reply = await llm.complete(
       prompt,
-      { system: exploreSystem(Boolean(page.references)) },
+      { system: exploreSystem(Boolean(page.references)) + (guidance ? PAGE_GUIDANCE_RULES : "") },
     );
 
     let decision: Decision;
@@ -233,6 +240,17 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       });
       pushFailure(`${REFERENCE_REJECTION}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
+    }
+
+    if (guidance) {
+      signal?.throwIfAborted();
+      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined);
+      signal?.throwIfAborted();
+      if (invalidation) {
+        guidanceGate(invalidation);
+        pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+        continue;
+      }
     }
 
     if (decision.action === "done") {
@@ -291,6 +309,14 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
     consecutiveBlocks = 0;
+
+    // Guidance cannot carry a decision onto a page other than the one it was written for.
+    if (guidance && (await driver.observe()).execution.finalUrl !== guidance.url) {
+      guidanceGate("page guidance expired: the page URL changed after the guided observation");
+      pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+      onStep?.(decision);
+      continue;
+    }
 
     try {
       const mark: ActionMark = {

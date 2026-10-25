@@ -109,6 +109,33 @@ export type CustomAction = (driver: Driver, params: Record<string, unknown>) => 
  * app-agnostic (invariant #1) — it offers the seam; the consumer supplies the app-specific reading. */
 export type PerceptionAdapter = (elements: PageElement[]) => PageElement[] | Promise<PageElement[]>;
 
+/** One listed row of the observation a decision will use: no refs, values or measured geometry. */
+export interface PageGuidanceElement {
+  role: string;
+  name: string;
+  nth?: number;
+  checked?: boolean | "mixed";
+  disabled?: boolean;
+  inActivePopup?: boolean;
+}
+
+/** The documented view a page-guidance provider receives for ONE decision observation (#304). */
+export interface PageGuidanceRequest {
+  purpose: "discover" | "explore";
+  /** The engine's temporary observation ID, never a Driver ref; not stable across runs. */
+  observationId: string;
+  /** Read immediately before this observation's capture. Not atomic with it. */
+  url?: string;
+  /** The rows the model sees, in listing order, after `perceive` and selection. */
+  elements: readonly PageGuidanceElement[];
+  /** Aborted on provider timeout, caller cancellation or run deadline. */
+  signal: AbortSignal;
+}
+
+/** Host-authored advice for the current observation only. Never evidence, permission or a check.
+ * Must not drive the browser or call a model on the engine's behalf. */
+export type PageGuidanceProvider = (request: PageGuidanceRequest) => string | undefined | Promise<string | undefined>;
+
 /**
  * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step
  * to the first handler that `supports` it, instead of branching inside the stage. Built-in kinds

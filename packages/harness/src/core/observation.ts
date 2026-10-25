@@ -34,6 +34,8 @@ export class PerceptionObservation {
   private decisionAttempt = 0;
   private readonly selection?: SelectionSummary;
   private readonly table = new Map<string, { element: PageElement; nth?: number }>();
+  /** The rows of `render`, in order, with full-snapshot duplicate ordinals. */
+  readonly listed: readonly { element: PageElement; nth?: number }[];
 
   constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT, diagnostics = false) {
     current.set(driver, this);
@@ -60,6 +62,7 @@ export class PerceptionObservation {
     const { elements: ranked, omittedCount, diagnostics: selected } = selectElements(perceived, intent, limit, diagnostics);
     if (selected) this.selection = { raw: candidateCounts(raw), perceived: candidateCounts(perceived), ...selected };
     this.omittedCount = omittedCount;
+    this.listed = ranked.map(element => ({ element, nth: ordinals.get(element) }));
     const body = renderElements(ranked, ordinals);
     const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
     this.render = body + omitted;

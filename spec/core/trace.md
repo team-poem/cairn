@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.12**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.13**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.12", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.13", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -68,7 +68,8 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | discover / explore / heal | `selection` | prepared decision ID, observation ID, purpose, fixed-size selection counts | actual decision input; **not** model admission or dispatch evidence (#302) |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
-| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these two diagnostics only |
+| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these and `page-guidance` only |
+| discover / explore | `gate` | `gate: page-guidance`, a fixed reason only: provider failed, timed out, invalid or oversized output, URL-expired decision, discarded guided `done` assertions | [page guidance](page-guidance.md) (#304); never guidance text, hashes or URLs |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
@@ -167,6 +168,8 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.13 adds `gate: page-guidance` with fixed reasons. See [page guidance](page-guidance.md#trace).
 
 Version 1.11 adds `selection`, a content-free prepared decision-input summary. See below.
 

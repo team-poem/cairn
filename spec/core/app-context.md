@@ -38,7 +38,8 @@ Snapshot boundaries:
   supplies its contents through this API. The command does not reread it between suite cases.
   Nonregular files are rejected; opening a FIFO does not wait for a writer.
 
-There is no resolver callback, format inference, mandatory filename or automatic reload. Hosts
+There is no resolver callback, format inference, mandatory filename or automatic reload.
+Per-decision advice tied to the current page is a separate seam, [page guidance](page-guidance.md). Hosts
 that need a file, database, or asynchronous provider resolve it before invoking the engine.
 
 ## Model-call routing

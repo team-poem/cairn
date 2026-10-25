@@ -12,7 +12,7 @@
  */
 import { PerceptionObservation } from "../observation.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
-import { withBudget, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
 import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
@@ -79,7 +79,11 @@ const MAX_CONSECUTIVE_BLOCKS = 3;
 
 const DEFAULT_MAX_STEPS = 40;
 
-export async function explore(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
+export function explore(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
+  return withWorkflowEntry(opts, () => exploreEntry(charter, opts));
+}
+
+async function exploreEntry(charter: string, opts: ExploreOptions): Promise<ExploreReport> {
   try {
     return await withBudget(opts, "explore", (options, scope) =>
       exploreWithinBudget(charter, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));

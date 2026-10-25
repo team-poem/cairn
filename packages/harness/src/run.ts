@@ -4,7 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { reanchorScenario, validateReplayEntry } from "./core/replay-environment.js";
-import { withBudget, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
 import type { ReplayEnvironment } from "./core/replay-environment.js";
 import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
@@ -156,11 +156,15 @@ export function applyStepHeals(scenario: Scenario, heals: StepHeal[]): Scenario 
   return { ...scenario, steps: scenario.steps.map((step, i) => byIndex.get(i) ?? step) };
 }
 
-export async function runScenario(
+export function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
-  const controlled = opts.budget !== undefined || opts[budgetScope] !== undefined;
+  return withWorkflowEntry(opts, () => runScenarioEntry(scenario, opts));
+}
+
+async function runScenarioEntry(scenario: Scenario, opts: RunScenarioOptions): Promise<RunScenarioResult> {
+  const controlled = opts.budget !== undefined || opts[budgetScope] !== undefined || opts.workflow !== undefined;
   if (!controlled) return runScenarioWithinBudget(scenario, opts);
   const tracer = !opts.traceScope && opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
   const scope = opts.traceScope ?? tracer?.scope(scenario.name);
@@ -191,6 +195,8 @@ export async function runScenario(
     const result = budgetResult(scenario.name, error);
     scope?.emit({ kind: "budget-exhausted", payload: error.budget });
     output = { result, heals: [], stepHeals: [] };
+    // A borrowed run closes its own trace, then leaves the stop result to the workflow owner.
+    if (opts.workflow) { end(output); throw error; }
   }
   end(output);
   await (opts.reporter ?? new ConsoleReporter()).emit(output.result);
@@ -214,7 +220,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.
   let meter: UsageMeter | undefined;
   const getLlm = (): LlmClient =>
-    (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
+    (meter ??= new UsageMeter((opts.llm && budget ? budget.unwrap(opts.llm) : opts.llm) ?? createLlmClient(opts.model ? { model: opts.model } : {})));
   let choiceUsage: RunUsage | undefined;
   const usage = (): RunUsage => {
     const result = meter?.snapshot() ?? emptyUsage();

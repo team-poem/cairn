@@ -3,6 +3,7 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { JevTargetSelector } from "../src/adapters/decisions/jev.js";
 import { runScenario } from "../src/run.js";
+import { runWorkflow } from "../src/core/budget.js";
 import { stepError } from "../src/core/errors.js";
 import { PerceptionObservation } from "../src/core/observation.js";
 import type { TargetChoiceRequest } from "../src/core/target-choice.js";
@@ -154,6 +155,23 @@ describe("locator-only pilot safety (scripted choices)", () => {
       expect(driver.executed).toEqual([]);
       expect(result.healedScenario).toBeUndefined();
     }
+  });
+
+  it("reserves a workflow admission before selection, after concurrent host calls drew the allowance", async () => {
+    const http = choiceTransport();
+    const driver = new ExactDriver();
+    const complete = vi.fn(async () => "ok");
+    const outcome = await runWorkflow({ budget: { maxModelCalls: 2 } }, async workflow => {
+      const host = workflow.borrow("host").llm({ id: "host", complete });
+      await Promise.all([host.complete("one"), host.complete("two")]);
+      return runScenario(scenario(), { workflow: workflow.borrow("repair"), driver,
+        targetChoice: { selector: new JevTargetSelector({ apiKey: "test", fetch: http }), minConfidence: 0.7 },
+        expectTimeoutMs: 0, reporter: { emit: async () => {} } });
+    });
+    expect(complete).toHaveBeenCalledTimes(2);
+    expect(http).not.toHaveBeenCalled();
+    expect(driver.executed).toEqual([]);
+    expect(outcome).toMatchObject({ status: "exhausted", participant: "repair", budget: { phase: "target-choice", modelCalls: 2 } });
   });
 
   it("keeps finite-choice policy and provider out of the complete browser bundle", async () => {

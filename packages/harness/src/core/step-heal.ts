@@ -6,6 +6,7 @@
 import type { Driver, LlmClient, StepHeal, StepHealer, PerceptionAdapter } from "./ports.js";
 import type { Step } from "./types.js";
 import { rethrowBudget } from "./budget.js";
+import { isCollectionStep } from "./collection.js";
 import { validateSecrets, redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
@@ -49,6 +50,8 @@ export class LlmStepHealer implements StepHealer {
   }
 
   async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
+    // A different action would change the explicitly authored collection-position test.
+    if (isCollectionStep(step)) return null;
     if (this.attempts >= this.maxHeals) return null;
     const raw = await driver.snapshot({ perception: true });
     const elements = redactSecrets(this.options.perceive ? await this.options.perceive(raw.map(e => ({ ...e }))) : raw, this.secrets);

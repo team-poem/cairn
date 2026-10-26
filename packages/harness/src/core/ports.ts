@@ -6,6 +6,8 @@ import type {
   Assertion,
   AssertionResult,
   Context,
+  CollectionTarget,
+  CollectionObservation,
   Evidence,
   LlmUsage,
   PageElement,
@@ -75,6 +77,11 @@ export interface Driver {
   /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
    * Implementations accepting refs must honor them in every target-bearing interaction. */
   locateRef?(ref: string): Promise<Target>;
+  /** Observe a complete declared collection independently of model selection/truncation.
+   * Each returned ref must reject changed membership/order, control conditions or selected-node
+   * state before targeted dispatch. Never reselect by name or silently substitute a neighbor.
+   * Optional: unsupported drivers are refused by the built-in handler before any action. */
+  observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string, ref?: string): Promise<void>;

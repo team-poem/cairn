@@ -1,5 +1,7 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
+export { CollectionSelectionError, validateCollectionTarget } from "./core/collection.js";
+export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";
 export { composePolicies } from "./core/action-policy.js";
 export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";

@@ -6,6 +6,7 @@
  */
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
+import { ChromeCollectionObservation, collectionRows } from "./chrome-collection.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { ChromeHostRoots } from "./chrome-host-roots.js";
 import { stripVirtualAXRows } from "./chrome-ax.js";
@@ -18,9 +19,12 @@ import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { extractFirstJsonArray, extractFirstJsonObject } from "../../core/json.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
 import { promotedClickableNames } from "../../core/perception.js";
+import { CollectionSelectionError, validateCollectionTarget } from "../../core/collection.js";
 import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
+  CollectionObservation,
+  CollectionTarget,
   Evidence,
   NetworkRequest,
   PageElement,
@@ -174,6 +178,7 @@ export class ChromeDevToolsDriver implements Driver {
   private observationVersion = 0;
   private settleVersion = 0;
   private observedRows: SnapshotRow[] = [];
+  private observedRaw?: string;
   private documentObservation?: ChromeDocumentObservation;
   private observedPage?: string;
   private readonly references = new Map<string, SnapshotRow>();
@@ -184,6 +189,7 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
+  private readonly collectionObservations = new Map<string, ChromeCollectionObservation>();
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {
     if (opts.hostOwnedRoots) this.hostRoots = new ChromeHostRoots(
@@ -358,14 +364,16 @@ export class ChromeDevToolsDriver implements Driver {
 
   async click(target: Target, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     this.invalidateObservation();
-    await this.callAccepting("click", { uid });
+    await this.callAccepting("click", { uid }, collection);
   }
 
   async doubleClick(target: Target, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     this.invalidateObservation();
-    await this.callAccepting("click", { uid, dblClick: true });
+    await this.callAccepting("click", { uid, dblClick: true }, collection);
   }
 
   /**
@@ -375,8 +383,9 @@ export class ChromeDevToolsDriver implements Driver {
    * (#17). Generic over the action, so a dialog from a click, a form submit (Enter), a select, etc.
    * is handled the same way — no per-verb special-casing.
    */
-  private async callAccepting(name: string, args: Record<string, unknown>): Promise<void> {
+  private async callAccepting(name: string, args: Record<string, unknown>, collection?: ChromeCollectionObservation): Promise<void> {
     if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
+    if (collection && typeof args.uid === "string") await collection.validate(args.uid);
     try {
       await this.call(name, args);
     } catch (err) {
@@ -389,16 +398,19 @@ export class ChromeDevToolsDriver implements Driver {
 
   async hover(target: Target, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     this.invalidateObservation();
     await this.hostRoots?.assertNode(uid, true, this.hostRoots.stamp);
+    if (collection) await collection.validate(uid);
     await this.call("hover", { uid });
     await this.collectNetwork().catch(() => {});
   }
 
   async type(target: Target, text: string, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     this.invalidateObservation();
-    await this.callAccepting("fill", { uid, value: text });
+    await this.callAccepting("fill", { uid, value: text }, collection);
     // Let the app apply the input (controlled inputs, validation) before the next action — otherwise
     // a fast submit races an un-committed field. settle's idle floor gives that beat (readiness, #64).
     await this.settle();
@@ -406,15 +418,20 @@ export class ChromeDevToolsDriver implements Driver {
 
   async select(target: Target, value: string, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref, true);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     // native <select>: chrome-devtools-mcp's `fill` sets .value — the special case (an OS chrome
     // whose option list can't be clicked), kept as a fast path.
     if (await this.isNativeSelect(uid)) {
       this.invalidateObservation();
-      await this.callAccepting("fill", { uid, value });
+      await this.callAccepting("fill", { uid, value }, collection);
       this.snapshotCache = undefined;
       await this.settle();
       return;
     }
+    // Opening a custom popup starts a second targeted interaction. The legacy option
+    // resolver cannot prove that continuation still belongs to this exact collection
+    // member and its prerequisites. Refuse before opening, not after a partial mutation.
+    if (collection) throw new CollectionSelectionError("unsupported", "collection select requires a native select control; custom popup continuation is not supported");
     // Custom ARIA dropdown (a11y role `combobox`, but a real button + listbox popup): the general
     // case. Open it → wait for ITS options → click the one named `value`. `fill` would no-op here,
     // which used to make discover thrash. One `select` step still freezes as a single stable unit
@@ -426,7 +443,7 @@ export class ChromeDevToolsDriver implements Driver {
     await this.hostRoots?.assertStamp(this.hostRoots.stamp);
     const before = new Set(parseSnapshotRows(watermark).map((r) => r.uid));
     this.invalidateObservation();
-    await this.callAccepting("click", { uid }); // activate/open
+    await this.callAccepting("click", { uid }, collection); // activate/open
     this.snapshotCache = undefined;
     const optionUid = await this.awaitNewOption(value, before);
     if (!optionUid) {
@@ -605,6 +622,7 @@ export class ChromeDevToolsDriver implements Driver {
       assertCapture();
       this.observedPage = page;
       this.observedRows = parseSnapshotRows(raw);
+      this.observedRaw = raw;
       const named = this.observedRows.filter((row) => row.name.trim());
       const topology = documentTopology(raw);
       const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
@@ -647,6 +665,60 @@ export class ChromeDevToolsDriver implements Driver {
     }
     await this.hostRoots?.assertStamp(hostStamp);
     return els;
+  }
+
+  /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
+  async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+    const declaration = validateCollectionTarget({ collection: selection });
+    const elements = await this.snapshot({ perception: true });
+    const version = this.observationVersion, page = this.observedPage, stamp = this.observedHostStamp;
+    if (!this.observedRaw || page === undefined) throw new CollectionSelectionError("incomplete", "guarded collection capture is unavailable");
+    const candidates = new Map<string, PageElement>(), boundRows = new Map<string, SnapshotRow>();
+    const named = this.observedRows.filter(row => row.name.trim());
+    const measured = new Map(named.map((row, index) => [row.uid, elements[index]!]));
+    for (const row of collectionRows(this.observedRaw)) {
+      const element = measured.get(row.uid);
+      // These refs have scoped membership, not page-global positional semantics. An unrelated
+      // input's shadow text may withhold ordinary refs without invalidating a complete light-DOM
+      // collection. Publish only after the separate collection guard proves its entire scope;
+      // locateRef deliberately refuses to turn these into unsafe global ordinal locators.
+      const ref = `cairn-collection:${this.driverId}:${version}:${row.uid}`;
+      candidates.set(row.uid, { ...element, name: row.name, role: row.role, ref });
+      boundRows.set(ref, row);
+    }
+    const observation = new ChromeCollectionObservation(declaration,
+      (name, args) => this.call(name, args, "observation"),
+      async () => {
+        // The dispatch guard outlives invalidateObservation by one action, but never its page
+        // or host ownership policy. Captures also retain the exact sanitized candidate boundary.
+        if (await this.selectedPage() !== page) throw new CollectionSelectionError("stale", "active page changed");
+        await this.hostRoots?.assertStamp(stamp);
+        const raw = await this.captureSnapshot({ verbose: true });
+        if (await this.selectedPage() !== page) throw new CollectionSelectionError("stale", "active page changed during capture");
+        await this.hostRoots?.assertStamp(stamp);
+        return raw;
+      }, this.guardKey, `${this.driverId}:${version}`, this.opts.hostOwnedRoots?.key, stamp);
+    try {
+      const result = await observation.start(this.observedRaw, candidates);
+      const chosen = result.items[declaration.index];
+      const chosenRow = chosen?.target?.ref && boundRows.get(chosen.target.ref);
+      if (result.complete && chosenRow && !chosen.disabled && !chosen.target?.occluded) await observation.validate(chosenRow.uid);
+      if (this.observationVersion !== version || await this.selectedPage() !== page) {
+        throw new CollectionSelectionError("stale", "collection capture was superseded");
+      }
+      await this.hostRoots?.assertStamp(stamp);
+      if (this.observationVersion !== version) throw new CollectionSelectionError("stale", "collection capture was superseded before publication");
+      if (result.complete) for (const item of result.items) {
+        if (item.target?.ref) {
+          this.references.set(item.target.ref, boundRows.get(item.target.ref)!);
+          this.collectionObservations.set(item.target.ref, observation);
+        }
+      }
+      return result;
+    } catch (error) {
+      this.invalidateObservation();
+      throw error;
+    }
   }
 
   private async probePerceptionFacts(rows: SnapshotRow[], membership?: Map<string, number>): Promise<Map<string, Partial<PageElement>>> {
@@ -732,6 +804,7 @@ export class ChromeDevToolsDriver implements Driver {
           state.overflow = true;
           state.records.length = 0;
           state.cohorts.clear();
+          state.collections?.clear();
           state.observer.disconnect();
           return;
         }
@@ -880,6 +953,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async locate(target: Target): Promise<Target> {
+    if ("collection" in target) return { collection: validateCollectionTarget(target) };
     const rows = parseSnapshotRows(await this.getSnapshot());
     const uid = (this.hostRoots?.active && target.selector ? await this.resolveSelectorUid(rows, target.selector) : undefined)
       ?? await this.resolveVisible(rows, target);
@@ -898,6 +972,9 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async locateRef(ref: string): Promise<Target> {
+    if (this.collectionObservations.has(ref)) {
+      throw new CollectionSelectionError("unsupported", "retain the collection declaration instead of freezing an observation ref");
+    }
     const row = await this.referenceRow(ref);
     try {
       // Replay starts with the compact pool. Capture it explicitly so the full-tree
@@ -939,6 +1016,17 @@ export class ChromeDevToolsDriver implements Driver {
     }
     try {
       await this.hostRoots?.assertNode(row.uid, false, this.observedHostStamp);
+      const collection = this.collectionObservations.get(ref);
+      if (collection) {
+        await collection.validate(row.uid);
+        const currentPage = await this.selectedPage();
+        if (this.references.get(ref) !== row || this.collectionObservations.get(ref) !== collection ||
+            currentPage === undefined || currentPage !== this.observedPage) {
+          throw new CollectionSelectionError("stale", "collection observation was superseded during validation");
+        }
+        await this.hostRoots?.assertStamp(this.observedHostStamp);
+        return row;
+      }
       if (this.documentObservation) {
         const observation = this.documentObservation;
         await observation.validate(row);
@@ -1062,6 +1150,10 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   private async actionUid(target: Target, ref?: string, refreshWatermark = false): Promise<string> {
+    if ("collection" in target) {
+      validateCollectionTarget(target);
+      throw new CollectionSelectionError("unsupported", "resolve collection intent through the step handler before direct dispatch");
+    }
     const uid = ref === undefined ? await this.resolveUid(target, refreshWatermark) : (await this.referenceRow(ref)).uid;
     await this.hostRoots?.assertNode(uid, false, ref === undefined ? this.hostRoots.stamp : this.observedHostStamp);
     return uid;
@@ -1079,11 +1171,13 @@ export class ChromeDevToolsDriver implements Driver {
   private invalidateObservation(): void {
     this.observationVersion++;
     this.references.clear();
+    this.collectionObservations.clear();
     this.documentObservation = undefined;
     this.validatedReferenceRevisions.clear();
     this.capturedReferenceCohorts.clear();
     this.unguarded.clear();
     this.observedRows = [];
+    this.observedRaw = undefined;
     this.observedPage = undefined;
     this.observedHostStamp = undefined;
     this.snapshotCache = undefined;

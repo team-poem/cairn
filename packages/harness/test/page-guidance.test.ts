@@ -201,6 +201,60 @@ describe("page guidance bound to a decision observation", () => {
     expect(gates(events)).toEqual(["page guidance unavailable: provider timed out"]);
   });
 
+  it.each([PAGE_GUIDANCE_TIMEOUT_MS - 1, PAGE_GUIDANCE_TIMEOUT_MS, PAGE_GUIDANCE_TIMEOUT_MS + 1]
+    .flatMap(elapsed => [false, true].map(fails => ({ elapsed, fails }))))(
+    "checks provider settlement after $elapsed ms without a timer turn (fails: $fails)", async ({ elapsed, fails }) => {
+      let now = 100;
+      const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+      try {
+        let seen: AbortSignal | undefined;
+        const { events, scope } = traced();
+        const llm = new RecordingLlm(['{"action":"done"}', "[]"]);
+        await discover("Go", { driver: new Pages(), llm, baseUrl: START, trace: scope, pageGuidance: ({ signal }) => {
+          seen = signal;
+          // A synchronous callback can occupy the event loop past its deadline. Move only the
+          // monotonic clock, leaving the timer callback pending, to reproduce that ordering.
+          now += elapsed;
+          if (fails) throw new Error("private provider detail");
+          return "Provider advice";
+        } });
+        const expired = elapsed >= PAGE_GUIDANCE_TIMEOUT_MS;
+        expect(seen!.aborted).toBe(expired);
+        expect(llm.calls[0]!.prompt.includes(section("Provider advice"))).toBe(!expired && !fails);
+        expect(gates(events)).toEqual(expired ? ["page guidance unavailable: provider timed out"]
+          : fails ? ["page guidance unavailable: provider failed"] : []);
+        expect(JSON.stringify(events)).not.toContain("private provider detail");
+      } finally {
+        clock.mockRestore();
+      }
+    },
+  );
+
+  it("preserves caller cancellation when a synchronous provider also exceeds its timeout", async () => {
+    let now = 100;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      const controller = new AbortController();
+      const reason = new Error("host stop");
+      let seen: AbortSignal | undefined;
+      const { events, scope } = traced();
+      const llm = new RecordingLlm(['{"action":"done"}', "[]"]);
+      await expect(discover("Go", { driver: new Pages(), llm, baseUrl: START, trace: scope,
+        signal: controller.signal, pageGuidance: ({ signal }) => {
+          seen = signal;
+          now += PAGE_GUIDANCE_TIMEOUT_MS + 1;
+          controller.abort(reason);
+          return "Late advice";
+        },
+      })).rejects.toBe(reason);
+      expect(seen!.aborted).toBe(true);
+      expect(llm.calls).toHaveLength(0);
+      expect(gates(events)).toEqual([]);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it("continues without guidance when the provider fails, without echoing its error", async () => {
     const { events, scope } = traced();
     const llm = new RecordingLlm(twoPageReplies());

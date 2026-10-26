@@ -93,7 +93,9 @@ the same request shape; each needs its own invalidation point before dispatch.
   decision. The decision proceeds and the trace records a fixed reason. The error is not echoed.
 - **Timeout.** `PAGE_GUIDANCE_TIMEOUT_MS` (5,000 ms), fixed, matching the target-selection
   timeout. On expiry the request signal aborts, the engine stops waiting, and the decision proceeds
-  without guidance. A late value is discarded.
+  without guidance. A monotonic elapsed-time check expires either provider settlement after the
+  deadline when synchronous work delays the timer. JavaScript cannot interrupt that callback;
+  the check runs when control returns. Caller cancellation retains its original reason.
 - **Cancellation.** Caller cancellation or run-deadline expiry aborts the request signal and
   rejects the run with the original reason or `BudgetExceededError`, as elsewhere. It is not
   converted into "no guidance".

@@ -62,18 +62,29 @@ function view(page: PerceptionObservation, secrets?: Secrets): PageGuidanceEleme
 
 // The engine stops waiting at the timeout; a late value is discarded, never applied to a later observation.
 async function race(provider: PageGuidanceProvider, request: Omit<PageGuidanceRequest, "signal">, run?: AbortSignal): Promise<unknown> {
+  const started = performance.now();
   const timeout = new AbortController();
   const { signal, dispose } = combineSignals(run ? [run, timeout.signal] : [timeout.signal]);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let cancel: (() => void) | undefined;
   try {
-    return await new Promise((resolve, reject) => {
+    const settled = await new Promise<{ value: unknown } | { error: unknown }>((resolve, reject) => {
       if (run?.aborted) return reject(run.reason);
-      timer = setTimeout(() => { timeout.abort(); resolve(TIMED_OUT); }, PAGE_GUIDANCE_TIMEOUT_MS);
+      timer = setTimeout(() => { timeout.abort(); resolve({ value: TIMED_OUT }); }, PAGE_GUIDANCE_TIMEOUT_MS);
       cancel = () => reject(run!.reason);
       run?.addEventListener("abort", cancel, { once: true });
-      Promise.resolve().then(() => provider({ ...request, signal })).then(resolve, reject);
+      Promise.resolve().then(() => provider({ ...request, signal }))
+        .then(value => resolve({ value }), error => resolve({ error }));
     });
+    // Synchronous providers and busy event loops can settle before an overdue timer runs.
+    // Expire either settlement when control returns; JavaScript cannot interrupt the callback.
+    run?.throwIfAborted();
+    if (performance.now() - started >= PAGE_GUIDANCE_TIMEOUT_MS) {
+      timeout.abort();
+      return TIMED_OUT;
+    }
+    if ("error" in settled) throw settled.error;
+    return settled.value;
   } finally {
     clearTimeout(timer);
     if (cancel) run?.removeEventListener("abort", cancel);

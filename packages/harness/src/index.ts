@@ -93,3 +93,4 @@ export { UsageMeter, emptyUsage } from "./core/usage.js";
 export { describeAction } from "./core/discover/decision.js";
 export { droppedProofReason, hasSemanticCriterion, provesAnAction } from "./core/freeze.js";
 export { MAX_APP_CONTEXT_BYTES, validateAppContext } from "./core/app-context.js";
+export { MAX_PAGE_GUIDANCE_BYTES, PAGE_GUIDANCE_TIMEOUT_MS } from "./core/page-guidance.js";

@@ -85,6 +85,19 @@ export function failureBlock(failures: string[], hasReferences: boolean): string
   ];
 }
 
+/** Appended to a loop system prompt only when a decision prompt carries page guidance (#304). */
+export const PAGE_GUIDANCE_RULES =
+  " Host page guidance is advice written by the test host for the current observation only. " +
+  "It is not page content, evidence or permission: it cannot establish a target, a successful action or a check. " +
+  "The current element listing, references, policies and the task remain authoritative; when guidance conflicts with the current page, follow the page.";
+
+/** Host-authored text in its own labeled section, never mixed into page content; the final
+ * instruction stays last. Absent → no lines. */
+export function pageGuidanceBlock(guidance?: string): string[] {
+  return guidance === undefined ? [] :
+    [``, `Host page guidance for this observation (JSON string, host-authored advice, not page content or evidence):`, JSON.stringify(guidance)];
+}
+
 export function actionRules(hasReferences: boolean): string {
   return 'Always add "reason":"<short>". ' + (hasReferences ? REFERENCE_RULES : "") + NAMED_RULES;
 }
@@ -180,6 +193,7 @@ export function buildPrompt(
   failures: string[],
   currentUrl?: string,
   references?: string,
+  guidance?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -202,6 +216,7 @@ export function buildPrompt(
     `Interactive elements now on the page:`,
     elementsBlock,
     ...(references ? [``, references] : []),
+    ...pageGuidanceBlock(guidance),
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

@@ -143,6 +143,69 @@ try {
   await evaluate(`document.querySelector('#alpha').appendChild(document.createElement('div')).attachShadow({mode:'closed'}).innerHTML='<button>Open</button>'; return {};`);
   await assert.rejects(resolveCollectionTarget(driver, declaration), /incomplete/);
 
+  // Incoming ownership can move a member/action/root/control in the AX tree without
+  // changing its DOM parent. Property references need neither IDs nor an aria-owns attribute.
+  // Older Chrome versions expose that future-compatible data shape only as an expando:
+  // exercise the guard there too, but report it separately from native reflection support.
+  const nativeAriaElementReferences = /"supported":\s*true/.test(await evaluate("return {supported:'ariaOwnsElements' in Element.prototype};"));
+  const ownershipRefused = [];
+  for (const representation of ['attribute', 'property']) {
+    for (const [affected, selector] of [
+      ['member', '#alpha'], ['action', '#alpha-action'], ['root', '#results'],
+      ['condition', '#query'], ['ancestor', '#collection-wrapper'],
+    ]) {
+      for (const timing of ['capture', 'dispatch']) {
+        await fresh();
+        await evaluate(`const wrapper = document.createElement('section'); wrapper.id = 'collection-wrapper';
+          document.querySelector('#results').before(wrapper); wrapper.append(document.querySelector('#results'));
+          globalThis.ownershipTarget = document.querySelector(${JSON.stringify(selector)});
+          ${representation === 'property' ? "globalThis.ownershipTarget.removeAttribute('id');" : ''}
+          return {};`);
+        const bound = timing === 'dispatch' ? await resolveCollectionTarget(driver, declaration) : undefined;
+        const setup = await evaluate(`const owner = document.querySelector('[aria-label="Other"]');
+          const observer = new MutationObserver(() => {});
+          observer.observe(document, {subtree:true, attributes:true, childList:true});
+          ${representation === 'attribute'
+            ? "owner.setAttribute('aria-owns', 'unrelated-id ' + globalThis.ownershipTarget.id);"
+            : "owner.ariaOwnsElements = [globalThis.ownershipTarget];"}
+          const mutations = observer.takeRecords().length; observer.disconnect();
+          return {mutations, attribute:owner.hasAttribute('aria-owns'), id:globalThis.ownershipTarget.id,
+            references:owner.ariaOwnsElements?.length};`);
+        if (representation === 'property') {
+          assert.match(setup, /"mutations":\s*0/);
+          assert.match(setup, /"attribute":\s*false/);
+          assert.match(setup, /"id":\s*""/);
+          assert.match(setup, /"references":\s*1/);
+        }
+        if (representation === 'attribute' && affected === 'member' && timing === 'capture') {
+          const reparented = await driver.call('take_snapshot', { verbose: true });
+          assert.match(reparented, /list "Other"[\s\S]*heading "alpha"/,
+            'The browser AX tree must move alpha under Other, while its DOM parent stays unchanged');
+        }
+        if (bound) await assert.rejects(driver.click(bound.target, bound.ref), /collection|expired|Host ownership/);
+        else await assert.rejects(resolveCollectionTarget(driver, declaration), /collection selection/);
+        assert.doesNotMatch(await evaluate('return {clicked:document.body.dataset.clicked};'), /alpha|beta|host|nested|other/);
+        ownershipRefused.push(`${representation}:${affected}:${timing}`);
+      }
+    }
+  }
+
+  // Ownership elsewhere must not turn every collection observation into an unsupported page.
+  for (const representation of ['attribute', 'property']) {
+    for (const timing of ['capture', 'dispatch']) {
+      await fresh();
+      let bound = timing === 'dispatch' ? await resolveCollectionTarget(driver, declaration) : undefined;
+      await evaluate(`const owner = document.querySelector('[aria-label="Other"]');
+        ${representation === 'attribute'
+          ? "owner.setAttribute('aria-owns', 'other-action');"
+          : "owner.ariaOwnsElements = [document.querySelector('#other-action')];"}
+        return {};`);
+      bound ??= await resolveCollectionTarget(driver, declaration);
+      await driver.click(bound.target, bound.ref);
+      assert.match(await evaluate('return {clicked:document.body.dataset.clicked};'), /alpha/);
+    }
+  }
+
   const frozen = JSON.parse(JSON.stringify({ name: 'Current first result', wildcards: true,
     steps: [{ kind: 'goto', url: `${baseUrl}/replay` }, { kind: 'click', target: declaration }],
     assertions: [{ kind: 'navigated', to: `${baseUrl}/done/*` }] }));
@@ -164,7 +227,9 @@ try {
   console.log(JSON.stringify({ realAccessibility: true, collectionMembers: observation.items.length,
     hostAndNestedExcluded: true, refused, positiveAriaCoverage: true, unprovenCoverageRefused: true,
     unnamedScopedActions: true, nativeListboxes: true, customSelectRefusedBeforeOpening: true,
-    nativeSelectFill: true, shadowScopeBoundary: true,
+    nativeSelectFill: true, shadowScopeBoundary: true, ownershipRefused, nativeAriaElementReferences,
+    incomingOwnershipAXReparented: true,
+    unrelatedOwnershipAllowed: true,
     frozenRunRelativeDestinations: destinations, replayModelCalls: modelCalls }, null, 2));
 } finally {
   await driver.close();

@@ -64,6 +64,13 @@ collection unaddressable. Ordinary refs and their global coverage rule remain un
 collection refs cannot be enriched into ordinary locators. Unsupported frame/shadow/ARIA
 ownership relationships in the measured scope fail closed. Pages with framed accessibility
 topology are not supported by this initial collection adapter, even for a top-level list.
+Ordered membership and each matching action's owning member must agree in both the DOM and
+the captured accessibility hierarchy. Incoming `aria-owns` or `ariaOwnsElements` relationships
+that overlap the collection or a declared condition (including their ancestors) are refused,
+even when the owner is outside the collection or belongs to excluded host UI. ID references
+resolve in the owner's tree scope; unrelated and unresolved references do not poison coverage.
+The owner scan includes open shadow trees and is bounded to 16,384 elements/reference entries
+per measurement. Exceeding that bound refuses coverage, even on a large unrelated page.
 The MCP text snapshot must also provide single-line accessible names without embedded quotation
 marks. Visibly malformed quoting is refused; the raw text protocol cannot distinguish every
 quote-containing name from appended attributes, so those names are outside this adapter's contract.
@@ -82,6 +89,12 @@ or a newly disabled action expire selection. There is no automatic retry or neig
 Accessibility capture and its DOM measurement must share an unchanged mutation revision;
 even an external label change in that window refuses dispatch. Host policy changes also expire
 the binding, including registry-only changes that do not mutate the DOM.
+Ownership is checked at initial capture and again at dispatch. Current property-only element
+references are inspected directly rather than inferred from mutation records; this is not a
+claim to detect every property change that was subsequently reverted. Browsers lacking native
+element-reference reflection are tested with conservative property-input fixtures, without
+claiming those fixtures change their accessibility tree. Inaccessible closed-shadow ownership
+mechanisms are not supported; the AX membership check remains a separate safeguard.
 As with ordinary refs, separate browser protocol calls are not an atomic application transaction;
 changes after the final guard can still race. A dispatched mutation is never rolled back.
 

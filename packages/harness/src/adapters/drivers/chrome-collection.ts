@@ -6,7 +6,7 @@ import { documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { HOST_ROOT_REGISTRY } from "./host-owned-roots.js";
 
-interface Row { uid: string; role: string; name: string }
+interface Row { uid: string; role: string; name: string; collectionUid?: string; itemUid?: string }
 interface Plan { rows: Row[]; root: number; items: number[]; actions: number[]; conditions: number[] }
 interface Measurement {
   complete?: unknown;
@@ -94,6 +94,25 @@ export class ChromeCollectionObservation {
   private plan(raw: string): Plan {
     if (documentTopology(raw).framed) throw new CollectionSelectionError("unsupported", "collection selection requires a top-level document");
     const all = collectionRows(raw);
+    // Keep browser AX ancestry instead of reconstructing accessibility membership from
+    // DOM parents. aria-owns can move an otherwise unchanged DOM node to another owner.
+    const stack: Array<{ row: Row; indent: number }> = [];
+    let offset = 0;
+    for (const line of raw.split("\n")) {
+      const match = line.match(/^(\s*)uid=\S+\s+\w+/);
+      if (!match) continue;
+      const row = all[offset++]!;
+      const indent = match[1]!.length;
+      while (stack.length && stack.at(-1)!.indent >= indent) stack.pop();
+      let boundary = stack.length - 1;
+      while (boundary >= 0 && !["list", "listbox"].includes(stack[boundary]!.row.role)) boundary--;
+      row.collectionUid = stack[boundary]?.row.uid;
+      let item = stack.length - 1;
+      while (item > boundary && stack[item]!.row.role !== this.selection.itemRole) item--;
+      row.itemUid = row.role === this.selection.itemRole ? row.uid
+        : item > boundary ? stack[item]!.row.uid : undefined;
+      stack.push({ row, indent });
+    }
     const matches = (role: string, name?: string) => all.filter(row => row.role === role && (name === undefined || row.name === name));
     const roots = matches(this.selection.root.role, this.selection.root.name);
     if (roots.length !== 1) throw new CollectionSelectionError(roots.length ? "ambiguous" : "missing", "named collection root is not unique and present");
@@ -102,7 +121,7 @@ export class ChromeCollectionObservation {
       if (found.length !== 1) throw new CollectionSelectionError("condition", "declared control is not uniquely present");
       return found[0]!;
     });
-    const items = matches(this.selection.itemRole);
+    const items = matches(this.selection.itemRole).filter(row => row.collectionUid === roots[0]!.uid);
     const actions = matches(this.selection.target.role, this.selection.target.name);
     const rows = [...new Map([roots[0]!, ...items, ...actions, ...conditions].map(row => [row.uid, row])).values()];
     if (rows.length > 4096) throw new CollectionSelectionError("incomplete", "collection measurement exceeds its node bound");
@@ -136,6 +155,41 @@ export class ChromeCollectionObservation {
       const local = node => !!node?.isConnected && node.getRootNode() === document;
       if (![plan.root, ...plan.conditions].every(index => local(nodes[index]))) return fail('coverage');
       const root = element(nodes[plan.root]);
+      const protectedScopes = [root, ...plan.conditions.map(index => element(nodes[index]))];
+      const overlaps = node => !!node && protectedScopes.some(scope =>
+        scope === node || scope.contains(node) || node.contains?.(scope));
+      // Incoming relations may originate anywhere, including host-owned UI or an open
+      // shadow tree. Property-only element references have neither an ID nor a DOM
+      // mutation record, so querySelectorAll('[aria-owns]') is not sufficient.
+      const trees = [document];
+      let ownershipWork = 0;
+      const attributeTargets = (owner, value) => {
+        if (value.length > 65536) return null;
+        const tree = owner.getRootNode();
+        const tokens = value.trim() ? value.trim().split(/\\s+/) : [];
+        ownershipWork += tokens.length;
+        return tokens.map(id => tree.getElementById?.(id)).filter(Boolean);
+      };
+      while (trees.length) {
+        const walk = document.createTreeWalker(trees.pop(), NodeFilter.SHOW_ELEMENT);
+        for (let owner = walk.nextNode(); owner; owner = walk.nextNode()) {
+          if (++ownershipWork > 16384) return fail('ownership coverage bound');
+          if (owner.shadowRoot) trees.push(owner.shadowRoot);
+          const attr = attributeTargets(owner, owner.getAttribute('aria-owns') || '');
+          const refs = owner.ariaOwnsElements;
+          if (!attr || (refs != null && !Array.isArray(refs))) return fail('ownership coverage');
+          ownershipWork += refs?.length || 0;
+          if (ownershipWork > 16384 || attr.some(overlaps) || refs?.some(overlaps)) return fail('incoming ownership');
+          if (protectedScopes.includes(owner) && (attr.length || refs?.length)) return fail('outgoing ownership');
+        }
+      }
+      // Even a reverted attribute relation invalidates a binding when the old targets
+      // are still identifiable. Current property references are checked above each time.
+      for (const record of state.records) {
+        if (record.type !== 'attributes' || record.attributeName !== 'aria-owns') continue;
+        const previous = attributeTargets(record.target, record.oldValue || '');
+        if (!previous || ownershipWork > 16384 || previous.some(overlaps)) return fail('ownership changed');
+      }
       // Unsupported peers outside this collection do not define its coverage. But a
       // matching AX node inside even a closed shadow tree in this scope must not disappear
       // from the action/member pool merely because a light-DOM walk cannot reach it.
@@ -178,9 +232,18 @@ export class ChromeCollectionObservation {
         el = walker.nextNode();
       } while (el);
       if (members.some(member => !rendered(member) || registry?.excluded(member))) return fail('hidden member');
-      const axMembers = plan.items.filter(index => local(nodes[index])).map(index => element(nodes[index])).filter(node => owner(node) === root);
+      const axMembers = plan.items.filter(index => local(nodes[index])).map(index => element(nodes[index]));
       if (new Set(axMembers).size !== axMembers.length || axMembers.length !== members.length ||
-          members.some(member => !axMembers.includes(member))) return fail('partial accessibility membership');
+          members.some((member, index) => member !== axMembers[index])) return fail('partial accessibility membership');
+      for (const index of plan.actions) {
+        const action = element(nodes[index]);
+        const member = local(action) && owner(action) === root
+          ? members.findIndex(member => member === action || member.contains(action)) : -1;
+        const axInside = plan.rows[index].collectionUid === plan.rows[plan.root].uid &&
+          plan.rows[index].itemUid !== undefined;
+        if ((member >= 0) !== axInside || (member >= 0 &&
+            plan.rows[index].itemUid !== plan.rows[plan.items[member]].uid)) return fail('accessibility action membership');
+      }
       const positiveInteger = value => /^\\d+$/.test(value || '') && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : undefined;
       const anyPosition = members.some(member => member.hasAttribute('aria-setsize') || member.hasAttribute('aria-posinset'));
       const totalKnown = members.length > 0 && members.every((member, index) =>
@@ -189,11 +252,13 @@ export class ChromeCollectionObservation {
       let complete = (!anyPosition || totalKnown) && (totalKnown || spec.expectedCount === members.length);
       if (root.hasAttribute('aria-rowcount') && positiveInteger(root.getAttribute('aria-rowcount')) !== members.length) complete = false;
       if (spec.expectedCount !== undefined && spec.expectedCount !== members.length) complete = false;
-      const choices = members.map(member => {
+      const choices = members.map((member, position) => {
         const matches = plan.actions.filter(index => {
           if (!local(nodes[index])) return false;
           const action = element(nodes[index]);
-          return (action === member || member.contains(action)) && owner(action) === root && !registry?.excluded(nodes[index], plan.rows[index].role === 'StaticText');
+          return (action === member || member.contains(action)) && owner(action) === root &&
+            plan.rows[index].itemUid === plan.rows[plan.items[position]].uid &&
+            !registry?.excluded(nodes[index], plan.rows[index].role === 'StaticText');
         });
         // Missing, ambiguous and disabled actions do not remove their item from the ordinal pool.
         const action = matches.length === 1 ? matches[0] : undefined;

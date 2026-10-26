@@ -27,7 +27,7 @@ function target(overrides: Partial<CollectionTarget> = {}): Target {
 
 async function withPage(run: (ctx: {
   page: Page; driver: ChromeDevToolsDriver; actions: string[];
-  hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void> };
+  hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void>; snapshot?: (raw: string) => string };
   scope: ReturnType<typeof createHostOwnedRootScope>;
 }) => Promise<void>) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
@@ -37,12 +37,13 @@ async function withPage(run: (ctx: {
     const scope = createHostOwnedRootScope();
     const driver = new ChromeDevToolsDriver({ promoteClickables: false, hostOwnedRoots: scope });
     const actions: string[] = [];
-    const hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void> } = {};
+    const hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void>; snapshot?: (raw: string) => string } = {};
     // Replace transport only. Production DOM probes, ownership filtering and exact guards run
     // in real Chrome. scripts/test-collection-selection.mjs covers real MCP accessibility output.
     (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
       await hook.before?.(name, args);
-      if (name === "take_snapshot") return page.evaluate(String.raw`(() => {
+      if (name === "take_snapshot") {
+        const raw = await page.evaluate<string>(String.raw`(() => {
         const candidates = [...document.querySelectorAll('[data-role]'),
           ...[...document.querySelectorAll('*')].flatMap(el => el.shadowRoot ? [...el.shadowRoot.querySelectorAll('[data-role]')] : [])];
         return candidates.filter(el => {
@@ -55,9 +56,13 @@ async function withPage(run: (ctx: {
           const labelled = (el.getAttribute('aria-labelledby') || '').split(/\s+/).map(id => document.getElementById(id)?.textContent || '').join(' ').trim();
           const name = el.getAttribute('aria-label') || labelled || (role === 'listitem' ? '' : el.textContent.trim());
           const state = (el.matches(':disabled') ? ' disabled' : '') + (el.checked ? ' checked' : '') + (typeof el.value === 'string' ? ' value=' + JSON.stringify(el.value) : '');
-          return 'uid=' + uid + ' ' + role + (role === 'listitem' && !name ? '' : ' ' + JSON.stringify(name)) + state;
+          let depth = 0;
+          for (let parent = el.parentElement; parent; parent = parent.parentElement) if (parent.matches('[data-role]')) depth++;
+          return '  '.repeat(depth) + 'uid=' + uid + ' ' + role + (role === 'listitem' && !name ? '' : ' ' + JSON.stringify(name)) + state;
         }).join('\n');
       })()`);
+        return hook.snapshot?.(raw) ?? raw;
+      }
       if (name === "evaluate_script") return JSON.stringify(await page.evaluate(`(${String(args.function)})(...${JSON.stringify(args.args ?? [])}.map(uid => globalThis.nodes.get(uid)))`));
       if (name === "list_pages") return "0: https://example.test/results [selected]";
       if (name === "list_network_requests") return "";
@@ -222,6 +227,225 @@ test("query, filter and sort states are explicit and property-only changes inval
       await expect(resolveCollectionTarget(driver, target({ conditions }))).rejects.toThrow(/condition/);
     });
   }
+});
+
+const ownershipConditions: CollectionTarget["conditions"] = [
+  { control: { role: "textbox", name: "Search" }, value: "cats" },
+];
+
+async function prepareIncomingOwnership(page: Page, targetId: string, representation: "attribute" | "property") {
+  await page.evaluate(`(() => {
+    const root = document.querySelector('#results');
+    const wrapper = document.createElement('section'); wrapper.id = 'collection-wrapper';
+    root.before(wrapper); wrapper.append(root);
+    document.querySelector('#query').parentElement.id = 'query-wrapper';
+    globalThis.ownershipTarget = document.getElementById(${JSON.stringify(targetId)});
+    globalThis.ownershipOwner = document.querySelector('#other');
+    ${representation === "property" ? "globalThis.ownershipTarget.removeAttribute('id');" : ""}
+  })()`);
+}
+
+async function setIncomingOwnership(page: Page, representation: "attribute" | "property") {
+  // Some installed Chrome versions expose this as an expando rather than native ARIA
+  // reflection. Either way the guard must conservatively inspect supplied element refs;
+  // real MCP coverage separately checks the browser's actual attribute-driven AX reparenting.
+  await page.evaluate(representation === "attribute"
+    ? "globalThis.ownershipOwner.setAttribute('aria-owns', globalThis.ownershipTarget.id)"
+    : "globalThis.ownershipOwner.ariaOwnsElements = [globalThis.ownershipTarget]");
+  if (representation === "property") {
+    expect(await page.evaluate("[globalThis.ownershipTarget.id, globalThis.ownershipOwner.getAttribute('aria-owns'), globalThis.ownershipOwner.ariaOwnsElements?.[0] === globalThis.ownershipTarget]"))
+      .toEqual(["", null, true]);
+  }
+}
+
+for (const representation of ["attribute", "property"] as const) {
+  for (const phase of ["capture", "dispatch"] as const) {
+    test.each(["first-item", "first", "results", "collection-wrapper", "query", "query-wrapper"])(
+      `incoming ${representation} ownership of %s refuses ${phase} without dispatch`, async targetId => {
+        await withPage(async ({ driver, page, actions }) => {
+          await prepareIncomingOwnership(page, targetId, representation);
+          const declaration = target({ conditions: ownershipConditions });
+          if (phase === "capture") {
+            await setIncomingOwnership(page, representation);
+            await expect(resolveCollectionTarget(driver, declaration)).rejects.toThrow(/collection|ownership/i);
+          } else {
+            const bound = await resolveCollectionTarget(driver, declaration);
+            await setIncomingOwnership(page, representation);
+            await expect(driver.click(bound.target, bound.ref)).rejects.toThrow(/collection|expired|ownership/i);
+          }
+          expect(actions).toEqual([]);
+        });
+      });
+  }
+
+  test(`incoming ${representation} ownership at the final measurement cannot escape earlier validation`, async () => {
+    await withPage(async ({ driver, page, actions, hook }) => {
+      await prepareIncomingOwnership(page, "first-item", representation);
+      const bound = await resolveCollectionTarget(driver, target());
+      let validations = 0;
+      hook.before = async (name, args) => {
+        if (name === "evaluate_script" && String(args.function).includes('const selected = "') && ++validations === 2) {
+          await setIncomingOwnership(page, representation);
+        }
+      };
+      await expect(driver.click(bound.target, bound.ref)).rejects.toThrow(/collection|expired|ownership/i);
+      expect(validations).toBe(2);
+      expect(actions).toEqual([]);
+    });
+  });
+
+  test(`unrelated ${representation} ownership does not invalidate the selected collection`, async () => {
+    await withPage(async ({ driver, page, actions }) => {
+      await page.evaluate("const unrelated = document.body.appendChild(document.createElement('span')); unrelated.id = 'unrelated'; unrelated.textContent = 'Unrelated'; globalThis.ownershipTarget = unrelated; globalThis.ownershipOwner = document.querySelector('#other')");
+      if (representation === "property") await page.evaluate("globalThis.ownershipTarget.removeAttribute('id')");
+      const before = await resolveCollectionTarget(driver, target());
+      await setIncomingOwnership(page, representation);
+      await driver.click(before.target, before.ref);
+      const after = await resolveCollectionTarget(driver, target());
+      await driver.click(after.target, after.ref);
+      expect(actions).toEqual(["click:first", "click:first"]);
+    });
+  });
+}
+
+test.each(["capture", "dispatch"] as const)("AX-only member reparenting refuses %s even when DOM membership is unchanged", async phase => {
+  await withPage(async ({ driver, actions, hook }) => {
+    const changeAxParent = (raw: string) => raw.replace(/^\s+(uid=\S+ listitem.*)$/m, "$1");
+    if (phase === "capture") {
+      hook.snapshot = changeAxParent;
+      await expect(resolveCollectionTarget(driver, target())).rejects.toThrow(/collection/i);
+    } else {
+      const bound = await resolveCollectionTarget(driver, target());
+      hook.snapshot = changeAxParent;
+      await expect(driver.click(bound.target, bound.ref)).rejects.toThrow(/collection|expired/i);
+    }
+    expect(actions).toEqual([]);
+  });
+});
+
+test("a same-name list toolbar action outside all members does not enter the positional pool", async () => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate(`document.querySelector('#results').insertAdjacentHTML('afterbegin', '<button id="toolbar" data-role="button">Open</button>')`);
+    const bound = await resolveCollectionTarget(driver, target());
+    await driver.click(bound.target, bound.ref);
+    expect(actions).toEqual(["click:first"]);
+  });
+});
+
+test.each([0, 1])("an AX action moved outside its member refuses capture for selected index %s", async index => {
+  await withPage(async ({ driver, actions, hook }) => {
+    hook.snapshot = raw => {
+      const lines = raw.split("\n");
+      const source = lines.findIndex(line => /\bbutton "Open"/.test(line));
+      const [action] = lines.splice(source, 1);
+      const beforeFirstMember = lines.findIndex(line => /\blistitem\b/.test(line));
+      // Keep the action under the same list root, but no longer under any listitem.
+      lines.splice(beforeFirstMember, 0, action!.replace(/^\s*/, "  "));
+      return lines.join("\n");
+    };
+    await expect(resolveCollectionTarget(driver, target({ index }))).rejects.toThrow(/collection/i);
+    expect(actions).toEqual([]);
+  });
+});
+
+for (const index of [0, 1]) {
+  test.each(["capture", "dispatch"] as const)(`AX-only action reparenting refuses %s when selecting member ${index}`, async phase => {
+    await withPage(async ({ driver, actions, hook }) => {
+      const moveAction = (raw: string) => {
+        const lines = raw.split("\n");
+        const source = lines.findIndex(line => /\bbutton "Open"/.test(line));
+        const [action] = lines.splice(source, 1);
+        const afterSecondMember = lines.findIndex(line => /\blist "Other"/.test(line));
+        lines.splice(afterSecondMember, 0, action!);
+        return lines.join("\n");
+      };
+      const declaration = target({ index });
+      if (phase === "capture") {
+        hook.snapshot = moveAction;
+        await expect(resolveCollectionTarget(driver, declaration)).rejects.toThrow(/collection/i);
+      } else {
+        const bound = await resolveCollectionTarget(driver, declaration);
+        hook.snapshot = moveAction;
+        await expect(driver.click(bound.target, bound.ref)).rejects.toThrow(/collection|expired/i);
+      }
+      expect(actions).toEqual([]);
+    });
+  });
+}
+
+test.each(["capture", "dispatch"] as const)("external shadow owner element references refuse %s", async phase => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate(`globalThis.ownershipTarget = document.querySelector('#first-item');
+      globalThis.ownershipTarget.removeAttribute('id');
+      const host = document.body.appendChild(document.createElement('div'));
+      globalThis.ownershipOwner = host.attachShadow({mode:'open'}).appendChild(document.createElement('div'));`);
+    if (phase === "capture") {
+      await setIncomingOwnership(page, "property");
+      await expect(resolveCollectionTarget(driver, target())).rejects.toThrow(/collection|ownership/i);
+    } else {
+      const bound = await resolveCollectionTarget(driver, target());
+      await setIncomingOwnership(page, "property");
+      await expect(driver.click(bound.target, bound.ref)).rejects.toThrow(/collection|expired|ownership/i);
+    }
+    expect(actions).toEqual([]);
+  });
+});
+
+test.each(["attribute", "property"] as const)("outgoing %s ownership on a declared control is unsupported", async representation => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate("globalThis.ownershipOwner = document.querySelector('#query'); globalThis.ownershipTarget = document.querySelector('#other-action')");
+    if (representation === "property") await page.evaluate("globalThis.ownershipTarget.removeAttribute('id')");
+    await setIncomingOwnership(page, representation);
+    await expect(resolveCollectionTarget(driver, target({ conditions: ownershipConditions }))).rejects.toThrow(/collection|ownership/i);
+    expect(actions).toEqual([]);
+  });
+});
+
+test("incoming IDREF tokens cannot hide an owned member among missing or duplicate IDs", async () => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate("document.querySelector('#other').setAttribute('aria-owns', 'missing\\tfirst-item\\nfirst-item  absent')");
+    await expect(resolveCollectionTarget(driver, target())).rejects.toThrow(/collection|ownership/i);
+    expect(actions).toEqual([]);
+  });
+});
+
+test("unresolved incoming IDREFs outside the scope do not invalidate selection", async () => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate("document.querySelector('#other').setAttribute('aria-owns', 'missing absent')");
+    const bound = await resolveCollectionTarget(driver, target());
+    await driver.click(bound.target, bound.ref);
+    expect(actions).toEqual(["click:first"]);
+  });
+});
+
+test.each(["capture", "dispatch"] as const)("shadow-local ownership with a protected member's ID preserves %s", async phase => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate(`const shadow = document.body.appendChild(document.createElement('div')).attachShadow({mode:'open'});
+      globalThis.ownershipTarget = shadow.appendChild(document.createElement('span'));
+      globalThis.ownershipTarget.id = 'first-item'; globalThis.ownershipTarget.textContent = 'Unrelated shadow target';
+      globalThis.ownershipOwner = shadow.appendChild(document.createElement('div'));`);
+    expect(await page.evaluate("globalThis.ownershipOwner.getRootNode().getElementById('first-item') === globalThis.ownershipTarget")).toBe(true);
+    expect(await page.evaluate("document.getElementById('first-item') === globalThis.ownershipTarget")).toBe(false);
+    const before = phase === "dispatch" ? await resolveCollectionTarget(driver, target()) : undefined;
+    await setIncomingOwnership(page, "attribute");
+    const bound = before ?? await resolveCollectionTarget(driver, target());
+    await driver.click(bound.target, bound.ref);
+    expect(actions).toEqual(["click:first"]);
+  });
+});
+
+test.each(["capture", "dispatch"] as const)("ownership of an earlier unrelated duplicate ID preserves %s", async phase => {
+  await withPage(async ({ driver, page, actions }) => {
+    await page.evaluate(`globalThis.ownershipTarget = document.createElement('span');
+      globalThis.ownershipTarget.id = 'first-item'; globalThis.ownershipTarget.textContent = 'Unrelated first ID match';
+      document.body.prepend(globalThis.ownershipTarget); globalThis.ownershipOwner = document.querySelector('#other');`);
+    expect(await page.evaluate("document.getElementById('first-item') === globalThis.ownershipTarget")).toBe(true);
+    const before = phase === "dispatch" ? await resolveCollectionTarget(driver, target()) : undefined;
+    await setIncomingOwnership(page, "attribute");
+    const bound = before ?? await resolveCollectionTarget(driver, target());
+    await driver.click(bound.target, bound.ref);
+    expect(actions).toEqual(["click:first"]);
+  });
 });
 
 test("root, member, action replacement and reorder after resolution reject before dispatch", async () => {

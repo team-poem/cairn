@@ -8,6 +8,7 @@ import { stepError } from "./errors.js";
 import type { TargetCandidate } from "./target-choice.js";
 import { candidateCounts, type SelectionDiagnostic, type SelectionSummary } from "./selection-diagnostics.js";
 import type { TraceScope, TracePhase } from "./trace.js";
+import { validateCollectionTarget } from "./collection.js";
 
 let generation = 0;
 const current = new WeakMap<Driver, PerceptionObservation>();
@@ -144,6 +145,7 @@ export function decisionReference(driver: Driver, decision: Decision, consume = 
 
 /** Explicit allowlist: runtime handles and extension fields cannot enter a frozen target. */
 export function persistentTarget(target: Target): Target {
+  if ("collection" in target) return { collection: validateCollectionTarget(target) };
   const out: Target = {};
   for (const key of ["text", "role", "selector"] as const) if (typeof target[key] === "string" && target[key]) out[key] = target[key];
   for (const key of ["index", "nth"] as const) if (typeof target[key] === "number" && Number.isInteger(target[key]) && target[key]! >= 0) out[key] = target[key];

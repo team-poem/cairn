@@ -26,6 +26,13 @@ descendants and frame ancestry remain. Observation, document guards and fresh-re
 consume the same normalized tree: a virtual list marker cannot disable refs for real controls.
 Unmeasurable real nodes still prevent unsafe ref publication; guard coverage is not relaxed.
 
+## Explicit collection positions (#306)
+
+Explicit first/Nth selection **within a collection** is a separate opt-in
+[`Target.collection` contract](collection-selection.md). It does not reinterpret `nth`, enrich
+with the selected resource's legacy locators, or allow automatic repair to choose another item.
+Its plain declaration is authored by the host; ordinary model discovery is unchanged.
+
 ## Host-owned candidate exclusion (#308)
 
 The Chrome adapter's optional `hostOwnedRoots` scope binds trusted host registrations to exact DOM

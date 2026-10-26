@@ -163,6 +163,10 @@ jobs:
         env:
           CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
         run: node scripts/test-host-owned.mjs
+      - name: Explicit collection positions and deterministic replay
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: node scripts/test-collection-selection.mjs
       - name: Preserve settle results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

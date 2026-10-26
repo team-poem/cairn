@@ -8,6 +8,7 @@ import { withBudget, budgetScope, BudgetExceededError, budgetResult, rethrowBudg
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
 import { validateSecrets, type Secrets } from "./secrets.js";
+import { isCollectionStep, validateCollectionTarget } from "./collection.js";
 import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
 import type { RequestMatchOptions } from "./requests.js";
 import type { ConditionMatchOptions } from "./steps.js";
@@ -102,7 +103,9 @@ async function runStep(
   // An `expect` with no field set (`{}`) names no condition: treat it as absent, so it can
   // neither pre-satisfy the skip nor count as a post-condition (fail closed, #69/#137).
   const expect = step.expect && Object.values(step.expect).some((v) => v !== undefined) ? step.expect : undefined;
-  if (expect && expect.requestStatus === undefined && (await conditionMet(driver, expect, 0, urlMatch))) {
+  const collection = isCollectionStep(step);
+  // Existing page state cannot establish that the current collection position was exercised.
+  if (!collection && expect && expect.requestStatus === undefined && (await conditionMet(driver, expect, 0, urlMatch))) {
     // Already satisfied — safe skip, but never a SILENT one: the marker keeps a wrongly
     // pre-satisfied expect (the #56→#86/#87/#96 failure class) observable to hosts (#86).
     return { step, ok: true, skipped: true };
@@ -118,7 +121,7 @@ async function runStep(
   if (await pollCondition(driver, expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) return result;
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
-  if (healer) {
+  if (healer && !collection) {
     const healed = await (budget ? budget.operation("step.heal", () => healer.heal(step, index, driver))
       : healer.heal(step, index, driver));
     if (healed) {
@@ -320,8 +323,11 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
   const planned = await planner.plan(ctx);
-  // Snapshot judgment data before browser work; keep step/target identities for healer seams.
-  const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })) };
+  // Snapshot judgment/collection declarations before browser work. Legacy target identities
+  // still flow unchanged through the healer seams; collection declarations cannot be healed.
+  const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })),
+    steps: planned.steps.map(step => isCollectionStep(step) && "target" in step
+      ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
   const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
   const contract = await scenarioContract(scenario, judgment());
   const provenance = copyProvenance(scenario.provenance);
@@ -332,7 +338,7 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
     wildcards: scenario.wildcards,
     requestMatch: opts.requestMatch,
   };
-  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {}, urlMatch);
+  const handlers = opts.stepHandlers ?? defaultStepHandlers(opts.actions ?? {}, opts.secrets ?? {}, urlMatch, opts.signal);
 
   // Drive steps; stop on the first failure but still observe the resulting state.
   // The driver is NOT closed here — whoever constructed it owns its lifecycle (#98).
@@ -344,6 +350,7 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
     let recorded: number | undefined;
     const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
       budget ? action => { recorded = budget.recordAction(action); } : undefined, budget);
+    opts.signal?.throwIfAborted();
     opts[budgetScope]?.check();
     actions.push(result);
     if (budget) {

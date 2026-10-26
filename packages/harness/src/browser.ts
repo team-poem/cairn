@@ -8,6 +8,8 @@
  * `expect`, a fetch-based `LlmClient` (`AnthropicLlmClient`). Same core, different hands.
  */
 export * from "./core/types.js";
+export { CollectionSelectionError, validateCollectionTarget } from "./core/collection.js";
+export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";
 export { BudgetExceededError, validateRunBudget } from "./core/budget.js";
 export type { RunBudget, BudgetExhaustion } from "./core/budget.js";

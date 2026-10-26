@@ -11,6 +11,7 @@ import { findRequestStatus } from "./requests.js";
 import { stepError } from "./errors.js";
 import { validateSecrets, assertSecretScope, fillSecrets, mayCarryScopedSecret } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
+import { isCollectionStep, resolveCollectionTarget, CollectionSelectionError } from "./collection.js";
 
 const WAIT_POLL_MS = 200;
 const WAIT_TIMEOUT_MS = 10_000;
@@ -153,6 +154,7 @@ export class BuiltinStepHandler implements StepHandler {
   constructor(
     private readonly secrets: Secrets = {},
     private readonly urlMatch: ConditionMatchOptions = {},
+    private readonly signal?: AbortSignal,
   ) { validateSecrets(secrets); }
 
   supports(step: Step): boolean {
@@ -160,6 +162,15 @@ export class BuiltinStepHandler implements StepHandler {
   }
 
   async execute(step: Step, driver: Driver, ref?: string, validateReference?: () => void): Promise<void> {
+    this.signal?.throwIfAborted();
+    if (isCollectionStep(step) && "target" in step) {
+      if (ref !== undefined) throw new CollectionSelectionError("invalid", "collection declaration cannot borrow an unrelated observation reference");
+      const resolved = await resolveCollectionTarget(driver, step.target);
+      this.signal?.throwIfAborted();
+      // Keep the caller's step/frozen declaration intact. The adapter validates this exact ref,
+      // including collection and condition continuity, on the eventual targeted dispatch.
+      return this.execute({ ...step, target: resolved.target }, driver, resolved.ref, validateReference);
+    }
     switch (step.kind) {
       case "goto":
         return driver.goto(step.url);
@@ -185,6 +196,7 @@ export class BuiltinStepHandler implements StepHandler {
           return driver.type(step.target, output, ref);
         }
         const pageUrl = (await driver.observe()).execution.finalUrl;
+        this.signal?.throwIfAborted();
         const output = fillSecrets(step.text, this.secrets, pageUrl);
         assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
         validateReference?.();
@@ -232,8 +244,9 @@ export function defaultStepHandlers(
   actions: Record<string, CustomAction> = {},
   secrets: Secrets = {},
   urlMatch: ConditionMatchOptions = {},
+  signal?: AbortSignal,
 ): StepHandler[] {
-  return [new BuiltinStepHandler(secrets, urlMatch), new CustomStepHandler(actions)];
+  return [new BuiltinStepHandler(secrets, urlMatch, signal), new CustomStepHandler(actions)];
 }
 
 /**

@@ -26,6 +26,86 @@ function gate(): { opened: Promise<void>; open: () => void } {
 }
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); reporter.emit.mockClear(); });
 
+it.each(["operation", "async operation", "late operation", "model", "driver"] as const)(
+  "a same-lease %s wrapper can await its borrowed engine call", async kind => {
+    const outcome = await runWorkflow({ budget: { maxModelCalls: 1 } }, async workflow => {
+      const lease = workflow.borrow("main");
+      let passed = false;
+      const replay = async () => {
+        const result = await runScenario(scenario, { workflow: lease, driver: new FakeDriver({ evidence }), reporter });
+        passed = result.result.verdict.passed;
+      };
+      if (kind === "model") {
+        await lease.llm({ id: "host", complete: async () => { await replay(); return "verified"; } }).complete("verify");
+      } else if (kind === "driver") {
+        const driver = new FakeDriver({ evidence });
+        vi.spyOn(driver, "goto").mockImplementation(replay);
+        await lease.driver(driver).goto("https://shop");
+      } else if (kind === "late operation") {
+        const inner = replay();
+        await lease.operation("host.wrapper", () => inner);
+      } else {
+        await lease.operation("host.wrapper", async () => {
+          if (kind === "async operation") await Promise.resolve();
+          await replay();
+        });
+      }
+      return passed;
+    });
+    const modelCalls = kind === "model" ? 1 : 0;
+    expect(outcome).toMatchObject({ status: "completed", value: true, modelCalls,
+      participants: [{ name: "main", modelCalls }] });
+    expect(outcome.participants).toHaveLength(1);
+  }, 1000);
+
+it.each(["deadline", "caller cancellation"] as const)("a same-lease wrapper settles after %s and its inner operation", async stop => {
+  fakeClock();
+  const caller = new AbortController();
+  const reason = new Error("host stop");
+  const dispatched = gate();
+  const finish = gate();
+  const driver = new FakeDriver({ evidence });
+  const goto = vi.spyOn(driver, "goto").mockImplementation(async () => { dispatched.open(); await finish.opened; });
+  let returned = false;
+  const pending = runWorkflow({ budget: { timeoutMs: 10 }, signal: caller.signal }, async workflow => {
+    const lease = workflow.borrow("main");
+    return lease.operation("host.wrapper", () => runScenario(scenario, { workflow: lease, driver, reporter }));
+  }).catch(error => error).finally(() => { returned = true; });
+  await dispatched.opened;
+  if (stop === "caller cancellation") caller.abort(reason);
+  await vi.advanceTimersByTimeAsync(11);
+  expect(returned).toBe(false);
+  finish.open();
+  const outcome = await pending;
+  if (stop === "deadline") expect(outcome).toMatchObject({ status: "exhausted", participant: "main", budget: { limit: "time" } });
+  else expect(outcome).toBe(reason);
+  expect(goto).toHaveBeenCalledTimes(1);
+  expect(driver.clicked).toEqual([]);
+  expect(reporter.emit).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+}, 1000);
+
+it("the owner still drains same-lease host work after the borrowed engine call returns", async () => {
+  const replayed = gate();
+  const finish = gate();
+  let returned = false;
+  let hostFinished = false;
+  const pending = runWorkflow({ budget: {} }, async workflow => {
+    const lease = workflow.borrow("main");
+    void lease.operation("host.upload", async () => { await finish.opened; hostFinished = true; });
+    const result = await runScenario(scenario, { workflow: lease, driver: new FakeDriver({ evidence }), reporter });
+    replayed.open();
+    return result.result.verdict.passed;
+  }).finally(() => { returned = true; });
+  await replayed.opened;
+  await new Promise(resolve => setImmediate(resolve));
+  expect(returned).toBe(false);
+  expect(hostFinished).toBe(false);
+  finish.open();
+  expect(await pending).toMatchObject({ status: "completed", value: true });
+  expect(hostFinished).toBe(true);
+}, 1000);
+
 it("preparation, main execution and verification consume one remaining allowance", async () => {
   const driver = new StubDriver("https://shop");
   driver.els = [{ role: "button", name: "Checkout" }];

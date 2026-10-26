@@ -148,6 +148,12 @@ completion. `lease.driver(driver)` and `lease.operation(name, run)` check the de
 dispatch, await the work on expiry and reject its late result. Model or browser work that does
 not go through a lease or a borrowed engine call is not covered and not counted.
 
+Host work can await an engine call that borrows the same lease. The engine drains only operations
+it registered. The workflow owner drains explicit lease operations as well as complete engine
+calls. Sharing a participant's accounting does not make the engine wait for its enclosing host
+operation. A host callback that starts lease work without awaiting it leaves that work to the
+workflow owner. Both kinds of work retain the same allowance, deadline and participant record.
+
 **One count per call.** The owner records every client and driver it wraps. Engine wrapping
 unwraps a client or driver the same workflow already manages first, so a lease client passed to
 a borrowed call (or wrapped twice) reserves once. A client that hides a lease client inside a
@@ -162,7 +168,7 @@ Each participant reports its own admissions and measured usage, and the particip
 the aggregate count.
 
 **Stop.** Exhaustion stops admission for every participant. The borrowed call that observes it
-drains its own in-flight work, closes a trace it opened (`budget-exhausted`, `case-end`,
+drains its engine operations, closes a trace it opened (`budget-exhausted`, `case-end`,
 `run-end`, once), and throws `BudgetExceededError` carrying its own phase, uncertain operation,
 evidence and usage. It does not call its reporter. A borrowed `runHarness` or `runScenario`
 throws instead of returning a budget verdict. The workflow then refuses new leases and

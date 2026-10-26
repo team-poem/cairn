@@ -106,6 +106,52 @@ it("the owner still drains same-lease host work after the borrowed engine call r
   expect(hostFinished).toBe(true);
 }, 1000);
 
+it("an engine-decorated driver can later wrap the same engine call as host work", async () => {
+  const outcome = await runWorkflow({ budget: {} }, async workflow => {
+    const lease = workflow.borrow("main");
+    const driver = new FakeDriver({ evidence });
+    const replay = runHarness({ driver, reporter, context: { provide: async () => ({ intent: "checkout" }) },
+      planner: { plan: async () => scenario }, critic: { judge: async () => ({ passed: true, results: [] }) },
+    }, "checkout", { workflow: lease });
+    vi.spyOn(driver, "goto").mockImplementation(async url => {
+      if (url === "https://host/wrapper") await replay;
+    });
+    await lease.driver(driver).goto("https://host/wrapper");
+    return (await replay).verdict.passed;
+  });
+  expect(outcome).toMatchObject({ status: "completed", value: true, modelCalls: 0 });
+}, 1000);
+
+it("a host-decorated driver keeps pending engine work inside the borrowed call's drain", async () => {
+  const finish = gate();
+  const judged = gate();
+  let replayReturned = false;
+  const pending = runWorkflow({ budget: {} }, async workflow => {
+    const lease = workflow.borrow("main");
+    const driver = new FakeDriver({ evidence });
+    vi.spyOn(driver, "goto").mockImplementation(async url => {
+      if (url === "https://shop/fail") throw new Error("navigation failed");
+      await finish.opened;
+    });
+    const result = await runHarness({ driver: lease.driver(driver), reporter,
+      context: { provide: async () => ({ intent: "checkout" }) }, planner: { plan: async () => scenario },
+      critic: { judge: async () => { judged.open(); return { passed: true, results: [] }; } },
+    }, "checkout", { workflow: lease, stepHandlers: [{ supports: () => true,
+      execute: async (_step, managed) => {
+        await Promise.all([managed.goto("https://shop/pending"), managed.goto("https://shop/fail")]);
+      },
+    }] });
+    replayReturned = true;
+    return result;
+  });
+  await judged.opened;
+  await new Promise(resolve => setImmediate(resolve));
+  expect(replayReturned).toBe(false);
+  finish.open();
+  expect(await pending).toMatchObject({ status: "completed" });
+  expect(replayReturned).toBe(true);
+}, 1000);
+
 it("preparation, main execution and verification consume one remaining allowance", async () => {
   const driver = new StubDriver("https://shop");
   driver.els = [{ role: "button", name: "Checkout" }];

@@ -36,10 +36,15 @@ const forbidden = { id: 'no-replay-model', async complete() {
 try {
   const outcome = await runWorkflow({ budget: { maxModelCalls: 3, timeoutMs: 60_000 } }, async workflow => {
     await workflow.borrow('prepare').driver(driver).goto(baseUrl);
-    const scenario = await discover('Save order', { driver, llm, baseUrl, maxSteps: 4, workflow: workflow.borrow('main') });
+    const main = workflow.borrow('main');
+    const scenario = await main.operation('host.discover', () =>
+      discover('Save order', { driver, llm, baseUrl, maxSteps: 4, workflow: main }));
     assert.notEqual(scenario.truncated, true);
-    const replay = await runScenario(scenario, { driver, llm: forbidden, reporter: { async emit() {} },
-      workflow: workflow.borrow('verify') });
+    const verify = workflow.borrow('verify');
+    const replay = await verify.operation('host.verify', async () => {
+      await Promise.resolve();
+      return runScenario(scenario, { driver, llm: forbidden, reporter: { async emit() {} }, workflow: verify });
+    });
     return replay.result.verdict.passed;
   });
   assert.equal(outcome.status, 'completed');

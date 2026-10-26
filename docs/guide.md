@@ -127,6 +127,10 @@ One lease per engine call. A borrowed call omits `budget` and `signal`, and thro
 `BudgetExceededError` when the shared allowance runs out. The workflow then resolves to
 `status: 'exhausted'` only after all admitted work has settled.
 
+You can wrap an engine call in `lease.operation` with that same lease. The engine waits for its
+own operations, and the workflow waits for the enclosing host operation too. If a host callback
+starts lease work without awaiting it, the workflow still waits for that work before returning.
+
 Run `npm run build && node examples/run-budget.mjs` from the repository for a real-browser,
 scripted-model example: discovery consumes three calls, then a changed control needs a fourth
 to repair. See the [budget contract](../spec/core/run-budget.md) for boundaries and limitations.

@@ -59,6 +59,7 @@ export interface BudgetOptions {
 }
 
 type Facts = Omit<BudgetExhaustion, "phase" | "operation">;
+type OperationOwner = "engine" | "workflow";
 
 /** What an owner shares with every borrower: one allowance, one deadline, one signal.
  * Lifecycle: open, then draining once the owner admits no more work, then closed. Exhaustion
@@ -68,7 +69,7 @@ export class Allowance {
   failure?: BudgetExceededError;
   stage: "open" | "draining" | "closed" = "open";
   readonly signal: AbortSignal;
-  readonly pending = new Map<symbol, { name: string; settled: Promise<void>; scope: BudgetScope }>();
+  readonly pending = new Map<symbol, { name: string; settled: Promise<void>; scope: BudgetScope; owner: OperationOwner }>();
   /** Whole borrowed calls, including cleanup and publication after their final port operation. */
   readonly entries = new Map<symbol, Promise<void>>();
   drainError?: { error: unknown };
@@ -121,7 +122,8 @@ export class Allowance {
 
   async drain(scope?: BudgetScope): Promise<void> {
     const left = () => [
-      ...[...this.pending.values()].filter(operation => !scope || operation.scope === scope).map(operation => operation.settled),
+      ...[...this.pending.values()].filter(operation => !scope ||
+        (operation.scope === scope && operation.owner === "engine")).map(operation => operation.settled),
       ...(!scope ? this.entries.values() : []),
     ];
     for (let pending = left(); pending.length; pending = left()) await Promise.all(pending);
@@ -146,7 +148,9 @@ export class BudgetScope {
   entered = false;
   private readonly actions: ExecutedAction[] = [];
   private readonly usage = emptyUsage();
-  private readonly drivers = new WeakMap<Driver, Driver>();
+  private readonly drivers: Record<OperationOwner, WeakMap<Driver, Driver>> = {
+    engine: new WeakMap(), workflow: new WeakMap(),
+  };
   private failure?: BudgetExceededError;
 
   constructor(source: RunBudget | Allowance, caller?: AbortSignal, readonly participant?: string) {
@@ -210,13 +214,13 @@ export class BudgetScope {
   }
 
   /** Cooperative: await settlement, then reject late values. Never leave an orphaned action. */
-  operation<T>(name: string, run: () => Promise<T>): Promise<T> {
+  operation<T>(name: string, run: () => Promise<T>, owner: OperationOwner = "engine"): Promise<T> {
     return this.allowance.observe((async () => {
       this.check();
       const token = Symbol(name);
       let settle!: () => void;
       const settled = new Promise<void>(resolve => { settle = resolve; });
-      this.allowance.pending.set(token, { name, settled, scope: this });
+      this.allowance.pending.set(token, { name, settled, scope: this, owner });
       try {
         const value = await run();
         this.check(true);
@@ -237,7 +241,7 @@ export class BudgetScope {
   /** The raw client or driver behind a wrapper this allowance already manages. */
   unwrap<T extends object>(value: T): T { return (this.allowance.managed.get(value) as T | undefined) ?? value; }
 
-  llm(client: LlmClient, phase?: string): LlmClient {
+  llm(client: LlmClient, phase?: string, owner: OperationOwner = "engine"): LlmClient {
     const inner = this.unwrap(client);
     const scope = this;
     const wrapped: LlmClient = {
@@ -253,7 +257,7 @@ export class BudgetScope {
               scope.recordUsage(usage);
               options?.onUsage?.(usage);
             },
-          })); } finally { combined.dispose(); }
+          }), owner); } finally { combined.dispose(); }
         })());
       },
     };
@@ -261,9 +265,9 @@ export class BudgetScope {
     return wrapped;
   }
 
-  driver(driver: Driver): Driver {
+  driver(driver: Driver, owner: OperationOwner = "engine"): Driver {
     const inner = this.unwrap(driver);
-    const existing = this.drivers.get(inner);
+    const existing = this.drivers[owner].get(inner);
     if (existing) return existing;
     const scope = this;
     // A separate target permits decorating frozen/non-configurable host methods. Invoke on the
@@ -276,9 +280,9 @@ export class BudgetScope {
         const result = await value.apply(inner, args);
         if (key === "observe" && !scope.signal.aborted) scope.evidence = snapshot(result as Evidence);
         return result;
-      });
+      }, owner);
     }, has: (_target, key) => key in inner });
-    this.drivers.set(inner, wrapped);
+    this.drivers[owner].set(inner, wrapped);
     this.allowance.managed.set(wrapped, inner);
     return wrapped;
   }
@@ -418,10 +422,10 @@ export async function runWorkflow<T>(options: WorkflowOptions, work: (workflow: 
       const lease: WorkflowLease = Object.freeze({
         name,
         signal: allowance.signal,
-        llm: (client: LlmClient) => scope.llm(client),
-        driver: (driver: Driver) => scope.driver(driver),
+        llm: (client: LlmClient) => scope.llm(client, undefined, "workflow"),
+        driver: (driver: Driver) => scope.driver(driver, "workflow"),
         operation: <R>(operation: string, run: (signal: AbortSignal) => Promise<R>) =>
-          scope.operation(operation, () => run(allowance.signal)),
+          scope.operation(operation, () => run(allowance.signal), "workflow"),
       });
       leases.set(lease, scope);
       return lease;

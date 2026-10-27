@@ -222,7 +222,7 @@ it("does not dispatch after cancellation during budgeted collection observation"
 });
 
 it("rejects a late collection observation after its execution deadline without dispatch", async () => {
-  vi.useFakeTimers();
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date", "performance"] });
   try {
     const d = driver();
     const action = vi.spyOn(d, "click");
@@ -233,7 +233,10 @@ it("rejects a late collection observation after its execution deadline without d
       await new Promise<void>(resolve => { release = resolve; started(); });
       return observation();
     });
-    const pending = runHarness({ driver: d, context: { provide: async () => ({ intent: "open first" }) },
+    const pending = runHarness({ driver: d, context: { provide: async () => {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      return { intent: "open first" };
+    } },
       planner: { plan: async () => ({ name: "first", steps: [{ kind: "click", target: target() }], assertions: [] }) },
       critic: { judge: async () => ({ passed: true, results: [] }) }, reporter: { emit: async () => {} },
     }, "first", { budget: { timeoutMs: 10 } });

@@ -8,7 +8,7 @@
  */
 import { PerceptionObservation } from "../observation.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
-import { withBudget, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
 import { identifyScenario } from "../contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
@@ -78,7 +78,11 @@ export interface DiscoverOptions extends BudgetOptions {
  * the policy will allow, and each retry costs a full LLM call for zero steps (#77). */
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
-export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+export function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+  return withWorkflowEntry(opts, () => discoverEntry(intent, opts));
+}
+
+async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   try {
     return await withBudget(opts, opts.tracePhase === "heal" ? "outcome-heal" : "discover", (options, scope) =>
       discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));

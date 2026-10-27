@@ -110,6 +110,27 @@ cancels supported model transports, but an already dispatched browser action can
 Non-cancellable operations are awaited, then their late result is rejected; this is not a hard
 wall-clock kill switch. Hidden model calls in custom host hooks are outside the count.
 
+To hold separate calls and your own verification to one allowance, own it with `runWorkflow`
+(also exported from `cairn-engine/browser`) and lend it out:
+
+```ts
+const outcome = await runWorkflow({ budget: { maxModelCalls: 10, timeoutMs: 60_000 } }, async workflow => {
+  await runScenario(setup, { workflow: workflow.borrow('prepare'), driver });
+  await discover(intent, { workflow: workflow.borrow('main'), driver, llm });
+  const verify = workflow.borrow('verify');
+  return verify.llm(llm).complete(question); // host work counts only through a lease
+});
+if (outcome.status === 'exhausted') console.log(outcome.participant, outcome.budget);
+```
+
+One lease per engine call. A borrowed call omits `budget` and `signal`, and throws
+`BudgetExceededError` when the shared allowance runs out. The workflow then resolves to
+`status: 'exhausted'` only after all admitted work has settled.
+
+You can wrap an engine call in `lease.operation` with that same lease. The engine waits for its
+own operations, and the workflow waits for the enclosing host operation too. If a host callback
+starts lease work without awaiting it, the workflow still waits for that work before returning.
+
 Run `npm run build && node examples/run-budget.mjs` from the repository for a real-browser,
 scripted-model example: discovery consumes three calls, then a changed control needs a fourth
 to repair. See the [budget contract](../spec/core/run-budget.md) for boundaries and limitations.

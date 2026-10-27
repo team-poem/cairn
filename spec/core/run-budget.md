@@ -39,7 +39,8 @@ has no numeric limit. Options are copied before asynchronous work.
   Trace sinks and synchronous progress callbacks remain the existing observation seams.
 
 Separate top-level calls are separate runs. Use a suite case for discover/freeze/replay/repair
-under one allowance; no public reusable global controller is introduced.
+under one allowance, or [a workflow owner](#workflow-composition-305) to compose separate calls
+and host work under one allowance.
 
 ## Accounting
 
@@ -116,3 +117,91 @@ is flow (1), script (3), budget (5), environment (4), preserving real failures i
 
 See [the runnable browser example](../../examples/run-budget.mjs) and
 [user guide](../../docs/guide.md#execution-budgets).
+
+## Workflow composition (#305)
+
+`runWorkflow({ budget, signal? }, work)` is an opt-in owner for host-composed work: preparation
+replay, main discovery or replay, and extra verification under one allowance. It is exported from
+both the Node and the browser entry points. The owner holds the only allowance, deadline and
+cancellation signal. Inside `work`, `workflow.borrow(name)` returns a frozen lease, and each lease
+is one participant. The internal scope class stays private, so a borrower cannot reset, extend or
+dispose the owner.
+
+```ts
+const outcome = await runWorkflow({ budget: { maxModelCalls: 10, timeoutMs: 60_000 } }, async workflow => {
+  await runScenario(setup, { workflow: workflow.borrow("prepare"), driver });
+  const found = await discover(intent, { workflow: workflow.borrow("main"), driver, llm });
+  const verify = workflow.borrow("verify");
+  await verify.operation("browser.open-orders", () => page.goto(ordersUrl));
+  return verify.llm(llm).complete(question);
+});
+```
+
+**Borrowing.** `discover`, `explore`, `runHarness` and `runScenario` accept `workflow: lease`.
+A lease serves one engine operation, so each operation keeps its own attribution. A borrowed call
+must omit `budget` and `signal`, because the owner holds both. Mixing them is rejected, and so
+is a lease the owner did not issue. `runSuite` does not borrow. Its cases keep independent
+allowances.
+
+**Host work opts in explicitly.** `lease.llm(client)` reserves one admission before every
+completion. `lease.driver(driver)` and `lease.operation(name, run)` check the deadline before
+dispatch, await the work on expiry and reject its late result. Model or browser work that does
+not go through a lease or a borrowed engine call is not covered and not counted.
+
+Host work can await an engine call that borrows the same lease. The engine drains only operations
+it registered. The workflow owner drains explicit lease operations as well as complete engine
+calls. Sharing a participant's accounting does not make the engine wait for its enclosing host
+operation. A host callback that starts lease work without awaiting it leaves that work to the
+workflow owner. Both kinds of work retain the same allowance, deadline and participant record.
+
+**One count per call.** The owner records every client and driver it wraps. Engine wrapping
+unwraps a client or driver the same workflow already manages first, so a lease client passed to
+a borrowed call (or wrapped twice) reserves once. A client that hides a lease client inside a
+different wrapper object cannot be recognized and is counted at each layer. Pass the lease
+client itself or the raw client.
+
+**Accounting.** It is the same as above. Reservation is synchronous and happens before
+dispatch for every admission: concurrent completions, concurrent participants and
+`TargetSelector.select`. Failed and cancelled admissions keep their count. Decisions, assertion
+proposals, judgments and every repair layer of a borrowed call draw from the shared allowance.
+Each participant reports its own admissions and measured usage, and the participants add up to
+the aggregate count.
+
+**Stop.** Exhaustion stops admission for every participant. The borrowed call that observes it
+drains its engine operations, closes a trace it opened (`budget-exhausted`, `case-end`,
+`run-end`, once), and throws `BudgetExceededError` carrying its own phase, uncertain operation,
+evidence and usage. It does not call its reporter. A borrowed `runHarness` or `runScenario`
+throws instead of returning a budget verdict. The workflow then refuses new leases and
+operations, and late results are rejected.
+
+**Owner lifecycle.** The owner is open while `work` runs. Then it drains every admitted
+operation from all participants, including siblings that were left pending after an earlier
+rejection. Whole borrowed calls remain tracked through owned-driver cleanup and final trace or
+report publication, even between port operations. Already dispatched host work may settle while
+draining, but no new operation can start. A failure from unfinished registered work during draining
+rejects the owner instead of returning a completed callback value. The owner observes those
+promises even when `work` no longer awaits a sibling. While `work` is open, it remains responsible
+for awaiting and handling failures; explicitly recovered failures do not poison the workflow.
+It then closes and releases its timer and caller listener exactly once, and only after that does
+it return. Its outcome is one of these:
+
+- `{ status: "completed", value, modelCalls, elapsedMs, participants }`.
+- `{ status: "exhausted", budget, participant?, participants }`. It has no value. It is neither an
+  application failure nor a partial success, even when `work` caught the error and returned.
+  `participant` names the participant that hit the limit. Otherwise it names the one with the
+  latest in-flight operation, and failing that, the most recently borrowed one. Each participant interrupted by the stop carries
+  `stop: { phase, operation?, evidence? }`.
+- Caller cancellation rejects with the caller's reason, including when draining continues past
+  the deadline. The first cancellation or exhaustion retains its cause. Any other error from
+  `work` is rethrown after draining; otherwise a failure encountered while draining is rethrown.
+
+**Cleanup.** A driver's `close` stays callable after exhaustion. Run resource cleanup after
+`runWorkflow` returns. By then nothing admitted is still in flight, and a lease no longer
+authorizes verification, repair or business actions. The engine never retries an operation
+whose outcome is unknown.
+
+**Unchanged.** The workflow is a runtime control. It never enters a Scenario, `caseHash` or
+judgment-contract fingerprint. Healthy frozen replay under a zero-call workflow makes no model
+call. A call without `workflow` behaves exactly as before. The cooperative-cancellation limits
+above apply in full: work that ignores the signal or never settles still delays the owner's
+return, and admissions are not a cap on provider requests, tokens or spending.

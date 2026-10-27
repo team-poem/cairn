@@ -4,7 +4,7 @@
  * runs (invariant #4).
  */
 import type { CustomAction, Driver, Harness, StepHandler, StepHealer } from "./ports.js";
-import { withBudget, budgetScope, BudgetExceededError, budgetResult, rethrowBudget, type BudgetOptions, type BudgetScope } from "./budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, budgetResult, rethrowBudget, type BudgetOptions, type BudgetScope } from "./budget.js";
 import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step, StepProgress, Verdict, FailureClass, Scenario, VerdictProof, Assertion } from "./types.js";
 import { errorKindOf, stepError } from "./errors.js";
 import { validateSecrets, type Secrets } from "./secrets.js";
@@ -287,11 +287,15 @@ export function classifyFailure(verdict: Verdict, actions: readonly ExecutedActi
   return "flow";
 }
 
-export async function runHarness(
+export function runHarness(
   harness: Harness,
   task: string,
   opts: RunHarnessOptions = {},
 ): Promise<Result> {
+  return withWorkflowEntry(opts, () => runHarnessEntry(harness, task, opts));
+}
+
+async function runHarnessEntry(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
   let result: Result;
   try {
     result = await withBudget(opts, "replay", async (options, scope) => {
@@ -310,10 +314,11 @@ export async function runHarness(
   } catch (error) {
     if (!(error instanceof BudgetExceededError) || opts[budgetScope]) throw error;
     opts.trace?.emit({ kind: "budget-exhausted", payload: error.budget });
+    if (opts.workflow) throw error; // the workflow owner publishes the stop result
     result = budgetResult(task, error);
   }
   // Publish only after the owner has accepted the final value, never a late green.
-  if (opts.budget !== undefined || opts[budgetScope]) await harness.reporter.emit(result);
+  if (opts.budget !== undefined || opts[budgetScope] || opts.workflow) await harness.reporter.emit(result);
   return result;
 }
 

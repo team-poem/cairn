@@ -51,6 +51,9 @@ export interface WaitUntil {
  * `selector` is a CSS escape hatch.
  */
 export interface Target {
+  /** Explicit run-relative selection (#306), exclusive with all legacy locator fields.
+   * The selected resource may differ on each replay. Never a fixed-resource identity. */
+  collection?: CollectionTarget;
   text?: string;
   role?: string;
   index?: number;
@@ -63,6 +66,44 @@ export interface Target {
    */
   nth?: number;
   selector?: string;
+}
+
+/** Exact accessible identity within a declared scope; never substring/fallback matching. */
+export interface CollectionLocator {
+  role: string;
+  name?: string;
+}
+
+/** Measured query/filter/sort state, checked at capture and again before dispatch.
+ * Values are persistent, nonsecret authoring data; no credential substitution is performed. */
+export interface CollectionCondition {
+  control: CollectionLocator;
+  value?: string;
+  checked?: boolean | "mixed";
+  disabled?: boolean;
+}
+
+export interface CollectionTarget {
+  root: CollectionLocator;
+  itemRole: "listitem" | "option";
+  /** Exactly one matching action inside the selected member, excluding nested collections. */
+  target: CollectionLocator;
+  order: "dom";
+  /** Zero-based position among ALL members, not only enabled/matching action candidates. */
+  index: number;
+  /** Explicit total supplied by an author/host when the page exposes no positive total.
+   * A count mismatch fails closed; absence never implies a visible subset is complete. */
+  expectedCount?: number;
+  conditions?: CollectionCondition[];
+}
+
+/** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
+ * Missing or ambiguous actions retain their member's position with no target. */
+export interface CollectionObservation {
+  order: "dom";
+  complete: boolean;
+  items: Array<{ position: number; target?: PageElement; disabled?: boolean }>;
+  conditions: Array<{ value?: string; checked?: boolean | "mixed"; disabled?: boolean }>;
 }
 
 /** Provenance of a frozen assertion, recorded at freeze (spec/core/trace.md): `user` = merged

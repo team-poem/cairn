@@ -17,6 +17,7 @@ export function createTargetChoiceRepair(opts: TargetChoiceRepairOptions): NonNu
     throw new Error("target choice confidence threshold must be null or between 0 and 1");
   }
   return { prepare(target) {
+    if ("collection" in target) throw stepError("resolution", "target choice cannot replace an explicit collection position");
     const context = opts.context(target);
     if (!context) throw stepError("resolution", "target choice requires original intent and post-condition evidence");
     return async (page, elements) => {

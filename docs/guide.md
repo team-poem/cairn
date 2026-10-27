@@ -180,6 +180,42 @@ if (healedScenario) {
 if (!result.verdict.passed) process.exit(1) // a deterministic gate for CI
 ```
 
+### Run-relative collection positions
+
+To select the current first result on **each** replay, author an explicit collection target.
+This is different from `nth`, which addresses duplicate accessible names, and from reopening a
+particular resource. Ordinary natural-language discovery does not infer this opt-in contract.
+
+```ts
+import type { Step } from "cairn-engine";
+
+const firstResult = {
+  kind: "click",
+  target: {
+    collection: {
+      root: { role: "list", name: "Search results" },
+      itemRole: "listitem",
+      target: { role: "link" },
+      order: "dom",
+      index: 0,
+      expectedCount: 3,
+      conditions: [{ control: { role: "textbox", name: "Search" }, value: "books" }],
+    },
+  },
+} satisfies Step;
+```
+
+Put this step in a host-authored Scenario and use `runScenario` or `runHarness`. Keep separate
+assertions for arrival and the business goal: selecting a row is not proof of success.
+The Chrome adapter requires positive coverage from ARIA position/total metadata or an explicitly
+declared total, and refuses partial/ambiguous lists. `expectedCount` is a checked prerequisite,
+not permission to assume a visible window is the whole dataset. Changed order before dispatch
+fails rather than choosing a neighbor. Collection steps are not automatically healed, and
+scenarios containing them do not use outcome rediscovery. Chrome collection `select` support is
+limited to native controls; custom popups are refused before opening. See the
+[collection contract](../spec/core/collection-selection.md) for supported lists, adapter wiring
+and persistence limits. Healthy mechanical replay still uses zero model calls.
+
 ### Optional app knowledge
 
 Pass reusable terminology and flow prerequisites separately from the task:

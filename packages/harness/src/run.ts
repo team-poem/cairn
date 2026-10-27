@@ -34,6 +34,7 @@ import type { TargetChoicePilot } from "./core/target-choice.js";
 import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
+import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -207,6 +208,10 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   const budget = opts[budgetScope];
   const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
+  // Copy declarations before the first asynchronous boundary; callers own the source artifact.
+  scenario = { ...scenario, steps: scenario.steps.map(step => isCollectionStep(step) && "target" in step
+    ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  const hasCollection = scenario.steps.some(isCollectionStep);
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
@@ -377,6 +382,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
     // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
     const healable =
+      !hasCollection &&
       result.verdict.failure !== "environment" && result.verdict.failure !== "budget" &&
       (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
     if (opts.heal && !result.verdict.passed && healable) {
@@ -487,7 +493,9 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
     // operator reads "heal did nothing" as "heal found nothing".
     const skipped = opts.heal && !result.verdict.passed && !healable && result.verdict.failure !== "budget";
-    const why = result.verdict.results.some(r => r.reason === "inconclusive")
+    const why = hasCollection
+      ? "outcome-heal skipped: explicit collection positions must be re-authored, not re-discovered automatically"
+      : result.verdict.results.some(r => r.reason === "inconclusive")
       ? "outcome-heal skipped: no failed goal to repair; some checks could not be judged"
       : "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
     const final = skipped

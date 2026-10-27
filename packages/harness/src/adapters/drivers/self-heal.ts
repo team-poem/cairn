@@ -7,6 +7,7 @@
 import type { Driver, LlmClient, PerceptionAdapter } from "../../core/ports.js";
 import { errorKindOf, stepError } from "../../core/errors.js";
 import { rethrowBudget } from "../../core/budget.js";
+import { validateCollectionTarget } from "../../core/collection.js";
 import type {
   Evidence,
   PageElement,
@@ -105,6 +106,7 @@ export class SelfHealingDriver implements Driver {
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
+    if (typeof inner.observeCollection === "function") this.observeCollection = selection => inner.observeCollection!(selection);
   }
 
   async goto(url: string): Promise<void> {
@@ -112,6 +114,7 @@ export class SelfHealingDriver implements Driver {
   }
 
   locateRef?: (ref: string) => Promise<Target>;
+  observeCollection?: Driver["observeCollection"];
 
   async click(target: Target, ref?: string): Promise<void> {
     return this.act(target, ref, "click", (t, r) => this.inner.click(t, r));
@@ -134,12 +137,15 @@ export class SelfHealingDriver implements Driver {
   }
 
   private async act(target: Target, ref: string | undefined, action: Decision["action"], dispatch: (target: Target, ref?: string) => Promise<void>, value?: string): Promise<void> {
+    const collection = "collection" in target;
+    if (collection) validateCollectionTarget(target);
     try {
       await dispatch(target, ref);
     } catch (cause) {
       rethrowBudget(cause);
       // A selected node disappearing never authorizes a substitute; re-decide on a fresh page.
-      if (ref !== undefined) throw cause;
+      // A declared collection position is the test input, not a stale item identity to repair.
+      if (ref !== undefined || collection) throw cause;
       // Transport, script, and handler failures are not evidence of a stale target.
       if (this.opts.choice && errorKindOf(cause) !== "resolution") throw cause;
       const repaired = await this.heal(target, cause, action, value);

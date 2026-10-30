@@ -23,6 +23,7 @@ import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.
 import { validateSecrets, missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
+import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "../evidence-capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
@@ -30,6 +31,7 @@ export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
 export { rankElements, renderElements, renderRankedElements } from "./prompt.js";
 
 export interface DiscoverOptions extends BudgetOptions {
+  evidenceCapture?: EvidenceCaptureOptions;
   /** Optional host app knowledge, snapshotted once; guidance only, not live evidence. Max 16 KiB UTF-8. */
   appContext?: string;
   driver: Driver;
@@ -94,6 +96,16 @@ async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Sce
 
 async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   validateSecrets(opts.secrets);
+  const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture,
+    opts.tracePhase === "heal" ? "heal" : "discover", opts.secrets) : undefined;
+  try {
+    return await discoverWithCapture(intent, opts, capture);
+  } finally {
+    capture?.finish(opts.signal);
+  }
+}
+
+async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession): Promise<Scenario> {
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
   const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
@@ -185,6 +197,11 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
     opts[budgetScope]?.recordAction({ step: { kind: "goto", url: baseUrl }, ok: true });
     marks.push(null);
     currentUrl = baseUrl;
+    if (capture) {
+      await capture.after({ step: { kind: "goto", url: baseUrl }, ok: true }, driver, signal);
+      signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+    }
   }
 
   // #137: the starting state, before any flow action — freeze-time vacuity is judged against
@@ -312,6 +329,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       continue;
     }
 
+    let completedStep: Step | undefined;
     try {
       const beforeObs = await driver.observe();
       // Guidance cannot carry a decision onto a page other than the one it was written for.
@@ -353,6 +371,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
+      completedStep = step;
       steps.push(step);
       opts[budgetScope]?.recordAction({ step, ok: true });
       marks.push(mark);
@@ -363,11 +382,13 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
         stepRef: steps.length - 1,
         payload: { step, intent: step.intent, ok: true },
       });
-      onStep?.(decision, step);
+      if (!capture) onStep?.(decision, step);
     } catch (err) {
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
+      capture?.invalidate();
+      completedStep = undefined;
       trace?.emit({
         kind: "action",
         phase: tracePhase,
@@ -379,6 +400,13 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       });
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
+    }
+    // Capture failure cannot enter the action retry catch. Cancellation/budget remains terminal.
+    if (capture && completedStep) {
+      await capture.after({ step: completedStep, ok: true }, driver, signal);
+      signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+      onStep?.(decision, completedStep);
     }
   }
 

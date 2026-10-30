@@ -16,6 +16,7 @@ import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
 import { scenarioContract, copyProvenance } from "./contract.js";
 import type { JudgmentOptions } from "./contract.js";
+import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "./evidence-capture.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -36,6 +37,7 @@ export interface RunHarnessOptions extends BudgetOptions {
   signal?: AbortSignal;
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
+  evidenceCapture?: EvidenceCaptureOptions;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
   /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
@@ -283,7 +285,7 @@ export function classifyFailure(verdict: Verdict, actions: readonly ExecutedActi
   const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
   if (goals.length > 0) return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r)) ? "environment" : "flow";
   if (app.length > 0) return app.every((r) => r.assertion.kind === "no-failed-requests" && refusedOnly(r)) ? "environment" : "flow";
-  if (failed.length > 0) return "environment";
+  if (failed.length > 0 || verdict.results.some(r => r.reason === "inconclusive" && r.required)) return "environment";
   return "flow";
 }
 
@@ -324,6 +326,15 @@ async function runHarnessEntry(harness: Harness, task: string, opts: RunHarnessO
 
 async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
   validateSecrets(opts.secrets);
+  const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture, "replay", opts.secrets) : undefined;
+  try {
+    return await runHarnessWithCapture(harness, task, opts, capture);
+  } finally {
+    capture?.finish(opts.signal);
+  }
+}
+
+async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHarnessOptions, capture?: EvidenceCaptureSession): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
@@ -365,7 +376,14 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
     // One capture serves both consumers — and only when someone stores it: a host timeline
     // (`onStep`) or a sink that keeps attachment bytes. Nobody watching = no screenshot taken.
     const wantsShot = opts.captureScreenshots && (opts.onStep !== undefined || opts.trace?.acceptsAttachments === true);
-    const screenshot = wantsShot ? await driver.screenshot().catch(() => undefined) : undefined;
+    let shot: Promise<string | undefined> | undefined;
+    const takeScreenshot = () => shot ??= driver.screenshot().catch(() => undefined);
+    if (capture) {
+      await capture.after(result, driver, opts.signal, wantsShot ? takeScreenshot : undefined);
+      opts.signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+    }
+    const screenshot = wantsShot ? await takeScreenshot() : undefined;
     // `result.step`, not `step` — a healed step is recorded as what actually ran. The `attachment`
     // ref is stamped by the Tracer from this event's `seq`; the bytes go to the sink, not the payload.
     opts.trace?.emit(
@@ -386,9 +404,10 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
   // Auto-wait for network idle so evidence captures late subresources, not a race (design §3).
   await driver.settle();
 
-  const observed = await driver.observe();
+  const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId, ...observed } = await driver.observe();
   const evidence: Evidence = {
     ...observed,
+    ...(capture ? { checkpoints: capture.finish(), captureRunId: capture.runId } : {}),
     execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
   };
 

@@ -8,14 +8,15 @@
  */
 import { PerceptionObservation } from "../observation.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
-import { withBudget, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
 import { identifyScenario } from "../contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
-import type { Driver, LlmClient, PerceptionAdapter } from "../ports.js";
+import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
+import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, type PageGuidance } from "../page-guidance.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
-import { discoverSystem, buildPrompt, REFERENCE_REJECTION } from "./prompt.js";
+import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
@@ -60,6 +61,9 @@ export interface DiscoverOptions extends BudgetOptions {
   /** Correct perceived element state for widgets that expose it outside a11y, before the model sees
    * the page (a11y-native perception seam). Absent → the raw snapshot is used, unchanged. */
   perceive?: PerceptionAdapter;
+  /** Host advice for each decision observation (spec/core/page-guidance.md). Absent → unchanged.
+   * Never reaches assertion proposals, judgment, provenance or a frozen scenario. */
+  pageGuidance?: PageGuidanceProvider;
   /** Values for `{name}` placeholders the model types (from the intent, e.g. "log in as {user} / {password}"):
    * the driver gets the value, the freeze keeps the placeholder (#174). */
   secrets?: Secrets;
@@ -74,7 +78,11 @@ export interface DiscoverOptions extends BudgetOptions {
  * the policy will allow, and each retry costs a full LLM call for zero steps (#77). */
 const MAX_CONSECUTIVE_BLOCKS = 3;
 
-export async function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+export function discover(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+  return withWorkflowEntry(opts, () => discoverEntry(intent, opts));
+}
+
+async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   try {
     return await withBudget(opts, opts.tracePhase === "heal" ? "outcome-heal" : "discover", (options, scope) =>
       discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));
@@ -88,8 +96,9 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
   validateSecrets(opts.secrets);
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
-  const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets } = opts;
+  const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
+  const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", reason } });
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
@@ -194,6 +203,8 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
   for (let i = 0; i < maxSteps; i++) {
     signal?.throwIfAborted();
     await driver.settle();
+    // A guided decision needs this observation's own URL, not the one lagging an action behind.
+    const observedUrl = pageGuidance ? (await driver.observe()).execution.finalUrl : undefined;
     const scrollBefore = await readPolicyScroll(policy, driver);
     const raw = await driver.snapshot({ perception: true });
     const scrollAfter = await readPolicyScroll(policy, driver);
@@ -219,10 +230,15 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
     if (policy?.stop?.(steps, ctx)) return finish(false);
     if (policy?.incomplete?.()?.halt) return finish(true);
     const render = page.render;
-    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.references);
+    const capturedState = pageGuidance ? pageGuidanceState(raw) : undefined;
+    const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
+      purpose: "discover", page, url: observedUrl, secrets, signal, scope: opts[budgetScope], gate: guidanceGate });
+    // The prompt's page line must name the page the guidance was written for.
+    if (guidance) currentUrl = observedUrl ?? currentUrl;
+    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.references, guidance?.text);
     page.tracePrepared(trace, "discover", tracePhase);
     const reply = await llm.complete(prompt, {
-      system: discoverSystem(Boolean(page.references)),
+      system: discoverSystem(Boolean(page.references)) + (guidance ? PAGE_GUIDANCE_RULES : ""),
     });
 
     let decision: Decision;
@@ -256,6 +272,17 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
       continue;
     }
 
+    if (guidance) {
+      signal?.throwIfAborted();
+      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined);
+      signal?.throwIfAborted();
+      if (invalidation) {
+        guidanceGate(invalidation);
+        pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+        continue;
+      }
+    }
+
     if (decision.action === "done") {
       // The model's own end-of-flow decision is trace-visible too — without it, a stream can't
       // tell "model finished" apart from a policy stop (spec/core/trace.md addendum).
@@ -265,7 +292,9 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
         payload: { done: true, ok: !policy?.incomplete?.(), intent: decision.reason?.trim() || undefined },
       });
       onStep?.(decision);
-      return finish(Boolean(policy?.incomplete?.()), decision.assertions ?? []);
+      // Checks are authored only by the unguided proposal call.
+      if (guidance && decision.assertions?.length) guidanceGate("page guidance: assertions proposed in a guided decision were not used");
+      return finish(Boolean(policy?.incomplete?.()), guidance ? [] : decision.assertions ?? []);
     }
 
     // Ambiguity gate (#127): a duplicated name without nth never reaches the driver — the loop
@@ -285,6 +314,13 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
 
     try {
       const beforeObs = await driver.observe();
+      // Guidance cannot carry a decision onto a page other than the one it was written for.
+      if (guidance && beforeObs.execution.finalUrl !== guidance.url) {
+        guidanceGate("page guidance expired: the page URL changed after the guided observation");
+        pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+        onStep?.(decision);
+        continue;
+      }
       currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
       // vet is a recorded rejection, not a lost discovery. A rejected action never executes.

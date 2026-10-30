@@ -8,6 +8,7 @@ import { stepError } from "./errors.js";
 import type { TargetCandidate } from "./target-choice.js";
 import { candidateCounts, type SelectionDiagnostic, type SelectionSummary } from "./selection-diagnostics.js";
 import type { TraceScope, TracePhase } from "./trace.js";
+import { validateCollectionTarget } from "./collection.js";
 
 let generation = 0;
 const current = new WeakMap<Driver, PerceptionObservation>();
@@ -34,6 +35,8 @@ export class PerceptionObservation {
   private decisionAttempt = 0;
   private readonly selection?: SelectionSummary;
   private readonly table = new Map<string, { element: PageElement; nth?: number }>();
+  /** The rows of `render`, in order, with full-snapshot duplicate ordinals. */
+  readonly listed: readonly { element: PageElement; nth?: number }[];
 
   constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT, diagnostics = false) {
     current.set(driver, this);
@@ -60,6 +63,7 @@ export class PerceptionObservation {
     const { elements: ranked, omittedCount, diagnostics: selected } = selectElements(perceived, intent, limit, diagnostics);
     if (selected) this.selection = { raw: candidateCounts(raw), perceived: candidateCounts(perceived), ...selected };
     this.omittedCount = omittedCount;
+    this.listed = ranked.map(element => ({ element, nth: ordinals.get(element) }));
     const body = renderElements(ranked, ordinals);
     const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
     this.render = body + omitted;
@@ -141,6 +145,7 @@ export function decisionReference(driver: Driver, decision: Decision, consume = 
 
 /** Explicit allowlist: runtime handles and extension fields cannot enter a frozen target. */
 export function persistentTarget(target: Target): Target {
+  if ("collection" in target) return { collection: validateCollectionTarget(target) };
   const out: Target = {};
   for (const key of ["text", "role", "selector"] as const) if (typeof target[key] === "string" && target[key]) out[key] = target[key];
   for (const key of ["index", "nth"] as const) if (typeof target[key] === "number" && Number.isInteger(target[key]) && target[key]! >= 0) out[key] = target[key];

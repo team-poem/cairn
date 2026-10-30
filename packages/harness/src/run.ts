@@ -4,7 +4,7 @@
  * `heal` needs one, so a plain mechanical replay stays deterministic (invariant #4).
  */
 import { reanchorScenario, validateReplayEntry } from "./core/replay-environment.js";
-import { withBudget, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
+import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
 import type { ReplayEnvironment } from "./core/replay-environment.js";
 import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
@@ -34,6 +34,7 @@ import type { TargetChoicePilot } from "./core/target-choice.js";
 import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
+import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -156,11 +157,15 @@ export function applyStepHeals(scenario: Scenario, heals: StepHeal[]): Scenario 
   return { ...scenario, steps: scenario.steps.map((step, i) => byIndex.get(i) ?? step) };
 }
 
-export async function runScenario(
+export function runScenario(
   scenario: Scenario,
   opts: RunScenarioOptions = {},
 ): Promise<RunScenarioResult> {
-  const controlled = opts.budget !== undefined || opts[budgetScope] !== undefined;
+  return withWorkflowEntry(opts, () => runScenarioEntry(scenario, opts));
+}
+
+async function runScenarioEntry(scenario: Scenario, opts: RunScenarioOptions): Promise<RunScenarioResult> {
+  const controlled = opts.budget !== undefined || opts[budgetScope] !== undefined || opts.workflow !== undefined;
   if (!controlled) return runScenarioWithinBudget(scenario, opts);
   const tracer = !opts.traceScope && opts.trace ? startTrace(opts.trace, ENGINE_VERSION) : undefined;
   const scope = opts.traceScope ?? tracer?.scope(scenario.name);
@@ -191,6 +196,8 @@ export async function runScenario(
     const result = budgetResult(scenario.name, error);
     scope?.emit({ kind: "budget-exhausted", payload: error.budget });
     output = { result, heals: [], stepHeals: [] };
+    // A borrowed run closes its own trace, then leaves the stop result to the workflow owner.
+    if (opts.workflow) { end(output); throw error; }
   }
   end(output);
   await (opts.reporter ?? new ConsoleReporter()).emit(output.result);
@@ -201,6 +208,10 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   const budget = opts[budgetScope];
   const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
+  // Copy declarations before the first asynchronous boundary; callers own the source artifact.
+  scenario = { ...scenario, steps: scenario.steps.map(step => isCollectionStep(step) && "target" in step
+    ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  const hasCollection = scenario.steps.some(isCollectionStep);
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
@@ -214,7 +225,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   // a run that never constructs the LLM reports llmCalls: 0 — the deterministic-replay proof.
   let meter: UsageMeter | undefined;
   const getLlm = (): LlmClient =>
-    (meter ??= new UsageMeter(opts.llm ?? createLlmClient(opts.model ? { model: opts.model } : {})));
+    (meter ??= new UsageMeter((opts.llm && budget ? budget.unwrap(opts.llm) : opts.llm) ?? createLlmClient(opts.model ? { model: opts.model } : {})));
   let choiceUsage: RunUsage | undefined;
   const usage = (): RunUsage => {
     const result = meter?.snapshot() ?? emptyUsage();
@@ -371,6 +382,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
     // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
     const healable =
+      !hasCollection &&
       result.verdict.failure !== "environment" && result.verdict.failure !== "budget" &&
       (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
     if (opts.heal && !result.verdict.passed && healable) {
@@ -481,7 +493,9 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
     // operator reads "heal did nothing" as "heal found nothing".
     const skipped = opts.heal && !result.verdict.passed && !healable && result.verdict.failure !== "budget";
-    const why = result.verdict.results.some(r => r.reason === "inconclusive")
+    const why = hasCollection
+      ? "outcome-heal skipped: explicit collection positions must be re-authored, not re-discovered automatically"
+      : result.verdict.results.some(r => r.reason === "inconclusive")
       ? "outcome-heal skipped: no failed goal to repair; some checks could not be judged"
       : "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
     const final = skipped

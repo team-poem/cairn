@@ -110,6 +110,27 @@ cancels supported model transports, but an already dispatched browser action can
 Non-cancellable operations are awaited, then their late result is rejected; this is not a hard
 wall-clock kill switch. Hidden model calls in custom host hooks are outside the count.
 
+To hold separate calls and your own verification to one allowance, own it with `runWorkflow`
+(also exported from `cairn-engine/browser`) and lend it out:
+
+```ts
+const outcome = await runWorkflow({ budget: { maxModelCalls: 10, timeoutMs: 60_000 } }, async workflow => {
+  await runScenario(setup, { workflow: workflow.borrow('prepare'), driver });
+  await discover(intent, { workflow: workflow.borrow('main'), driver, llm });
+  const verify = workflow.borrow('verify');
+  return verify.llm(llm).complete(question); // host work counts only through a lease
+});
+if (outcome.status === 'exhausted') console.log(outcome.participant, outcome.budget);
+```
+
+One lease per engine call. A borrowed call omits `budget` and `signal`, and throws
+`BudgetExceededError` when the shared allowance runs out. The workflow then resolves to
+`status: 'exhausted'` only after all admitted work has settled.
+
+You can wrap an engine call in `lease.operation` with that same lease. The engine waits for its
+own operations, and the workflow waits for the enclosing host operation too. If a host callback
+starts lease work without awaiting it, the workflow still waits for that work before returning.
+
 Run `npm run build && node examples/run-budget.mjs` from the repository for a real-browser,
 scripted-model example: discovery consumes three calls, then a changed control needs a fourth
 to repair. See the [budget contract](../spec/core/run-budget.md) for boundaries and limitations.
@@ -158,6 +179,42 @@ if (healedScenario) {
 }
 if (!result.verdict.passed) process.exit(1) // a deterministic gate for CI
 ```
+
+### Run-relative collection positions
+
+To select the current first result on **each** replay, author an explicit collection target.
+This is different from `nth`, which addresses duplicate accessible names, and from reopening a
+particular resource. Ordinary natural-language discovery does not infer this opt-in contract.
+
+```ts
+import type { Step } from "cairn-engine";
+
+const firstResult = {
+  kind: "click",
+  target: {
+    collection: {
+      root: { role: "list", name: "Search results" },
+      itemRole: "listitem",
+      target: { role: "link" },
+      order: "dom",
+      index: 0,
+      expectedCount: 3,
+      conditions: [{ control: { role: "textbox", name: "Search" }, value: "books" }],
+    },
+  },
+} satisfies Step;
+```
+
+Put this step in a host-authored Scenario and use `runScenario` or `runHarness`. Keep separate
+assertions for arrival and the business goal: selecting a row is not proof of success.
+The Chrome adapter requires positive coverage from ARIA position/total metadata or an explicitly
+declared total, and refuses partial/ambiguous lists. `expectedCount` is a checked prerequisite,
+not permission to assume a visible window is the whole dataset. Changed order before dispatch
+fails rather than choosing a neighbor. Collection steps are not automatically healed, and
+scenarios containing them do not use outcome rediscovery. Chrome collection `select` support is
+limited to native controls; custom popups are refused before opening. See the
+[collection contract](../spec/core/collection-selection.md) for supported lists, adapter wiring
+and persistence limits. Healthy mechanical replay still uses zero model calls.
 
 ### Optional app knowledge
 

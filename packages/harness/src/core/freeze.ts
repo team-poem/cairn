@@ -8,6 +8,7 @@
 import { proofOf } from "./pipeline.js";
 import type { Scenario, Step, Target } from "./types.js";
 import type { TraceEvent } from "./trace.js";
+import { validateCollectionTarget } from "./collection.js";
 
 export interface TargetScore {
   /** 0..1 estimate of how well the target survives UI change. */
@@ -25,6 +26,11 @@ const NONE = 0; // nothing to locate by
 
 /** Score how well a single frozen target survives UI change. */
 export function scoreTarget(target: Target): TargetScore {
+  if ("collection" in target) {
+    try { validateCollectionTarget(target); }
+    catch { return { score: NONE, weak: true, reason: "invalid collection declaration" }; }
+    return { score: RESILIENT, weak: false, reason: "explicit collection position — reselected each run, not fixed-resource identity" };
+  }
   if (target.selector) {
     return { score: SELECTOR, weak: false, reason: "selector — stable across UI change" };
   }

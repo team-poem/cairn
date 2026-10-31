@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.13**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.14**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.13", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.14", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -170,6 +170,10 @@ two gate values and one phase value; the envelope is unchanged.
 ## Versioning — header `major.minor`
 
 Version 1.13 adds `gate: page-guidance` with fixed reasons. See [page guidance](page-guidance.md#trace).
+
+Version 1.14 adds optional `required: true` to assertion payloads. An inconclusive required check
+prevents green; optional inconclusive checks retain their existing semantics. Intermediate capture
+records and bytes are not automatically emitted to this stream; see [evidence capture](evidence-capture.md).
 
 Version 1.11 adds `selection`, a content-free prepared decision-input summary. See below.
 

@@ -6,7 +6,7 @@ import { findRequestStatus, isBenignRequest, isRecoveredFailure, urlMatchesFroze
 import { unrecognizedLeadingSegment, urlReached } from "../../core/steps.js";
 
 /** A product-defined check for a `{ kind: "custom", name }` assertion — the host decides what success means. */
-export type CustomCheckResult = boolean | { passed: boolean; detail?: string } | { inconclusive: true; detail: string };
+export type CustomCheckResult = boolean | { passed: boolean; detail?: string } | { inconclusive: true; detail: string; required?: true };
 
 export type CustomCheck = (
   params: Record<string, unknown>,
@@ -121,7 +121,7 @@ export class CustomAssertionHandler implements AssertionHandler {
     if (!check) return { assertion, passed: false, detail: `no custom check registered for "${assertion.name}"`, reason: "no-handler" };
     const r = await check(assertion.params ?? {}, evidence);
     if (typeof r === "object" && "inconclusive" in r && r.inconclusive === true)
-      return { assertion, passed: false, reason: "inconclusive", detail: r.detail };
+      return { assertion, passed: false, reason: "inconclusive", detail: r.detail, ...(r.required ? { required: true } : {}) };
     return typeof r === "boolean" ? { assertion, passed: r } : { assertion, passed: "passed" in r && r.passed, detail: r.detail };
   }
 }
@@ -151,7 +151,7 @@ export function toVerdict(results: AssertionResult[]): Verdict {
         : "every assertion was already satisfied before the flow ran — the scenario cannot detect a broken flow",
     };
   }
-  return { passed: judged.every((r) => r.passed), results };
+  return { passed: judged.every((r) => r.passed) && !results.some(r => r.reason === "inconclusive" && r.required), results };
 }
 
 /** Route one assertion to the first handler that supports it (mirror of the Execute-stage step dispatch). */

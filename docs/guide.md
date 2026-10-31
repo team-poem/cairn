@@ -397,6 +397,41 @@ fails closed (CLI exit 3). Repairs with inconclusive checks are not offered for 
 Consumers should display this reason separately from pass and fail, even though the
 result's `passed` field is false.
 
+For **required** evidence, return `{ inconclusive: true, required: true, detail }`. Missing required
+evidence prevents green even when other checks pass; it is unconfirmed, not an observed app failure.
+
+## Intermediate evidence checkpoints
+
+Use `evidenceCapture` to read a selected intermediate screen before the next action replaces it.
+The engine awaits the read; an async `onStep` callback does not provide this guarantee.
+
+```ts
+import { checkpointEvidence, runScenario, type Step } from "cairn-engine";
+
+const editorPath = scenario.steps.slice(0, 2); // bind to this frozen path, not a previous run's index
+// Persist this custom assertion in scenario.assertions:
+// { kind: "custom", name: "editor", params: { after: editorPath } }
+const outcome = await runScenario(scenario, {
+  evidenceCapture: { checkpoints: [{ id: "editor", after: editorPath, elements: true }] },
+  judgmentKey: "editor-check-v1",
+  custom: {
+    async editor(params, evidence) {
+      const record = await checkpointEvidence(evidence, { id: "editor", after: params.after as Step[] });
+      if (!record?.elements)
+        return { inconclusive: true, required: true, detail: "Editor evidence unavailable" };
+      return record.elements.some(el => el.role === "heading" && el.name === "Editor");
+    },
+  },
+});
+```
+
+Capture settings are runtime-only; required checkpoint semantics belong in assertion params and
+the custom check's `judgmentKey`. Edited/healed paths must be rebound explicitly. Reads default to
+a 2-second acceptance deadline and drain in-flight driver calls before advancing; they cannot
+interrupt an unresponsive driver. `complete` means requested reads completed, not complete DOM
+coverage or continuous validity. Values are omitted by default; screenshot pixels are not
+automatically redacted. [Boundary, lifecycle and privacy details](../spec/core/evidence-capture.md).
+
 ## Secrets
 
 A `type` step's text can carry `{name}` placeholders. The run fills them for the driver and the skill keeps the placeholder, so a discovered login never commits the password:

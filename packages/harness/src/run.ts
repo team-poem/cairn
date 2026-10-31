@@ -35,6 +35,7 @@ import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
 import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
+import type { EvidenceCaptureOptions, EvidenceCheckpointRecord } from "./core/evidence-capture.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -74,6 +75,7 @@ export interface RunScenarioOptions extends BudgetOptions {
   /** Capture a screenshot after each step — delivered to `onStep`, and stored as a trace
    * attachment when the sink keeps bytes (#160). Nothing to store it → nothing is captured. */
   screenshots?: boolean;
+  evidenceCapture?: EvidenceCaptureOptions;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
@@ -357,6 +359,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         } : opts.onStep,
         // The internal choice-confirmation callback does not consume screenshot bytes.
         captureScreenshots: opts.screenshots && (opts.onStep !== undefined || scope?.acceptsAttachments === true),
+        evidenceCapture: opts.evidenceCapture,
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
@@ -392,7 +395,12 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const sinceRequest = before.logic.requests.length;
       const sinceConsole = before.logic.console.length;
 
+      const repairCaptures: EvidenceCheckpointRecord[] = [];
       const repaired = await discover(scenario.name, {
+        evidenceCapture: opts.evidenceCapture ? { ...opts.evidenceCapture, onCapture: record => {
+          repairCaptures.push(structuredClone(record));
+          return opts.evidenceCapture?.onCapture?.(record);
+        } } : undefined,
         [budgetScope]: budget,
         driver: baseDriver,
         llm: repairLlm,
@@ -414,9 +422,10 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const ctx = budget
         ? await budget.operation("context.provide", () => context.provide(scenario.name))
         : await context.provide(scenario.name);
-      const observed = await baseDriver.observe();
+      const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId, ...observed } = await baseDriver.observe();
       const evidence = {
         ...observed,
+        ...(opts.evidenceCapture ? { checkpoints: repairCaptures, captureRunId: repairCaptures[0]?.runId } : {}),
         logic: {
           requests: observed.logic.requests.slice(sinceRequest),
           console: observed.logic.console.slice(sinceConsole),

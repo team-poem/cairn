@@ -8,6 +8,8 @@
  * `expect`, a fetch-based `LlmClient` (`AnthropicLlmClient`). Same core, different hands.
  */
 export * from "./core/types.js";
+export type { EvidenceCaptureOptions, EvidenceCheckpoint, EvidenceCheckpointRecord, CapturePhase, CaptureStatus } from "./core/evidence-capture.js";
+export { sameCapturePath, checkpointEvidence } from "./core/evidence-capture.js";
 export { CollectionSelectionError, validateCollectionTarget } from "./core/collection.js";
 export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";

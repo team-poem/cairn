@@ -263,6 +263,9 @@ export interface NetworkRequest {
  * looked right"); perception (screenshots) feeds the host's visual replay and is available to custom
  * checks — built-in critics don't judge it yet (LLM-vision assertions are future). */
 export interface Evidence {
+  /** Run-local intermediate reads. Never reused as final-page evidence or persisted in Scenario. */
+  checkpoints?: import("./evidence-capture.js").EvidenceCheckpointRecord[];
+  captureRunId?: string;
   execution: {
     actions: ExecutedAction[];
     navigated: boolean;
@@ -302,6 +305,8 @@ export interface ConsoleMessage {
 }
 
 export interface AssertionResult {
+  /** A required custom check could not be confirmed; another passing check cannot cover it. */
+  required?: true;
   assertion: Assertion;
   passed: boolean;
   detail?: string;

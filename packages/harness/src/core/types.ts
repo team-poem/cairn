@@ -230,15 +230,8 @@ export interface PageElement {
 }
 
 /** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */
-export interface StepProgress {
+export interface StepProgress extends ExecutedAction {
   index: number;
-  step: Step;
-  ok: boolean;
-  error?: string;
-  /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
-  skipped?: boolean;
-  /** Typed cause of `error`, when the thrower said (#212). */
-  errorKind?: StepErrorKind;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -288,6 +281,7 @@ export interface Evidence {
 export type StepErrorKind = "resolution" | "post-condition" | "timeout" | "transport" | "handler";
 
 export interface ExecutedAction {
+  /** The step that ran: a successful StepHealer replacement, not the planned step it replaced. */
   step: Step;
   ok: boolean;
   error?: string;

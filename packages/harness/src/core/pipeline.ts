@@ -183,12 +183,13 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive" && !GUARD_KINDS.has(r.assertion.kind));
 }
 
-export type RediscoveryIneligibleReason = "passed" | "budget" | "collection-position" | "environment" | "no-goal-failure";
+export type RediscoveryIneligibleReason = "passed" | "budget" | "collection-position" | "environment" | "inconclusive" | "no-goal-failure";
 export type RediscoveryEligibility = { eligible: true } | { eligible: false; reason: RediscoveryIneligibleReason };
 
 /**
  * Whether a replay result may be repaired by re-discovering the scenario (#326), the same decision
- * `runScenario` makes before its outcome-heal. Pure: no driver or model work. Eligible is not
+ * `runScenario` makes before its outcome-heal. When several reasons apply, the first in the order
+ * passed, budget, collection-position, environment, inconclusive, no-goal-failure is returned. Pure: no driver or model work. Eligible is not
  * permission to dispatch (opt-in, cancellation and budget still apply) and not acceptance (a
  * re-discovery is still judged by `finalizeVerdict`). A host may add its own conditions on top.
  */
@@ -200,8 +201,9 @@ export function rediscoveryEligibility(scenario: Pick<Scenario, "steps">, result
   if (scenario.steps.some(isCollectionStep)) return { eligible: false, reason: "collection-position" };
   // A missing secret or dead browser is not something a new path can supply (#173).
   if (verdict.failure === "environment") return { eligible: false, reason: "environment" };
-  // Guards alone are the app's health, not the path (#186).
-  if (!result.evidence.execution.blocked && goalFailures(verdict).length === 0) return { eligible: false, reason: "no-goal-failure" };
+  // Guards alone are the app's health, not the path (#186); an unjudged check is not a failed goal.
+  if (!result.evidence.execution.blocked && goalFailures(verdict).length === 0)
+    return { eligible: false, reason: verdict.results.some(r => r.reason === "inconclusive") ? "inconclusive" : "no-goal-failure" };
   return { eligible: true };
 }
 

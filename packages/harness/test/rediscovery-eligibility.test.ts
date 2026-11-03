@@ -1,7 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { FakeDriver } from "../src/adapters/drivers/fake.js";
+import { runScenario } from "../src/run.js";
 import * as node from "../src/index.js";
 import * as browser from "../src/browser.js";
-import type { AssertionResult, Result, Scenario, Verdict } from "../src/index.js";
+import type { Assertion, AssertionResult, Evidence, Result, Scenario, Verdict } from "../src/index.js";
 
 const ordinary: Scenario = {
   name: "checkout",
@@ -54,6 +56,38 @@ describe.each([
 
   it("rejects guard-only and inconclusive-only failures without a blocked step", () => {
     expect(decide(ordinary, run({ results: [guard] }))).toEqual({ eligible: false, reason: "no-goal-failure" });
-    expect(decide(ordinary, run({ results: [inconclusive, guard] }))).toEqual({ eligible: false, reason: "no-goal-failure" });
+    expect(decide(ordinary, run({ results: [inconclusive, guard] }))).toEqual({ eligible: false, reason: "inconclusive" });
+  });
+
+  it("reports the collection position before an environment failure", () => {
+    expect(decide(positional, run({ results: [goal], failure: "environment" }, true))).toEqual({ eligible: false, reason: "collection-position" });
+  });
+});
+
+describe("runScenario explains a skipped outcome-heal by its eligibility reason", () => {
+  const arrival: Assertion = { kind: "navigated", to: "https://app/done" };
+  const evidence = (status: number): Evidence => ({
+    execution: { actions: [], navigated: true, finalUrl: "https://app/done", blocked: false },
+    perception: {}, logic: { requests: [{ method: "GET", url: "https://app/api", status }], console: [] },
+  });
+  const heal = async (assertions: Assertion[], status = 200) => {
+    const complete = vi.fn(async () => JSON.stringify({ action: "done" }));
+    const { result } = await runScenario({ name: "skip", steps: [], assertions }, {
+      driver: new FakeDriver({ evidence: evidence(status) }), heal: true,
+      custom: { session: () => ({ inconclusive: true, detail: "No session evidence" }) },
+      llm: { id: "scripted", complete }, reporter: { emit: async () => {} },
+    });
+    expect(complete).not.toHaveBeenCalled();
+    return result.verdict.detail;
+  };
+
+  it("names unjudged checks when nothing failed but some could not be judged", async () => {
+    expect(await heal([{ kind: "custom", name: "session" }]))
+      .toMatch(/(^|; )outcome-heal skipped: no failed goal to repair; some checks could not be judged$/);
+  });
+
+  it("names the app-health guards when only they failed", async () => {
+    expect(await heal([arrival, { kind: "no-failed-requests" }], 500))
+      .toMatch(/(^|; )outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those$/);
   });
 });

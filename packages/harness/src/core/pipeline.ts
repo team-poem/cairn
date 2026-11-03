@@ -396,7 +396,7 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
       screenshot,
     );
     if (opts.onStep) {
-      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, errorKind: result.errorKind, skipped: result.skipped, screenshot });
+      opts.onStep({ index: actions.length - 1, step: result.step, ok: result.ok, error: result.error, errorKind: result.errorKind, skipped: result.skipped, screenshot });
     }
     if (!result.ok) break;
   }

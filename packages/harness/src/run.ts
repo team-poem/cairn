@@ -354,6 +354,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         judgment,
         signal: opts.signal,
         onStep: opts.targetChoice ? progress => {
+          // `progress.step` is a StepHealer replacement only when heal is on, which targetChoice excludes.
           if ("target" in progress.step) healer?.confirmChoice(progress.step.target, progress.ok && !progress.skipped);
           opts.onStep?.(progress);
         } : opts.onStep,

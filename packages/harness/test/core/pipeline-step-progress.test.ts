@@ -25,7 +25,7 @@ async function replay(driver: StubDriver, steps: Step[], stepHealer?: StepHealer
   expect(progress.map((p) => p.index)).toEqual(actions.map((_, i) => i));
   expect(traced.map((t) => t.stepRef)).toEqual(actions.map((_, i) => i));
   actions.forEach((action, i) => {
-    expect(progress[i]).toMatchObject({ step: action.step, ok: action.ok, skipped: action.skipped });
+    expect(progress[i]).toEqual({ ...action, index: i, screenshot: undefined });
     expect(traced[i]).toMatchObject({ step: action.step, ok: action.ok, skipped: action.skipped });
   });
   return { result, progress };

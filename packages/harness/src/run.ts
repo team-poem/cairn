@@ -36,6 +36,7 @@ import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
 import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
 import type { EvidenceCaptureOptions, EvidenceCheckpointRecord } from "./core/evidence-capture.js";
+import type { SelectedItemEvidenceOptions } from "./core/selected-item-evidence.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -76,6 +77,7 @@ export interface RunScenarioOptions extends BudgetOptions {
    * attachment when the sink keeps bytes (#160). Nothing to store it → nothing is captured. */
   screenshots?: boolean;
   evidenceCapture?: EvidenceCaptureOptions;
+  selectedItemEvidence?: SelectedItemEvidenceOptions;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
@@ -210,6 +212,8 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   const budget = opts[budgetScope];
   const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
+  if (opts.selectedItemEvidence?.bindings.length && (opts.heal || opts.targetChoice))
+    throw new Error("selected-item evidence does not support automatic healing or targetChoice; explicitly rebind the repaired path");
   // Copy declarations before the first asynchronous boundary; callers own the source artifact.
   scenario = { ...scenario, steps: scenario.steps.map(step => isCollectionStep(step) && "target" in step
     ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
@@ -361,6 +365,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         // The internal choice-confirmation callback does not consume screenshot bytes.
         captureScreenshots: opts.screenshots && (opts.onStep !== undefined || scope?.acceptsAttachments === true),
         evidenceCapture: opts.evidenceCapture,
+        selectedItemEvidence: opts.selectedItemEvidence,
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
@@ -423,7 +428,8 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const ctx = budget
         ? await budget.operation("context.provide", () => context.provide(scenario.name))
         : await context.provide(scenario.name);
-      const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId, ...observed } = await baseDriver.observe();
+      const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId,
+        selectedItems: _priorSelectedItems, selectedItemRunId: _priorSelectedItemRunId, ...observed } = await baseDriver.observe();
       const evidence = {
         ...observed,
         ...(opts.evidenceCapture ? { checkpoints: repairCaptures, captureRunId: repairCaptures[0]?.runId } : {}),

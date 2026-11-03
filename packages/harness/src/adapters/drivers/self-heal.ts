@@ -107,6 +107,9 @@ export class SelfHealingDriver implements Driver {
     this.onHeal = opts.onHeal;
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
     if (typeof inner.observeCollection === "function") this.observeCollection = selection => inner.observeCollection!(selection);
+    // Bound evidence dispatches never enter locator healing or retry a mutation.
+    if (inner.clickWithSelectedItemEvidence) this.clickWithSelectedItemEvidence = (target, ref, source) => inner.clickWithSelectedItemEvidence!(target, ref, source);
+    if (inner.readResourceKey) this.readResourceKey = destination => inner.readResourceKey!(destination);
   }
 
   async goto(url: string): Promise<void> {
@@ -115,6 +118,8 @@ export class SelfHealingDriver implements Driver {
 
   locateRef?: (ref: string) => Promise<Target>;
   observeCollection?: Driver["observeCollection"];
+  clickWithSelectedItemEvidence?: Driver["clickWithSelectedItemEvidence"];
+  readResourceKey?: Driver["readResourceKey"];
 
   async click(target: Target, ref?: string): Promise<void> {
     return this.act(target, ref, "click", (t, r) => this.inner.click(t, r));

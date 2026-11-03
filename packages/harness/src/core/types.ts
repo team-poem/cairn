@@ -256,6 +256,9 @@ export interface NetworkRequest {
  * looked right"); perception (screenshots) feeds the host's visual replay and is available to custom
  * checks — built-in critics don't judge it yet (LLM-vision assertions are future). */
 export interface Evidence {
+  /** Run-local relation results only; raw selected/destination keys are not exported. */
+  selectedItems?: import("./selected-item-evidence.js").SelectedItemEvidenceRecord[];
+  selectedItemRunId?: string;
   /** Run-local intermediate reads. Never reused as final-page evidence or persisted in Scenario. */
   checkpoints?: import("./evidence-capture.js").EvidenceCheckpointRecord[];
   captureRunId?: string;

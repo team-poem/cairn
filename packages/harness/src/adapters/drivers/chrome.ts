@@ -7,6 +7,8 @@
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { ChromeCollectionObservation, collectionRows } from "./chrome-collection.js";
+import { resourceKeyScript } from "./chrome-selected-item.js";
+import type { DestinationResourceKey, ResourceKeyObservation, SelectedItemKey } from "../../core/selected-item-evidence.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { ChromeHostRoots } from "./chrome-host-roots.js";
 import { stripVirtualAXRows } from "./chrome-ax.js";
@@ -208,7 +210,7 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   /** If the last action opened a new tab, switch to it — else later actions silently hit the wrong page. */
-  private async followNewTab(): Promise<void> {
+  private async followNewTab(): Promise<boolean | undefined> {
     try {
       const pages = await this.call("list_pages");
       const entries = parsePageEntries(pages);
@@ -216,12 +218,16 @@ export class ChromeDevToolsDriver implements Driver {
       // An unavailable observation must not prevent following the actual user action.
       await this.collectNetwork(pages).catch(() => {});
       const followable = followableTab(entries, this.seenPages);
+      const hasNewPage = entries.some(entry => !this.seenPages.has(entry.id));
       entries.forEach((e) => this.seenPages.add(e.id));
       if (followable !== undefined) {
         this.invalidateObservation();
         await this.call("select_page", { pageId: followable });
         this.snapshotCache = undefined; // different tab → different DOM
+        return true;
       }
+      // A popup shell is not ready to follow, but it is still outside same-document evidence.
+      return hasNewPage ? true : /^\s*\d+:[^\n]*\[selected\]\s*$/m.test(pages) ? false : undefined;
     } catch {
       /* best-effort */
     }
@@ -369,6 +375,43 @@ export class ChromeDevToolsDriver implements Driver {
     await this.callAccepting("click", { uid }, collection);
   }
 
+  /** Same-document evidence only. A missing receipt never retries or replaces the click. */
+  async clickWithSelectedItemEvidence(target: Target, ref: string, source: SelectedItemKey): Promise<ResourceKeyObservation> {
+    const uid = await this.actionUid(target, ref);
+    const collection = this.collectionObservations.get(ref);
+    if (!collection) throw new CollectionSelectionError("unsupported", "selected-item evidence requires a collection reference");
+    // Hosts can attach to an already loaded page without calling goto(). Establish the
+    // pre-click tab set so an existing tab is not mistaken for the click's popup.
+    const pagesBefore = await this.call("list_pages").catch(() => "");
+    const entriesBefore = parsePageEntries(pagesBefore);
+    const sourceId = pagesBefore.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
+    const knownSource = sourceId !== undefined && entriesBefore.some(entry => entry.id === Number(sourceId));
+    if (knownSource) entriesBefore.forEach(entry => this.seenPages.add(entry.id));
+    const receipt = await collection.prepareSelectedItemKey(uid, source);
+    let observed: ResourceKeyObservation = { complete: false };
+    try {
+      this.invalidateObservation();
+      const changedPage = await this.callAccepting("click", { uid }, collection, async () => {
+        // Read and dispose in the source document before the engine selects a popup.
+        // A full navigation loses its receipt via pagehide and cannot supply evidence.
+        try { observed = await receipt.finish().catch(() => ({ complete: false })); }
+        finally { await receipt.dispose().catch(() => {}); }
+      });
+      // Capturing before tab-following must not turn an unsupported new-tab flow green.
+      return knownSource && changedPage === false ? observed : { complete: false };
+    } finally {
+      await receipt.dispose().catch(() => {});
+    }
+  }
+
+  async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
+    const observed = extractFirstJsonObject(await this.call("evaluate_script", {
+      function: resourceKeyScript(destination, this.opts.hostOwnedRoots?.key),
+    }, "observation")) as ResourceKeyObservation | undefined;
+    return observed?.complete === true && typeof observed.value === "string" && observed.value.trim() && observed.value.length <= 256
+      ? { complete: true, value: observed.value } : { complete: false };
+  }
+
   async doubleClick(target: Target, ref?: string): Promise<void> {
     const uid = await this.actionUid(target, ref);
     const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
@@ -383,7 +426,8 @@ export class ChromeDevToolsDriver implements Driver {
    * (#17). Generic over the action, so a dialog from a click, a form submit (Enter), a select, etc.
    * is handled the same way — no per-verb special-casing.
    */
-  private async callAccepting(name: string, args: Record<string, unknown>, collection?: ChromeCollectionObservation): Promise<void> {
+  private async callAccepting(name: string, args: Record<string, unknown>, collection?: ChromeCollectionObservation,
+    beforeFollow?: () => Promise<void>): Promise<boolean | undefined> {
     if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
     if (collection && typeof args.uid === "string") await collection.validate(args.uid);
     try {
@@ -391,9 +435,12 @@ export class ChromeDevToolsDriver implements Driver {
     } catch (err) {
       if (!isOpenDialog(err)) throw err;
       await this.call("handle_dialog", { action: "accept" });
+    } finally {
+      // Evidence cleanup never dispatches another action and precedes any tab switch.
+      await beforeFollow?.();
     }
     // Any interactive verb can open a tab (Enter submit, select onchange) — not just click (#89).
-    await this.followNewTab();
+    return this.followNewTab();
   }
 
   async hover(target: Target, ref?: string): Promise<void> {

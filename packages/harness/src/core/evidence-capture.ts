@@ -78,6 +78,11 @@ function canonical(value: unknown, parents = new Set<object>(), depth = 0): stri
   return result;
 }
 
+/** Shared strict data boundary for declarative evidence plans. Does not invoke accessors. */
+export function copyEvidenceData<T>(value: T): T {
+  return JSON.parse(canonical(value)) as T;
+}
+
 function actionData(step: Step): Step {
   // Never invoke getters while recording an already executed action. Only metadata is ignored.
   const descriptors = Object.getOwnPropertyDescriptors(step);
@@ -92,6 +97,11 @@ function actionData(step: Step): Step {
 function pathData(path: readonly Step[]): Step[] {
   if (!Array.isArray(path)) throw new Error("evidence capture requires an action prefix");
   return path.map(actionData);
+}
+
+/** Normalize actual action metadata consistently for run-local evidence owners. */
+export function copyCapturePath(path: readonly Step[]): Step[] {
+  return copyEvidenceData(pathData(path));
 }
 
 /** Compare action data, not discovery's subsequently assigned readiness/intent metadata. */

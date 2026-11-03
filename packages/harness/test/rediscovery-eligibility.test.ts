@@ -3,7 +3,7 @@ import { FakeDriver } from "../src/adapters/drivers/fake.js";
 import { runScenario } from "../src/run.js";
 import * as node from "../src/index.js";
 import * as browser from "../src/browser.js";
-import type { Assertion, AssertionResult, Evidence, Result, Scenario, Verdict } from "../src/index.js";
+import type { Assertion, AssertionResult, BudgetExhaustion, Evidence, ExecutedAction, Result, Scenario, Verdict } from "../src/index.js";
 
 const ordinary: Scenario = {
   name: "checkout",
@@ -22,12 +22,15 @@ const goal: AssertionResult = { assertion: { kind: "navigated", to: "shop.co/don
 const guard: AssertionResult = { assertion: { kind: "no-console-errors" }, passed: false };
 const inconclusive: AssertionResult = { assertion: { kind: "navigated", to: "shop.co/done" }, passed: false, reason: "inconclusive" };
 
-function run(verdict: Partial<Verdict>, blocked = false): Pick<Result, "verdict" | "evidence"> {
+function run(verdict: Partial<Verdict>, blocked = false, actions: ExecutedAction[] = []): Pick<Result, "verdict" | "evidence"> {
   return {
     verdict: { passed: false, results: [], ...verdict },
-    evidence: { execution: { actions: [], navigated: true, finalUrl: "https://shop.co/", blocked }, perception: {}, logic: { requests: [], console: [] } },
+    evidence: { execution: { actions, navigated: true, finalUrl: "https://shop.co/", blocked }, perception: {}, logic: { requests: [], console: [] } },
   };
 }
+const stopped = (errorKind: ExecutedAction["errorKind"]): ExecutedAction[] =>
+  [{ step: ordinary.steps[1]!, ok: false, error: "stopped", errorKind }];
+const exhausted: BudgetExhaustion = { limit: "model-calls", configured: { maxModelCalls: 1 }, modelCalls: 1, elapsedMs: 0, phase: "replay" };
 
 describe.each([
   ["cairn-engine", node],
@@ -57,6 +60,17 @@ describe.each([
   it("rejects guard-only and inconclusive-only failures without a blocked step", () => {
     expect(decide(ordinary, run({ results: [guard] }))).toEqual({ eligible: false, reason: "no-goal-failure" });
     expect(decide(ordinary, run({ results: [inconclusive, guard] }))).toEqual({ eligible: false, reason: "inconclusive" });
+  });
+
+  it("classifies a raw critic verdict before deciding", () => {
+    expect(decide(ordinary, run({ results: [goal], budget: exhausted }))).toEqual({ eligible: false, reason: "budget" });
+    expect(decide(ordinary, run({ results: [goal] }, true, stopped("transport")))).toEqual({ eligible: false, reason: "environment" });
+    expect(decide(ordinary, run({ passed: true }, true, stopped("resolution")))).toEqual({ eligible: true });
+  });
+
+  it("keeps the failure class of a finalized verdict", () => {
+    const finalized = node.finalizeVerdict({ passed: false, results: [goal] }, undefined, stopped("transport"));
+    expect(decide(ordinary, run({ ...finalized, failure: "flow" }, true, stopped("transport")))).toEqual({ eligible: true });
   });
 
   it("reports the collection position before an environment failure", () => {

@@ -1,8 +1,8 @@
 import type { Driver } from "./ports.js";
-import type { Evidence, ExecutedAction, Step } from "./types.js";
+import type { CollectionTarget, Evidence, ExecutedAction, Scenario, Step } from "./types.js";
 import { copyCapturePath, copyEvidenceData, sameCapturePath } from "./evidence-capture.js";
 import { hashContractValue } from "./contract.js";
-import { validateCollectionTarget } from "./collection.js";
+import { CollectionSelectionError, resolveChoiceValues, resolveCollectionTarget, SelectionNotDispatchedError, validateCollectionTarget } from "./collection.js";
 import { rethrowBudget } from "./budget.js";
 
 /** Explicit application-owned resource key. Never inferred from a label or URL. */
@@ -44,6 +44,14 @@ export interface SelectedItemEvidenceRecord {
   complete: boolean;
   /** Only a complete comparison has a result. Raw keys stay inside the invocation. */
   equal?: boolean;
+  /** Bounded pre-dispatch selection attempts. No resource values or browser references. */
+  selectionAttempts?: SelectedItemSelectionAttempt[];
+  sourceAttemptId?: string;
+}
+export interface SelectedItemSelectionAttempt {
+  id: string;
+  actionId: string;
+  dispatch: "not-dispatched" | "dispatched" | "unknown";
 }
 
 function fields(value: unknown, allowed: readonly string[]): asserts value is Record<string, unknown> {
@@ -83,6 +91,11 @@ export function validateSelectedItemBinding(value: unknown): SelectedItemBinding
     throw new Error("unsupported selected-item key extraction");
   attribute(source.key.attribute);
   attribute(destination.key.attribute);
+  const choice = click.target.collection.choice;
+  if (choice && (choice.where.some(predicate => typeof predicate.value !== "string")
+    || source.key.kind !== choice.identity.kind || source.key.scope !== choice.identity.scope
+    || source.key.attribute !== choice.identity.attribute))
+    throw new Error("a choice binding requires constant predicates and its declared identity key");
   return row as unknown as SelectedItemBinding;
 }
 
@@ -114,6 +127,14 @@ export async function selectedItemEquals(params: Record<string, unknown>, eviden
       || row.contractFingerprint !== await fingerprint(binding)
       || row.sourceActionId !== `${row.runId}:${binding.source.after.length - 1}`
       || row.destinationActionId !== `${row.runId}:${binding.destination.after.length - 1}`) return unavailable;
+    const source = binding.source.after.at(-1)!;
+    if (source.kind === "click" && source.target.collection?.choice) {
+      const attempts = row.selectionAttempts?.filter(attempt => attempt.actionId === row.sourceActionId);
+      if (!attempts?.length || attempts.length > source.target.collection.choice.maxReselections + 1
+        || attempts.some((attempt, index) => attempt.id !== `${row.sourceActionId}:selection:${index}`
+          || attempt.dispatch !== (index === attempts.length - 1 ? "dispatched" : "not-dispatched"))
+        || row.sourceAttemptId !== attempts.at(-1)?.id) return unavailable;
+    }
     return { passed: row.equal, detail: row.equal ? "destination resource key matches the selected item"
       : "destination resource key differs from the selected item" };
   } catch { return unavailable; }
@@ -127,6 +148,10 @@ interface Pending {
   sourceStatus?: SelectedItemEvidenceRecord["status"];
   dispatched?: boolean;
   done?: boolean;
+}
+
+function captureInterrupted(status: SelectedItemEvidenceRecord["status"]): boolean {
+  return status === "timed-out" || status === "cancelled";
 }
 
 /** Run-local ownership at the existing Execute boundary; never a second action scheduler. */
@@ -152,32 +177,128 @@ export class SelectedItemEvidenceSession {
       contractFingerprint: "", status: "skipped", complete: false } }));
   }
 
-  /** Intercept only the exact built-in collection click; the adapter performs it exactly once. */
+  /** Refuse unsupported authoring before any browser action, including missing persisted intent. */
+  validateScenario(scenario: Pick<Scenario, "steps" | "assertions">): void {
+    for (const [index, step] of scenario.steps.entries()) {
+      if (!("target" in step) || !step.target.collection?.choice) continue;
+      if (step.kind !== "click") throw new CollectionSelectionError("unsupported", "predicate selection supports click steps only");
+      const choice = validateCollectionTarget(step.target).choice!;
+      const prefix = scenario.steps.slice(0, index + 1);
+      const references = choice.where.flatMap(predicate => typeof predicate.value === "string" ? [] : [predicate.value.bindingId]);
+      const point = references.length ? this.pending.find(p => p.binding.id === references[0])
+        : this.pending.find(p => sameCapturePath(p.binding.source.after, prefix));
+      if (!point || (references.length > 0 && (point.binding.source.after.length > index
+        || point.binding.destination.after.length <= index
+        || !sameCapturePath(point.binding.source.after, prefix.slice(0, point.binding.source.after.length))
+        || !sameCapturePath(prefix, point.binding.destination.after.slice(0, prefix.length)))))
+        throw new CollectionSelectionError("invalid", "choice requires a matching source binding or a live earlier binding reference");
+      const persisted = scenario.assertions.some(assertion => assertion.kind === "custom" && assertion.params
+        && sameCapturePath([{ kind: "custom", name: "binding", params: assertion.params }],
+          [{ kind: "custom", name: "binding", params: point.binding as unknown as Record<string, unknown> }]));
+      if (!persisted) throw new CollectionSelectionError("invalid", "choice binding must be persisted in a custom assertion");
+    }
+  }
+
+  /** Intercept the exact source or dependent choice. Only proven non-dispatch permits reselection. */
   driverFor(step: Step, driver: Driver, signal?: AbortSignal): Driver {
-    const point = this.pending.find(p => p.binding.source.after.length === this.path.length + 1);
-    if (!point || this.invalid || !sameCapturePath(point.binding.source.after, [...this.path, step])) return driver;
+    const candidate = this.pending.find(p => p.binding.source.after.length === this.path.length + 1);
+    const point = candidate && !this.invalid && sameCapturePath(candidate.binding.source.after, [...this.path, step]) ? candidate : undefined;
+    const selection = "target" in step && step.target.collection?.choice ? validateCollectionTarget(step.target) : undefined;
+    const choice = selection?.choice;
+    if (!point && !choice) return driver;
+    let dependency: Pending | undefined;
+    const resolveValues = (input: CollectionTarget): readonly string[] => {
+      signal?.throwIfAborted();
+      if (!choice || !selection || this.invalid || step.kind !== "click"
+        || !sameCapturePath([{ kind: "click", target: { collection: input } }], [{ kind: "click", target: { collection: selection } }]))
+        throw new CollectionSelectionError("unsupported", "choice requires a valid replay binding at this action");
+      if (typeof driver.clickWithSelectedItemEvidence !== "function")
+        throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
+      const references = choice.where.flatMap(predicate => typeof predicate.value === "string" ? [] : [predicate.value.bindingId]);
+      if (!references.length) {
+        if (!point || point.binding.source.key.scope !== choice.identity.scope
+          || point.binding.source.key.attribute !== choice.identity.attribute)
+          throw new CollectionSelectionError("invalid", "choice requires its matching source binding");
+      } else {
+        dependency = this.pending.find(p => p.binding.id === references[0]);
+        if (point || !dependency || dependency.done || dependency.key === undefined
+          || dependency.record.status !== "captured" || !dependency.record.sourceActionId
+          || dependency.binding.source.after.length > this.path.length
+          || !sameCapturePath(dependency.binding.source.after, this.path.slice(0, dependency.binding.source.after.length))
+          || !sameCapturePath([...this.path, step], dependency.binding.destination.after.slice(0, this.path.length + 1)))
+          throw new CollectionSelectionError("unsupported", "selected resource is unavailable at this action");
+      }
+      return choice.where.map(predicate => typeof predicate.value === "string" ? predicate.value : dependency!.key!);
+    };
     let calls = 0;
-    return new Proxy({} as Driver, { get: (_target, property) => {
+    const wrapped: Driver = new Proxy({} as Driver, { get: (_target, property) => {
       const inner = driver;
+      if (property === resolveChoiceValues) return resolveValues;
       if (property === "click") return async (target: Parameters<Driver["click"]>[0], ref?: string) => {
         if (++calls > 1) throw new Error("selected-item evidence does not allow a repeated dispatch");
-        point.dispatched = true;
+        if (choice) resolveValues(selection!);
+        if (point) point.dispatched = true;
         if (!ref || typeof inner.clickWithSelectedItemEvidence !== "function") {
-          point.sourceStatus = "unavailable";
+          if (choice) throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
+          point!.sourceStatus = "unavailable";
           return inner.click(target, ref);
         }
         const started = performance.now();
-        // A thrown combined operation can already have mutated the app. Never fall back/retry.
-        try {
-          const observed = await inner.clickWithSelectedItemEvidence(target, ref, copyEvidenceData(point.binding.source.key));
-          point.sourceStatus = signal?.aborted ? "cancelled" : performance.now() - started >= this.timeoutMs ? "timed-out" : "captured";
-          point.provisional = point.sourceStatus === "captured" ? keyOf(observed) : undefined;
-          if (point.provisional === undefined && point.sourceStatus === "captured") point.sourceStatus = "unavailable";
-        } catch (error) { point.sourceStatus = "unavailable"; throw error; }
+        const owner = point ?? dependency!;
+        const interruptCapture = (status: "timed-out" | "cancelled") => {
+          owner.record.status = status;
+          owner.record.complete = false;
+          delete owner.record.equal;
+          if (point) point.sourceStatus = status;
+        };
+        const actionId = `${this.runId}:${this.path.length}`;
+        for (let index = 0; ; index++) {
+          signal?.throwIfAborted();
+          const attempt: SelectedItemSelectionAttempt | undefined = choice ? {
+            id: `${actionId}:selection:${index}`, actionId, dispatch: "unknown",
+          } : undefined;
+          if (attempt) (owner.record.selectionAttempts ??= []).push(attempt);
+          try {
+            const observed = await inner.clickWithSelectedItemEvidence(target, ref, copyEvidenceData(choice?.identity ?? point!.binding.source.key));
+            if (attempt) attempt.dispatch = "dispatched";
+            const status = signal?.aborted ? "cancelled" : performance.now() - started >= this.timeoutMs ? "timed-out" : "captured";
+            if (status !== "captured") interruptCapture(status);
+            const key = status === "captured" ? keyOf(observed) : undefined;
+            if (point) {
+              point.dispatched = true;
+              point.sourceStatus = status === "captured" && key === undefined ? "unavailable" : status;
+              point.provisional = key;
+              if (attempt) point.record.sourceAttemptId = attempt.id;
+            }
+            if (choice && (key === undefined || (dependency && key !== dependency.key)))
+              throw new CollectionSelectionError("incomplete", "selected resource continuity could not be confirmed after dispatch");
+            return;
+          } catch (error) {
+            if (signal?.aborted) interruptCapture("cancelled");
+            if (point) {
+              delete point.provisional;
+              if (!captureInterrupted(owner.record.status)) point.sourceStatus = "unavailable";
+            }
+            if (!(choice && error instanceof SelectionNotDispatchedError && error.ref === ref)) throw error;
+            if (attempt) attempt.dispatch = "not-dispatched";
+            if (point) point.dispatched = false;
+            if (performance.now() - started >= this.timeoutMs) { interruptCapture("timed-out"); throw error; }
+            if (index >= choice.maxReselections) throw error;
+            signal?.throwIfAborted();
+            // Fresh observation only. Never re-run an earlier action or retry an uncertain click.
+            const resolved = await resolveCollectionTarget(wrapped, { collection: selection! });
+            target = resolved.target; ref = resolved.ref;
+            if (performance.now() - started >= this.timeoutMs) {
+              interruptCapture("timed-out");
+              throw new CollectionSelectionError("stale", "selection acceptance deadline expired before dispatch");
+            }
+          }
+        }
       };
       const value: unknown = Reflect.get(inner, property, inner);
       return typeof value === "function" ? value.bind(inner) : value;
     } });
+    return wrapped;
   }
 
   async after(action: ExecutedAction, driver: Driver, signal?: AbortSignal): Promise<void> {
@@ -197,7 +318,7 @@ export class SelectedItemEvidenceSession {
           point.key = point.provisional;
           record.sourceActionId = `${this.runId}:${index}`;
           record.status = point.sourceStatus ?? "unavailable";
-        } else record.status = "unavailable";
+        } else if (!captureInterrupted(record.status)) record.status = "unavailable";
         delete point.provisional;
       }
       if (binding.destination.after.length !== this.path.length) continue;
@@ -225,8 +346,12 @@ export class SelectedItemEvidenceSession {
   finish(signal?: AbortSignal): SelectedItemEvidenceRecord[] {
     for (const point of this.pending) {
       delete point.key; delete point.provisional;
-      if (!point.done) { point.record.status = signal?.aborted ? "cancelled" : "skipped"; point.done = true; }
+      if (!point.done) {
+        if (!captureInterrupted(point.record.status)) point.record.status = signal?.aborted ? "cancelled" : "skipped";
+        point.done = true;
+      }
     }
-    return this.pending.map(p => ({ ...p.record }));
+    return this.pending.map(p => ({ ...p.record,
+      ...(p.record.selectionAttempts ? { selectionAttempts: p.record.selectionAttempts.map(attempt => ({ ...attempt })) } : {}) }));
   }
 }

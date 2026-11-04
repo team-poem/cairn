@@ -165,6 +165,8 @@ export class BuiltinStepHandler implements StepHandler {
     this.signal?.throwIfAborted();
     if (isCollectionStep(step) && "target" in step) {
       if (ref !== undefined) throw new CollectionSelectionError("invalid", "collection declaration cannot borrow an unrelated observation reference");
+      if (step.target.collection?.choice && step.kind !== "click")
+        throw new CollectionSelectionError("unsupported", "predicate selection supports click steps only");
       const resolved = await resolveCollectionTarget(driver, step.target);
       this.signal?.throwIfAborted();
       // Keep the caller's step/frozen declaration intact. The adapter validates this exact ref,

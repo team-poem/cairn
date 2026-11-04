@@ -14,7 +14,7 @@ import { runScenario } from "../src/run.js";
 import { StubDriver } from "./support/doubles.js";
 
 const reporter = { emit: async () => {} };
-const declaration = (): CollectionTarget => ({
+const declaration = (): Extract<CollectionTarget, { index: number }> => ({
   root: { role: "list", name: "Results" }, itemRole: "listitem",
   target: { role: "link", name: "Open" }, order: "dom", index: 0,
 });

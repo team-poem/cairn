@@ -27,9 +27,13 @@ const NONE = 0; // nothing to locate by
 /** Score how well a single frozen target survives UI change. */
 export function scoreTarget(target: Target): TargetScore {
   if ("collection" in target) {
-    try { validateCollectionTarget(target); }
+    try {
+      const collection = validateCollectionTarget(target);
+      return { score: RESILIENT, weak: false, reason: collection.choice
+        ? "explicit predicate choice; eligibility and resource binding are checked each run"
+        : "explicit collection position — reselected each run, not fixed-resource identity" };
+    }
     catch { return { score: NONE, weak: true, reason: "invalid collection declaration" }; }
-    return { score: RESILIENT, weak: false, reason: "explicit collection position — reselected each run, not fixed-resource identity" };
   }
   if (target.selector) {
     return { score: SELECTOR, weak: false, reason: "selector — stable across UI change" };

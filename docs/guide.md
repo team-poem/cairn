@@ -220,6 +220,11 @@ To check that the destination represents the resource actually selected on this 
 [selected-item resource-key evidence](selected-item-evidence.md). This explicit relation is
 separate from selecting a position and does not replace fixed-resource assertions.
 
+When any resource satisfying explicit conditions is acceptable, use
+[predicate selection](predicate-selection.md). It chooses one eligible member deterministically,
+can reference that run's bound resource in later actions, and permits reselection only before
+dispatch under an explicit limit. Fixed targets and positional collections do not gain fallback.
+
 ### Optional app knowledge
 
 Pass reusable terminology and flow prerequisites separately from the task:

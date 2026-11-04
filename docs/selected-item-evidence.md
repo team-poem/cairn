@@ -9,6 +9,10 @@ This opt-in library API supports replay of collection `click` steps. The initial
 requires a same-document flow, such as a detail panel or SPA route. Full-document navigation,
 discovery, explore and healing do not provide a supported binding in this version.
 
+For explicitly choosing any eligible resource and referring to it in later actions, see
+[predicate selection and safe reselection](predicate-selection.md). It reuses this binding and
+does not change fixed-resource or positional intent.
+
 ## Prepare explicit resource keys
 
 The application or test fixture must expose a nonsecret resource key in a named `data-*`

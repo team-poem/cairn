@@ -16,7 +16,10 @@ Supported phases are `replay` (default), `discover`, and outcome rediscovery `he
 has its own UUID; a recovery never borrows the failed replay's captures. Explore is not supported.
 Internal locator attempts and the original failed surgical action are not separate checkpoints:
 the completed step boundary names the replacement returned by the healer. A locator recipe is not
-proof of the exact selected DOM node or business resource (#327).
+proof of the exact selected DOM node or business resource (#327). A pre-dispatch selected key and
+an independent destination key require the separate
+[selected-item evidence contract](selected-item-evidence.md); a post-action snapshot cannot
+recover the selected item's earlier identity.
 
 Each selection supplies a unique `id`, a complete `after` action prefix, and explicitly selected
 `elements` and/or `screenshot`. Matching uses action parameters, ignoring `intent` and `expect`

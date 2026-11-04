@@ -216,6 +216,10 @@ limited to native controls; custom popups are refused before opening. See the
 [collection contract](../spec/core/collection-selection.md) for supported lists, adapter wiring
 and persistence limits. Healthy mechanical replay still uses zero model calls.
 
+To check that the destination represents the resource actually selected on this replay, use
+[selected-item resource-key evidence](selected-item-evidence.md). This explicit relation is
+separate from selecting a position and does not replace fixed-resource assertions.
+
 ### Optional app knowledge
 
 Pass reusable terminology and flow prerequisites separately from the task:
@@ -431,6 +435,10 @@ a 2-second acceptance deadline and drain in-flight driver calls before advancing
 interrupt an unresponsive driver. `complete` means requested reads completed, not complete DOM
 coverage or continuous validity. Values are omitted by default; screenshot pixels are not
 automatically redacted. [Boundary, lifecycle and privacy details](../spec/core/evidence-capture.md).
+
+An after-step snapshot cannot establish which resource belonged to a selected item before its
+click. For that relation, use [selected-item evidence](selected-item-evidence.md), which binds a
+pre-dispatch key to the actual action and compares an independently read destination key.
 
 ## Secrets
 

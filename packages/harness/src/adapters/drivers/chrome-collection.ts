@@ -5,6 +5,8 @@ import type { CollectionObservation, CollectionTarget, PageElement } from "../..
 import { documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { HOST_ROOT_REGISTRY } from "./host-owned-roots.js";
+import { prepareSelectedItemReceipt, type SelectedItemReceipt } from "./chrome-selected-item.js";
+import type { SelectedItemKey } from "../../core/selected-item-evidence.js";
 
 interface Row { uid: string; role: string; name: string; collectionUid?: string; itemUid?: string }
 interface Plan { rows: Row[]; root: number; items: number[]; actions: number[]; conditions: number[] }
@@ -89,6 +91,10 @@ export class ChromeCollectionObservation {
     if (!Number.isSafeInteger(before?.revision)) throw new CollectionSelectionError("stale", "collection guard revision is unavailable");
     const result = await this.measure(this.plan(await this.capture()), before!.revision as number, uid);
     if (result.complete !== true) throw new CollectionSelectionError("stale", "collection membership, state or exact nodes changed");
+  }
+
+  prepareSelectedItemKey(uid: string, source: SelectedItemKey): Promise<SelectedItemReceipt> {
+    return prepareSelectedItemReceipt(this.call, this.guardKey, this.key, uid, source, this.hostKey, this.hostStamp);
   }
 
   private plan(raw: string): Plan {
@@ -303,7 +309,7 @@ export class ChromeCollectionObservation {
         const selectedItem = actionNodes.indexOf(args[args.length - 1]);
         if (choices[selectedItem]?.disabled || choices[selectedItem]?.occluded) return fail('ineligible action');
       } else if (complete) {
-        state.collections.set(key, {root, members, actions:actionNodes, conditions:conditionNodes, signature,
+        state.collections.set(key, {root, members, actions:actionNodes, conditions:conditionNodes, conditionFacts:conditions, signature,
           nodes:new Map(plan.rows.map((row, index) => [row.uid, nodes[index]]))});
       }
       return {complete, items:choices, conditions};

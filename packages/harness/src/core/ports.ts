@@ -82,6 +82,13 @@ export interface Driver {
    * state before targeted dispatch. Never reselect by name or silently substitute a neighbor.
    * Optional: unsupported drivers are refused by the built-in handler before any action. */
   observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
+  /** Perform exactly one collection click, retaining an explicit pre-action resource key only
+   * when continuity with the actual dispatched target is confirmed. Missing evidence returns
+   * incomplete; a thrown operation must NEVER be retried to recover evidence. */
+  clickWithSelectedItemEvidence?(target: Target, ref: string,
+    source: import("./selected-item-evidence.js").SelectedItemKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Independently read one explicitly configured destination key, not an expected value. */
+  readResourceKey?(destination: import("./selected-item-evidence.js").DestinationResourceKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string, ref?: string): Promise<void>;

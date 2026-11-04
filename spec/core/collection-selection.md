@@ -125,6 +125,10 @@ check (for example a custom criterion with appropriate run-local evidence). A ge
 assertion still proves only arrival; the engine does not invent a resource-identity assertion.
 The judgment contract continues to exclude steps/targets and include actual assertion semantics.
 
+For an opt-in resource-key equality check tied to the actual selected click, see
+[run-local selected-item evidence](selected-item-evidence.md). Its initial replay-only contract
+does not infer identity from labels or change fixed-resource assertions.
+
 Missing capability, insufficient coverage and invalid authoring/control prerequisites are
 `handler` failures (environment), not application regressions. Missing/disabled targets or stale
 bindings are resolution failures (script). `CollectionSelectionError.code` distinguishes these

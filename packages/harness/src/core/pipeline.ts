@@ -17,6 +17,7 @@ import type { TraceScope } from "./trace.js";
 import { scenarioContract, copyProvenance } from "./contract.js";
 import type { JudgmentOptions } from "./contract.js";
 import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "./evidence-capture.js";
+import { SelectedItemEvidenceSession, type SelectedItemEvidenceOptions } from "./selected-item-evidence.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -38,6 +39,7 @@ export interface RunHarnessOptions extends BudgetOptions {
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
   evidenceCapture?: EvidenceCaptureOptions;
+  selectedItemEvidence?: SelectedItemEvidenceOptions;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
   /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
@@ -357,14 +359,21 @@ async function runHarnessEntry(harness: Harness, task: string, opts: RunHarnessO
 async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
   validateSecrets(opts.secrets);
   const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture, "replay", opts.secrets) : undefined;
+  const selected = opts.selectedItemEvidence ? new SelectedItemEvidenceSession(opts.selectedItemEvidence) : undefined;
+  if (opts.stepHandlers && opts.selectedItemEvidence?.bindings.length)
+    throw new Error("selected-item evidence requires the built-in step handlers");
+  if (opts.stepHealer && opts.selectedItemEvidence?.bindings.length)
+    throw new Error("selected-item evidence does not support automatic step healing");
   try {
-    return await runHarnessWithCapture(harness, task, opts, capture);
+    return await runHarnessWithCapture(harness, task, opts, capture, selected);
   } finally {
     capture?.finish(opts.signal);
+    selected?.finish(opts.signal);
   }
 }
 
-async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHarnessOptions, capture?: EvidenceCaptureSession): Promise<Result> {
+async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHarnessOptions, capture?: EvidenceCaptureSession,
+  selected?: SelectedItemEvidenceSession): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
@@ -394,7 +403,8 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
     opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
     const budget = opts[budgetScope];
     let recorded: number | undefined;
-    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
+    const stepDriver = selected?.driverFor(step, driver, opts.signal) ?? driver;
+    const result = await runStep(handlers, step, stepDriver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
       budget ? action => { recorded = budget.recordAction(action); } : undefined, budget);
     opts.signal?.throwIfAborted();
     opts[budgetScope]?.check();
@@ -402,6 +412,13 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
     if (budget) {
       if (recorded === undefined) budget.recordAction(result);
       else budget.updateAction(recorded, result);
+    }
+    // Accept source evidence only after dispatch and post-condition completion. Destination
+    // reads share this awaited boundary with checkpoints, before observers or the next action.
+    if (selected) {
+      await selected.after(result, driver, opts.signal);
+      opts.signal?.throwIfAborted();
+      opts[budgetScope]?.check();
     }
     // One capture serves both consumers — and only when someone stores it: a host timeline
     // (`onStep`) or a sink that keeps attachment bytes. Nobody watching = no screenshot taken.
@@ -434,10 +451,12 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
   // Auto-wait for network idle so evidence captures late subresources, not a race (design §3).
   await driver.settle();
 
-  const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId, ...observed } = await driver.observe();
+  const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId,
+    selectedItems: _priorSelectedItems, selectedItemRunId: _priorSelectedItemRunId, ...observed } = await driver.observe();
   const evidence: Evidence = {
     ...observed,
     ...(capture ? { checkpoints: capture.finish(), captureRunId: capture.runId } : {}),
+    ...(selected ? { selectedItems: selected.finish(), selectedItemRunId: selected.runId } : {}),
     execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
   };
 

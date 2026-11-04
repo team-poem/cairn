@@ -40,7 +40,7 @@ function fixture() {
         f.operations.push("merge");
         if (f.error) throw f.error;
         f.merged.push(args);
-        const data = f.mergeResult ?? { merged: true, sha: "squash" };
+        const data = f.mergeResult ?? { merged: true, sha: "merge-commit" };
         if (data.merged) f.didMerge = true;
         return { data };
       } },
@@ -95,11 +95,11 @@ function fixture() {
   return f;
 }
 
-test("squashes the reviewed head through GitHub without overriding the author's identity", async () => {
+test("merges the reviewed head with a merge commit without overriding the author's identity", async () => {
   const f = fixture();
   await f.run();
   assert.deepEqual(f.merged, [{ owner: "team", repo: "cairn", pull_number: 42, sha: "head",
-    merge_method: "squash", commit_title: "fix(ci): preserve attribution (#42)" }]);
+    merge_method: "merge", commit_title: "fix(ci): preserve attribution (#42)" }]);
   assert.deepEqual(f.removedLabels, [{ owner: "team", repo: "cairn", issue_number: 42, name: "needs-merge" }]);
   assert.deepEqual(f.addedLabels, []);
   assert.deepEqual(f.operations, ["merge", "removeLabel"]);
@@ -180,7 +180,7 @@ for (const [name, change, reason] of [
   });
 }
 
-test("does not squash a branch that carries the commits of another open PR", async () => {
+test("does not merge a branch that carries the commits of another open PR", async () => {
   const f = fixture();
   f.candidates.push({ number: 41, labels: [] });
   f.commits = { 41: ["lower-1", "lower-2"], 42: ["lower-1", "lower-2", "upper"] };
@@ -571,6 +571,33 @@ test("a head race is deferred, while permission errors fail visibly", async () =
   f.error = Object.assign(new Error("Forbidden"), { status: 403 });
   await assert.rejects(f.run(), /Forbidden/);
   assert.deepEqual(f.removedLabels, []);
+});
+
+test("a disabled merge method fails visibly with an actionable notice and retains the request", async () => {
+  const f = fixture();
+  f.error = Object.assign(new Error("Merge commits are not allowed on this repository."), { status: 405 });
+  await assert.rejects(f.run(), /Merge commits are not allowed/);
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.removedLabels, []);
+  assert.equal(f.commentWrites.length, 1);
+  assert.match(f.commentWrites[0].body, /maintainer must enable merge commits/);
+  assert.match(f.messages.join("\n"), /Merge commits are not allowed/);
+});
+
+test("a retained request merges after CI passes on a workflow completion evaluation", async () => {
+  const f = fixture();
+  f.runs[0].status = "in_progress";
+  f.runs[0].conclusion = null;
+  await f.run({ pull_request: f.candidates[0] });
+  assert.deepEqual(f.merged, []);
+  assert.deepEqual(f.removedLabels, []);
+  f.runs[0].status = "completed";
+  f.runs[0].conclusion = "success";
+  await f.run({ workflow_run: { id: 10 } });
+  assert.equal(f.merged.length, 1);
+  assert.equal(f.merged[0].merge_method, "merge");
+  assert.equal(f.removedLabels.length, 1);
+  assert.match(f.comments[0].body, /Merged\./);
 });
 
 test("an unsuccessful merge response leaves needs-merge in place", async () => {

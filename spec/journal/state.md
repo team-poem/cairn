@@ -57,7 +57,7 @@
 ## Release procedure
 
 - **Preserve release ancestry.** All PRs into `main` use **Create a merge commit**, enforced by
-  `main-rule`; feature PRs into `develop` can still use squash. A main-to-develop history repair
+  `main-rule`; feature PRs into `develop` also use merge commits, matching repository settings. A main-to-develop history repair
   also needs a merge commit. The 2.9.3 squash left the common ancestor at 2.9.2 and caused the
   next release's duplicate history and conflicts. `release:prepare` now checks ancestry before
   writing, and the push helper rechecks after fetching. Normal two-parent release merges do not

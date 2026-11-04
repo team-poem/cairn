@@ -22,7 +22,7 @@ function blocker(pr) {
 }
 
 // The App can bypass rulesets, so approval and CI must be checked explicitly.
-// Use GitHub's squash API: GitHub credits the PR author and records the App as merger.
+// Preserve source commits and their authors; the App is recorded as the merger.
 export async function mergeLabeledPullRequests({ github, ciGithub = github, context, core,
   updateBranch = async pr => mergeDevelopInto({ cwd: process.env.GITHUB_WORKSPACE, number: pr.number,
     ref: pr.headRefName, head: pr.headRefOid, token: (await github.auth()).token }) }) {
@@ -182,9 +182,8 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
       notice(current, "Merge pending: the commit or merge requirements changed. Rechecking soon.");
       continue;
     }
-    // A squash rewrites every commit on the branch. If the branch is stacked on another open
-    // PR, that PR's work would land under this title and the lower PR would be left open with
-    // conflicts and no journal entry. Merge the lower PR first.
+    // A stacked branch also carries another PR's work. Merge the lower PR first so each
+    // change receives its own review, merge record and journal entry.
     const carried = await stackedOn(pr.number);
     if (carried.length) {
       const list = carried.map(number => `#${number}`).join(", ");
@@ -194,13 +193,20 @@ export async function mergeLabeledPullRequests({ github, ciGithub = github, cont
     }
     try {
       const { data } = await github.rest.pulls.merge({
-        owner, repo, pull_number: pr.number, sha: pr.headRefOid, merge_method: "squash",
+        owner, repo, pull_number: pr.number, sha: pr.headRefOid, merge_method: "merge",
         commit_title: `${current.title} (#${pr.number})`,
       });
       if (!data.merged) throw new Error(data.message ?? `PR #${pr.number} was not merged.`);
-      report(pr.number, `squash merged: ${data.sha}`);
+      report(pr.number, `merged with merge commit: ${data.sha}`);
       notice(current, "Merged.", false);
     } catch (error) {
+      // Repository settings cannot be repaired by retrying an unchanged request.
+      if (error.status === 405 && /(?:merges?|merge commits) (?:are|is) not allowed on this repository/i.test(error.message)) {
+        report(pr.number, error.message);
+        notice(current, "Merge blocked: repository settings do not allow merge commits. A maintainer must enable merge commits before retrying.");
+        await flushNotices();
+        throw error;
+      }
       // Head changes, conflicts and newly unmet rules are retried on the next event.
       if ([405, 409].includes(error.status)) {
         report(pr.number, error.message);

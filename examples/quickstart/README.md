@@ -8,7 +8,7 @@ Copy this directory anywhere and install it independently. The runner imports on
 - Node **20.19+ on 20.x, 22.12+ on 22.x, or 23+** (required by Chrome DevTools MCP).
 - Google Chrome installed in its normal location. Each run launches an isolated headless browser.
 - npm, pnpm 10, or Yarn 4 (Plug'n'Play). The Chrome adapter still uses `npx`, supplied with npm. Keep local port **127.0.0.1:4318** free and run one quickstart process at a time.
-- Network access for dependency installation and the first `npx chrome-devtools-mcp@~1.3.0` launch.
+- Network access for dependency installation and the first `npx chrome-devtools-mcp@1.8.0` launch.
 - No model account or API key for the scripted path below.
 
 ## Block an action with ActionPolicy

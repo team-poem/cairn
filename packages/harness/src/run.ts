@@ -132,6 +132,7 @@ export function needsLlmCritic(scenario: Scenario): boolean {
 
 const SKIPPED_HEAL: Partial<Record<RediscoveryIneligibleReason, string>> = {
   "collection-position": "outcome-heal skipped: explicit collection positions must be re-authored, not re-discovered automatically",
+  "predicate-selection": "outcome-heal skipped: explicit selection predicates do not authorize outcome rediscovery",
   inconclusive: "outcome-heal skipped: no failed goal to repair; some checks could not be judged",
   "no-goal-failure": "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those",
 };
@@ -223,6 +224,8 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   // Copy declarations before the first asynchronous boundary; callers own the source artifact.
   scenario = { ...scenario, steps: scenario.steps.map(step => isCollectionStep(step) && "target" in step
     ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  if (scenario.steps.some(step => "target" in step && step.target.collection?.choice) && (opts.heal || opts.targetChoice))
+    throw new Error("predicate selection does not authorize automatic healing or targetChoice");
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {

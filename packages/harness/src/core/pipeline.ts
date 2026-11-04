@@ -108,7 +108,7 @@ async function runStep(
   // neither pre-satisfy the skip nor count as a post-condition (fail closed, #69/#137).
   const expect = step.expect && Object.values(step.expect).some((v) => v !== undefined) ? step.expect : undefined;
   const collection = isCollectionStep(step);
-  // Existing page state cannot establish that the current collection position was exercised.
+  // Existing page state cannot establish that this run's declared collection selection was exercised.
   if (!collection && expect && expect.requestStatus === undefined && (await conditionMet(driver, expect, 0, urlMatch))) {
     // Already satisfied — safe skip, but never a SILENT one: the marker keeps a wrongly
     // pre-satisfied expect (the #56→#86/#87/#96 failure class) observable to hosts (#86).
@@ -185,13 +185,14 @@ export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive" && !GUARD_KINDS.has(r.assertion.kind));
 }
 
-export type RediscoveryIneligibleReason = "passed" | "budget" | "collection-position" | "environment" | "inconclusive" | "no-goal-failure";
+export type RediscoveryIneligibleReason = "passed" | "budget" | "collection-position" | "predicate-selection" | "environment" | "inconclusive" | "no-goal-failure";
 export type RediscoveryEligibility = { eligible: true } | { eligible: false; reason: RediscoveryIneligibleReason };
 
 /**
  * Whether a replay result may be repaired by re-discovering the scenario (#326), the same decision
  * `runScenario` makes before its outcome-heal. When several reasons apply, the first in the order
- * passed, budget, collection-position, environment, inconclusive, no-goal-failure is returned.
+ * passed, budget, collection-position, predicate-selection, environment, inconclusive,
+ * no-goal-failure is returned.
  * Accepts the critic's raw verdict as well as a finalized one: a raw verdict is finalized against
  * the result's actions first, so a budget stop or transport failure is classified before it is read.
  * Pure: no driver or model work. Eligible is not permission to dispatch (opt-in, cancellation and
@@ -206,7 +207,9 @@ export function rediscoveryEligibility(scenario: Pick<Scenario, "steps">, result
   if (verdict.passed) return { eligible: false, reason: "passed" };
   if (verdict.failure === "budget") return { eligible: false, reason: "budget" };
   // A re-discovery would replace a declared position with whatever it finds (#306).
-  if (scenario.steps.some(isCollectionStep)) return { eligible: false, reason: "collection-position" };
+  if (scenario.steps.some(step => isCollectionStep(step) && !("target" in step && step.target.collection?.choice)))
+    return { eligible: false, reason: "collection-position" };
+  if (scenario.steps.some(isCollectionStep)) return { eligible: false, reason: "predicate-selection" };
   // A missing secret or dead browser is not something a new path can supply (#173).
   if (verdict.failure === "environment") return { eligible: false, reason: "environment" };
   // Guards alone are the app's health, not the path (#186); an unjudged check is not a failed goal.
@@ -383,6 +386,10 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
   const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })),
     steps: planned.steps.map(step => isCollectionStep(step) && "target" in step
       ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  if (scenario.steps.some(step => "target" in step && step.target.collection?.choice)
+    && (!selected || opts.stepHandlers || opts.stepHealer))
+    throw new Error("predicate selection requires selected-item bindings and the unmodified replay handlers");
+  selected?.validateScenario(scenario);
   const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
   const contract = await scenarioContract(scenario, judgment());
   const provenance = copyProvenance(scenario.provenance);

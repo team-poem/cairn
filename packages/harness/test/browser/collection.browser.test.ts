@@ -20,7 +20,7 @@ const html = `<label>Search<input id="query" data-role="textbox" aria-label="Sea
   </ul>
   <ul id="other" data-role="list" aria-label="Other"><li data-role="listitem"><button id="other-action" data-role="button">Open</button></li></ul>`;
 
-function target(overrides: Partial<CollectionTarget> = {}): Target {
+function target(overrides: Partial<Extract<CollectionTarget, { index: number }>> = {}): Target {
   return { collection: { root: { role: "list", name: "Results" }, itemRole: "listitem", target: { role: "button", name: "Open" },
     order: "dom", index: 0, expectedCount: 2, ...overrides } };
 }

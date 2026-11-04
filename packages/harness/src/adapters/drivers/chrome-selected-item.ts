@@ -8,6 +8,8 @@ let nextReceipt = 0;
 const attributeName = /^data-[a-z][a-z0-9-]*$/;
 
 export interface SelectedItemReceipt {
+  /** A usable source key and continuity were established before dispatch. */
+  readonly ready: boolean;
   finish(): Promise<ResourceKeyObservation>;
   dispose(): Promise<void>;
 }
@@ -38,12 +40,16 @@ export async function prepareSelectedItemReceipt(
         const saved = state?.collections?.get(${JSON.stringify(collectionKey)});
         const index = saved?.actions.indexOf(action) ?? -1;
         if (window.top !== window || !state?.observer || state.overflow || index < 0) return {complete:false};
+        const element = node => node?.nodeType === 3 ? node.parentElement : node;
+        // Retain the exact backend node as well as its Element projection. Text has no
+        // attributes and is absent from browser click paths; reparenting must not rebind it.
+        const actionElement = element(action);
+        if (actionElement?.nodeType !== 1) return {complete:false};
         const source = ${JSON.stringify(source)};
-        const item = saved.members[index], node = source.scope === 'item' ? item : action;
+        const item = saved.members[index], node = source.scope === 'item' ? item : actionElement;
         const value = node?.getAttribute(source.attribute);
         if (typeof value !== 'string' || !value.trim() || value.length > 256) return {complete:false};
         const registry = ${hostKey ? `(${HOST_ROOT_REGISTRY})(${JSON.stringify(hostKey)})` : "null"};
-        const element = node => node?.nodeType === 3 ? node.parentElement : node;
         const disabled = el => {
           for (let p = el; p; p = p.parentElement)
             if (p.matches(':disabled') || p.getAttribute('aria-disabled') === 'true') return true;
@@ -58,6 +64,16 @@ export async function prepareSelectedItemReceipt(
           else if (el.getAttribute('aria-checked') === 'mixed') out.checked = 'mixed';
           else if (['true','false'].includes(el.getAttribute('aria-checked'))) out.checked = el.getAttribute('aria-checked') === 'true';
           return out;
+        });
+        const choiceFacts = () => saved.members.map((member, position) => {
+          const action = element(saved.actions[position]);
+          const read = (declaration, identity = false) => {
+            const value = (declaration.scope === 'item' ? member : action)?.getAttribute(declaration.attribute);
+            return typeof value === 'string' && value.length <= 256 && (!identity || value.trim()) ? value : undefined;
+          };
+          const key = read(saved.choice.identity, true), values = saved.choice.where.map(predicate => read(predicate));
+          return key !== undefined && values.every(value => value !== undefined)
+            ? {complete:true, key, values} : {complete:false};
         });
         const unchanged = () => {
           if (globalThis[Symbol.for(${JSON.stringify(guardKey)})] !== state ||
@@ -104,10 +120,16 @@ export async function prepareSelectedItemReceipt(
             const previous = attributeTargets(record.target, record.oldValue || '');
             if (!previous || ownershipWork > 16384 || previous.some(touches)) return false;
           }
-          if (![saved.root, item, action, ...saved.conditions.map(element)].every(node => node?.isConnected && node.getRootNode() === document)) return false;
-          if (saved.actions[index] !== action || saved.members[index] !== item ||
-              node.getAttribute(source.attribute) !== value || disabled(item) || disabled(action) ||
+          if (![saved.root, item, action, actionElement, ...saved.conditions.map(element)].every(node => node?.isConnected && node.getRootNode() === document)) return false;
+          if (saved.actions[index] !== action || element(action) !== actionElement || saved.members[index] !== item ||
+              node.getAttribute(source.attribute) !== value || disabled(item) || disabled(actionElement) ||
               JSON.stringify(conditions()) !== JSON.stringify(saved.conditionFacts)) return false;
+          if (saved.choice) {
+            const facts = choiceFacts(), selected = facts[index];
+            if (JSON.stringify(facts) !== JSON.stringify(saved.choiceFacts) || selected?.complete !== true ||
+                selected.key !== value || saved.choice.where.some((predicate, i) =>
+                  typeof predicate.value !== 'string' || selected.values[i] !== predicate.value)) return false;
+          }
           const ownership = registry?.status();
           return !ownership?.unsupported && (!registry || ownership.stamp === ${JSON.stringify(hostStamp ?? null)}) &&
             !registry?.excluded(saved.root) && !registry?.excluded(action);
@@ -116,7 +138,7 @@ export async function prepareSelectedItemReceipt(
         const key = Symbol.for(${JSON.stringify(key)});
         const receipt = {document, complete:false, observed:false, dispose:undefined};
         const listener = event => {
-          if (!event.isTrusted || !event.composedPath().includes(action) || receipt.observed) return;
+          if (!event.isTrusted || !event.composedPath().includes(actionElement) || receipt.observed) return;
           receipt.observed = true;
           try { receipt.complete = unchanged(); } catch { receipt.complete = false; }
           // Keep pagehide cleanup until the host acknowledges the receipt. Removing only
@@ -143,6 +165,7 @@ export async function prepareSelectedItemReceipt(
     if (raw?.complete === true && typeof raw.value === "string" && raw.value.trim() && raw.value.length <= 256) value = raw.value;
   }
   return {
+    get ready() { return !disposed && value !== undefined; },
     dispose,
     async finish() {
       if (disposed) return { complete: false };

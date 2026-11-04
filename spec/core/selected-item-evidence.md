@@ -7,7 +7,8 @@ its click and a key read independently from the destination.
 
 The initial API supports hand-authored replay of collection `click` steps. It does not infer
 business identity from labels, temporary refs, URL shapes or position. Fixed-resource assertions
-keep their existing meaning. Predicate selection and automatic reselection are outside this API.
+keep their existing meaning. [Predicate selection](predicate-selection.md) reuses this session for
+explicit choices and dependent actions, with bounded, proven pre-dispatch reselection only.
 
 ## Declaration and judgment
 
@@ -61,6 +62,13 @@ lacks the combined capability, the original click can still run once, but the bi
 unavailable. If the combined operation throws, the engine never falls back to an ordinary click:
 the application may already have received the action.
 
+Predicate choices require the combined capability and a persisted binding assertion before
+execution. Only `SelectionNotDispatchedError` carrying the exact reference permits their explicitly
+bounded reselection; positional bindings never retry. `selectionAttempts` records the run/action
+attempt IDs and whether dispatch was refused, completed or uncertain. Only the successful source
+attempt supplies the key. Dependent choices resolve that key privately along the declared path
+before its destination boundary; no second identity store or extended key lifetime is introduced.
+
 The destination uses optional `Driver.readResourceKey(destinationKey)` at the existing awaited
 after-step boundary, after post-condition handling and before the next action. It does not use an
 asynchronous `onStep` callback or a second checkpoint scheduler. When both prefixes are equal,
@@ -86,6 +94,12 @@ Late results are discarded after an in-flight operation drains; this is not a ha
 Run budgets and cancellation still apply. Evidence failure never authorizes another click,
 retries a mutation or selects a neighboring member.
 
+An observed capture timeout or cancellation remains in the binding's status even when the
+failed action prevents reaching its destination. Its comparison stays incomplete and carries
+no equality result. A capture timeout belongs only to its binding; other unreached bindings
+remain skipped unless the run is cancelled. A transport error is not relabeled as a capture
+timeout merely because it arrived late.
+
 The session compares bounded raw values before diagnostic redaction. Public records carry an ID,
 declaration fingerprint, run/phase and action occurrence IDs, status, completeness and equality,
 not raw keys, DOM refs or copied action paths. `Evidence.selectedItems` and
@@ -99,6 +113,11 @@ attributes and any separate logging they enable.
 All existing collection coverage and continuity restrictions apply. Chrome supports same-document
 collection clicks and an independently selected destination in supported light DOM. The bounded
 destination scan visits at most 16,384 elements and excludes registered host-owned content.
+
+A StaticText backend reference can resolve to a Text node or its parent Element. For a Text
+node, attribute and disabled-state reads use its parent Element, as collection measurement does.
+The receipt retains both identities and checks the trusted event against that Element. Replacing
+or reparenting the Text node cannot bind the receipt to a different action.
 
 The adapter verifies a trusted-click receipt as well as the source key. A lost receipt, including
 full-document navigation that discards it, leaves the relation unconfirmed. Navigation alone must

@@ -13,7 +13,7 @@ interface Plan { rows: Row[]; root: number; items: number[]; actions: number[]; 
 interface Measurement {
   complete?: unknown;
   reason?: unknown;
-  items?: Array<{ action?: number; disabled?: boolean; occluded?: boolean }>;
+  items?: Array<{ action?: number; disabled?: boolean; occluded?: boolean; choice?: CollectionObservation["items"][number]["choice"] }>;
   conditions?: CollectionObservation["conditions"];
 }
 type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
@@ -55,6 +55,8 @@ export class ChromeCollectionObservation {
     private readonly hostStamp?: string,
   ) { this.key = `collection:${identity}`; }
 
+  get choice() { return this.selection.choice; }
+
   async start(raw: string, candidates: ReadonlyMap<string, PageElement>): Promise<CollectionObservation> {
     const plan = this.plan(raw);
     // The initial AX snapshot follows installation of a fresh guard. Any mutation before
@@ -71,6 +73,7 @@ export class ChromeCollectionObservation {
         const row = typeof item.action === "number" && Number.isInteger(item.action) ? plan.rows[item.action] : undefined;
         const target = row && plan.actions.includes(item.action!) ? candidates.get(row.uid) : undefined;
         return { position, ...(typeof item.disabled === "boolean" ? { disabled: item.disabled } : {}),
+          ...(this.choice ? { choice: item.choice } : {}),
           ...(complete && target?.ref ? { target: { ...target, disabled: item.disabled === true || target.disabled === true,
             ...(typeof item.occluded === "boolean" ? { occluded: item.occluded } : {}) } } : {}) };
       }),
@@ -94,6 +97,9 @@ export class ChromeCollectionObservation {
   }
 
   prepareSelectedItemKey(uid: string, source: SelectedItemKey): Promise<SelectedItemReceipt> {
+    if (this.choice && (source.kind !== this.choice.identity.kind || source.scope !== this.choice.identity.scope ||
+        source.attribute !== this.choice.identity.attribute))
+      throw new CollectionSelectionError("invalid", "choice evidence must use its declared resource key");
     return prepareSelectedItemReceipt(this.call, this.guardKey, this.key, uid, source, this.hostKey, this.hostStamp);
   }
 
@@ -150,6 +156,7 @@ export class ChromeCollectionObservation {
       const selected = ${JSON.stringify(selected ?? null)}, nodes = args.slice(0, plan.rows.length);
       const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
       const fail = reason => ({complete:false, reason, items:[], conditions:[]});
+      if (spec.choice?.where.some(predicate => typeof predicate.value !== 'string')) return fail('unresolved choice value');
       if (window.top !== window || !state?.observer || state.overflow) return fail('guard');
       state.retain(state.observer.takeRecords());
       if (state.records.length !== ${revision}) return fail('accessibility capture changed');
@@ -271,6 +278,20 @@ export class ChromeCollectionObservation {
         if (action !== undefined && !rendered(element(nodes[action]))) complete = false;
         return { ...(action !== undefined ? {action} : {}), disabled: disabled(member) || (action !== undefined && disabled(element(nodes[action]))) };
       });
+      const choiceKey = (member, action, declaration, identity = false) => {
+        const node = declaration.scope === 'item' ? member : action;
+        const value = node?.getAttribute(declaration.attribute);
+        return typeof value === 'string' && value.length <= 256 && (!identity || value.trim()) ? value : undefined;
+      };
+      if (spec.choice) for (let index = 0; index < choices.length; index++) {
+        const choice = choices[index], member = members[index];
+        const action = choice.action === undefined ? undefined : element(nodes[choice.action]);
+        const key = choiceKey(member, action, spec.choice.identity, true);
+        const values = spec.choice.where.map(predicate => choiceKey(member, action, predicate));
+        choice.choice = key !== undefined && values.every(value => value !== undefined)
+          ? {complete:true, key, values} : {complete:false};
+        if (!choice.choice.complete) complete = false;
+      }
       const conditionNodes = plan.conditions.map(index => nodes[index]);
       if (conditionNodes.some(node => !rendered(element(node)) || registry?.excluded(node))) return fail('conditions');
       const conditions = conditionNodes.map(node => {
@@ -292,9 +313,10 @@ export class ChromeCollectionObservation {
       const actionFacts = (${DOM_FOREGROUND_PROBE})(...actionNodes.map(element));
       choices.forEach((choice, index) => {
         if (typeof actionFacts[index]?.occluded === 'boolean') choice.occluded = actionFacts[index].occluded;
+        else if (spec.choice && choice.action !== undefined) complete = false;
       });
       const semantics = choices.map(choice => choice.action === undefined ? null : [plan.rows[choice.action].role, plan.rows[choice.action].name]);
-      const signature = JSON.stringify([choices.map(choice => [choice.disabled, choice.occluded]), semantics, conditions, complete]);
+      const signature = JSON.stringify([choices.map(choice => [choice.disabled, choice.occluded, choice.choice]), semantics, conditions, complete]);
       state.retain(state.observer.takeRecords());
       if (state.overflow || state.records.length !== ${revision} ||
           (registry && registry.status().stamp !== ownership.stamp)) return fail('measurement changed');
@@ -308,8 +330,11 @@ export class ChromeCollectionObservation {
             args[args.length - 1] !== saved.nodes.get(selected) || !actionNodes.includes(args[args.length - 1])) return fail('changed collection');
         const selectedItem = actionNodes.indexOf(args[args.length - 1]);
         if (choices[selectedItem]?.disabled || choices[selectedItem]?.occluded) return fail('ineligible action');
+        if (spec.choice && (choices[selectedItem]?.choice?.complete !== true ||
+            spec.choice.where.some((predicate, index) => choices[selectedItem].choice.values[index] !== predicate.value))) return fail('ineligible choice');
       } else if (complete) {
         state.collections.set(key, {root, members, actions:actionNodes, conditions:conditionNodes, conditionFacts:conditions, signature,
+          ...(spec.choice ? {choice:spec.choice, choiceFacts:choices.map(choice => choice.choice)} : {}),
           nodes:new Map(plan.rows.map((row, index) => [row.uid, nodes[index]]))});
       }
       return {complete, items:choices, conditions};

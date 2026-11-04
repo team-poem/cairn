@@ -4,6 +4,7 @@ import { prepareSelectedItemReceipt, resourceKeyScript } from "../src/adapters/d
 import { ChromeDevToolsDriver } from "../src/adapters/drivers/chrome.js";
 
 class Node {
+  nodeType = 1;
   isConnected = true;
   parentElement?: Node;
   children: Node[] = [];
@@ -26,7 +27,7 @@ class Node {
   }
 }
 
-function fixture() {
+function fixture(textAction = false) {
   const document = { getElementById: (id: string): Node | undefined => all.find(node => node.id === id),
     createTreeWalker: (tree: unknown, _what: unknown) => {
     const nodes = tree === document ? all : (tree as { nodes?: Node[] }).nodes ?? [];
@@ -40,7 +41,8 @@ function fixture() {
   destination.attrs.set("data-resource-key", "B"); condition.value = "active";
   const all = [root, item, action, condition, destination];
   const queue: unknown[] = [];
-  const saved = { root, members: [item], actions: [action], conditions: [condition], conditionFacts: [{ disabled: false, value: "active" }] };
+  const observedAction = textAction ? { nodeType: 3, isConnected: true, parentElement: action, getRootNode: () => document } : action;
+  const saved = { root, members: [item], actions: [observedAction], conditions: [condition], conditionFacts: [{ disabled: false, value: "active" }] };
   const state = { records: [] as unknown[], collections: new Map([["collection:test", saved]]), overflow: false,
     observer: { takeRecords: () => queue.splice(0) }, retain(records: unknown[]) { this.records.push(...records); } };
   const listeners = new Set<(event: unknown) => void>();
@@ -56,7 +58,7 @@ function fixture() {
   const call = async (_name: string, args: Record<string, unknown> = {}) => {
     calls++;
     const uids = (args.args ?? []) as string[];
-    return JSON.stringify(runInContext(`(${String(args.function)})`, context)(...uids.map(() => action)));
+    return JSON.stringify(runInContext(`(${String(args.function)})`, context)(...uids.map(() => observedAction)));
   };
   const prepare = (scope: "item" | "action" = "item", attribute = "data-resource-key") =>
     prepareSelectedItemReceipt(call, "guard:test", "collection:test", "uid", { kind: "attribute", scope, attribute });
@@ -68,7 +70,7 @@ function fixture() {
   };
   const receiptCount = () => runInContext("Object.getOwnPropertySymbols(globalThis).filter(s => s.description?.startsWith('cairn-selected-item:')).length", context) as number;
   const read = (selector = "#detail", attribute = "data-resource-key") => runInContext(`(${resourceKeyScript({ kind: "attribute", selector, attribute })})`, context)();
-  return { prepare, click, pagehide, receiptCount, read, call, context, state, root, item, action, condition, destination, all, queue, listeners, calls: () => calls };
+  return { prepare, click, pagehide, receiptCount, read, call, context, state, root, item, action, observedAction, condition, destination, all, queue, listeners, calls: () => calls };
 }
 
 test("selected member key is captured before the matching trusted click and survives SPA removal", async () => {
@@ -88,6 +90,36 @@ test("action-scoped extraction does not borrow the member's key", async () => {
   const f = fixture(), receipt = await f.prepare("action", "data-action-key");
   f.click();
   expect(await receipt.finish()).toEqual({ complete: true, value: "action-B" });
+});
+
+test.each(["item", "action"] as const)("StaticText receipts read the %s key and confirm a trusted event on the retained parent", async scope => {
+  const f = fixture(true), receipt = await f.prepare(scope, scope === "item" ? "data-resource-key" : "data-action-key");
+  expect(receipt.ready).toBe(true);
+  // Browser click paths contain Elements, not the StaticText backend node.
+  f.click(f.action);
+  expect(await receipt.finish()).toEqual({ complete: true, value: scope === "item" ? "B" : "action-B" });
+  expect(f.listeners.size).toBe(0);
+});
+
+test("a StaticText receipt cannot follow its Text node to a new parent with the same key", async () => {
+  const f = fixture(true), receipt = await f.prepare("action", "data-action-key");
+  const replacement = new Node("replacement", f.context.document as object);
+  replacement.attrs.set("data-action-key", "action-B");
+  f.observedAction.parentElement = replacement;
+  // Test the exact parent check independently of MutationObserver's additional refusal.
+  expect(f.queue).toEqual([]);
+  f.click(f.action);
+  expect(await receipt.finish()).toEqual({ complete: false });
+  expect(f.listeners.size).toBe(0);
+});
+
+test.each(["changed-key", "disabled", "wrong-parent", "untrusted"])("a StaticText receipt rejects %s without substituting an event", async change => {
+  const f = fixture(true), receipt = await f.prepare("action", "data-action-key");
+  if (change === "changed-key") f.action.attrs.set("data-action-key", "C");
+  if (change === "disabled") f.action.disabled = true;
+  f.click(change === "wrong-parent" ? f.destination : f.action, change !== "untrusted");
+  expect(await receipt.finish()).toEqual({ complete: false });
+  expect(f.listeners.size).toBe(0);
 });
 
 test.each(["changed-key", "changed-key-reverted", "control-property", "removed", "disabled", "new-guard", "overflow"])(

@@ -6,6 +6,8 @@
 position selection. It is exclusive with `text`, `role`, `index`, `nth` and `selector`.
 Existing targets, model decisions and natural-language discovery keep their old meanings.
 The engine does not infer whether "first result" means a saved resource or today's first item.
+An explicit `choice` instead of `index` has a separate [predicate-selection contract](predicate-selection.md).
+The positional rules below remain unchanged; predicates never become implicit neighbor fallback.
 Use `runScenario`, the CLI replay of a saved Scenario, or browser `runHarness` with a
 `StaticPlanner`. This is not a new interaction verb or a new discovery loop.
 
@@ -124,6 +126,10 @@ the destination to represent the selected resource, the host must supply a suffi
 check (for example a custom criterion with appropriate run-local evidence). A generic navigation
 assertion still proves only arrival; the engine does not invent a resource-identity assertion.
 The judgment contract continues to exclude steps/targets and include actual assertion semantics.
+
+For an opt-in resource-key equality check tied to the actual selected click, see
+[run-local selected-item evidence](selected-item-evidence.md). Its initial replay-only contract
+does not infer identity from labels or change fixed-resource assertions.
 
 Missing capability, insufficient coverage and invalid authoring/control prerequisites are
 `handler` failures (environment), not application regressions. Missing/disabled targets or stale

@@ -83,26 +83,58 @@ export interface CollectionCondition {
   disabled?: boolean;
 }
 
-export interface CollectionTarget {
+/** Explicit nonsecret resource identity supplied by an application or host. */
+export interface CollectionResourceKey {
+  kind: "attribute";
+  scope: "item" | "action";
+  attribute: string;
+}
+
+/** A bounded equality predicate, never natural-language eligibility or a locator fallback. */
+export interface CollectionChoicePredicate {
+  kind: "attribute-equals";
+  scope: "item" | "action";
+  attribute: string;
+  value: string | { bindingId: string };
+}
+
+export interface CollectionChoice {
+  version: 1;
+  cardinality: 1;
+  policy: "first-dom";
+  identity: CollectionResourceKey;
+  where: CollectionChoicePredicate[];
+  /** Only a proven pre-dispatch refusal may consume this allowance. */
+  maxReselections: 0 | 1;
+}
+
+interface CollectionScope {
   root: CollectionLocator;
   itemRole: "listitem" | "option";
   /** Exactly one matching action inside the selected member, excluding nested collections. */
   target: CollectionLocator;
   order: "dom";
-  /** Zero-based position among ALL members, not only enabled/matching action candidates. */
-  index: number;
   /** Explicit total supplied by an author/host when the page exposes no positive total.
    * A count mismatch fails closed; absence never implies a visible subset is complete. */
   expectedCount?: number;
   conditions?: CollectionCondition[];
 }
 
+/** A position and an eligible choice are separate persisted contracts. */
+export type CollectionTarget = CollectionScope & (
+  | { /** Zero-based position among ALL members, not only enabled/matching action candidates. */
+      index: number; choice?: never }
+  | { choice: CollectionChoice; index?: never }
+);
+
 /** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
  * Missing or ambiguous actions retain their member's position with no target. */
 export interface CollectionObservation {
   order: "dom";
   complete: boolean;
-  items: Array<{ position: number; target?: PageElement; disabled?: boolean }>;
+  items: Array<{ position: number; target?: PageElement; disabled?: boolean;
+    /** Measured in the same observation as membership, including ineligible members. */
+    choice?: { complete: boolean; key?: string; values?: string[] } }>;
   conditions: Array<{ value?: string; checked?: boolean | "mixed"; disabled?: boolean }>;
 }
 
@@ -230,15 +262,8 @@ export interface PageElement {
 }
 
 /** Emitted per executed step so a consumer (e.g. a desktop timeline) can render live progress. */
-export interface StepProgress {
+export interface StepProgress extends ExecutedAction {
   index: number;
-  step: Step;
-  ok: boolean;
-  error?: string;
-  /** True when the step was not executed because its `expect` already held (pre-check skip, #86). */
-  skipped?: boolean;
-  /** Typed cause of `error`, when the thrower said (#212). */
-  errorKind?: StepErrorKind;
   /** A screenshot data URL, present only when screenshot capture is enabled. */
   screenshot?: string;
 }
@@ -263,6 +288,12 @@ export interface NetworkRequest {
  * looked right"); perception (screenshots) feeds the host's visual replay and is available to custom
  * checks — built-in critics don't judge it yet (LLM-vision assertions are future). */
 export interface Evidence {
+  /** Run-local relation results only; raw selected/destination keys are not exported. */
+  selectedItems?: import("./selected-item-evidence.js").SelectedItemEvidenceRecord[];
+  selectedItemRunId?: string;
+  /** Run-local intermediate reads. Never reused as final-page evidence or persisted in Scenario. */
+  checkpoints?: import("./evidence-capture.js").EvidenceCheckpointRecord[];
+  captureRunId?: string;
   execution: {
     actions: ExecutedAction[];
     navigated: boolean;
@@ -285,6 +316,7 @@ export interface Evidence {
 export type StepErrorKind = "resolution" | "post-condition" | "timeout" | "transport" | "handler";
 
 export interface ExecutedAction {
+  /** The step that ran: a successful StepHealer replacement, not the planned step it replaced. */
   step: Step;
   ok: boolean;
   error?: string;
@@ -302,6 +334,8 @@ export interface ConsoleMessage {
 }
 
 export interface AssertionResult {
+  /** A required custom check could not be confirmed; another passing check cannot cover it. */
+  required?: true;
   assertion: Assertion;
   passed: boolean;
   detail?: string;

@@ -1,6 +1,10 @@
 /** Public surface of cairn-engine. */
 export * from "./core/types.js";
-export { CollectionSelectionError, validateCollectionTarget } from "./core/collection.js";
+export type { EvidenceCaptureOptions, EvidenceCheckpoint, EvidenceCheckpointRecord, CapturePhase, CaptureStatus } from "./core/evidence-capture.js";
+export { sameCapturePath, checkpointEvidence } from "./core/evidence-capture.js";
+export { selectedItemEquals } from "./core/selected-item-evidence.js";
+export type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, ResourceKeyObservation, SelectedItemEvidenceOptions, SelectedItemEvidenceRecord, SelectedItemSelectionAttempt } from "./core/selected-item-evidence.js";
+export { CollectionSelectionError, SelectionNotDispatchedError, validateCollectionTarget } from "./core/collection.js";
 export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";
 export { composePolicies } from "./core/action-policy.js";
@@ -14,7 +18,8 @@ export type { IdentifyScenarioOptions, JudgmentOptions } from "./core/contract.j
 export { reanchorScenario, validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 export type { ReplayEnvironment } from "./core/replay-environment.js";
 export type { RequestMatchOptions } from "./core/requests.js";
-export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf } from "./core/pipeline.js";
+export { runHarness, blockedReason, classifyFailure, finalizeVerdict, goalFailures, proofOf, rediscoveryEligibility } from "./core/pipeline.js";
+export type { RediscoveryEligibility, RediscoveryIneligibleReason } from "./core/pipeline.js";
 export { stepError, errorKindOf } from "./core/errors.js";
 export { validateSecrets, fillSecrets, hasSecretPlaceholder, redactSecrets, slotSecrets, slotSecretText, assertSecretScope } from "./core/secrets.js";
 export type { Secret, Secrets } from "./core/secrets.js";

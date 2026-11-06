@@ -216,6 +216,15 @@ limited to native controls; custom popups are refused before opening. See the
 [collection contract](../spec/core/collection-selection.md) for supported lists, adapter wiring
 and persistence limits. Healthy mechanical replay still uses zero model calls.
 
+To check that the destination represents the resource actually selected on this replay, use
+[selected-item resource-key evidence](selected-item-evidence.md). This explicit relation is
+separate from selecting a position and does not replace fixed-resource assertions.
+
+When any resource satisfying explicit conditions is acceptable, use
+[predicate selection](predicate-selection.md). It chooses one eligible member deterministically,
+can reference that run's bound resource in later actions, and permits reselection only before
+dispatch under an explicit limit. Fixed targets and positional collections do not gain fallback.
+
 ### Optional app knowledge
 
 Pass reusable terminology and flow prerequisites separately from the task:
@@ -396,6 +405,45 @@ healing. Other judged checks determine the verdict; if none can be judged, the r
 fails closed (CLI exit 3). Repairs with inconclusive checks are not offered for re-freezing.
 Consumers should display this reason separately from pass and fail, even though the
 result's `passed` field is false.
+
+For **required** evidence, return `{ inconclusive: true, required: true, detail }`. Missing required
+evidence prevents green even when other checks pass; it is unconfirmed, not an observed app failure.
+
+## Intermediate evidence checkpoints
+
+Use `evidenceCapture` to read a selected intermediate screen before the next action replaces it.
+The engine awaits the read; an async `onStep` callback does not provide this guarantee.
+
+```ts
+import { checkpointEvidence, runScenario, type Step } from "cairn-engine";
+
+const editorPath = scenario.steps.slice(0, 2); // bind to this frozen path, not a previous run's index
+// Persist this custom assertion in scenario.assertions:
+// { kind: "custom", name: "editor", params: { after: editorPath } }
+const outcome = await runScenario(scenario, {
+  evidenceCapture: { checkpoints: [{ id: "editor", after: editorPath, elements: true }] },
+  judgmentKey: "editor-check-v1",
+  custom: {
+    async editor(params, evidence) {
+      const record = await checkpointEvidence(evidence, { id: "editor", after: params.after as Step[] });
+      if (!record?.elements)
+        return { inconclusive: true, required: true, detail: "Editor evidence unavailable" };
+      return record.elements.some(el => el.role === "heading" && el.name === "Editor");
+    },
+  },
+});
+```
+
+Capture settings are runtime-only; required checkpoint semantics belong in assertion params and
+the custom check's `judgmentKey`. Edited/healed paths must be rebound explicitly. Reads default to
+a 2-second acceptance deadline and drain in-flight driver calls before advancing; they cannot
+interrupt an unresponsive driver. `complete` means requested reads completed, not complete DOM
+coverage or continuous validity. Values are omitted by default; screenshot pixels are not
+automatically redacted. [Boundary, lifecycle and privacy details](../spec/core/evidence-capture.md).
+
+An after-step snapshot cannot establish which resource belonged to a selected item before its
+click. For that relation, use [selected-item evidence](selected-item-evidence.md), which binds a
+pre-dispatch key to the actual action and compares an independently read destination key.
 
 ## Secrets
 

@@ -6,7 +6,7 @@
 import { reanchorScenario, validateReplayEntry } from "./core/replay-environment.js";
 import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, budgetResult, budgetVerdict, type BudgetOptions } from "./core/budget.js";
 import type { ReplayEnvironment } from "./core/replay-environment.js";
-import { runHarness, finalizeVerdict, goalFailures } from "./core/pipeline.js";
+import { runHarness, finalizeVerdict, goalFailures, rediscoveryEligibility, type RediscoveryIneligibleReason } from "./core/pipeline.js";
 import { discover } from "./core/discover/index.js";
 import type { CustomAction } from "./core/ports.js";
 import { InlineContextProvider } from "./adapters/context/inline.js";
@@ -35,6 +35,8 @@ import { identifyScenario, scenarioContract } from "./core/contract.js";
 import type { JudgmentOptions } from "./core/contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "./core/app-context.js";
 import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
+import type { EvidenceCaptureOptions, EvidenceCheckpointRecord } from "./core/evidence-capture.js";
+import type { SelectedItemEvidenceOptions } from "./core/selected-item-evidence.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -74,6 +76,8 @@ export interface RunScenarioOptions extends BudgetOptions {
   /** Capture a screenshot after each step — delivered to `onStep`, and stored as a trace
    * attachment when the sink keeps bytes (#160). Nothing to store it → nothing is captured. */
   screenshots?: boolean;
+  evidenceCapture?: EvidenceCaptureOptions;
+  selectedItemEvidence?: SelectedItemEvidenceOptions;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
@@ -125,6 +129,13 @@ export interface RunScenarioResult {
 export function needsLlmCritic(scenario: Scenario): boolean {
   return scenario.assertions.some((a) => a.kind === "expect");
 }
+
+const SKIPPED_HEAL: Partial<Record<RediscoveryIneligibleReason, string>> = {
+  "collection-position": "outcome-heal skipped: explicit collection positions must be re-authored, not re-discovered automatically",
+  "predicate-selection": "outcome-heal skipped: explicit selection predicates do not authorize outcome rediscovery",
+  inconclusive: "outcome-heal skipped: no failed goal to repair; some checks could not be judged",
+  "no-goal-failure": "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those",
+};
 
 /** The scenario's entry URL (its first `goto`), so an outcome-heal re-discovers from the same start. */
 function firstGotoUrl(scenario: Scenario): string | undefined {
@@ -208,10 +219,13 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
   const budget = opts[budgetScope];
   const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
+  if (opts.selectedItemEvidence?.bindings.length && (opts.heal || opts.targetChoice))
+    throw new Error("selected-item evidence does not support automatic healing or targetChoice; explicitly rebind the repaired path");
   // Copy declarations before the first asynchronous boundary; callers own the source artifact.
   scenario = { ...scenario, steps: scenario.steps.map(step => isCollectionStep(step) && "target" in step
     ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
-  const hasCollection = scenario.steps.some(isCollectionStep);
+  if (scenario.steps.some(step => "target" in step && step.target.collection?.choice) && (opts.heal || opts.targetChoice))
+    throw new Error("predicate selection does not authorize automatic healing or targetChoice");
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   if (opts.targetChoice && opts.heal) throw new Error("targetChoice and legacy heal are mutually exclusive");
   if (opts.replayEnvironment) {
@@ -352,11 +366,14 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         judgment,
         signal: opts.signal,
         onStep: opts.targetChoice ? progress => {
+          // `progress.step` is a StepHealer replacement only when heal is on, which targetChoice excludes.
           if ("target" in progress.step) healer?.confirmChoice(progress.step.target, progress.ok && !progress.skipped);
           opts.onStep?.(progress);
         } : opts.onStep,
         // The internal choice-confirmation callback does not consume screenshot bytes.
         captureScreenshots: opts.screenshots && (opts.onStep !== undefined || scope?.acceptsAttachments === true),
+        evidenceCapture: opts.evidenceCapture,
+        selectedItemEvidence: opts.selectedItemEvidence,
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,
@@ -381,18 +398,20 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
     // And never when the red is the environment's (#173): a missing secret, a dead browser, a
     // handler nobody registered — a re-discovery cannot supply any of those, and would spend the
     // LLM to end as "re-discover" instead of the "fix the setup" the run already knows (#174).
-    const healable =
-      !hasCollection &&
-      result.verdict.failure !== "environment" && result.verdict.failure !== "budget" &&
-      (result.evidence.execution.blocked || goalFailures(result.verdict).length > 0);
-    if (opts.heal && !result.verdict.passed && healable) {
+    const eligibility = rediscoveryEligibility(scenario, result);
+    if (opts.heal && eligibility.eligible) {
       // #78: watermark the cumulative logs so the verdict sees only the re-discovery's own evidence —
       // the failed run's requests must not satisfy a request-status.
       const before = await baseDriver.observe();
       const sinceRequest = before.logic.requests.length;
       const sinceConsole = before.logic.console.length;
 
+      const repairCaptures: EvidenceCheckpointRecord[] = [];
       const repaired = await discover(scenario.name, {
+        evidenceCapture: opts.evidenceCapture ? { ...opts.evidenceCapture, onCapture: record => {
+          repairCaptures.push(structuredClone(record));
+          return opts.evidenceCapture?.onCapture?.(record);
+        } } : undefined,
         [budgetScope]: budget,
         driver: baseDriver,
         llm: repairLlm,
@@ -414,9 +433,11 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const ctx = budget
         ? await budget.operation("context.provide", () => context.provide(scenario.name))
         : await context.provide(scenario.name);
-      const observed = await baseDriver.observe();
+      const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId,
+        selectedItems: _priorSelectedItems, selectedItemRunId: _priorSelectedItemRunId, ...observed } = await baseDriver.observe();
       const evidence = {
         ...observed,
+        ...(opts.evidenceCapture ? { checkpoints: repairCaptures, captureRunId: repairCaptures[0]?.runId } : {}),
         logic: {
           requests: observed.logic.requests.slice(sinceRequest),
           console: observed.logic.console.slice(sinceConsole),
@@ -492,12 +513,10 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
 
     // Heal was on and the run is red, but nothing a re-discovery could fix failed: say so, or the
     // operator reads "heal did nothing" as "heal found nothing".
-    const skipped = opts.heal && !result.verdict.passed && !healable && result.verdict.failure !== "budget";
-    const why = hasCollection
-      ? "outcome-heal skipped: explicit collection positions must be re-authored, not re-discovered automatically"
-      : result.verdict.results.some(r => r.reason === "inconclusive")
-      ? "outcome-heal skipped: no failed goal to repair; some checks could not be judged"
-      : "outcome-heal skipped: only app-health guards failed, and a re-discovery cannot fix those";
+    const skipped = opts.heal && !eligibility.eligible && eligibility.reason !== "passed" && eligibility.reason !== "budget";
+    // An environment red has no message of its own and keeps the wording it had before #326.
+    const why = eligibility.eligible ? undefined : SKIPPED_HEAL[eligibility.reason]
+      ?? SKIPPED_HEAL[result.verdict.results.some(r => r.reason === "inconclusive") ? "inconclusive" : "no-goal-failure"];
     const final = skipped
       ? { ...result, verdict: { ...result.verdict, detail: result.verdict.detail ? `${result.verdict.detail}; ${why}` : why } }
       : result;

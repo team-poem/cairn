@@ -97,9 +97,15 @@ const scenario = await discover("Add two units to the cart", {
 });
 ```
 
-[App context](https://github.com/team-poem/cairn/blob/main/docs/guide.md#optional-app-knowledge) guides discovery, exploration and repair; it never replaces observed evidence or success checks. Healthy mechanical replay needs neither context nor a model.
+[App context](https://github.com/team-poem/cairn/blob/main/docs/guide.md#optional-app-knowledge) supplies reusable app knowledge for discovery, exploration and repair. [`pageGuidance`](https://github.com/team-poem/cairn/blob/main/spec/core/page-guidance.md) supplies advice tied to the current observation during discovery and exploration. Neither replaces observed evidence or success checks.
 
-[Execution budgets](https://github.com/team-poem/cairn/blob/main/docs/guide.md#execution-budgets) limit engine model-call admissions and elapsed time per run, or per suite case across discovery and repair. Separate calls get separate budgets. The deadline is cooperative, not a hard kill or a billing cap. CLI equivalents: `--app-context ./app.txt`, `--max-model-calls 12`, `--run-timeout 60000`.
+[Execution budgets](https://github.com/team-poem/cairn/blob/main/docs/guide.md#execution-budgets) limit engine model-call admissions and elapsed time per run, or per suite case across discovery and repair. Separate calls get separate budgets by default; use `runWorkflow()` to share one allowance across engine calls and host work registered through its leases. The deadline is cooperative, not a hard kill or a billing cap. For CLI context and per-run limits, use `--app-context ./app.txt`, `--max-model-calls 12`, `--run-timeout 60000`.
+
+### Verify the resource selected in this run
+
+Host-authored tests can select [the current first result](https://github.com/team-poem/cairn/blob/main/docs/guide.md#run-relative-collection-positions) or [an item that meets explicit conditions](https://github.com/team-poem/cairn/blob/main/docs/predicate-selection.md). They can then [compare that resource's key with a key read independently from the destination](https://github.com/team-poem/cairn/blob/main/docs/selected-item-evidence.md). Selection and comparison run without a model.
+
+Resource bindings and predicate choices are opt-in library APIs, initially for same-document collection clicks with explicit `data-*` keys. Fixed targets never gain permission to substitute another resource. Opt-in reselection requires proof that the previous click was not dispatched.
 
 ## Benchmarks
 
@@ -173,7 +179,8 @@ This measures one locator change, with the order verified by the fixture's order
 - Replay it deterministically, with zero LLM calls, and print the proof (`llm: 0 call(s)`)
 - Self-heal a broken step from its recorded intent, then re-freeze
 - Supply reusable app knowledge to discovery, exploration and repair with `appContext`
-- Bound model calls and elapsed time with a shared execution budget per run or suite case
+- Bound model calls and elapsed time with a shared execution budget per run, suite case or host-composed workflow
+- Read evidence at [selected intermediate checkpoints](https://github.com/team-poem/cairn/blob/main/docs/guide.md#intermediate-evidence-checkpoints) before the next action changes the screen
 - Fill `{name}` secrets at run time, scoped to your site, never frozen into a skill
 - Multi-locator targets (accessible name, role and index, CSS) that survive redesigns
 - Three-layer judgment: did it act, what it looked like, what the requests and console said

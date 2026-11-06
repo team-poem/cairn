@@ -16,6 +16,8 @@ import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
 import { scenarioContract, copyProvenance } from "./contract.js";
 import type { JudgmentOptions } from "./contract.js";
+import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "./evidence-capture.js";
+import { SelectedItemEvidenceSession, type SelectedItemEvidenceOptions } from "./selected-item-evidence.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -36,6 +38,8 @@ export interface RunHarnessOptions extends BudgetOptions {
   signal?: AbortSignal;
   onStep?: (progress: StepProgress) => void;
   captureScreenshots?: boolean;
+  evidenceCapture?: EvidenceCaptureOptions;
+  selectedItemEvidence?: SelectedItemEvidenceOptions;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
   /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
@@ -104,7 +108,7 @@ async function runStep(
   // neither pre-satisfy the skip nor count as a post-condition (fail closed, #69/#137).
   const expect = step.expect && Object.values(step.expect).some((v) => v !== undefined) ? step.expect : undefined;
   const collection = isCollectionStep(step);
-  // Existing page state cannot establish that the current collection position was exercised.
+  // Existing page state cannot establish that this run's declared collection selection was exercised.
   if (!collection && expect && expect.requestStatus === undefined && (await conditionMet(driver, expect, 0, urlMatch))) {
     // Already satisfied — safe skip, but never a SILENT one: the marker keeps a wrongly
     // pre-satisfied expect (the #56→#86/#87/#96 failure class) observable to hosts (#86).
@@ -179,6 +183,39 @@ const GUARD_KINDS: ReadonlySet<string> = new Set(["no-failed-requests", "no-cons
  */
 export function goalFailures(verdict: Verdict): AssertionResult[] {
   return verdict.results.filter((r) => !r.passed && r.reason !== "inconclusive" && !GUARD_KINDS.has(r.assertion.kind));
+}
+
+export type RediscoveryIneligibleReason = "passed" | "budget" | "collection-position" | "predicate-selection" | "environment" | "inconclusive" | "no-goal-failure";
+export type RediscoveryEligibility = { eligible: true } | { eligible: false; reason: RediscoveryIneligibleReason };
+
+/**
+ * Whether a replay result may be repaired by re-discovering the scenario (#326), the same decision
+ * `runScenario` makes before its outcome-heal. When several reasons apply, the first in the order
+ * passed, budget, collection-position, predicate-selection, environment, inconclusive,
+ * no-goal-failure is returned.
+ * Accepts the critic's raw verdict as well as a finalized one: a raw verdict is finalized against
+ * the result's actions first, so a budget stop or transport failure is classified before it is read.
+ * Pure: no driver or model work. Eligible is not permission to dispatch (opt-in, cancellation and
+ * budget still apply) and not acceptance (a re-discovery is still judged by `finalizeVerdict`).
+ * A host may add its own conditions on top.
+ */
+export function rediscoveryEligibility(scenario: Pick<Scenario, "steps">, result: Pick<Result, "verdict" | "evidence">): RediscoveryEligibility {
+  const { actions } = result.evidence.execution;
+  // A finalized green always carries `proof` and a finalized red always carries `failure`.
+  const finalized = result.verdict.passed ? result.verdict.proof !== undefined : result.verdict.failure !== undefined;
+  const verdict = finalized ? result.verdict : finalizeVerdict(result.verdict, blockedReason(actions, scenario.steps.length), actions);
+  if (verdict.passed) return { eligible: false, reason: "passed" };
+  if (verdict.failure === "budget") return { eligible: false, reason: "budget" };
+  // A re-discovery would replace a declared position with whatever it finds (#306).
+  if (scenario.steps.some(step => isCollectionStep(step) && !("target" in step && step.target.collection?.choice)))
+    return { eligible: false, reason: "collection-position" };
+  if (scenario.steps.some(isCollectionStep)) return { eligible: false, reason: "predicate-selection" };
+  // A missing secret or dead browser is not something a new path can supply (#173).
+  if (verdict.failure === "environment") return { eligible: false, reason: "environment" };
+  // Guards alone are the app's health, not the path (#186); an unjudged check is not a failed goal.
+  if (!result.evidence.execution.blocked && goalFailures(verdict).length === 0)
+    return { eligible: false, reason: verdict.results.some(r => r.reason === "inconclusive") ? "inconclusive" : "no-goal-failure" };
+  return { eligible: true };
 }
 
 /**
@@ -283,7 +320,7 @@ export function classifyFailure(verdict: Verdict, actions: readonly ExecutedActi
   const goals = app.filter((r) => !GUARD_KINDS.has(r.assertion.kind));
   if (goals.length > 0) return goals.every((r) => r.assertion.kind === "request-status" && refusedOnly(r)) ? "environment" : "flow";
   if (app.length > 0) return app.every((r) => r.assertion.kind === "no-failed-requests" && refusedOnly(r)) ? "environment" : "flow";
-  if (failed.length > 0) return "environment";
+  if (failed.length > 0 || verdict.results.some(r => r.reason === "inconclusive" && r.required)) return "environment";
   return "flow";
 }
 
@@ -324,6 +361,22 @@ async function runHarnessEntry(harness: Harness, task: string, opts: RunHarnessO
 
 async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
   validateSecrets(opts.secrets);
+  const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture, "replay", opts.secrets) : undefined;
+  const selected = opts.selectedItemEvidence ? new SelectedItemEvidenceSession(opts.selectedItemEvidence) : undefined;
+  if (opts.stepHandlers && opts.selectedItemEvidence?.bindings.length)
+    throw new Error("selected-item evidence requires the built-in step handlers");
+  if (opts.stepHealer && opts.selectedItemEvidence?.bindings.length)
+    throw new Error("selected-item evidence does not support automatic step healing");
+  try {
+    return await runHarnessWithCapture(harness, task, opts, capture, selected);
+  } finally {
+    capture?.finish(opts.signal);
+    selected?.finish(opts.signal);
+  }
+}
+
+async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHarnessOptions, capture?: EvidenceCaptureSession,
+  selected?: SelectedItemEvidenceSession): Promise<Result> {
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
@@ -333,6 +386,10 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
   const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })),
     steps: planned.steps.map(step => isCollectionStep(step) && "target" in step
       ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  if (scenario.steps.some(step => "target" in step && step.target.collection?.choice)
+    && (!selected || opts.stepHandlers || opts.stepHealer))
+    throw new Error("predicate selection requires selected-item bindings and the unmodified replay handlers");
+  selected?.validateScenario(scenario);
   const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
   const contract = await scenarioContract(scenario, judgment());
   const provenance = copyProvenance(scenario.provenance);
@@ -353,7 +410,8 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
     opts.signal?.throwIfAborted(); // cooperative cancellation between steps (host owns Stop)
     const budget = opts[budgetScope];
     let recorded: number | undefined;
-    const result = await runStep(handlers, step, driver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
+    const stepDriver = selected?.driverFor(step, driver, opts.signal) ?? driver;
+    const result = await runStep(handlers, step, stepDriver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
       budget ? action => { recorded = budget.recordAction(action); } : undefined, budget);
     opts.signal?.throwIfAborted();
     opts[budgetScope]?.check();
@@ -362,10 +420,24 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
       if (recorded === undefined) budget.recordAction(result);
       else budget.updateAction(recorded, result);
     }
+    // Accept source evidence only after dispatch and post-condition completion. Destination
+    // reads share this awaited boundary with checkpoints, before observers or the next action.
+    if (selected) {
+      await selected.after(result, driver, opts.signal);
+      opts.signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+    }
     // One capture serves both consumers — and only when someone stores it: a host timeline
     // (`onStep`) or a sink that keeps attachment bytes. Nobody watching = no screenshot taken.
     const wantsShot = opts.captureScreenshots && (opts.onStep !== undefined || opts.trace?.acceptsAttachments === true);
-    const screenshot = wantsShot ? await driver.screenshot().catch(() => undefined) : undefined;
+    let shot: Promise<string | undefined> | undefined;
+    const takeScreenshot = () => shot ??= driver.screenshot().catch(() => undefined);
+    if (capture) {
+      await capture.after(result, driver, opts.signal, wantsShot ? takeScreenshot : undefined);
+      opts.signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+    }
+    const screenshot = wantsShot ? await takeScreenshot() : undefined;
     // `result.step`, not `step` — a healed step is recorded as what actually ran. The `attachment`
     // ref is stamped by the Tracer from this event's `seq`; the bytes go to the sink, not the payload.
     opts.trace?.emit(
@@ -378,7 +450,7 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
       screenshot,
     );
     if (opts.onStep) {
-      opts.onStep({ index: actions.length - 1, step, ok: result.ok, error: result.error, errorKind: result.errorKind, skipped: result.skipped, screenshot });
+      opts.onStep({ ...result, index: actions.length - 1, screenshot });
     }
     if (!result.ok) break;
   }
@@ -386,9 +458,12 @@ async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunH
   // Auto-wait for network idle so evidence captures late subresources, not a race (design §3).
   await driver.settle();
 
-  const observed = await driver.observe();
+  const { checkpoints: _priorCheckpoints, captureRunId: _priorCaptureRunId,
+    selectedItems: _priorSelectedItems, selectedItemRunId: _priorSelectedItemRunId, ...observed } = await driver.observe();
   const evidence: Evidence = {
     ...observed,
+    ...(capture ? { checkpoints: capture.finish(), captureRunId: capture.runId } : {}),
+    ...(selected ? { selectedItems: selected.finish(), selectedItemRunId: selected.runId } : {}),
     execution: { ...observed.execution, actions, blocked: actions.some((a) => !a.ok) },
   };
 

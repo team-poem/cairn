@@ -22,8 +22,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.10 — budget-exhausted and structured budget verdict metadata (#284).
  * 1.11 — content-free prepared decision selection summaries (#302).
  * 1.12 — opt-in no-progress gates and content-free cycle counters (#309).
- * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304). */
-export const TRACE_VERSION = "1.13";
+ * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
+ * 1.14 — required inconclusive custom checks (#314). */
+export const TRACE_VERSION = "1.14";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -89,6 +90,7 @@ export type TraceEvent = Envelope &
            * reproduce `classifyFailure` from the trace without reading `detail`. */
           statuses?: number[];
           reason?: "judge-failed" | "no-handler" | "inconclusive";
+          required?: true;
           origin: "user" | "derived" | "unknown";
           checkedBy: "code" | "model";
         };
@@ -116,6 +118,7 @@ export function assertionPayload(r: AssertionResult): Extract<TraceEvent, { kind
     detail: r.detail,
     ...(r.statuses ? { statuses: r.statuses } : {}),
     ...(r.reason ? { reason: r.reason } : {}),
+    ...(r.required ? { required: true as const } : {}),
     origin: r.assertion.origin ?? "unknown",
     checkedBy: r.assertion.kind === "expect" ? "model" : "code",
   };

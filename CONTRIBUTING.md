@@ -33,7 +33,7 @@ Contributions that respect that contract are the most valuable kind.
 6. **Open a pull request to `develop`**, fill in the template, and **link the issue** it
    resolves. `cairn-bot` validates that every PR links an issue.
 7. **Respond to review.** Once approved, a maintainer removes `status/1-needs-review` and
-   adds `needs-merge` to request a squash merge into `develop` by `cairn-pingu`.
+   adds `needs-merge` to request a merge commit into `develop` by `cairn-pingu`.
    This transition is manual: approval does not replace the review label, and leaving both
    labels present blocks the bot. Without `needs-merge`, the merge label check is skipped
    and the bot does not evaluate an open PR for merging.
@@ -42,8 +42,10 @@ Contributions that respect that contract are the most valuable kind.
    merge the lower PR of a stack first. When a same-repository branch conflicts with develop, the bot
    merges develop into it: if nothing is left to merge it closes the PR, and if every conflict is one
    where the PR's side is already on develop it pushes that merge and removes `needs-merge` so a
-   maintainer reviews it and asks again. Other conflicts are left to the author. The squashed commit credits the PR author; the bot is
-   recorded as the merger. After a successful merge the bot removes `needs-merge`.
+   maintainer reviews it and asks again. Other conflicts are left to the author. Source commits and
+   their authors are preserved; the bot is recorded as the merger. After a successful merge the bot
+   removes `needs-merge`. An unsupported merge method is a configuration failure, not a pending
+   request: a maintainer must enable merge commits in repository settings before retrying.
    Remove `needs-merge` before merging to cancel the request.
    Add `no-merge` to block the bot even when `needs-merge` is present. Removing `no-merge`
    resumes an existing request, so remove `needs-merge` too if you want to cancel it.
@@ -55,7 +57,7 @@ cuts a release by bumping `packages/harness/package.json`'s version on `develop`
 `develop` → `main`. **Only maintainers merge to `main`** — that merge _is_ the release.
 
 Use **Create a merge commit** for every PR into `main`; its ruleset allows only that method.
-Feature PRs into `develop` can still be squash-merged. Never squash or rebase a release or a
+Feature PRs into `develop` also use merge commits, matching repository settings. Never squash or rebase a release or a
 main-to-develop history repair: the shared branch ancestry must survive. Preparation checks the
 history before writing release files and again before pushing. If it reports disconnected history,
 merge `origin/main` into `develop`, resolve and verify the content, then retry; do not force-push
@@ -76,7 +78,7 @@ need them:
 
 - `CAIRN_BOT_CLIENT_ID` and `CAIRN_BOT_PRIVATE_KEY` — the `cairn-bot` GitHub App's client
   ID (not the numeric app ID) and a private key generated from the App settings. Used by
-  PR triage, label-driven squash merging, and the trusted OCI CI relay, not the release
+  PR triage, label-driven merging, and the trusted OCI CI relay, not the release
   workflow. Merging uses the App's existing Contents write and Pull requests write
   permissions. Merge-eligibility CI reads use the workflow's read-only `GITHUB_TOKEN`.
   The OCI relay separately requests a token

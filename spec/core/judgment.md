@@ -164,6 +164,16 @@ inconclusive results do not influence failure classification or trigger outcome 
 A repair with an inconclusive original check is withheld from re-freezing, including
 the target-choice pilot. Reporters label those checks inconclusive, not pass or fail.
 
+For a required checkpoint (#314), a custom check instead returns
+`{ inconclusive: true, required: true, detail }`. It remains unconfirmed, but prevents a passing
+aggregate even alongside a verified final destination. When there is no app failure or other
+fail-closed reason, the finalizer classifies this as environment, not flow. Existing all-inconclusive
+and all-vacuous classification is unchanged. The persisted assertion params describe the required
+checkpoint and expected action path; `judgmentKey` identifies the implementation. Runtime capture
+settings are not part of that contract. See [evidence capture](evidence-capture.md).
+Built-in judgment revision 2 distinguishes this aggregation from revision 1; matching custom
+keys alone cannot make the old and new judgment semantics comparable as the same contract.
+
 ## Grounded — "a green run means it actually worked"
 
 When discover proposes assertions, it **grounds them in what actually happened** (`deriveAssertions`):

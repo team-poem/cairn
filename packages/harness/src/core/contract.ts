@@ -120,7 +120,7 @@ export async function scenarioContract(scenario: Scenario, opts: IdentifyScenari
       wildcards: scenario.wildcards === true,
       judgment: {
         // Bump this revision when built-in judgment semantics change, not on every release.
-        revision: 1,
+        revision: 2,
         benign: set(opts.benign ?? []),
         benignConsole: set(opts.benignConsole ?? []),
         localePrefixes: set(opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES),

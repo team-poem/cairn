@@ -99,6 +99,7 @@ async function runStep(
   trace?: TraceScope,
   onExecuted?: (action: ExecutedAction) => void,
   budget?: BudgetScope,
+  signal?: AbortSignal,
 ): Promise<ExecutedAction> {
   // A `requestStatus` expect is event evidence over the run's CUMULATIVE request log, not page
   // state: an idempotency pre-check would be satisfied by an earlier step's (or page-load's)
@@ -126,8 +127,11 @@ async function runStep(
 
   // Diverged: ran but `expect` didn't hold within the window — repair only this step.
   if (healer && !collection) {
-    const healed = await (budget ? budget.operation("step.heal", () => healer.heal(step, index, driver))
-      : healer.heal(step, index, driver));
+    let declined = false;
+    const heal = () => healer.heal(step, index, driver, () => { declined = true; });
+    const healed = await (budget ? budget.operation("step.heal", heal) : heal());
+    signal?.throwIfAborted();
+    budget?.check();
     if (healed) {
       onExecuted?.({ step: healed.step, ok: true });
       if (await pollCondition(driver, healed.step.expect ?? expect, expectTimeoutMs, { sinceRequestIndex, urlMatch })) {
@@ -139,6 +143,19 @@ async function runStep(
         });
         return { step: healed.step, ok: true };
       }
+    } else if (declined) {
+      // No replacement ran. The original action may have completed while repair was thinking.
+      // Reuse its request watermark and matching rules; do not restart a wait or dispatch.
+      let satisfied: boolean;
+      try {
+        // Budgeted drivers already guard each read and retain participant-specific stop reasons.
+        satisfied = await conditionMet(driver, expect, sinceRequestIndex, urlMatch, budget ? undefined : signal);
+      } finally {
+        // Cancellation can arrive while a read's rejection propagates through the awaits.
+        if (budget) budget.check();
+        else signal?.throwIfAborted();
+      }
+      if (satisfied) return result;
     }
   }
   return { step, ok: false, error: `post-condition not met: ${JSON.stringify(expect)}`, errorKind: "post-condition" };
@@ -412,7 +429,7 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
     let recorded: number | undefined;
     const stepDriver = selected?.driverFor(step, driver, opts.signal) ?? driver;
     const result = await runStep(handlers, step, stepDriver, actions.length, expectTimeoutMs, urlMatch, opts.stepHealer, opts.trace,
-      budget ? action => { recorded = budget.recordAction(action); } : undefined, budget);
+      budget ? action => { recorded = budget.recordAction(action); } : undefined, budget, opts.signal);
     opts.signal?.throwIfAborted();
     opts[budgetScope]?.check();
     actions.push(result);

@@ -49,7 +49,7 @@ export class LlmStepHealer implements StepHealer {
     this.llm = withAppContext(llm, snapshotAppContext(options.appContext, secrets));
   }
 
-  async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
+  async heal(step: Step, index: number, driver: Driver, onDeclined?: () => void): Promise<StepHeal | null> {
     // A different action would change the explicitly authored collection-position test.
     if (isCollectionStep(step)) return null;
     if (this.attempts >= this.maxHeals) return null;
@@ -77,7 +77,10 @@ export class LlmStepHealer implements StepHealer {
       rethrowBudget(error);
       return null;
     }
-    if (decision.action === "done") return null;
+    if (decision.action === "done") {
+      onDeclined?.();
+      return null;
+    }
     let healed: Step;
     try {
       healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself

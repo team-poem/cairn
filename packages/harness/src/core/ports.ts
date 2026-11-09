@@ -169,7 +169,10 @@ export interface StepHandler {
  * re-discovering the whole scenario. The LLM lives here (sanctioned, invariant #4(b)); injected only
  * when healing is asked, so clean replay stays LLM-free. Returns the corrective step, or null. */
 export interface StepHealer {
-  heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null>;
+  /** Call onDeclined only when returning null without attempting a corrective action, including
+   * through privately held drivers. It permits one check of the original expect, not success by
+   * itself. A failed/uncertain dispatch must not call it. Null alone preserves the failed step. */
+  heal(step: Step, index: number, driver: Driver, onDeclined?: () => void): Promise<StepHeal | null>;
 }
 
 export interface StepHeal {

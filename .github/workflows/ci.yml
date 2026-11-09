@@ -214,3 +214,5 @@ jobs:
         if: matrix.package-manager == 'pnpm'
       - run: npm ci
       - run: npm run test:consumer -- ${{ matrix.package-manager }}
+        env:
+          CAIRN_CONSUMER_SKIP_CHROME: ${{ runner.arch == 'ARM64' && '1' || '' }}

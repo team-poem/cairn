@@ -27,7 +27,7 @@ jobs:
       || contains(github.event.head_commit.message, '(#'))
       && !startsWith(github.event.head_commit.message, 'docs(journal): draft the entry')
       && !startsWith(github.event.head_commit.message, 'chore(release)')
-    runs-on: ubuntu-latest
+    runs-on: poem-public
     timeout-minutes: 5
     steps:
       - uses: actions/create-github-app-token@v3.2.0

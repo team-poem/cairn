@@ -24,7 +24,7 @@ function sharedRegionRows(count: number): PageElement[] {
 function renderedViews(rows: PageElement[], intent: string, limit: number): string[] {
   const driver = new OmissionDriver();
   const page = new PerceptionObservation(driver, rows, rows, intent, limit);
-  return [renderRankedElements(rows, intent, limit), page.render, page.references];
+  return [renderRankedElements(rows, intent, limit), page.render, page.listing];
 }
 
 test("filteredRowsDoNotSendLoopsSearching: discover and explore receive no false truncation notice for policy-filtered rows", async () => {
@@ -90,7 +90,7 @@ test("retainedEvidenceCountsTowardCap: over-quota intent evidence remains eligib
 test("emptyEligiblePoolHasNoHiddenRows: entirely covered captures render no imaginary scroll targets", () => {
   for (const rows of [[], coveredRows(5)] as PageElement[][]) {
     for (const limit of [0, 1, 60]) {
-      expect(renderedViews(rows, "inspect", limit)).toEqual([0, 1, 2].map(view => rows.length > 0 && view < 2 ? "\n(5 candidates excluded by visibility or region filtering; this listing is not a complete page inventory.)" : ""));
+      expect(renderedViews(rows, "inspect", limit)).toEqual([0, 1, 2].map(() => rows.length > 0 ? "\n(5 candidates excluded by visibility or region filtering; this listing is not a complete page inventory.)" : ""));
     }
   }
 });
@@ -98,8 +98,7 @@ test("emptyEligiblePoolHasNoHiddenRows: entirely covered captures render no imag
 test("zeroCapCountsEligibleRowsOnly: a zero row budget reports only eligible candidates and never creates reference tokens", () => {
   const rows = [...numberedRows(2), ...coveredRows(5), ...sharedRegionRows(10)];
   const outputs = renderedViews(rows, "inspect", 0);
-  expect(outputs[2]).toBe("");
-  for (const output of outputs.slice(0, 2)) {
+  for (const output of outputs) {
     expect(output.match(omittedNotice)).toEqual(["(+3 more elements not shown — scroll or interact to reveal them)"]);
     expect(output).not.toContain("ref=");
     expect(output.split("\n").filter(line => line.startsWith("- "))).toHaveLength(0);

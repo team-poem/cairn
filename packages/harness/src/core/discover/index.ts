@@ -246,16 +246,16 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, ctx)) return finish(false);
     if (policy?.incomplete?.()?.halt) return finish(true);
-    const render = page.render;
+    const render = page.listing;
     const capturedState = pageGuidance ? pageGuidanceState(raw) : undefined;
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
       purpose: "discover", page, url: observedUrl, secrets, signal, scope: opts[budgetScope], gate: guidanceGate });
     // The prompt's page line must name the page the guidance was written for.
     if (guidance) currentUrl = observedUrl ?? currentUrl;
-    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.references, guidance?.text);
+    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "discover", tracePhase);
     const reply = await llm.complete(prompt, {
-      system: discoverSystem(Boolean(page.references)) + (guidance ? PAGE_GUIDANCE_RULES : ""),
+      system: discoverSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : ""),
     });
 
     let decision: Decision;

@@ -48,7 +48,7 @@ export const ACTION_VOCABULARY = actionVocabulary(true);
 /** How the model must choose targets — shared by every loop prompt (#99). */
 const REFERENCE_RULES =
   'A "ref" is valid only for the current observation and one decision; ' +
-  'choose it from the current reference table, never invent or reuse it. With a ref, omit text, role, and nth: ' +
+  'choose it from the current element listing, never invent or reuse it. With a ref, omit text, role, and nth: ' +
   'the ref alone selects the exact element, including duplicates. If you supply a description too, it must agree ' +
   'with that element (names allow surrounding whitespace and case normalization). ' +
   'The following name/role/nth rules apply only when there is no ref. ';
@@ -69,7 +69,7 @@ export const REFERENCE_REJECTION = "reference binding rejected";
 /** Recovery after a rejected reference — follows the same capability boundary as the vocabulary. */
 export function referenceRecovery(hasReferences: boolean): string {
   return hasReferences
-    ? "After a rejected reference, choose a ref from the current observation references below; never reuse a rejected one."
+    ? "After a rejected reference, choose a ref from the current element listing below; never reuse a rejected one."
     : 'After a rejected reference: no references are available in this observation. Use the exact element name shown, ' +
       'add "role" and the listing\'s "nth" for duplicates, and do not include "ref".';
 }
@@ -192,7 +192,7 @@ export function buildPrompt(
   steps: Step[],
   failures: string[],
   currentUrl?: string,
-  references?: string,
+  hasReferences = false,
   guidance?: string,
 ): string {
   const history = steps.length
@@ -209,13 +209,12 @@ export function buildPrompt(
     // #116 — where the browser is (from the last action's observation; may lag one action).
     `Current page: ${currentUrl ?? "(unknown)"}`,
     ``,
-    ...failureBlock(failures, Boolean(references)),
+    ...failureBlock(failures, hasReferences),
     `Actions taken so far:`,
     history,
     ``,
     `Interactive elements now on the page:`,
     elementsBlock,
-    ...(references ? [``, references] : []),
     ...pageGuidanceBlock(guidance),
     ``,
     `What is the single next action? Respond with JSON only.`,

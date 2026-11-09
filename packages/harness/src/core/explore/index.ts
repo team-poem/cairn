@@ -218,11 +218,11 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
 
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
       purpose: "explore", page, url: observation.execution.finalUrl, signal, scope: opts[budgetScope], gate: guidanceGate });
-    const prompt = buildExplorePrompt(charter, render, steps, failures, visited, findings, currentUrl, page.references, guidance?.text);
+    const prompt = buildExplorePrompt(charter, page.listing, steps, failures, visited, findings, currentUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "explore", "explore");
     const reply = await llm.complete(
       prompt,
-      { system: exploreSystem(Boolean(page.references)) + (guidance ? PAGE_GUIDANCE_RULES : "") },
+      { system: exploreSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : "") },
     );
 
     let decision: Decision;

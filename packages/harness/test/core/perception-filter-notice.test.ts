@@ -22,7 +22,7 @@ function filterNotice(count: number): string {
 }
 function filterViews(rows: PageElement[], intent: string, limit: number): string[] {
   const page = new PerceptionObservation(new FilterNoticeDriver(), rows, rows, intent, limit);
-  return [renderRankedElements(rows, intent, limit), page.render, page.references];
+  return [renderRankedElements(rows, intent, limit), page.render, page.listing];
 }
 
 test("filteredCandidatesReachDecisionPrompts: discover and explore disclose policy exclusions without inventing scroll targets", async () => {
@@ -39,7 +39,7 @@ test("filteredCandidatesReachDecisionPrompts: discover and explore disclose poli
     const result = mode === "discover" ? await discover("inspect", options) : await explore("inspect", options);
     expect(result.truncated).not.toBe(true);
     expect(prompts).toHaveLength(1);
-    expect(prompts[0]!.split(filterNotice(7))).toHaveLength(3);
+    expect(prompts[0]!.split(filterNotice(7))).toHaveLength(2);
     expect(prompts[0]).not.toContain("more elements not shown");
     expect(prompts[0]).not.toContain("Covered");
     expect(prompts[0]!.match(/ref="[^"]+"/g)).toHaveLength(3);
@@ -69,8 +69,8 @@ test("mixedCapAndFilteringStayDistinct: cap loss and policy exclusions have sepa
   const rows = [...noticeRows(5), ...coveredNoticeRows(5)];
   for (const cap of [3, 0]) {
     const outputs = filterViews(rows, "inspect", cap);
-    expect(outputs[2] === "").toBe(cap === 0);
-    for (const output of cap === 0 ? outputs.slice(0, 2) : outputs) {
+    expect(outputs[2]!.includes("ref=")).toBe(cap > 0);
+    for (const output of outputs) {
       expect(output.split(filterNotice(5))).toHaveLength(2);
       expect(output.match(/\(\+\d+ more elements not shown[^)]*\)/g)).toEqual([
         `(+${5 - cap} more elements not shown — scroll or interact to reveal them)`,
@@ -100,8 +100,7 @@ test("entirelyFilteredCaptureDisclosesWithoutRefs: an all-covered capture explai
   for (const limit of [0, 3, 60]) {
     const rows = coveredNoticeRows(5);
     const outputs = filterViews(rows, "inspect", limit);
-    expect(outputs.slice(0, 2)).toEqual([`\n${filterNotice(5)}`, `\n${filterNotice(5)}`]);
-    expect(outputs[2]).toBe("");
+    expect(outputs).toEqual([0, 1, 2].map(() => `\n${filterNotice(5)}`));
     for (const output of outputs) {
       expect(output).not.toContain("more elements not shown");
       expect(output).not.toContain("Covered");

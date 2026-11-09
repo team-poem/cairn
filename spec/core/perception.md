@@ -70,8 +70,8 @@ are counted from the post-`perceive` candidates, separately from cap omissions; 
 imply that scrolling will reveal the excluded rows. Intent evidence retained by selection is
 not a filtering loss. Ordinary ranked renders and observation renders share both notices.
 If every candidate is filtered out, the semantic listing still carries the filtering notice;
-an empty input stays empty. A reference table is emitted only when actual references exist,
-so an empty reference table remains empty, including under a zero row cap.
+an empty input stays empty. References appear only when actual references exist, so a zero row
+cap or an entirely filtered capture never creates a ref.
 With no optional facts, legacy ranking and evidence selection remain unchanged.
 
 Optional [prepared selection diagnostics](trace.md#prepared-selection-diagnostics-302-version-111)
@@ -84,9 +84,11 @@ replacements are reflected in final role counts; retained evidence is never coun
 The engine builds a separate reference table for each decision. Model tokens map to captured
 Driver refs and canonical candidate descriptions. Raw Driver tokens are not sent to the model.
 The semantic page render contains no refs, so rotating handles do not defeat explore's
-dead-action comparison. Each independent model request includes the complete current listing
-and a fresh reference table, even when the semantic page is unchanged.
-The reference table reports omitted candidates under the same hard row budget. Discovery,
+dead-action comparison. Model prompts use a separate listing that describes each selected element
+once, with its ref inline when the reference table binds it (#342). Elements without a ref keep
+their ordinary row and stay addressable by name, role and ordinal. Each independent model request
+includes the complete current listing and fresh refs, even when the semantic page is unchanged.
+The listing reports omitted candidates under the same hard row budget. Discovery,
 exploration and surgical-heal systems teach ref-only target actions. Optional model text agrees
 when it equals the canonical name after trim/case normalization or is a nonempty case-insensitive
 substring of that name; supplied role and ordinal must still match exactly. This tolerance does

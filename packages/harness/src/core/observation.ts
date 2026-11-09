@@ -29,8 +29,11 @@ function describesName(text: unknown, name: string): boolean {
 export class PerceptionObservation {
   readonly id: string;
   readonly omittedCount: number;
+  /** Ref-free semantic listing, stable across observations for explore's dead-action comparison. */
   readonly render: string;
-  readonly references: string;
+  /** The model-facing listing: each selected element once, with its ref inline when bound. */
+  readonly listing: string;
+  readonly hasReferences: boolean;
   private consumed = false;
   private decisionAttempt = 0;
   private readonly selection?: SelectionSummary;
@@ -67,17 +70,18 @@ export class PerceptionObservation {
     const body = renderElements(ranked, ordinals);
     const omitted = renderSelectionNotices(omittedCount, perceived.length - ranked.length - omittedCount);
     this.render = body + omitted;
-    const lines: string[] = [];
-    if (driver.locateRef) ranked.forEach((e, i) => {
-      if (!e.ref) return;
+    const lines = ranked.map((e, i) => {
+      const line = renderElements([e], ordinals);
+      if (!driver.locateRef || !e.ref) return line;
       const token = `o${id}-${i}`;
       // Display normalization cannot replace the raw identity seen by policy and dispatch.
       this.table.set(token, { element: { ...e, name: originals.get(e.ref)!.name }, nth: ordinals.get(e) });
-      lines.push(`- ref="${token}" ${renderElements([e], ordinals).slice(2)}`);
+      return `- ref="${token}" ${line.slice(2)}`;
     });
-    this.references = lines.length
-      ? `Current observation references (valid for this decision only; use "ref" for exact selection):\n${lines.join("\n")}${omitted}`
-      : "";
+    this.hasReferences = this.table.size > 0;
+    this.listing = this.hasReferences
+      ? `(A ref is valid for this decision only; use "ref" for exact selection.)\n${lines.join("\n")}${omitted}`
+      : this.render;
   }
 
   /** Call only after constructing an actual decision prompt, never for observation-only capture.

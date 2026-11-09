@@ -30,7 +30,7 @@ export function buildExplorePrompt(
   visited: readonly string[],
   findings: readonly Finding[],
   currentUrl?: string,
-  references?: string,
+  hasReferences = false,
   guidance?: string,
 ): string {
   const history = steps.length
@@ -58,13 +58,12 @@ export function buildExplorePrompt(
           ``,
         ]
       : []),
-    ...failureBlock(failures, Boolean(references)),
+    ...failureBlock(failures, hasReferences),
     `Actions taken so far:`,
     history,
     ``,
     `Interactive elements now on the page:`,
     elementsBlock,
-    ...(references ? [``, references] : []),
     ...pageGuidanceBlock(guidance),
     ``,
     `What is the single next action? Respond with JSON only.`,

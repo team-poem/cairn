@@ -36,7 +36,7 @@ describe("observation bindings", () => {
     "accepts a shortened ref description %j and keeps the full name and duplicate ordinal", text => {
       const driver = new RefDriver();
       const view = new PerceptionObservation(driver, products, products, "earbuds");
-      expect(view.bind({ action: "click", ref: token(view.references), text })).toMatchObject({
+      expect(view.bind({ action: "click", ref: token(view.listing), text })).toMatchObject({
         text: longName, role: "button", nth: 1,
       });
     },
@@ -45,7 +45,7 @@ describe("observation bindings", () => {
     "rejects a contradictory or empty ref description %j with the selected element", text => {
       const driver = new RefDriver();
       const view = new PerceptionObservation(driver, products, products, "earbuds");
-      expect(() => view.bind({ action: "click", ref: token(view.references), text })).toThrow(
+      expect(() => view.bind({ action: "click", ref: token(view.listing), text })).toThrow(
         `reference contradicts element description: selected ${JSON.stringify({ text: longName, role: "button", nth: 1 })}`,
       );
       expect(driver.dispatched).toEqual([]);
@@ -54,7 +54,7 @@ describe("observation bindings", () => {
   it.each([{ role: "link" }, { nth: 0 }])("does not let shortened text bypass role or ordinal contradictions: %j", description => {
     const driver = new RefDriver();
     const view = new PerceptionObservation(driver, products, products, "earbuds");
-    expect(() => view.bind({ action: "click", ref: token(view.references), text: "Earbuds", ...description })).toThrow(/contradict/);
+    expect(() => view.bind({ action: "click", ref: token(view.listing), text: "Earbuds", ...description })).toThrow(/contradict/);
   });
   it("does not allow perception to shorten a referenced name", () => {
     const driver = new RefDriver();
@@ -64,7 +64,7 @@ describe("observation bindings", () => {
   it("binds exact duplicate before policy and freezes only persistent locators", async () => {
     const driver = new RefDriver();
     const view = new PerceptionObservation(driver, rows, rows, "remove");
-    const decision = view.bind({ action: "click", ref: token(view.references) });
+    const decision = view.bind({ action: "click", ref: token(view.listing) });
     expect(decision).toMatchObject({ text: "Remove", role: "button", nth: 1 });
     const step = await applyDecision(driver, decision);
     expect(driver.dispatched).toEqual(["node-b"]);
@@ -76,9 +76,9 @@ describe("observation bindings", () => {
     const view = new PerceptionObservation(driver, rows, rows, "remove");
     expect(() => view.bind({ action: "click", ref: "forged" })).toThrow();
     const next = new PerceptionObservation(driver, rows, rows, "remove");
-    expect(() => next.bind({ action: "click", ref: token(next.references), text: "Safe" })).toThrow();
+    expect(() => next.bind({ action: "click", ref: token(next.listing), text: "Safe" })).toThrow();
     const current = new PerceptionObservation(driver, rows, rows, "remove");
-    const decision = current.bind({ action: "click", ref: token(current.references) });
+    const decision = current.bind({ action: "click", ref: token(current.listing) });
     new PerceptionObservation(driver, rows, rows, "remove");
     await expect(applyDecision(driver, decision)).rejects.toThrow(/expired/);
     await expect(applyDecision(driver, { action: "click", ref: "node-b", text: "Remove" })).rejects.toThrow();
@@ -90,8 +90,8 @@ describe("observation bindings", () => {
     const rotated = rows.map(e => ({ ...e, ref: `${e.ref}-new` }));
     const b = new PerceptionObservation(driver, rotated, rotated, "remove");
     expect(a.render).toBe(b.render);
-    expect(a.references).not.toBe(b.references);
-    expect(a.references).not.toContain("node-b");
+    expect(a.listing).not.toBe(b.listing);
+    expect(a.listing).not.toContain("node-b");
     const changed = rows.map(e => ({ ...e, checked: true }));
     expect(new PerceptionObservation(driver, changed, changed, "remove").render).not.toBe(a.render);
   });
@@ -100,7 +100,7 @@ describe("observation bindings", () => {
     const corrected = [{ ...rows[1]!, checked: true }];
     const view = new PerceptionObservation(driver, rows, corrected, "remove");
     expect(view.render).toContain("(nth=1)");
-    expect(view.bind({ action: "click", ref: token(view.references) }).nth).toBe(1);
+    expect(view.bind({ action: "click", ref: token(view.listing) }).nth).toBe(1);
     expect(() => new PerceptionObservation(driver, rows, [{ ...rows[0]!, name: "Safe" }], "")).toThrow();
     expect(() => new PerceptionObservation(driver, rows, [rows[0]!, rows[0]!], "")).toThrow();
   });
@@ -116,12 +116,12 @@ it("ref actions refuse missing persistent targets and failed exact dispatch with
   class Unlocatable extends RefDriver { override async locateRef(): Promise<Target> { return {}; } }
   const driver = new Unlocatable();
   const page = new PerceptionObservation(driver, rows, rows, "remove");
-  await expect(applyDecision(driver, page.bind({ action: "click", ref: token(page.references) }))).rejects.toThrow(/persistent target/);
+  await expect(applyDecision(driver, page.bind({ action: "click", ref: token(page.listing) }))).rejects.toThrow(/persistent target/);
   expect(driver.dispatched).toEqual([]);
   class Detached extends RefDriver { override async click(): Promise<void> { throw new Error("node detached"); } }
   const detached = new Detached();
   const view = new PerceptionObservation(detached, rows, rows, "remove");
-  await expect(applyDecision(detached, view.bind({ action: "click", ref: token(view.references) }))).rejects.toThrow(/detached/);
+  await expect(applyDecision(detached, view.bind({ action: "click", ref: token(view.listing) }))).rejects.toThrow(/detached/);
   expect(detached.dispatched).toEqual([]);
 });
 
@@ -132,7 +132,7 @@ it("reference dispatch keeps scoped secrets behind the shared type handler", asy
   }
   const driver = new InputDriver();
   const page = new PerceptionObservation(driver, rows, rows, "fill");
-  const decision = page.bind({ action: "type", ref: token(page.references), value: "{password}" });
+  const decision = page.bind({ action: "type", ref: token(page.listing), value: "{password}" });
   const step = await applyDecision(driver, decision, { password: { value: "secret-value", origin: "https://app" } });
   expect(driver.filled).toEqual([{ value: "secret-value", ref: "node-b" }]);
   expect(step).toMatchObject({ text: "{password}" });

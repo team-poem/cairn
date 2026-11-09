@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.user.login != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'poem-public' || 'ubuntu-latest' }}
     timeout-minutes: 60
     env:
       OCI_TRUSTED_SOURCE: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.user.login != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -96,6 +96,8 @@ jobs:
   # browser this engine actually drives.
   probe-fixtures:
     name: Engine compatibility (${{ matrix.os }})
+    # Needs Google Chrome, which the linux/arm64 poem-public pool cannot run; hosted runners only.
+    if: vars.HOSTED_RUNNERS_ENABLED == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
@@ -129,6 +131,8 @@ jobs:
 
   document-refs:
     name: Document references (MCP 1.8.0)
+    # Needs Google Chrome, which the linux/arm64 poem-public pool cannot run; hosted runners only.
+    if: vars.HOSTED_RUNNERS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -194,7 +198,7 @@ jobs:
 
   # Prove that the published artifact can be embedded outside this workspace.
   package-consumer:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.actor != 'dependabot[bot]' && github.event.pull_request.user.login != 'dependabot[bot]' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'poem-public' || 'ubuntu-latest' }}
     timeout-minutes: 10
     strategy:
       fail-fast: false

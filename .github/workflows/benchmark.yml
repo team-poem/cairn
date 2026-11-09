@@ -12,6 +12,8 @@ concurrency:
 
 jobs:
   compare:
+    # Needs Google Chrome, which the linux/arm64 poem-public pool cannot run; hosted runners only.
+    if: vars.HOSTED_RUNNERS_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:

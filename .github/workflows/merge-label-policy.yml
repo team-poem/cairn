@@ -18,7 +18,7 @@ jobs:
   merge-label-policy:
     # This optional check evaluates merge requests, not ordinary review activity.
     if: contains(github.event.pull_request.labels.*.name, 'needs-merge')
-    runs-on: ubuntu-latest
+    runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && 'poem-public' || 'ubuntu-latest' }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7

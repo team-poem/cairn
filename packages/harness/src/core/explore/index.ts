@@ -16,8 +16,8 @@ import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, rethro
 import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
-import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, type PageGuidance } from "../page-guidance.js";
-import type { RunUsage, Step } from "../types.js";
+import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
+import type { RunUsage, Step, TruncationReason } from "../types.js";
 import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
 import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
@@ -69,10 +69,10 @@ export interface ExploreReport {
   /** Deduped findings, first-seen order. Severity ordering is the renderer's job. */
   findings: Finding[];
   usage: RunUsage;
-  /** True when the loop hit the step cap (or gave up on consecutive policy blocks) before the
+  /** True when the loop hit the step cap, policy blocks or repeated guidance expiration before the
    * model — or the policy's `stop` — called the charter covered. */
   truncated: boolean;
-  truncationReason?: "no-progress";
+  truncationReason?: TruncationReason;
   finalUrl?: string;
 }
 
@@ -91,6 +91,7 @@ async function exploreEntry(charter: string, opts: ExploreOptions): Promise<Expl
     return await withBudget(opts, "explore", (options, scope) =>
       exploreWithinBudget(charter, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));
   } catch (error) {
+    if (!(error instanceof BudgetExceededError)) opts.signal?.throwIfAborted();
     if (error instanceof BudgetExceededError && !opts[budgetScope]) opts.trace?.emit({ kind: "budget-exhausted", payload: error.budget });
     throw error;
   }
@@ -113,6 +114,8 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     pageGuidance,
   } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
+  const guidanceAttempts = new PageGuidanceAttempts();
+  const check = () => { signal?.throwIfAborted(); opts[budgetScope]?.check(); };
   const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", reason } });
   const perceivePage = async () => {
     const before = await readPolicyScroll(policy, driver);
@@ -187,7 +190,9 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   let consecutiveBlocks = 0;
 
   for (let i = 0; i < maxSteps; i++) {
-    signal?.throwIfAborted();
+    check();
+    // A trusted goal gets one observation-only check below after the limit; never a new decision.
+    if (guidanceAttempts.exhausted) break;
     const settleStart = Date.now();
     await driver.settle();
     const settleMs = Date.now() - settleStart;
@@ -218,7 +223,8 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
 
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
       purpose: "explore", page, url: observation.execution.finalUrl, signal, scope: opts[budgetScope], gate: guidanceGate });
-    const prompt = buildExplorePrompt(charter, page.listing, steps, failures, visited, findings, currentUrl, page.hasReferences, guidance?.text);
+    const recovery = guidanceAttempts.recovery(page.hasReferences);
+    const prompt = buildExplorePrompt(charter, page.listing, steps, recovery ? [...failures, recovery] : failures, visited, findings, currentUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "explore", "explore");
     const reply = await llm.complete(
       prompt,
@@ -246,11 +252,20 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
 
+    // Validation already reads the live URL. Retain those visits even when the expiration
+    // limit ends the loop before its next observation; do not change this decision's marks.
+    let validationUrl: string | undefined = currentUrl;
+    const rememberGuidanceUrl = (url: string | undefined) => {
+      validationUrl = url ?? validationUrl;
+      visit(url);
+    };
     if (guidance) {
       signal?.throwIfAborted();
-      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined);
-      signal?.throwIfAborted();
+      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl);
+      check();
       if (invalidation) {
+        currentUrl = validationUrl;
+        guidanceAttempts.expired();
         guidanceGate(invalidation);
         pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
         continue;
@@ -299,6 +314,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     try {
       verdict = policy?.vet(decision, ctx) ?? { ok: true as const };
     } catch (err) {
+      check();
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
       continue;
@@ -315,7 +331,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     consecutiveBlocks = 0;
 
     // Guidance cannot carry a decision onto a page other than the one it was written for.
-    if (guidance && (await driver.observe()).execution.finalUrl !== guidance.url) {
+    if (guidance && await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidanceUrl)) {
+      check();
+      currentUrl = validationUrl;
+      guidanceAttempts.expired();
       guidanceGate("page guidance expired: the page URL changed after the guided observation");
       pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
       onStep?.(decision);
@@ -329,7 +348,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         consoleCount: observation.logic.console.length,
         render,
       };
+      check();
       const step = await applyDecision(driver, decision);
+      // A returned Step ran successfully; record it before propagating a concurrent stop.
+      guidanceAttempts.executed();
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
       opts[budgetScope]?.recordAction({ step, ok: true });
@@ -337,6 +359,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       policy?.executed?.(step, ctx);
       onStep?.(decision, step);
     } catch (err) {
+      check();
       const message = err instanceof Error ? err.message : String(err);
       rethrowBudget(err);
       pushFailure(`${describeAction(decision)} — ${message}`);
@@ -352,11 +375,13 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       });
       onStep?.(decision);
     }
+    check();
   }
 
   // The loop only judges an action at the NEXT iteration — give the last executed action its
   // outcome observation too, or its failures would silently vanish.
-  if (pending) {
+  if (pending || (guidanceAttempts.exhausted && policy?.stop)) {
+    check();
     const settleStart = Date.now();
     await driver.settle();
     const settleMs = Date.now() - settleStart;
@@ -365,7 +390,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     visit(observation.execution.finalUrl);
     const { page, ctx } = await perceivePage();
     if (page) {
-      settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
+      if (pending) settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
         url: observation.execution.finalUrl,
         requests: observation.logic.requests,
         console: observation.logic.console,
@@ -379,9 +404,15 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     }
   }
 
-  const incomplete = truncated ? policy?.incomplete?.() : undefined;
+  check();
+  const guidanceExpired = truncated && guidanceAttempts.exhausted;
+  const incomplete = truncated && !guidanceExpired ? policy?.incomplete?.() : undefined;
+  const truncationReason = guidanceExpired ? "page-guidance-expired" : incomplete?.diagnostic.code;
+  if (guidanceExpired) trace?.emit({ kind: "gate", phase: "explore",
+    payload: { gate: "page-guidance", ...guidanceAttempts.diagnostic() } });
   if (incomplete) trace?.emit({ kind: "gate", phase: "explore",
     payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
+  check();
   return {
     charter,
     visited,
@@ -389,7 +420,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     findings: dedupeFindings(findings),
     usage: llm.snapshot(),
     truncated,
-    ...(incomplete ? { truncationReason: incomplete.diagnostic.code } : {}),
+    ...(truncationReason ? { truncationReason } : {}),
     finalUrl: currentUrl,
   };
 }

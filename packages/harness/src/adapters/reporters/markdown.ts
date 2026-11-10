@@ -31,7 +31,9 @@ export function renderExploreReport(report: ExploreReport): string {
   if (report.truncated) {
     lines.push(
       ``,
-      `> ⚠ The survey stopped at its step cap before the charter was covered — the findings are real, the coverage is partial.`,
+      report.truncationReason
+        ? `> ⚠ The survey stopped incomplete (${report.truncationReason}); coverage is partial. This stop is not an application finding.`
+        : `> ⚠ The survey stopped at its step cap before the charter was covered — the findings are real, the coverage is partial.`,
     );
   }
 

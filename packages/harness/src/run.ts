@@ -463,8 +463,8 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
       const missedGoal = !truncated && (judged.budget !== undefined || goalFailures(judged).length > 0 || judged.results.some(r => r.reason === "inconclusive"));
       let verdict = finalizeVerdict(
         judged,
-        truncated ? { kind: "truncated", reason: truncationReason === "no-progress"
-          ? "outcome-heal re-discovery stopped for no-progress — unverified path"
+        truncated ? { kind: "truncated", reason: truncationReason
+          ? `outcome-heal re-discovery stopped for ${truncationReason} — unverified path`
           : "outcome-heal re-discovery ended before `done` (step cap or policy) — unverified path" } : undefined,
         evidence.execution.actions,
         scenario, // the ORIGINAL: its assertions were judged, so its proof is what a green is worth

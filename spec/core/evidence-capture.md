@@ -40,6 +40,11 @@ also invalidates the remaining prefix, conservatively. Unreached selections prod
 not-reached` notifications. Cancellation produces `cancelled`; the public call still rejects.
 An interrupted dispatch without a returned Step does not invent an executed action identity.
 
+If discovery receives a completed Step after caller cancellation, the boundary still records
+that action and its path. A matching checkpoint is `cancelled`, with no new browser reads or
+captured data; it is not an unreached action. The synchronous `onStep` notification describes the
+executed action even when capture was cancelled, and the discovery call still rejects.
+
 ## Bounded reads and data
 
 The default acceptance deadline is 2,000 ms per selected boundary, including optional settling.

@@ -487,6 +487,132 @@ describe.each(modes)("bounded page-guidance expiration in %s", mode => {
     expect(llm.proposals).toBe(0);
   });
 
+  it.each([false, true])("records a completed action before honoring cancellation (guidance=%s)", async guided => {
+    const driver = new ChangingPage();
+    const controller = new AbortController();
+    const reason = new Error("stop after the click completed");
+    const llm = new Decisions();
+    const onStep = vi.fn();
+    const executed = vi.fn();
+    const onFinding = vi.fn();
+    const settle = vi.spyOn(driver, "settle");
+    const reads = () => [driver.observations, driver.snapshots, settle.mock.calls.length];
+    let completedReads: number[] = [];
+    const click = driver.click.bind(driver);
+    driver.click = async (target, ref) => {
+      await click(target, ref);
+      completedReads = reads();
+      controller.abort(reason);
+    };
+    const { events, trace } = traced();
+    await expect(run(mode, driver, llm, { signal: controller.signal, trace, onStep, onFinding,
+      pageGuidance: guided ? () => "Inspect this page" : undefined,
+      policy: { vet: () => ({ ok: true }), executed },
+    })).rejects.toBe(reason);
+    expect(driver.clicked).toEqual(["Open item"]);
+    expect(onStep).toHaveBeenCalledTimes(1);
+    expect(onStep.mock.calls[0]?.[1]).toMatchObject({ kind: "click" });
+    expect(executed).toHaveBeenCalledTimes(1);
+    expect(executed.mock.calls[0]?.[0]).toMatchObject({ kind: "click" });
+    const actions = events.filter(event => event.kind === "action");
+    expect(actions).toHaveLength(mode === "discover" ? 1 : 0);
+    if (mode === "discover") expect(actions[0]?.payload).toMatchObject({ step: { kind: "click" }, ok: true });
+    expect(onFinding).not.toHaveBeenCalled();
+    expect(reads()).toEqual(completedReads);
+    expect(llm.decisions).toHaveLength(1);
+    expect(llm.proposals).toBe(0);
+    expect(terminalGates(events)).toEqual([]);
+  });
+
+  it.each([false, true])("does not dispatch after the policy cancels an accepted action (guidance=%s)", async guided => {
+    const driver = new ChangingPage();
+    const controller = new AbortController();
+    const reason = new Error("stop during policy vet");
+    const llm = new Decisions();
+    const onStep = vi.fn();
+    const executed = vi.fn();
+    const { events, trace } = traced();
+    await expect(run(mode, driver, llm, { signal: controller.signal, trace, onStep,
+      pageGuidance: guided ? () => "Inspect this page" : undefined,
+      policy: { vet: () => { controller.abort(reason); return { ok: true }; }, executed },
+    })).rejects.toBe(reason);
+    expect(driver.clicked).toEqual([]);
+    expect(onStep).not.toHaveBeenCalled();
+    expect(executed).not.toHaveBeenCalled();
+    expect(events.filter(event => event.kind === "action")).toEqual([]);
+    expect(llm.decisions).toHaveLength(1);
+    expect(llm.proposals).toBe(0);
+  });
+
+  it.each(["cancellation", "deadline"] as const)("does not mark an interrupted budgeted port call successful after %s", async stop => {
+    let now = 100;
+    if (stop === "deadline") vi.spyOn(performance, "now").mockImplementation(() => now);
+    const driver = new ChangingPage();
+    const controller = new AbortController();
+    const reason = new Error("stop during the budgeted click");
+    const llm = new Decisions();
+    const onStep = vi.fn();
+    const executed = vi.fn();
+    const onFinding = vi.fn();
+    const settle = vi.spyOn(driver, "settle");
+    const reads = () => [driver.observations, driver.snapshots, settle.mock.calls.length];
+    let interruptedReads: number[] = [];
+    const click = driver.click.bind(driver);
+    driver.click = async (target, ref) => {
+      await click(target, ref);
+      interruptedReads = reads();
+      if (stop === "cancellation") controller.abort(reason);
+      else now += 1000;
+    };
+    const { events, trace } = traced();
+    const error = await run(mode, driver, llm, { signal: controller.signal, trace, onStep, onFinding,
+      budget: stop === "deadline" ? { timeoutMs: 100 } : { maxModelCalls: 10 },
+      policy: { vet: () => ({ ok: true }), executed },
+    }).catch(error => error);
+    if (stop === "cancellation") expect(error).toBe(reason);
+    else {
+      expect(error).toBeInstanceOf(BudgetExceededError);
+      expect(error.budget).toMatchObject({ limit: "time", operation: { name: "driver.click", outcome: "unknown" } });
+      expect(error.evidence.execution.actions.map((action: { step: { kind: string } }) => action.step.kind)).toEqual(["goto"]);
+    }
+    expect(driver.clicked).toEqual(["Open item"]);
+    expect(onStep).not.toHaveBeenCalled();
+    expect(executed).not.toHaveBeenCalled();
+    expect(onFinding).not.toHaveBeenCalled();
+    expect(events.filter(event => event.kind === "action")).toEqual([]);
+    expect(reads()).toEqual(interruptedReads);
+    expect(llm.decisions).toHaveLength(1);
+    expect(llm.proposals).toBe(0);
+    expect(terminalGates(events)).toEqual([]);
+  });
+
+  it("retains a returned action when the deadline expires after the driver boundary", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let clicked = false;
+    let checksAfterClick = 0;
+    // The wrapped port finishes in budget; the next elapsed-time check sees the deadline.
+    vi.spyOn(performance, "now").mockImplementation(() => clicked && ++checksAfterClick > 1 ? 200 : 0);
+    const driver = new ChangingPage();
+    const click = driver.click.bind(driver);
+    driver.click = async (target, ref) => { await click(target, ref); clicked = true; };
+    const llm = new Decisions();
+    const onStep = vi.fn();
+    const executed = vi.fn();
+    const { events, trace } = traced();
+    const error = await run(mode, driver, llm, { pageGuidance: undefined,
+      budget: { timeoutMs: 100 }, trace, onStep, policy: { vet: () => ({ ok: true }), executed },
+    }).catch(error => error);
+    expect(error).toBeInstanceOf(BudgetExceededError);
+    expect(error.budget.limit).toBe("time");
+    expect(error.budget.operation).toBeUndefined();
+    expect(error.evidence.execution.actions.map((action: { step: { kind: string } }) => action.step.kind)).toEqual(["goto", "click"]);
+    expect(onStep).toHaveBeenCalledTimes(1);
+    expect(executed).toHaveBeenCalledTimes(1);
+    expect(events.filter(event => event.kind === "action")).toHaveLength(mode === "discover" ? 1 : 0);
+    expect(llm.decisions).toHaveLength(1);
+    expect(llm.proposals).toBe(0);
+  });
+
   it("keeps model-budget exhaustion distinct from expiration", async () => {
     const driver = new ChangingPage();
     driver.unstable = true;

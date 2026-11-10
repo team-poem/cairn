@@ -348,8 +348,9 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         consoleCount: observation.logic.console.length,
         render,
       };
-      const step = await applyDecision(driver, decision);
       check();
+      const step = await applyDecision(driver, decision);
+      // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
       steps.push(step);
@@ -374,6 +375,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       });
       onStep?.(decision);
     }
+    check();
   }
 
   // The loop only judges an action at the NEXT iteration — give the last executed action its

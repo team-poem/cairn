@@ -403,8 +403,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         // perceived list, when a hook exists, answers usability (the state it was installed to fix).
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
-      const step = await applyDecision(driver, decision, secrets);
       check();
+      const step = await applyDecision(driver, decision, secrets);
+      // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
@@ -442,11 +443,11 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     }
     // Capture failure cannot enter the action retry catch. Cancellation/budget remains terminal.
     if (capture && completedStep) {
+      // Even after cancellation, retain the completed path; after() admits no reads on an aborted signal.
       await capture.after({ step: completedStep, ok: true }, driver, signal);
-      signal?.throwIfAborted();
-      opts[budgetScope]?.check();
       onStep?.(decision, completedStep);
     }
+    check();
   }
 
   // Step cap reached without an explicit "done". Ask the policy once more on the final page —

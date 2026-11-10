@@ -244,8 +244,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
     if (policy?.needsScrollState) currentUrl = (await driver.observe()).execution.finalUrl ?? currentUrl;
-    // Use the guided capture's URL for the trusted goal without changing fallback prompts.
-    const policyUrl = pageGuidance && !policy?.needsScrollState ? observedUrl : currentUrl;
+    // Prefer the guided capture's URL without losing a known goal when the Driver omits it.
+    const policyUrl = pageGuidance && !policy?.needsScrollState ? (observedUrl ?? currentUrl) : currentUrl;
     const ctx = policyContext(elements, policyUrl, scrollBefore, scrollAfter);
     policy?.observe?.(ctx);
     let page: PerceptionObservation;
@@ -464,7 +464,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       return finish(true);
     }
     const url = policy.needsScrollState || (pageGuidance && guidanceAttempts.exhausted)
-      ? (await driver.observe()).execution.finalUrl : undefined;
+      ? ((await driver.observe()).execution.finalUrl ?? currentUrl) : undefined;
     const ctx = policyContext(elements, url, before, after);
     policy.observe?.(ctx);
     if (policy.stop?.(steps, ctx)) return finish(false);

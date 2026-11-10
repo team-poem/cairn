@@ -48,6 +48,143 @@ const gates = (events: TraceEvent[]) =>
 
 afterEach(() => { vi.useRealTimers(); });
 
+describe("discovery policy URLs with optional driver evidence", () => {
+  function decisions(reply: (n: number) => string) {
+    const calls: string[] = [];
+    return {
+      id: "scripted-policy-url",
+      calls,
+      async complete(prompt: string) {
+        if (prompt.includes("Propose the verification assertions.")) return "[]";
+        calls.push(prompt);
+        return reply(calls.length);
+      },
+    };
+  }
+
+  it.each([false, true])("stops at the known base URL before deciding with needsScrollState=%s", async needsScrollState => {
+    for (const configured of [false, true]) {
+      const driver = new StubDriver();
+      driver.els = [{ role: "button", name: "Create order" }];
+      const observe = driver.observe.bind(driver);
+      driver.observe = async () => {
+        const evidence = await observe();
+        delete evidence.execution.finalUrl;
+        return evidence;
+      };
+      const llm = decisions(() => '{"action":"click","text":"Create order"}');
+      const provider = vi.fn(() => undefined);
+      const urls: (string | undefined)[] = [];
+      const result = await discover("Reach the order page", {
+        driver, llm, baseUrl: START, maxSteps: 2,
+        ...(configured ? { pageGuidance: provider } : {}),
+        policy: { needsScrollState, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+          urls.push(ctx?.url);
+          return ctx?.url === START;
+        } },
+      });
+      expect(urls).toEqual([START]);
+      expect(llm.calls).toEqual([]);
+      expect(driver.clicked).toEqual([]);
+      expect(provider).not.toHaveBeenCalled();
+      expect(result.truncated).not.toBe(true);
+    }
+  });
+
+  it("keeps the last known URL when evidence omits it after an action", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Continue" }, { role: "button", name: "Create order" }];
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      if (driver.clicked.length) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(n => {
+      if (n === 1) {
+        driver.url = TWO; // The pre-dispatch observation records the completed navigation.
+        return '{"action":"click","text":"Continue"}';
+      }
+      return '{"action":"click","text":"Create order"}';
+    });
+    const urls: (string | undefined)[] = [];
+    const result = await discover("Reach the order page", {
+      driver, llm, baseUrl: START, maxSteps: 3, pageGuidance: () => undefined,
+      policy: { vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return ctx?.url === TWO;
+      } },
+    });
+    expect(urls).toEqual([START, TWO]);
+    expect(llm.calls).toHaveLength(1);
+    expect(driver.clicked).toEqual(["Continue"]);
+    expect(result.truncated).not.toBe(true);
+  });
+
+  it("uses a newly observed URL instead of a remembered goal URL", async () => {
+    const driver = new StubDriver();
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      evidence.execution.finalUrl = TWO;
+      return evidence;
+    };
+    const llm = decisions(() => '{"action":"done"}');
+    const urls: (string | undefined)[] = [];
+    await discover("Reach the order page", {
+      driver, llm, baseUrl: START, pageGuidance: () => undefined,
+      policy: { vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return ctx?.url === START;
+      } },
+    });
+    expect(urls).toEqual([TWO]);
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  it("leaves the policy URL undefined when no URL has been observed or configured", async () => {
+    const driver = new StubDriver();
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(() => '{"action":"done"}');
+    const urls: (string | undefined)[] = [];
+    const requests: PageGuidanceRequest[] = [];
+    await discover("Inspect the page", {
+      driver, llm, pageGuidance: request => { requests.push(request); return "Inspect this page"; },
+      policy: { vet: () => ({ ok: true }), stop: (_steps, ctx) => { urls.push(ctx?.url); return false; } },
+    });
+    expect(urls).toEqual([undefined]);
+    expect(requests.map(request => request.url)).toEqual([undefined]);
+  });
+
+  it("still expires guidance when a missing raw URL becomes defined", async () => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Create order" }];
+    let reportUrl = false;
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      if (!reportUrl) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(n => n === 1 ? '{"action":"click","text":"Create order"}' : '{"action":"done"}');
+    const requests: PageGuidanceRequest[] = [];
+    const { events, scope } = traced();
+    await discover("Inspect the order page", {
+      driver, llm, baseUrl: START, trace: scope,
+      pageGuidance: request => { requests.push(request); reportUrl = true; return "Inspect this page"; },
+      policy: { vet: () => ({ ok: true }), stop: () => false },
+    });
+    expect(requests.map(request => request.url)).toEqual([undefined, START]);
+    expect(driver.clicked).toEqual([]);
+    expect(gates(events)).toEqual(["page guidance expired: the page URL changed after the guided observation"]);
+  });
+});
+
 describe("page guidance bound to a decision observation", () => {
   it("guides each page of a two-page flow with that page's own observation, then replays without it", async () => {
     const requests: PageGuidanceRequest[] = [];

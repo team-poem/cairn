@@ -53,6 +53,11 @@ differs from the URL given to the provider, the decision is not dispatched. The 
 failure line for the next decision, emits `gate: page-guidance`, and recaptures. A Driver that
 reports no URL gets no navigation invalidation; observation binding still applies.
 
+For policy completion checks, guided discovery prefers the current observed URL and falls back
+to its last-known URL when the Driver omits `finalUrl`, including the check after the expiration
+limit. If neither is known, the policy still receives `undefined`. This fallback does not replace
+the actual URL sent to the guidance provider or compared during guidance validation.
+
 Same-URL changes such as an overlay opening invalidate reference-free decisions when fresh
 capture differs in role, name, value, checked/disabled state, active-popup/occlusion/clickable
 facts, or row order. The original comparison state is copied before the provider runs, so a

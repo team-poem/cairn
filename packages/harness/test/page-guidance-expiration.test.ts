@@ -553,6 +553,61 @@ describe.each(modes)("bounded page-guidance expiration in %s", mode => {
   });
 });
 
+it.each([
+  { maxSteps: 3, needsScrollState: false },
+  { maxSteps: 20, needsScrollState: false },
+  { maxSteps: 3, needsScrollState: true },
+  { maxSteps: 20, needsScrollState: true },
+])("retains the known URL for the final discovery goal at $maxSteps steps with needsScrollState=$needsScrollState", async ({ maxSteps, needsScrollState }) => {
+  const driver = new ChangingPage();
+  driver.unstable = true;
+  const llm = new Decisions();
+  const observe = driver.observe.bind(driver);
+  driver.observe = async () => {
+    const evidence = await observe();
+    if (llm.decisions.length === 3) delete evidence.execution.finalUrl;
+    return evidence;
+  };
+  const urls: (string | undefined)[] = [];
+  const { events, trace } = traced();
+  const result = await run("discover", driver, llm, { maxSteps, trace,
+    policy: { needsScrollState, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+      urls.push(ctx?.url);
+      return llm.decisions.length === 3 && ctx?.url === START;
+    } },
+  });
+  expect(llm.decisions).toHaveLength(3);
+  expect(urls).toEqual([START, START, START, START]);
+  expect(result.truncated).not.toBe(true);
+  expect(result.truncationReason).toBeUndefined();
+  expect(driver.clicked).toEqual([]);
+  expect(terminalGates(events)).toEqual([]);
+});
+
+it.each([3, 20])("does not use the old goal URL over new evidence after expiration at maxSteps=%s", async maxSteps => {
+  const driver = new ChangingPage();
+  driver.unstable = true;
+  const llm = new Decisions();
+  const next = "https://private.example/other-page";
+  const observe = driver.observe.bind(driver);
+  driver.observe = async () => {
+    const evidence = await observe();
+    if (llm.decisions.length === 3) evidence.execution.finalUrl = next;
+    return evidence;
+  };
+  const urls: (string | undefined)[] = [];
+  const result = await run("discover", driver, llm, { maxSteps,
+    policy: { vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+      urls.push(ctx?.url);
+      return llm.decisions.length === 3 && ctx?.url === START;
+    } },
+  });
+  expect(llm.decisions).toHaveLength(3);
+  expect(urls).toEqual([START, START, START, next]);
+  expect(result).toMatchObject({ truncated: true, truncationReason: "page-guidance-expired" });
+  expect(driver.clicked).toEqual([]);
+});
+
 it("does not publish stale exploration notes or clear expiration history with accepted notes", async () => {
   for (const stableNotes of [false, true]) {
     const driver = new ChangingPage();

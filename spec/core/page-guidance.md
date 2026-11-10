@@ -53,10 +53,17 @@ differs from the URL given to the provider, the decision is not dispatched. The 
 failure line for the next decision, emits `gate: page-guidance`, and recaptures. A Driver that
 reports no URL gets no navigation invalidation; observation binding still applies.
 
-For policy completion checks, guided discovery prefers the current observed URL and falls back
-to its last-known URL when the Driver omits `finalUrl`, including the check after the expiration
-limit. If neither is known, the policy still receives `undefined`. This fallback does not replace
-the actual URL sent to the guidance provider or compared during guidance validation.
+For policy completion checks during guided discovery, retain the latest defined URL separately
+from the prompt's URL. Start with a successful base navigation, then update it from the baseline,
+turn entry, scroll-policy, guidance-validation and pre-dispatch observations in that order of
+execution. A missing `finalUrl` does not erase a newer URL already observed, even when validation
+rejects the decision. If no URL is known, the policy still receives `undefined`.
+
+The final check after the guidance expiration limit uses the same retained URL when its fresh
+observation omits `finalUrl`. An ordinary step-cap check keeps its existing behavior, including
+passing the raw observed URL to a `needsScrollState` policy. Unguided policy behavior and prompt
+URLs are unchanged. Retaining a URL adds no Driver reads and never replaces the raw URL sent to
+the guidance provider or compared during guidance validation.
 
 Same-URL changes such as an overlay opening invalidate reference-free decisions when fresh
 capture differs in role, name, value, checked/disabled state, active-popup/occlusion/clickable

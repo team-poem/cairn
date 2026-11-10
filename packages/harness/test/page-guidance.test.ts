@@ -142,6 +142,83 @@ describe("discovery policy URLs with optional driver evidence", () => {
     expect(llm.calls).toHaveLength(1);
   });
 
+  it.each([false, true])("retains a baseline redirect when later guided reads omit the URL (needsScrollState=%s)", async needsScrollState => {
+    const driver = new StubDriver();
+    const observe = driver.observe.bind(driver);
+    let reads = 0;
+    driver.observe = async () => {
+      if (++reads === 1) driver.url = TWO;
+      const evidence = await observe();
+      if (reads > 1) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(() => '{"action":"done"}');
+    const urls: (string | undefined)[] = [];
+    const result = await discover("Reach the redirected page", {
+      driver, llm, baseUrl: START, pageGuidance: () => undefined,
+      policy: { needsScrollState, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return ctx?.url === TWO;
+      } },
+    });
+    expect(driver.url).toBe(TWO);
+    expect(urls).toEqual([TWO]);
+    expect(llm.calls).toEqual([]);
+    expect(result.truncated).not.toBe(true);
+  });
+
+  it("keeps a guided entry URL when the subsequent scroll-policy read omits it", async () => {
+    const driver = new StubDriver();
+    const observe = driver.observe.bind(driver);
+    let reads = 0;
+    driver.observe = async () => {
+      if (++reads === 2) driver.url = TWO;
+      const evidence = await observe();
+      if (reads > 2) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(() => '{"action":"done"}');
+    const urls: (string | undefined)[] = [];
+    await discover("Reach the next page", {
+      driver, llm, baseUrl: START, pageGuidance: () => undefined,
+      policy: { needsScrollState: true, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return ctx?.url === TWO;
+      } },
+    });
+    expect(driver.url).toBe(TWO);
+    expect(urls).toEqual([TWO]);
+    expect(llm.calls).toEqual([]);
+  });
+
+  it.each([false, true])("does not reuse the pre-action URL at an ordinary step cap (empty provider=%s)", async configured => {
+    const driver = new StubDriver();
+    driver.els = [{ role: "button", name: "Leave page" }];
+    driver.navOn["Leave page"] = TWO;
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      if (driver.clicked.length) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const llm = decisions(() => '{"action":"click","text":"Leave page"}');
+    const urls: (string | undefined)[] = [];
+    const result = await discover("Complete on the starting page", {
+      driver, llm, baseUrl: START, maxSteps: 1,
+      ...(configured ? { pageGuidance: () => undefined } : {}),
+      policy: { needsScrollState: true, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return driver.clicked.length > 0 && ctx?.url === START;
+      } },
+    });
+    expect(driver.url).toBe(TWO);
+    expect(driver.clicked).toEqual(["Leave page"]);
+    expect(llm.calls).toHaveLength(1);
+    expect(urls).toEqual([START, undefined]);
+    expect(result.truncated).toBe(true);
+    expect(result.truncationReason).toBeUndefined();
+  });
+
   it("leaves the policy URL undefined when no URL has been observed or configured", async () => {
     const driver = new StubDriver();
     const observe = driver.observe.bind(driver);

@@ -201,9 +201,13 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     return identified;
   };
 
-  // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,
-  // so it can lag by at most one action; no extra observe per turn.
+  // Legacy URL for prompts and unguided policy checks (#116); keep its existing update points.
   let currentUrl: string | undefined = undefined;
+  // Guided goal checks also retain URLs from observations that reject a decision.
+  let guidedPolicyUrl: string | undefined;
+  const rememberGuidedPolicyUrl = (url: string | undefined): void => {
+    if (pageGuidance) guidedPolicyUrl = url ?? guidedPolicyUrl;
+  };
 
   if (baseUrl) {
     await driver.goto(baseUrl);
@@ -211,6 +215,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     opts[budgetScope]?.recordAction({ step: { kind: "goto", url: baseUrl }, ok: true });
     marks.push(null);
     currentUrl = baseUrl;
+    rememberGuidedPolicyUrl(baseUrl);
     if (capture) {
       await capture.after({ step: { kind: "goto", url: baseUrl }, ok: true }, driver, signal);
       signal?.throwIfAborted();
@@ -222,6 +227,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // this, so a check the landing page already satisfies gets flagged as proving nothing.
   await driver.settle();
   const baseline = await driver.observe();
+  rememberGuidedPolicyUrl(baseline.execution.finalUrl);
 
   // Remember what already failed so the LLM stops retrying dead ends (real sites have
   // hover menus, overlays, maintenance pages). ADAPT is the point of the loop (invariant #3).
@@ -239,13 +245,17 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     await driver.settle();
     // A guided decision needs this observation's own URL, not the one lagging an action behind.
     const observedUrl = pageGuidance ? (await driver.observe()).execution.finalUrl : undefined;
+    rememberGuidedPolicyUrl(observedUrl);
     const scrollBefore = await readPolicyScroll(policy, driver);
     const raw = await driver.snapshot({ perception: true });
     const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
-    if (policy?.needsScrollState) currentUrl = (await driver.observe()).execution.finalUrl ?? currentUrl;
-    // Prefer the guided capture's URL without losing a known goal when the Driver omits it.
-    const policyUrl = pageGuidance && !policy?.needsScrollState ? (observedUrl ?? currentUrl) : currentUrl;
+    if (policy?.needsScrollState) {
+      const scrollUrl = (await driver.observe()).execution.finalUrl;
+      rememberGuidedPolicyUrl(scrollUrl);
+      currentUrl = scrollUrl ?? currentUrl;
+    }
+    const policyUrl = pageGuidance ? guidedPolicyUrl : currentUrl;
     const ctx = policyContext(elements, policyUrl, scrollBefore, scrollAfter);
     policy?.observe?.(ctx);
     let page: PerceptionObservation;
@@ -313,7 +323,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
 
     if (guidance) {
       signal?.throwIfAborted();
-      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal);
+      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidedPolicyUrl);
       check();
       if (invalidation) {
         guidanceAttempts.expired();
@@ -356,6 +366,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     try {
       const beforeObs = await driver.observe();
       check();
+      rememberGuidedPolicyUrl(beforeObs.execution.finalUrl);
       // Guidance cannot carry a decision onto a page other than the one it was written for.
       if (guidance && beforeObs.execution.finalUrl !== guidance.url) {
         guidanceAttempts.expired();
@@ -463,9 +474,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
       return finish(true);
     }
-    const url = policy.needsScrollState || (pageGuidance && guidanceAttempts.exhausted)
-      ? ((await driver.observe()).execution.finalUrl ?? currentUrl) : undefined;
-    const ctx = policyContext(elements, url, before, after);
+    const guidedGoal = Boolean(pageGuidance && guidanceAttempts.exhausted);
+    const observedUrl = policy.needsScrollState || guidedGoal
+      ? (await driver.observe()).execution.finalUrl : undefined;
+    rememberGuidedPolicyUrl(observedUrl);
+    // Only the guidance-limit check uses retained evidence; ordinary step caps keep the raw URL.
+    const ctx = policyContext(elements, guidedGoal ? guidedPolicyUrl : observedUrl, before, after);
     policy.observe?.(ctx);
     if (policy.stop?.(steps, ctx)) return finish(false);
   }

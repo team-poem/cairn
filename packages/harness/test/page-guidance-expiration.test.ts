@@ -608,6 +608,63 @@ it.each([3, 20])("does not use the old goal URL over new evidence after expirati
   expect(driver.clicked).toEqual([]);
 });
 
+const validationUrlCases = [
+  { gate: "initial validation", validationRead: 1 },
+  { gate: "post-snapshot validation", validationRead: 2 },
+  { gate: "pre-dispatch validation", validationRead: 3 },
+].flatMap(gate => [3, 20].flatMap(maxSteps => [false, true].flatMap(needsScrollState =>
+  [false, true].map(goalIsLatest => ({ ...gate, maxSteps, needsScrollState, goalIsLatest })))));
+
+it.each(validationUrlCases)(
+  "uses the newest $gate URL after expiration (maxSteps=$maxSteps, scroll=$needsScrollState, latest goal=$goalIsLatest)",
+  async ({ validationRead, maxSteps, needsScrollState, goalIsLatest }) => {
+    const driver = new ChangingPage();
+    driver.unstable = true;
+    const next = "https://private.example/after-navigation";
+    let readsAfterDecision = 0;
+    const llm = new Decisions(n => {
+      // The first two decisions expire on changing DOM. Keep the third capture stable so each
+      // URL gate can independently detect navigation before the final goal check.
+      if (n === 3) driver.unstable = false;
+      return CLICK;
+    });
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      if (llm.decisions.length === 3 && ++readsAfterDecision === validationRead) driver.url = next;
+      const evidence = await observe();
+      if (readsAfterDecision > validationRead) delete evidence.execution.finalUrl;
+      return evidence;
+    };
+    const urls: (string | undefined)[] = [];
+    const providerUrls: (string | undefined)[] = [];
+    const { events, trace } = traced();
+    const result = await run("discover", driver, llm, { maxSteps, trace,
+      pageGuidance: request => { providerUrls.push(request.url); return "Inspect this page"; },
+      policy: { needsScrollState, vet: () => ({ ok: true }), stop: (_steps, ctx) => {
+        urls.push(ctx?.url);
+        return llm.decisions.length === 3 && ctx?.url === (goalIsLatest ? next : START);
+      } },
+    });
+    expect(driver.url).toBe(next);
+    expect(llm.decisions).toHaveLength(3);
+    expect(driver.clicked).toEqual([]);
+    expect(providerUrls).toEqual([START, START, START]);
+    expect(urls).toEqual([START, START, START, next]);
+    // Existing reads only: baseline, three entries, validation, final goal and final evidence.
+    const scrollReads = needsScrollState ? (maxSteps === 3 ? 3 : 4) : 0;
+    expect(driver.observations).toBe(8 + validationRead + scrollReads);
+    expect(guidanceGates(events).filter(event => event.reason.includes("URL changed"))).toHaveLength(1);
+    if (goalIsLatest) {
+      expect(result.truncated).not.toBe(true);
+      expect(result.truncationReason).toBeUndefined();
+      expect(terminalGates(events)).toEqual([]);
+    } else {
+      expect(result).toMatchObject({ truncated: true, truncationReason: "page-guidance-expired" });
+      expect(terminalGates(events)).toHaveLength(1);
+    }
+  },
+);
+
 it("does not publish stale exploration notes or clear expiration history with accepted notes", async () => {
   for (const stableNotes of [false, true]) {
     const driver = new ChangingPage();

@@ -43,6 +43,14 @@ describe("renderExploreReport", () => {
     expect(md).toContain("stopped at its step cap");
   });
 
+  it("reports guidance expiration as incomplete coverage, not a step cap or a finding", () => {
+    const md = renderExploreReport(report({ truncated: true, truncationReason: "page-guidance-expired", findings: [] }));
+    expect(md).toContain("stopped incomplete (page-guidance-expired)");
+    expect(md).toContain("not an application finding");
+    expect(md).not.toContain("stopped at its step cap");
+    expect(md).toContain("0 finding(s)");
+  });
+
   it("says so when there is nothing to report", () => {
     const md = renderExploreReport(report({ findings: [] }));
     expect(md).toContain("Nothing to report");

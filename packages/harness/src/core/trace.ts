@@ -7,7 +7,7 @@
 import type { TraceSink } from "./ports.js";
 import type { TargetChoiceAudit } from "./target-choice.js";
 import type { SelectionDiagnostic } from "./selection-diagnostics.js";
-import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind, ContractIdentity, ScenarioProvenance } from "./types.js";
+import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind, ContractIdentity, ScenarioProvenance, TruncationReason } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
  * 1.1 — `step.payload.attachment` (#160), an optional new field: readers of 1.0 skip it.
@@ -23,8 +23,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.11 — content-free prepared decision selection summaries (#302).
  * 1.12 — opt-in no-progress gates and content-free cycle counters (#309).
  * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
- * 1.14 — required inconclusive custom checks (#314). */
-export const TRACE_VERSION = "1.14";
+ * 1.14 — required inconclusive custom checks (#314).
+ * 1.15 — bounded page-guidance expiration and its incomplete reason (#340). */
+export const TRACE_VERSION = "1.15";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -51,7 +52,7 @@ export type TraceEvent = Envelope &
     | { kind: "case-start"; payload: { id: string; intent: string; skillRef?: string; cached: boolean } }
     | {
         kind: "case-end";
-        payload: { verdict: Verdict; usage?: RunUsage; discovered: boolean; heals: number; truncated?: boolean; truncationReason?: "no-progress" };
+        payload: { verdict: Verdict; usage?: RunUsage; discovered: boolean; heals: number; truncated?: boolean; truncationReason?: TruncationReason };
       }
     /** A discover-loop decision: an executed/failed step, or the model's `done` (no `step`). */
     | { kind: "action"; payload: { step?: Step; intent?: string; ok: boolean; error?: string; done?: boolean } }
@@ -59,7 +60,8 @@ export type TraceEvent = Envelope &
     | {
         kind: "gate";
         payload: { gate: "policy" | "no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance"; action?: string; reason: string;
-          code?: "no-progress"; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down" };
+          code?: TruncationReason; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down";
+          expirations?: number; limit?: number };
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {

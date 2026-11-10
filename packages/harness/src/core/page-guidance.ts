@@ -8,6 +8,29 @@ import { slotSecretText, type Secrets } from "./secrets.js";
 
 export const MAX_PAGE_GUIDANCE_BYTES = 4096;
 export const PAGE_GUIDANCE_TIMEOUT_MS = 5000;
+/** Expirations allowed without a successfully executed action in one discover/explore call. */
+export const MAX_PAGE_GUIDANCE_EXPIRATIONS = 3;
+
+/** Separate from policy/scroll state. A new capture or a different failure is not progress. */
+export class PageGuidanceAttempts {
+  private expirations = 0;
+  get exhausted(): boolean { return this.expirations >= MAX_PAGE_GUIDANCE_EXPIRATIONS; }
+  expired(): void { this.expirations++; }
+  executed(): void { this.expirations = 0; }
+  diagnostic() {
+    return { code: "page-guidance-expired" as const, expirations: this.expirations,
+      limit: MAX_PAGE_GUIDANCE_EXPIRATIONS,
+      reason: "page guidance expired repeatedly before an action could complete" };
+  }
+  recovery(hasReferences: boolean): string | undefined {
+    if (!this.expirations) return undefined;
+    return hasReferences
+      ? 'After page guidance expires, a target-bearing action can use a fresh "ref" from the current element listing. ' +
+        'Never reuse a previous ref. This does not bypass validation; done and note do not take refs.'
+      : 'After page guidance expires, decide from the fresh observation below. No references are available; ' +
+        'use the current exact name, role and nth when needed. Do not invent a ref.';
+  }
+}
 
 /** Guidance accepted for one observation, with the URL its provider was given. */
 export interface PageGuidance { text: string; url?: string }
@@ -34,18 +57,29 @@ export function pageGuidanceState(elements: readonly PageElement[]): string {
  * (including done/note) must compare a fresh capture before producing any effect. Recapture
  * invalidates Driver refs, so it must never run for a decision bound to an exact ref. */
 export async function pageGuidanceInvalidation(driver: Driver, guidance: PageGuidance,
-  capturedState: string, hasReference: boolean): Promise<string | undefined> {
-  if ((await driver.observe()).execution.finalUrl !== guidance.url) {
-    return "page guidance expired: the page URL changed after the guided observation";
-  }
-  if (!hasReference && pageGuidanceState(await driver.snapshot({ perception: true })) !== capturedState) {
+  capturedState: string, hasReference: boolean, signal?: AbortSignal,
+  onUrl?: (url: string | undefined) => void): Promise<string | undefined> {
+  const urlInvalidation = await pageGuidanceUrlInvalidation(driver, guidance, signal, onUrl);
+  if (urlInvalidation) return urlInvalidation;
+  if (!hasReference && pageGuidanceState(await readCurrent(() => driver.snapshot({ perception: true }), signal)) !== capturedState) {
     return "page guidance expired: the page elements changed after the guided observation";
   }
   // Capture and URL reads are separate. Detect navigation during this fresh capture too.
-  if (!hasReference && (await driver.observe()).execution.finalUrl !== guidance.url) {
-    return "page guidance expired: the page URL changed after the guided observation";
-  }
-  return undefined;
+  return hasReference ? undefined : pageGuidanceUrlInvalidation(driver, guidance, signal, onUrl);
+}
+
+export async function pageGuidanceUrlInvalidation(driver: Driver, guidance: PageGuidance,
+  signal?: AbortSignal, onUrl?: (url: string | undefined) => void): Promise<string | undefined> {
+  const url = (await readCurrent(() => driver.observe(), signal)).execution.finalUrl;
+  onUrl?.(url);
+  return url !== guidance.url
+    ? "page guidance expired: the page URL changed after the guided observation" : undefined;
+}
+
+async function readCurrent<T>(read: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
+  try { return await read(); }
+  finally { signal?.throwIfAborted(); }
 }
 
 const TIMED_OUT = Symbol("timed out");

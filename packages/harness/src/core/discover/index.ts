@@ -13,7 +13,7 @@ import { identifyScenario } from "../contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
-import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, type PageGuidance } from "../page-guidance.js";
+import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
@@ -89,6 +89,8 @@ async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Sce
     return await withBudget(opts, opts.tracePhase === "heal" ? "outcome-heal" : "discover", (options, scope) =>
       discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));
   } catch (error) {
+    // Without a budget wrapper, failed final/goal observations must still retain caller cancellation.
+    if (!(error instanceof BudgetExceededError)) opts.signal?.throwIfAborted();
     if (error instanceof BudgetExceededError && !opts[budgetScope]) opts.trace?.emit({ kind: "budget-exhausted", payload: error.budget });
     throw error;
   }
@@ -110,6 +112,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   const llm = withAppContext(opts.llm, appContext);
   const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
+  const guidanceAttempts = new PageGuidanceAttempts();
+  const check = () => { signal?.throwIfAborted(); opts[budgetScope]?.check(); };
   const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", reason } });
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
@@ -120,7 +124,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // Emit the freeze: observe pending mutations and short post-response redirects within one
   // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
   const finish = async (truncated: boolean, proposed: Assertion[] = []): Promise<Scenario> => {
-    const incomplete = truncated ? policy?.incomplete?.() : undefined;
+    check();
+    const guidanceExpired = truncated && guidanceAttempts.exhausted;
+    const incomplete = truncated && !guidanceExpired ? policy?.incomplete?.() : undefined;
+    const truncationReason = guidanceExpired ? "page-guidance-expired" : incomplete?.diagnostic.code;
     if (incomplete) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
@@ -128,6 +135,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const firstCount =
       marks.find((m): m is OutcomeMark => m !== null)?.requestCount ?? baseline.logic.requests.length;
     const evidence = await observeOutcomes(driver, firstCount, marks, benign);
+    check();
     // Before expects are assigned: indices shift, and a pruned scroll's (empty) tail folds into
     // the step that follows it. Each prune is a gate firing, not silence — the trace names the
     // original index so a viewer can reconcile it with the `action` events already emitted.
@@ -146,6 +154,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     if (opts[budgetScope]) opts[budgetScope].phase = tracePhase === "heal" ? "outcome-assertions" : "assertions";
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
+    check();
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({
         kind: "gate",
@@ -181,10 +190,15 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
     }
     const scenario: Scenario = truncated
-      ? { name: intent, steps, assertions, truncated: true, ...(incomplete ? { truncationReason: incomplete.diagnostic.code } : {}), ...wildcards, ...unproven }
+      ? { name: intent, steps, assertions, truncated: true, ...(truncationReason ? { truncationReason } : {}), ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
-    return identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
+    const identified = await identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
       provenance: await appContextProvenance(appContext) });
+    check();
+    if (guidanceExpired) trace?.emit({ kind: "gate", phase: tracePhase,
+      payload: { gate: "page-guidance", ...guidanceAttempts.diagnostic() } });
+    check();
+    return identified;
   };
 
   // Last-known page url for the prompt/policy (#116) — refreshed from each action's observation,
@@ -218,7 +232,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   };
   let consecutiveBlocks = 0;
   for (let i = 0; i < maxSteps; i++) {
-    signal?.throwIfAborted();
+    check();
+    // A trusted goal may still win on one fresh valid observation, but no further decision
+    // request is admitted after the guidance limit. Invalid captures cannot prolong recovery.
+    if (guidanceAttempts.exhausted && !policy?.stop) return finish(true);
     await driver.settle();
     // A guided decision needs this observation's own URL, not the one lagging an action behind.
     const observedUrl = pageGuidance ? (await driver.observe()).execution.finalUrl : undefined;
@@ -227,7 +244,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
     if (policy?.needsScrollState) currentUrl = (await driver.observe()).execution.finalUrl ?? currentUrl;
-    const ctx = policyContext(elements, currentUrl, scrollBefore, scrollAfter);
+    // Use the guided capture's URL for the trusted goal without changing fallback prompts.
+    const policyUrl = pageGuidance && !policy?.needsScrollState ? observedUrl : currentUrl;
+    const ctx = policyContext(elements, policyUrl, scrollBefore, scrollAfter);
     policy?.observe?.(ctx);
     let page: PerceptionObservation;
     try {
@@ -241,10 +260,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
       });
       pushFailure(`perception binding rejected: ${err instanceof Error ? err.message : String(err)}`);
+      if (guidanceAttempts.exhausted) return finish(true);
       continue; // a fresh capture may recover; maxSteps bounds persistent invalid bindings
     }
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
     if (policy?.stop?.(steps, ctx)) return finish(false);
+    if (guidanceAttempts.exhausted) return finish(true);
     if (policy?.incomplete?.()?.halt) return finish(true);
     const render = page.listing;
     const capturedState = pageGuidance ? pageGuidanceState(raw) : undefined;
@@ -252,7 +273,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       purpose: "discover", page, url: observedUrl, secrets, signal, scope: opts[budgetScope], gate: guidanceGate });
     // The prompt's page line must name the page the guidance was written for.
     if (guidance) currentUrl = observedUrl ?? currentUrl;
-    const prompt = buildPrompt(intent, render, steps, failures, currentUrl, page.hasReferences, guidance?.text);
+    const recovery = guidanceAttempts.recovery(page.hasReferences);
+    const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, currentUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "discover", tracePhase);
     const reply = await llm.complete(prompt, {
       system: discoverSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : ""),
@@ -291,9 +313,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
 
     if (guidance) {
       signal?.throwIfAborted();
-      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined);
-      signal?.throwIfAborted();
+      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal);
+      check();
       if (invalidation) {
+        guidanceAttempts.expired();
         guidanceGate(invalidation);
         pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
         continue;
@@ -332,8 +355,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     let completedStep: Step | undefined;
     try {
       const beforeObs = await driver.observe();
+      check();
       // Guidance cannot carry a decision onto a page other than the one it was written for.
       if (guidance && beforeObs.execution.finalUrl !== guidance.url) {
+        guidanceAttempts.expired();
         guidanceGate("page guidance expired: the page URL changed after the guided observation");
         pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
         onStep?.(decision);
@@ -368,6 +393,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       const step = await applyDecision(driver, decision, secrets);
+      check();
+      guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -384,6 +411,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
       if (!capture) onStep?.(decision, step);
     } catch (err) {
+      check();
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
@@ -413,11 +441,16 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // Step cap reached without an explicit "done". Ask the policy once more on the final page —
   // a goal reached by the last action is a trusted finish, not a truncation (#77).
   if (policy?.stop || policy?.observe) {
+    check();
     await driver.settle();
     const before = await readPolicyScroll(policy, driver);
-    const raw = await driver.snapshot(policy.observe ? { perception: true } : undefined);
+    // At the guidance bound, a stop-only policy needs the same corrected, validated view as
+    // an ordinary decision turn. Keep the legacy capture mode for unrelated step-cap stops.
+    const usePerception = Boolean(policy.observe || guidanceAttempts.exhausted);
+    const raw = await driver.snapshot(usePerception ? { perception: true } : undefined);
     const after = await readPolicyScroll(policy, driver);
-    const elements = policy.observe ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
+    const elements = usePerception ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
+    check();
     try {
       // A final goal check must not trust bindings rejected on an ordinary decision turn.
       new PerceptionObservation(driver, raw, elements, intent);
@@ -430,7 +463,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
       return finish(true);
     }
-    const url = policy.needsScrollState ? (await driver.observe()).execution.finalUrl : undefined;
+    const url = policy.needsScrollState || (pageGuidance && guidanceAttempts.exhausted)
+      ? (await driver.observe()).execution.finalUrl : undefined;
     const ctx = policyContext(elements, url, before, after);
     policy.observe?.(ctx);
     if (policy.stop?.(steps, ctx)) return finish(false);

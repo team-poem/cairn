@@ -70,6 +70,47 @@ A new turn always receives a new observation and a new provider call.
 Late guidance cannot authorize anything: a value arriving after the timeout is discarded, and no
 guidance ever reaches binding, ambiguity, `ActionPolicy`, target validation or grounding.
 
+## Repeated expiration (#340)
+
+Each `discover`/`explore` invocation allows `MAX_PAGE_GUIDANCE_EXPIRATIONS` (3) expirations
+without a successfully executed action. Initial observation/URL validation and the later
+pre-dispatch URL check contribute to the same counter, once per rejected decision. Once the
+bound is reached, no further decision model request is made. The result is incomplete:
+`truncated: true`, `truncationReason: "page-guidance-expired"`. This is not goal completion or
+an observed application defect, and it never authorizes executing a rejected decision.
+
+Only successful executable actions reset the count, including actions taken without guidance
+after a provider fallback. Recapture, parse/binding/ambiguity failures, policy rejections,
+failed dispatches and exploration notes do not reset it. Empty, failing, invalid or timed-out
+providers do not increment it. They retain the existing no-guidance fallback. A valid `done`
+can finish normally before the bound; expired `done`/`note` decisions count like expired actions.
+Each call starts at zero, even when a provider, policy or workflow budget is reused.
+
+Trusted `policy.stop` has priority on a valid observation. If the bound was reached and a
+`stop` callback exists, one additional observation-only goal check is allowed, including at
+the general step cap. This check uses a perception snapshot, the host's `perceive` corrections
+and discovery's secret-value redaction even for a stop-only policy. No provider or decision
+model is called for it. Invalid bindings leave
+the run incomplete. Otherwise the expiration reason takes precedence over simultaneous scroll
+policy suspicion; the scroll counters are neither changed nor emitted as guidance diagnostics.
+A smaller general step cap that stops before three expirations retains ordinary truncation.
+Exploration retains the latest known URL and visited destinations from the validation reads,
+including when the third expiration ends the loop without another observation. These remain
+report fields, not guidance diagnostics; retaining them adds no browser reads.
+
+Discovery still finalizes prior actions and evidence through its existing assertion-proposal
+call. With no tighter bound, three expired decisions therefore cost four model admissions;
+exploration costs three. All calls share the original execution budget. Cancellation or budget
+exhaustion, including at the final proposal, retains its own terminal behavior and does not
+publish a guidance-expiration result. A terminal guidance trace is emitted only after successful
+finalization. Previously executed actions are not restarted or retried.
+
+After an expiration, retry advice is built from the next observation's actual `hasReferences`.
+It suggests fresh refs for target-bearing actions only when available, without bypassing any
+binding, description, policy or Driver mutation check. Reference-free Drivers remain supported,
+and the bound works even when the model ignores this advice. Healthy and no-guidance paths add
+no browser reads or model calls.
+
 ## Supported paths
 
 | Path | Receives page guidance? |
@@ -137,6 +178,8 @@ Guidance never enters `Scenario`, `Scenario.provenance`, the judgment-contract f
 `caseHash` or any cache key. `appContextHash` is computed exactly as before. With identical model
 replies, a guided and an unguided discovery freeze identical scenarios. Guidance changes what the
 model chooses, so a different frozen path is still possible and is identified by its own steps.
+The optional `truncationReason` describes authoring termination; it contains no advice or page data
+and is not a new judgment input.
 
 ## Trace
 
@@ -147,6 +190,11 @@ Trace 1.13 adds `gate: page-guidance` with fixed reasons only:
 - `page guidance expired: the page URL changed after the guided observation`
 - `page guidance expired: the page elements changed after the guided observation`
 - `page guidance: assertions proposed in a guided decision were not used`
+
+Trace 1.15 adds a terminal `page-guidance` gate with fixed reason
+`page guidance expired repeatedly before an action could complete`, code `page-guidance-expired`,
+`expirations: 3` and `limit: 3`. Results and `case-end.truncationReason` use the same reason code.
+No new application finding or fabricated scroll `no-progress` event is produced.
 
 No guidance text, hash, length, request or URL enters a trace payload. A model can still echo
 guidance into a decision `reason`, which existing action events record; keep guidance nonsecret.
@@ -165,3 +213,11 @@ For the real Chrome/MCP fixture, run `npm run build && node scripts/test-page-gu
 It discovers two pages using exact-node actions and replays the frozen path with zero model calls.
 The fixture uses a local HTTP server and scripted decisions; no model account is required.
 `CAIRN_MCP_ENTRY` may select an installed MCP 1.8.0 entry point.
+`page-guidance-expiration.test.ts` covers bounded instability, mixed failures, reset semantics,
+trusted completion, cancellation and shared-budget accounting with scripted Drivers/models.
+
+Run `node scripts/test-page-guidance-expiration.mjs` after the build for the reference-free
+Chrome/MCP fixture. Its local app changes a countdown between the decision and validation,
+then acknowledges the DOM update. Continuous changes must stop both loops after three expired
+decisions with no click; one transient change must recover and complete. These scripted cases
+verify engine behavior, not model quality, and use the same MCP entry-point override as above.

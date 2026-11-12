@@ -53,8 +53,9 @@ Selection never mutates the source candidates:
    original source order. Covered rows cannot consume a region or a quota slot.
 3. Sort active-popup members first. Within each group, interactive roles or promoted clickables
    score 100, plus 10 per matching intent token; source order breaks ties.
-4. Reserve room for up to five missed intent-matching non-interactive evidence rows, replacing
-   only as many non-evidence rows as actually fit. De-nested or over-quota clickable labels can
+4. Reserve five slots for intent-matching non-interactive evidence rows. Evidence already inside
+   the cut, popup rows included, counts toward the five; only the shortfall is filled from missed
+   evidence, replacing only as many non-evidence rows as actually fit. De-nested or over-quota clickable labels can
    still supply intent evidence, without receiving a clickable promotion score.
 
 This makes a trailing portal eligible ahead of background controls while keeping result text

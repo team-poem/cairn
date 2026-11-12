@@ -31,7 +31,8 @@ const EVIDENCE_SLOTS = 5;
  * controls first, then intent-relevant names. A flat `slice(0, N)` can drop the one control a flow
  * needs when a page has thousands of elements (seen in dogfooding) — ranking is correctness, not just cost.
  * Up to EVIDENCE_SLOTS of the cap are reserved for intent-matching non-interactive text (#115);
- * with no such matches (or when they fit anyway) the ranking is unchanged.
+ * with no such matches, when they fit anyway, or when the cut already holds EVIDENCE_SLOTS of them,
+ * the ranking is unchanged.
  */
 export function selectElements(
   elements: PageElement[],
@@ -70,7 +71,9 @@ export function selectElements(
     .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 
   const cut = scored.slice(0, limit);
-  const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
+  // Reserve only the shortfall: evidence already in the cut counts toward the slots (#339).
+  const shortfall = Math.max(0, EVIDENCE_SLOTS - cut.filter((s) => s.evidence).length);
+  const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, shortfall);
   // Policy-filtered rows are not hidden by the prompt cap. Evidence swaps preserve cut length.
   const omittedCount = candidates.length - cut.length;
   const result = (selected: PageElement[]) => ({

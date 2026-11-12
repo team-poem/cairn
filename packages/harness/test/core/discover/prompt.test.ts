@@ -72,6 +72,7 @@ describe("interactive roles", () => {
 describe("evidence quota (#115) — counterexample table for the ranking zone", () => {
   const buttons = (n: number) => Array.from({ length: n }, (_, i) => ({ role: "button", name: `btn${i}` }));
   const text = (name: string) => ({ role: "StaticText", name });
+  const popupText = (name: string) => ({ role: "StaticText", name, inActivePopup: true });
   const has = (r: { name: string }[], name: string) => r.some((e) => e.name === name);
 
   const table: Array<{
@@ -137,6 +138,58 @@ describe("evidence quota (#115) — counterexample table for the ranking zone", 
       limit: 60,
       expect: (r) => {
         if (!has(r, "order now")) throw new Error("intent-matching control dropped");
+        if (!has(r, "order complete")) throw new Error("evidence dropped");
+      },
+    },
+    ...[59, 60, 140].flatMap((count) => [false, true].map((popup) => ({
+      name: `reservation already met by ${count} matching rows: the only control survives (#339, popup=${popup})`,
+      elements: [{ role: "link", name: "Directory", ...(popup ? { inActivePopup: true } : {}) }, ...Array.from({ length: count }, (_, i) => text(`document details ${i}`))],
+      intent: "document details",
+      limit: 60,
+      expect: (r: { role: string; name: string }[]) => {
+        if (!has(r, "Directory")) throw new Error("control evicted");
+        if (r.length !== Math.min(60, count + 1)) throw new Error("cap changed");
+      },
+    }))),
+    {
+      name: "evidence partly inside the cut: only the shortfall is reserved (#339)",
+      elements: [...buttons(58), ...Array.from({ length: 12 }, (_, i) => text(`order note ${i}`))],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        const admitted = r.filter((e) => e.role === "StaticText").length;
+        if (admitted !== 5) throw new Error(`expected 5 evidence rows, got ${admitted}`);
+        if (r.filter((e) => e.role === "button").length !== 55) throw new Error("evicted more controls than the shortfall");
+        if (r.length !== 60) throw new Error("cap changed");
+      },
+    },
+    {
+      name: "popup evidence fills the reservation: background evidence does not evict the only control (#339)",
+      elements: [{ role: "button", name: "Save" }, ...Array.from({ length: 5 }, (_, i) => popupText(`order help ${i}`)), text("order complete")],
+      intent: "order",
+      limit: 6,
+      expect: (r) => {
+        if (!has(r, "Save")) throw new Error("control evicted");
+        if (has(r, "order complete")) throw new Error("background evidence swapped in past a full reservation");
+      },
+    },
+    {
+      name: "full reservation is final: later evidence past the cap stays out (#339)",
+      elements: [{ role: "link", name: "Directory" }, ...Array.from({ length: 60 }, (_, i) => text(`order item ${i}`)), text("order complete")],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        if (!has(r, "Directory")) throw new Error("control evicted");
+        if (has(r, "order complete")) throw new Error("evidence swapped in past a full reservation");
+      },
+    },
+    {
+      name: "small cap with scarce evidence: never exceeds the cap",
+      elements: [...buttons(10), text("order complete")],
+      intent: "order",
+      limit: 3,
+      expect: (r) => {
+        if (r.length !== 3) throw new Error("cap changed");
         if (!has(r, "order complete")) throw new Error("evidence dropped");
       },
     },

@@ -31,7 +31,8 @@ const EVIDENCE_SLOTS = 5;
  * controls first, then intent-relevant names. A flat `slice(0, N)` can drop the one control a flow
  * needs when a page has thousands of elements (seen in dogfooding) — ranking is correctness, not just cost.
  * Up to EVIDENCE_SLOTS of the cap are reserved for intent-matching non-interactive text (#115);
- * with no such matches (or when they fit anyway) the ranking is unchanged.
+ * with no such matches, when they fit anyway, or when the cut already holds EVIDENCE_SLOTS of them,
+ * the ranking is unchanged.
  */
 export function selectElements(
   elements: PageElement[],

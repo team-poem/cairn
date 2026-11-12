@@ -72,6 +72,7 @@ describe("interactive roles", () => {
 describe("evidence quota (#115) — counterexample table for the ranking zone", () => {
   const buttons = (n: number) => Array.from({ length: n }, (_, i) => ({ role: "button", name: `btn${i}` }));
   const text = (name: string) => ({ role: "StaticText", name });
+  const popupText = (name: string) => ({ role: "StaticText", name, inActivePopup: true });
   const has = (r: { name: string }[], name: string) => r.some((e) => e.name === name);
 
   const table: Array<{
@@ -163,7 +164,17 @@ describe("evidence quota (#115) — counterexample table for the ranking zone", 
       },
     },
     {
-      name: "small cap with scarce evidence: never exceeds the cap (#339)",
+      name: "popup evidence fills the reservation: background evidence does not evict the only control (#339)",
+      elements: [{ role: "button", name: "Save" }, ...Array.from({ length: 5 }, (_, i) => popupText(`order help ${i}`)), text("order complete")],
+      intent: "order",
+      limit: 6,
+      expect: (r) => {
+        if (!has(r, "Save")) throw new Error("control evicted");
+        if (has(r, "order complete")) throw new Error("background evidence swapped in past a full reservation");
+      },
+    },
+    {
+      name: "small cap with scarce evidence: never exceeds the cap",
       elements: [...buttons(10), text("order complete")],
       intent: "order",
       limit: 3,

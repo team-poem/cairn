@@ -156,3 +156,14 @@ it("shows measured clickable and popup states without claiming an ARIA button ro
   const page = new PerceptionObservation(driver, facts, facts, "open");
   expect(page.render).toContain("[StaticText] Open (clickable, active popup)");
 });
+
+it("keeps the only control in the listing and its ref bindable when evidence already fills the reservation (#339)", async () => {
+  const link: PageElement = { role: "link", name: "Directory", ref: "node-link" };
+  const all: PageElement[] = [link, ...Array.from({ length: 140 }, (_, i) => ({ role: "StaticText", name: `document details ${i}` }))];
+  const driver = new RefDriver();
+  const page = new PerceptionObservation(driver, all, all, "document details");
+  expect(page.render).toContain("[link] Directory");
+  const ref = page.listing.split("\n").find(l => l.includes("Directory"))!.match(/ref="([^"]+)"/)![1]!;
+  await applyDecision(driver, page.bind({ action: "click", ref }));
+  expect(driver.dispatched).toEqual(["node-link"]);
+});

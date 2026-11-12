@@ -70,7 +70,9 @@ export function selectElements(
     .sort((a, b) => Number(b.e.inActivePopup === true) - Number(a.e.inActivePopup === true) || b.score - a.score || a.i - b.i); // ranked, original order breaks ties (stable)
 
   const cut = scored.slice(0, limit);
-  const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, EVIDENCE_SLOTS);
+  // Reserve only the shortfall: evidence already in the cut counts toward the slots (#339).
+  const shortfall = Math.max(0, EVIDENCE_SLOTS - cut.filter((s) => s.evidence).length);
+  const missed = scored.slice(limit).filter((s) => s.evidence).slice(0, shortfall);
   // Policy-filtered rows are not hidden by the prompt cap. Evidence swaps preserve cut length.
   const omittedCount = candidates.length - cut.length;
   const result = (selected: PageElement[]) => ({

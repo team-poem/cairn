@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: poem-public
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,12 +100,16 @@ jobs:
 
       - name: Create GitHub release
         if: steps.check.outputs.should_release == 'true'
+        # The self-hosted runner image ships without the gh CLI.
+        uses: actions/github-script@v9
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="v${{ steps.pkg.outputs.version }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "::warning::Release $TAG already exists — skipping."
-          else
-            gh release create "$TAG" --draft --generate-notes --title "$TAG"
-          fi
+          TAG: v${{ steps.pkg.outputs.version }}
+        with:
+          script: |
+            const tag = process.env.TAG;
+            const releases = await github.paginate(github.rest.repos.listReleases, context.repo);
+            if (releases.some((release) => release.tag_name === tag)) {
+              core.warning(`Release ${tag} already exists — skipping.`);
+            } else {
+              await github.rest.repos.createRelease({ ...context.repo, tag_name: tag, name: tag, draft: true, generate_release_notes: true });
+            }

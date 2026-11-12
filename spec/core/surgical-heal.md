@@ -61,6 +61,33 @@ For each step:
 
 No divergence (all `expect` hold) → **zero LLM.**
 
+### Arrival during a declined repair (#341)
+
+An action can reach its original post-condition while a repair decision is pending. The optional
+fourth argument to `StepHealer.heal`, `onDeclined`, lets a healer certify that it is returning
+`null` without attempting a corrective action. The pipeline then checks the original `expect`
+once, with the original request watermark and URL matching rules. This does not restart polling,
+retry an action, or make another model call. A passing check retains the original executed step;
+it is not a skip or a successful heal and produces no replacement or heal event.
+
+`LlmStepHealer` signals this only for a validated `done` decision that passes its existing gates.
+Parse/provider/policy failures, attempt exhaustion and failed or uncertain execution remain ordinary
+null results. A legacy custom healer returning null without the callback also keeps its existing
+failure behavior. Custom implementations may opt in, but must account for actions through privately
+held drivers too; the callback is a trusted port contract, not a dispatch detector.
+
+Cancellation and shared-budget exhaustion take precedence before and after the recheck. Even without
+a budget, each recheck read checks cancellation before dispatch and after settlement, including a
+rejected read. The caller's reason is preserved, and cancellation between URL and text reads prevents
+the text snapshot from starting. An already dispatched read must still settle before returning.
+A failed check remains a post-condition failure. Collection steps still prohibit surgical repair. Checkpoint
+capture, successful step progress and the next action require a passing recheck; reporting a failed
+step remains unchanged.
+
+Run `npm run build && npm run test:declined-step-heal` for the real Chrome/MCP regression.
+Its scripted provider releases the original click's pending response before returning `done`,
+then checks that replay continues without repeating the click or recording a replacement.
+
 ## 4. Types (minimal)
 
 ```ts

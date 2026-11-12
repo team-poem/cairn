@@ -109,6 +109,12 @@ failure is reported as an environment failure while retaining completed replay e
 they throw exported `BudgetExceededError`, carrying the same metadata, evidence and usage.
 Caller cancellation remains a rejection with the original reason, not a budget verdict.
 
+When `applyDecision` returns an executed Step, discovery and exploration record that action and
+publish its synchronous progress notifications before propagating a stop. Discovery also retains
+the completed checkpoint path without starting capture reads after cancellation. These records
+describe the action that ran, not a successful run. A budget-wrapped operation that rejects its
+late result has not returned an executed Step; it keeps the uncertain-operation treatment above.
+
 Trace 1.10 adds `budget-exhausted`; owned run/case lifecycles still end once. Standalone
 discovery/exploration emit into the supplied trace scope without owning a new lifecycle.
 Exhaustion is neither an app regression nor a repair trigger. It cannot weaken original checks,

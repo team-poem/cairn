@@ -125,13 +125,13 @@ it("invalidPerceiveEndsBoundedly: both loops recover a fresh valid capture after
 it("normalizedRefDescriptionsUseRawIdentity: model label normalization binds the same ref and preserves real contradictions", async () => {
   const driver = new PromptRefDriver([{ role: "button", name: "  Save  ", ref: "node-save" }]);
   const page = new PerceptionObservation(driver, driver.els, driver.els, "save");
-  const decision = page.bind({ action: "click", ref: promptRef(page.references), text: "save", role: "button" });
+  const decision = page.bind({ action: "click", ref: promptRef(page.listing), text: "save", role: "button" });
   expect(decision).toMatchObject({ text: "  Save  ", role: "button" });
   await applyDecision(driver, decision);
   expect(driver.exact).toEqual(["node-save"]);
   for (const contradiction of [{ text: "Delete" }, { role: "link" }, { nth: 1 }]) {
     const next = new PerceptionObservation(driver, driver.els, driver.els, "save");
-    expect(() => next.bind({ action: "click", ref: promptRef(next.references), ...contradiction })).toThrow(/contradict/i);
+    expect(() => next.bind({ action: "click", ref: promptRef(next.listing), ...contradiction })).toThrow(/contradict/i);
   }
   expect(driver.exact).toEqual(["node-save"]);
 });
@@ -161,7 +161,7 @@ it("systemTeachesExecutableRefActions: every target action has a ref-only exampl
       { role: "button", name: "Save", ref: "second" },
     ]);
     const page = new PerceptionObservation(driver, driver.els, driver.els, "save");
-    const second = page.references.split("\n").find(line => line.includes("nth=1"))!;
+    const second = page.listing.split("\n").find(line => line.includes("nth=1"))!;
     expect(page.bind({ ...example!, ref: promptRef(second) })).toMatchObject({ action, text: "Save", role: "button", nth: 1 });
   }
   for (const system of [SYSTEM, EXPLORE_SYSTEM]) {
@@ -178,18 +178,18 @@ it("systemExplainsMeasuredInteractionFacts: shared rules explain clickable and a
   expect(PERCEPTION_RULES).toMatch(/(?:role[\s\S]{0,100}(?:unchanged|retain|preserv))|(?:(?:retain|preserv)[\s\S]{0,100}role)/i);
   const driver = new PromptRefDriver([{ role: "StaticText", name: "Open", ref: "node-open", clickable: true, inActivePopup: true }]);
   const page = new PerceptionObservation(driver, driver.els, driver.els, "open");
-  expect(page.references).toContain("[StaticText] Open (clickable, active popup)");
+  expect(page.listing).toContain("[StaticText] Open (clickable, active popup)");
   for (const system of [SYSTEM, EXPLORE_SYSTEM]) expect(system).toContain(PERCEPTION_RULES);
 });
 
 it("referenceTableDeclaresTruncation: the ref table reports candidates omitted by the same hard row budget", () => {
   const driver = new PromptRefDriver(Array.from({ length: 61 }, (_, i) => ({ role: "button", name: `Choice ${i}`, ref: `node-${i}` })));
   const page = new PerceptionObservation(driver, driver.els, driver.els, "choose", 60);
-  expect(page.references.match(/^- ref=/gm)).toHaveLength(60);
-  expect(page.references).toMatch(/1 more elements? not shown/);
-  expect(page.references).toMatch(/scroll|interact/i);
+  expect(page.listing.match(/^- ref=/gm)).toHaveLength(60);
+  expect(page.listing).toMatch(/1 more elements? not shown/);
+  expect(page.listing).toMatch(/scroll|interact/i);
   const uncut = new PerceptionObservation(driver, driver.els, driver.els, "choose", 61);
-  expect(uncut.references).not.toMatch(/more elements? not shown/);
+  expect(uncut.listing).not.toMatch(/more elements? not shown/);
 });
 
 it("pageDataPrecedesFinalActionInstruction: both loop requests end with the instruction after current reference data on every turn", async () => {
@@ -343,7 +343,7 @@ it("inventedReferenceStillFailsClosed: named guidance does not turn a forged ref
   }
 });
 
-const REF_RECOVERY = "choose a ref from the current observation";
+const REF_RECOVERY = "choose a ref from the current element listing";
 const NAMED_RECOVERY = "no references are available in this observation";
 
 it("referenceRecoveryWithoutReferences: a rejected ref teaches named recovery, then a valid named decision executes (#301)", async () => {
@@ -366,7 +366,7 @@ it("referenceRecoveryWithoutReferences: a rejected ref teaches named recovery, t
       expect(llm.prompts[1]).toContain(NAMED_RECOVERY);
       expect(llm.prompts[1]).toContain('"nth"');
       expect(llm.prompts[1]).not.toContain(REF_RECOVERY);
-      expect(llm.prompts[1]).not.toContain("Current observation references");
+      expect(llm.prompts[1]).not.toMatch(/^- ref=/m);
       expect(driver.clicked).toEqual([name]);
       expect(result.steps.find(step => step.kind === "click")).toMatchObject({ target: { text: name, role: "button", ...nth } });
     }
@@ -394,7 +394,7 @@ it("referenceRecoveryTracksCapabilityChanges: the rejection diagnostic stays, it
     });
     await runPromptLoop(mode, driver, llm);
     expect(llm.prompts).toHaveLength(3);
-    expect(llm.prompts[0]).toContain("Current observation references");
+    expect(llm.prompts[0]).toMatch(/^- ref=/m);
     for (const prompt of llm.prompts.slice(1)) expect(prompt).toContain("reference binding rejected: unknown or expired observation reference");
     expect(llm.prompts[1]).toContain(NAMED_RECOVERY);
     expect(llm.prompts[1]).not.toContain(REF_RECOVERY);

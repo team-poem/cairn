@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.14**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.15**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.14", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.15", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -168,6 +168,12 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.15 adds the `page-guidance-expired` truncation reason (#340) to Scenario, ExploreReport
+and `case-end`, and a terminal `page-guidance` gate with that `code`, `expirations` and `limit`.
+The fixed diagnostic is emitted only when finalization returns incomplete for repeated guidance
+expiration; cancellation/budget failure keeps its own result. It is separate from scroll
+`no-progress`, carries no page data and does not identify an application defect.
 
 Version 1.13 adds `gate: page-guidance` with fixed reasons. See [page guidance](page-guidance.md#trace).
 

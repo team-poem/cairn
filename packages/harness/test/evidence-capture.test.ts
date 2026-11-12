@@ -6,8 +6,9 @@ import { AssertionCritic } from "../src/adapters/critics/assertion.js";
 import { StaticPlanner } from "../src/adapters/planners/static.js";
 import { InlineContextProvider } from "../src/adapters/context/inline.js";
 import { checkpointEvidence, EvidenceCaptureSession } from "../src/core/evidence-capture.js";
-import { assertionPayload } from "../src/core/trace.js";
-import { runWorkflow } from "../src/core/budget.js";
+import { assertionPayload, startTrace } from "../src/core/trace.js";
+import type { TraceEvent } from "../src/core/trace.js";
+import { BudgetExceededError, runWorkflow } from "../src/core/budget.js";
 import type { EvidenceCaptureOptions, EvidenceCheckpointRecord } from "../src/core/evidence-capture.js";
 import type { Evidence, PageElement, Scenario, Step, Target } from "../src/core/types.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
@@ -228,6 +229,98 @@ describe("awaited evidence checkpoints", () => {
     });
     expect(replay.result.evidence.captureRunId).not.toBe(records[0]?.runId);
     expect(replay.result.usage?.llmCalls).toBe(0);
+  });
+
+  it.each(["driver", "policy"] as const)("records a completed discovery action when %s cancels before capture", async cancelAt => {
+    const controller = new AbortController(); const reason = new Error("stop after click");
+    const driver = new StubDriver(); driver.els = [{ role: "button", name: "Edit" }];
+    const click = driver.click.bind(driver);
+    driver.click = async target => { await click(target); if (cancelAt === "driver") controller.abort(reason); };
+    const afterCancel: string[] = [];
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => { if (controller.signal.aborted) afterCancel.push("observe"); return observe(); };
+    driver.snapshot = async () => { if (controller.signal.aborted) afterCancel.push("snapshot"); return driver.els; };
+    driver.settle = async () => { if (controller.signal.aborted) afterCancel.push("settle"); };
+    driver.screenshot = async () => { if (controller.signal.aborted) afterCancel.push("screenshot"); return "image"; };
+    const records: EvidenceCheckpointRecord[] = []; const events: TraceEvent[] = [];
+    const onStep = vi.fn(); const complete = vi.fn(async () => '{"action":"click","text":"Edit"}');
+    const start: Step = { kind: "goto", url: "https://app/start" };
+    await expect(discover("edit", { driver, llm: { id: "scripted", complete }, baseUrl: start.url,
+      signal: controller.signal, onStep, trace: startTrace({ emit: event => { events.push(event); } }, "test").scope("case"),
+      policy: { vet: () => ({ ok: true }), executed: () => { if (cancelAt === "policy") controller.abort(reason); } },
+      evidenceCapture: { settle: true, checkpoints: [{ ...point, phase: "discover", after: [start, editor], screenshot: true }],
+        onCapture: record => { records.push(record); } },
+    })).rejects.toBe(reason);
+    expect(driver.clicked).toEqual(["Edit"]);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(afterCancel).toEqual([]);
+    expect(onStep).toHaveBeenCalledTimes(1);
+    expect(onStep).toHaveBeenCalledWith(expect.objectContaining({ action: "click" }), editor);
+    expect(events.filter(event => event.kind === "action")).toMatchObject([
+      { stepRef: 1, payload: { step: editor, ok: true } },
+    ]);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: "cancelled", complete: false, index: 1,
+      path: [start, editor], action: { step: editor, ok: true } });
+    expect(records[0]?.actionId).toBeTruthy();
+    expect(records[0]?.reason).toBeUndefined();
+    expect(records[0]?.elements).toBeUndefined();
+    expect(records[0]?.screenshot).toBeUndefined();
+  });
+
+  it("notifies the completed discovery action when its capture observer cancels", async () => {
+    const controller = new AbortController(); const reason = new Error("stop from capture observer");
+    const driver = new StubDriver(); driver.els = [{ role: "button", name: "Edit" }];
+    const afterCancel: string[] = [];
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => { if (controller.signal.aborted) afterCancel.push("observe"); return observe(); };
+    driver.snapshot = async () => { if (controller.signal.aborted) afterCancel.push("snapshot"); return driver.els; };
+    driver.settle = async () => { if (controller.signal.aborted) afterCancel.push("settle"); };
+    const records: EvidenceCheckpointRecord[] = []; const events: TraceEvent[] = [];
+    const onStep = vi.fn(); const complete = vi.fn(async () => '{"action":"click","text":"Edit"}');
+    const start: Step = { kind: "goto", url: "https://app/start" };
+    await expect(discover("edit", { driver, llm: { id: "scripted", complete }, baseUrl: start.url,
+      signal: controller.signal, onStep, trace: startTrace({ emit: event => { events.push(event); } }, "test").scope("case"),
+      evidenceCapture: { checkpoints: [{ ...point, phase: "discover", after: [start, editor] }],
+        onCapture: record => { records.push(record); controller.abort(reason); } },
+    })).rejects.toBe(reason);
+    expect(driver.clicked).toEqual(["Edit"]);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(afterCancel).toEqual([]);
+    expect(onStep).toHaveBeenCalledTimes(1);
+    expect(onStep).toHaveBeenCalledWith(expect.objectContaining({ action: "click" }), editor);
+    expect(events.filter(event => event.kind === "action")).toMatchObject([{ payload: { step: editor, ok: true } }]);
+    // The observation completed before its notification requested cancellation.
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: "captured", complete: true, index: 1,
+      path: [start, editor], action: { step: editor, ok: true }, elements: driver.els });
+  });
+
+  it("does not invent a completed discovery checkpoint for a budget-interrupted action", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    let time = 0; vi.spyOn(performance, "now").mockImplementation(() => time);
+    const driver = new StubDriver(); driver.els = [{ role: "button", name: "Edit" }];
+    const click = driver.click.bind(driver);
+    driver.click = async target => { await click(target); time = 11; };
+    const records: EvidenceCheckpointRecord[] = []; const events: TraceEvent[] = [];
+    const onStep = vi.fn(); const complete = vi.fn(async () => '{"action":"click","text":"Edit"}');
+    const start: Step = { kind: "goto", url: "https://app/start" };
+    const error = await discover("edit", { driver, llm: { id: "scripted", complete }, baseUrl: start.url,
+      budget: { timeoutMs: 10 }, onStep, trace: startTrace({ emit: event => { events.push(event); } }, "test").scope("case"),
+      evidenceCapture: { checkpoints: [{ ...point, phase: "discover", after: [start, editor] }],
+        onCapture: record => { records.push(record); } },
+    }).catch(error => error);
+    expect(error).toBeInstanceOf(BudgetExceededError);
+    expect(error.budget).toMatchObject({ limit: "time", operation: { name: "driver.click", outcome: "unknown" } });
+    expect(error.evidence.execution.actions).toEqual([{ step: start, ok: true }]);
+    expect(driver.clicked).toEqual(["Edit"]);
+    expect(complete).toHaveBeenCalledTimes(1);
+    expect(onStep).not.toHaveBeenCalled();
+    expect(events.filter(event => event.kind === "action")).toEqual([]);
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({ status: "cancelled", complete: false, reason: "not-reached", path: [start] });
+    expect(records[0]?.action).toBeUndefined();
+    expect(records[0]?.actionId).toBeUndefined();
   });
 
   it("keeps capture policy outside judgment identity while required semantics remain in custom assertions", async () => {

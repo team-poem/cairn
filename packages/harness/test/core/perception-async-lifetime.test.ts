@@ -27,7 +27,7 @@ it("ref decision superseded while locateRef awaits cannot dispatch a still-live 
   }
   const driver = new DelayedLocator();
   const first = new PerceptionObservation(driver, rows, rows, "fill");
-  const execution = applyDecision(driver, first.bind({ action: "click", ref: token(first.references) }));
+  const execution = applyDecision(driver, first.bind({ action: "click", ref: token(first.listing) }));
   await entered.promise;
   new PerceptionObservation(driver, rows, rows, "fill");
   release.resolve();
@@ -42,7 +42,7 @@ it("scoped type revalidates observation after awaiting the page origin", async (
   }
   const driver = new DelayedOrigin();
   const first = new PerceptionObservation(driver, rows, rows, "fill");
-  const execution = applyDecision(driver, first.bind({ action: "type", ref: token(first.references), value: "{password}" }), { password: { value: "private", origin: "https://app" } });
+  const execution = applyDecision(driver, first.bind({ action: "type", ref: token(first.listing), value: "{password}" }), { password: { value: "private", origin: "https://app" } });
   await entered.promise;
   new PerceptionObservation(driver, rows, rows, "fill");
   release.resolve();
@@ -73,7 +73,7 @@ it("a decision description changed during locator enrichment cannot reach dispat
   }
   const driver = new DelayedLocator();
   const page = new PerceptionObservation(driver, rows, rows, "fill");
-  const decision = page.bind({ action: "click", ref: token(page.references) });
+  const decision = page.bind({ action: "click", ref: token(page.listing) });
   const execution = applyDecision(driver, decision);
   await entered.promise;
   decision.text = "Different";

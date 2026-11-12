@@ -52,8 +52,8 @@ it("preserves exact original refs and duplicate ordinals for a demoted evidence 
   }
   const driver = new ExactDriver();
   const page = new PerceptionObservation(driver, rows, rows, "saved");
-  expect(page.references).toContain("(nth=1)");
-  const ref = page.references.match(/ref="([^"]+)"/)![1]!;
+  expect(page.listing).toContain("(nth=1)");
+  const ref = page.listing.match(/ref="([^"]+)"/)![1]!;
   const decision = page.bind({ action: "click", ref });
   expect(decision.nth).toBe(1);
   await applyDecision(driver, decision);

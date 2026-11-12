@@ -11,7 +11,7 @@ jobs:
   close-linked-issues:
     name: close issues linked from merged develop PRs
     if: github.event.pull_request.merged == true && github.event.pull_request.base.ref == 'develop'
-    runs-on: ubuntu-latest
+    runs-on: poem-public
     steps:
       - name: Check cairn-bot secrets
         env:

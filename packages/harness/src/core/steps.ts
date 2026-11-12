@@ -297,17 +297,26 @@ export async function pollCondition(
   }
 }
 
+/** A read already in flight must settle; cancellation still takes precedence over its result/error. */
+async function readCondition<T>(signal: AbortSignal, read: () => Promise<T>): Promise<T> {
+  signal.throwIfAborted();
+  try { return await read(); }
+  finally { signal.throwIfAborted(); }
+}
+
 /** Whether every field of `until` holds now (Driver observation only, no LLM). Polled by `waitFor`
  * and checked once per step for `expect` verification (spec/core/surgical-heal.md). `requestStatus`
- * is event evidence over a cumulative log, so callers verifying a single step pass a watermark. */
+ * is event evidence over a cumulative log, so callers verifying a single step pass a watermark.
+ * An optional signal guards each read, including failures and the gap between URL and text reads. */
 export async function conditionMet(
   driver: Driver,
   until: WaitUntil,
   sinceRequestIndex = 0,
   urlMatch: ConditionMatchOptions = {},
+  signal?: AbortSignal,
 ): Promise<boolean> {
   if (until.url !== undefined || until.requestStatus !== undefined) {
-    const { execution, logic } = await driver.observe();
+    const { execution, logic } = await (signal ? readCondition(signal, () => driver.observe()) : driver.observe());
     if (until.url !== undefined && !urlReached(execution.finalUrl ?? "", until.url, urlMatch)) return false;
     if (until.requestStatus) {
       const { urlIncludes, status, method } = until.requestStatus;
@@ -322,7 +331,7 @@ export async function conditionMet(
     // A role without text still names a condition: some element of that role must be present.
     // Fail closed: a provided field is never vacuously true.
     const needle = until.text?.trim().toLowerCase();
-    const els = await driver.snapshot();
+    const els = await (signal ? readCondition(signal, () => driver.snapshot()) : driver.snapshot());
     const hit = els.some(
       (e) =>
         (!until.role || e.role === until.role) &&

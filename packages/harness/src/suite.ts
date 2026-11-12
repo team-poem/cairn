@@ -369,8 +369,8 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
         const verdict: Verdict = {
           passed: false,
           results: [],
-          detail: found.truncationReason === "no-progress"
-            ? "discovery stopped for no-progress — unverified path, nothing frozen"
+          detail: found.truncationReason
+            ? `discovery stopped for ${found.truncationReason} — unverified path, nothing frozen`
             : "discovery truncated at the step cap or policy limit — unverified path, nothing frozen",
           failClosed: "truncated",
           failure: "script", // the freeze proves nothing (#173): re-discover, with a higher cap

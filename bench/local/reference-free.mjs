@@ -36,7 +36,7 @@ for (const phase of ['discover', 'explore', 'step-heal', 'replay']) {
     decisions++;
     assert.match(opts.system, /No references are available in this observation/);
     assert.ok(!opts.system.includes('"ref":"<ref>"'));
-    assert.ok(!prompt.includes('Current observation references'));
+    assert.ok(!prompt.includes('ref='));
     if (phase === 'step-heal') return '{"action":"click","text":"Save","role":"button"}';
     return decisions === 1 ? '{"action":"type","text":"Name","role":"textbox","value":"alice"}'
       : decisions === 2 ? '{"action":"click","text":"Save","role":"button"}' : '{"action":"done"}';

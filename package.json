@@ -30,6 +30,7 @@
     "test:predicate-selection": "node scripts/test-predicate-selection.mjs",
     "test:scroll-policy": "npm run test:browser -w cairn-engine -- test/browser/scroll-policy.browser.test.ts && node scripts/test-scroll-policy.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
+    "test:declined-step-heal": "node scripts/test-declined-step-heal.mjs",
     "test:settle": "node bench/local/settle.mjs",
     "check:language": "node scripts/check-language.mjs",
     "journal:status": "node scripts/journal.mjs status",

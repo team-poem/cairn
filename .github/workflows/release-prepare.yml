@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   prepare:
-    runs-on: ubuntu-latest
+    runs-on: poem-public
     timeout-minutes: 10
     steps:
       - name: Check the version shape before anything moves

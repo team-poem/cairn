@@ -49,7 +49,7 @@ export class LlmStepHealer implements StepHealer {
     this.llm = withAppContext(llm, snapshotAppContext(options.appContext, secrets));
   }
 
-  async heal(step: Step, index: number, driver: Driver): Promise<StepHeal | null> {
+  async heal(step: Step, index: number, driver: Driver, onDeclined?: () => void): Promise<StepHeal | null> {
     // A different action would change the explicitly authored collection-position test.
     if (isCollectionStep(step)) return null;
     if (this.attempts >= this.maxHeals) return null;
@@ -64,7 +64,7 @@ export class LlmStepHealer implements StepHealer {
       this.attempts++;
       const prompt = stepHealPrompt(step, page);
       page.tracePrepared(this.options.trace, "step-heal", "heal");
-      const reply = await this.llm.complete(prompt, { system: stepHealSystem(Boolean(page.references)) });
+      const reply = await this.llm.complete(prompt, { system: stepHealSystem(page.hasReferences) });
       decision = parseDecision(reply);
       if (decision.action === "type" && decision.value !== undefined) decision.value = slotSecretText(decision.value, this.secrets);
       decision = page.bind(decision);
@@ -77,7 +77,10 @@ export class LlmStepHealer implements StepHealer {
       rethrowBudget(error);
       return null;
     }
-    if (decision.action === "done") return null;
+    if (decision.action === "done") {
+      onDeclined?.();
+      return null;
+    }
     let healed: Step;
     try {
       healed = await applyDecision(driver, decision, this.secrets); // slots and scopes a secret itself
@@ -100,8 +103,7 @@ function stepHealPrompt(step: Step, page: PerceptionObservation): string {
     `Expected outcome: ${step.expect ? JSON.stringify(step.expect) : "(reach the next state)"}`,
     ``,
     `Current page:`,
-    page.render,
-    page.references,
+    page.listing,
     ``,
     `Reply with the single next action that achieves the goal.`,
   ].join("\n");

@@ -174,6 +174,16 @@ describe("evidence quota (#115) — counterexample table for the ranking zone", 
       },
     },
     {
+      name: "full reservation is final: later evidence past the cap stays out (#339)",
+      elements: [{ role: "link", name: "Directory" }, ...Array.from({ length: 60 }, (_, i) => text(`order item ${i}`)), text("order complete")],
+      intent: "order",
+      limit: 60,
+      expect: (r) => {
+        if (!has(r, "Directory")) throw new Error("control evicted");
+        if (has(r, "order complete")) throw new Error("evidence swapped in past a full reservation");
+      },
+    },
+    {
       name: "small cap with scarce evidence: never exceeds the cap",
       elements: [...buttons(10), text("order complete")],
       intent: "order",

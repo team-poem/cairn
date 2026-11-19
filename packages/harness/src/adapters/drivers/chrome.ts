@@ -7,6 +7,9 @@
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { ChromeCollectionObservation, collectionRows } from "./chrome-collection.js";
+import { prepareChromeGuidanceScope } from "./chrome-guidance-scope.js";
+import { captureGuidanceScope, compareGuidanceScope, ScopedGuidanceExpired,
+  type CapturedGuidanceScope, type PageGuidanceScope, type PageGuidanceScopeFacts } from "../../core/guidance-scope.js";
 import { resourceKeyScript, type SelectedItemReceipt } from "./chrome-selected-item.js";
 import type { DestinationResourceKey, ResourceKeyObservation, SelectedItemKey } from "../../core/selected-item-evidence.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
@@ -188,6 +191,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly validatedReferenceRevisions = new Map<string, number>();
   private readonly capturedReferenceCohorts = new Set<string>();
   private readonly guardKey = `cairn-observation-guard:${this.driverId}`;
+  private guidanceClick?: { ref: string; version: number; page: string; stamp?: string;
+    scope: PageGuidanceScope; expected: CapturedGuidanceScope };
   private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
@@ -324,7 +329,8 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
-  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture"): Promise<string> {
+  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture",
+    beforeSend?: () => void): Promise<string> {
     const client = await this.ensureConnected();
     // Let initial rendering settle before the guard starts retaining cohort mutations.
     // Unsupported servers keep their existing observation protocol.
@@ -336,6 +342,7 @@ export class ChromeDevToolsDriver implements Driver {
     const toolArgs = (purpose === "observation" || purpose === "capture") && name === "evaluate_script" && this.observationWaitOverride
       ? { ...args, waitForStableDom: false } : args;
     let res: { content?: Array<{ type: string; text?: string }>; isError?: boolean };
+    beforeSend?.();
     try {
       res = (await this.withTimeout(
         client.callTool({ name, arguments: toolArgs }),
@@ -368,11 +375,47 @@ export class ChromeDevToolsDriver implements Driver {
     await this.trackPages();
   }
 
-  async click(target: Target, ref?: string): Promise<void> {
+  async click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void> {
+    if (ref?.startsWith("cairn-guidance:")) return this.clickGuidance(ref, checkBeforeDispatch);
     const uid = await this.actionUid(target, ref);
     const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
     this.invalidateObservation();
     await this.callAccepting("click", { uid }, collection);
+  }
+
+  private async clickGuidance(ref: string, check?: () => void): Promise<void> {
+    const unavailable = () => new ScopedGuidanceExpired({ scopeStatus: "scope-unverifiable" });
+    const receipt = this.guidanceClick;
+    if (!receipt || receipt.ref !== ref || await this.selectedPage() !== receipt.page) throw unavailable();
+    const { scope, stamp, version, expected } = receipt;
+    let uid: string;
+    try {
+      await this.hostRoots?.assertStamp(stamp);
+      const raw = await this.captureSnapshot({ verbose: true });
+      const plan = this.guidanceMeasurement(raw, scope, version, stamp);
+      if (!plan) throw unavailable();
+      // Resolve and check ownership on the fresh AX handle. The live DOM comparison
+      // runs last; a cached UID or a fallback locator can never submit this click.
+      if (plan.uid) await this.hostRoots?.assertNode(plan.uid, true, stamp);
+      if (await this.selectedPage() !== receipt.page || this.guidanceClick !== receipt) throw unavailable();
+      const facts = await plan.measure();
+      const problem = compareGuidanceScope(expected, captureGuidanceScope(scope, facts));
+      if (problem) throw new ScopedGuidanceExpired(problem);
+      if (!plan.uid || this.guidanceClick !== receipt) throw unavailable();
+      uid = plan.uid;
+    } catch (err) {
+      // No input has been sent. A stale ownership stamp or an unresolvable AX handle
+      // expires this decision, not the run. Transport and caller failures keep their cause.
+      check?.();
+      if (errorKindOf(err) === "transport" || err instanceof ScopedGuidanceExpired ||
+          (err instanceof Error && ["AbortError", "BudgetExceededError"].includes(err.name))) throw err;
+      throw unavailable();
+    }
+    await this.submitAccepting("click", { uid }, undefined, () => {
+      check?.();
+      if (this.guidanceClick !== receipt) throw unavailable();
+      this.invalidateObservation();
+    });
   }
 
   /** Same-document evidence only. A missing receipt never retries or replaces the click. */
@@ -436,15 +479,21 @@ export class ChromeDevToolsDriver implements Driver {
    * (#17). Generic over the action, so a dialog from a click, a form submit (Enter), a select, etc.
    * is handled the same way — no per-verb special-casing.
    */
-  private async callAccepting(name: string, args: Record<string, unknown>, collection?: ChromeCollectionObservation,
+  private async callAccepting(name: string, args: Record<string, unknown>, guard?: Pick<ChromeCollectionObservation, "validate">,
     beforeFollow?: () => Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
     if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
-    if (collection && typeof args.uid === "string") await collection.validate(args.uid);
+    if (guard && typeof args.uid === "string") await guard.validate(args.uid);
+    onDispatch?.();
+    return this.submitAccepting(name, args, beforeFollow);
+  }
+
+  private async submitAccepting(name: string, args: Record<string, unknown>, beforeFollow?: () => Promise<void>,
+    beforeSend?: () => void): Promise<boolean | undefined> {
+    let submitted = !beforeSend;
     try {
-      onDispatch?.();
-      await this.call(name, args);
+      await this.call(name, args, undefined, beforeSend && (() => { beforeSend(); submitted = true; }));
     } catch (err) {
-      if (!isOpenDialog(err)) throw err;
+      if (!submitted || !isOpenDialog(err)) throw err;
       await this.call("handle_dialog", { action: "accept" });
     } finally {
       // Evidence cleanup never dispatches another action and precedes any tab switch.
@@ -725,6 +774,40 @@ export class ChromeDevToolsDriver implements Driver {
     return els;
   }
 
+  private guidanceMeasurement(raw: string, scope: PageGuidanceScope, version: number, stamp?: string, listing?: ReadonlyMap<string, PageElement>) {
+    if (this.opts.hostOwnedRoots && stamp === undefined) return;
+    return prepareChromeGuidanceScope(raw, listing, scope, this.guardKey, version,
+      (source, uids) => this.call("evaluate_script", { function: source, args: uids }, "observation"),
+      this.opts.hostOwnedRoots && stamp !== undefined ? { key: this.opts.hostOwnedRoots.key, stamp } : undefined);
+  }
+
+  async snapshotWithGuidanceScope(scope: PageGuidanceScope): Promise<{ elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string }> {
+    const version = this.observationVersion + 1;
+    const elements = await this.snapshot({ perception: true });
+    const raw = this.observedRaw, page = this.observedPage, stamp = this.observedHostStamp;
+    if (this.observationVersion !== version || !raw || page === undefined) return { elements };
+    const listing = new Map(this.observedRows.filter(r => r.name.trim()).map((r, i) => [r.uid, elements[i]!]));
+    try {
+      const plan = this.guidanceMeasurement(raw, scope, version, stamp, listing);
+      if (!plan) return { elements };
+      const facts = await plan.measure();
+      if (!facts || await this.selectedPage() !== page) return { elements };
+      await this.hostRoots?.assertStamp(stamp);
+      if (this.observationVersion !== version) return { elements };
+      const expected = captureGuidanceScope(scope, facts);
+      if (!plan.uid || "error" in expected || expected.blocked) return { elements, facts };
+      // The engine uses this only after the final fresh capture. Never publish this receipt
+      // in the listing, freeze it, or re-resolve its name through fuzzy lookup on expiry.
+      const ref = `cairn-guidance:${this.driverId}:${version}`;
+      this.guidanceClick = { ref, version, page, stamp, scope, expected };
+      return { elements, facts, targetRef:ref };
+    } catch (err) {
+      if (errorKindOf(err) === "transport") throw err;
+      // A partial measurement cannot relax the ordinary freshness check.
+    }
+    return { elements };
+  }
+
   /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
   async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
     const declaration = validateCollectionTarget({ collection: selection });
@@ -855,7 +938,8 @@ export class ChromeDevToolsDriver implements Driver {
       globalThis[key]?.observer?.disconnect();
       // Keep records rather than one page-wide invalidation bit. Validation protects the
       // selected role cohort, then uses a fresh AX capture for indirect dependencies.
-      const state = { records: [], cohorts: new Map(), overflow: false, observer: undefined, retain: undefined };
+      const state = { version: ${this.observationVersion}, url:globalThis.location?.href,
+        records: [], cohorts: new Map(), overflow: false, observer: undefined, retain: undefined };
       state.retain = records => {
         if (state.overflow) return;
         // An expired observation may remain in the page until the next capture. Bound retained
@@ -1225,13 +1309,15 @@ export class ChromeDevToolsDriver implements Driver {
     try {
       // Include the URL as well as the tab ID: navigation can retain the selected tab.
       return (await this.call("list_pages")).match(/^\s*(\d+:[^\n]*\[selected\])\s*$/m)?.[1];
-    } catch {
+    } catch (err) {
+      if (errorKindOf(err) === "transport") throw err;
       return undefined;
     }
   }
 
   private invalidateObservation(): void {
     this.observationVersion++;
+    this.guidanceClick = undefined;
     this.references.clear();
     this.collectionObservations.clear();
     this.documentObservation = undefined;

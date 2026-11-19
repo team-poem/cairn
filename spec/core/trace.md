@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.15**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.16**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.15", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.16", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -168,6 +168,16 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.16 adds optional diagnostics to `page-guidance` gates for a discarded scoped click
+(#356). `scopeStatus` is `scope-changed`, `target-ambiguous`, or `scope-unverifiable`.
+`targetUnambiguous` reports whether exactly one target matched when known. When the two
+captures can be compared, `addedInside`, `removedInside`, and `changedInside` count nodes in
+the declared scope; a change to state or position counts once per surviving node. The
+corresponding `addedOutside`, `removedOutside`, and `changedOutside` counts are optional:
+both captures must provide comparable outside measurements. Omission means unknown, not
+zero. An outside change alone does not emit a gate. No IDs, locators, values, URLs, or
+guidance text are included in these fields.
 
 Version 1.15 adds the `page-guidance-expired` truncation reason (#340) to Scenario, ExploreReport
 and `case-end`, and a terminal `page-guidance` gate with that `code`, `expirations` and `limit`.

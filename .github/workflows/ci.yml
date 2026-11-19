@@ -134,7 +134,7 @@ jobs:
     # Needs Google Chrome, which the linux/arm64 poem-public pool cannot run; hosted runners only.
     if: vars.HOSTED_RUNNERS_ENABLED == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -171,6 +171,10 @@ jobs:
         env:
           CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
         run: node scripts/test-collection-selection.mjs
+      - name: Scoped guided clicks on a changing page
+        env:
+          CAIRN_MCP_ENTRY: ${{ runner.temp }}/cairn-document-tools/node_modules/chrome-devtools-mcp/build/src/bin/chrome-devtools-mcp.js
+        run: node scripts/test-scoped-page-guidance.mjs
       - name: Preserve settle results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4

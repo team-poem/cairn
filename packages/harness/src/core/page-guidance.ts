@@ -33,7 +33,7 @@ export class PageGuidanceAttempts {
 }
 
 /** Guidance accepted for one observation, with the URL its provider was given. */
-export interface PageGuidance { text: string; url?: string }
+export interface PageGuidance { text: string; url?: string; declaredScope?: true }
 
 export interface PageGuidanceContext {
   purpose: PageGuidanceRequest["purpose"];
@@ -149,6 +149,19 @@ export async function requestPageGuidance(provider: PageGuidanceProvider, ctx: P
     return undefined;
   }
   if (value === undefined || value === null) return undefined;
+  // Only this reply can opt its decision into the host's declaration. Do not invoke
+  // getters or let an unrecognized object change the legacy invalid-output behavior.
+  let declaredScope: true | undefined;
+  if (typeof value === "object") {
+    try {
+      const freshness = Object.getOwnPropertyDescriptor(value, "freshness")?.value;
+      const advice = Object.getOwnPropertyDescriptor(value, "text")?.value;
+      if (freshness === "declared-scope" && typeof advice === "string") {
+        value = advice;
+        declaredScope = true;
+      }
+    } catch { /* unrecognized provider output */ }
+  }
   if (typeof value !== "string") {
     ctx.gate("page guidance rejected: provider output is not a string");
     return undefined;
@@ -160,5 +173,5 @@ export async function requestPageGuidance(provider: PageGuidanceProvider, ctx: P
     return undefined;
   }
   const text = slotted.trim();
-  return text ? { text, url: ctx.url } : undefined;
+  return text ? { text, url: ctx.url, ...(declaredScope && { declaredScope }) } : undefined;
 }

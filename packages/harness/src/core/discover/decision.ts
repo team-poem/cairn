@@ -10,6 +10,7 @@ import { BuiltinStepHandler } from "../steps.js";
 import { slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import { assertDecisionCurrent, decisionReference, persistentTarget } from "../observation.js";
+import type { ValidateGuidedClick } from "../guided-click.js";
 import { extractFirstJsonObject } from "../json.js";
 
 export interface Decision {
@@ -155,15 +156,27 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
 
 /** Execute a non-`done` decision and return the Step it produced. Throws if it fails. */
 export async function applyDecision(driver: Driver, decision: Decision, secrets: Secrets = {}): Promise<Step> {
-  const ref = decisionReference(driver, decision);
-  const step = await decisionToStep(driver, decision);
+  return executeDecision(driver, decision, secrets);
+}
+
+/** A scoped capture resolves its own target. Only the exact role/name survives dispatch. */
+export async function executeDecision(driver: Driver, decision: Decision, secrets: Secrets = {},
+  validate?: ValidateGuidedClick): Promise<Step> {
+  const live = validate ? await validate() : undefined;
+  const ref = live ? live.ref : decisionReference(driver, decision);
+  const step: Step = live ? { kind: "click", target: live.target } : await decisionToStep(driver, decision);
   // A secret's value is put back behind its `{name}` HERE, before the step is executed or kept:
   // the model may echo the literal it saw in a text field rather than the intent's placeholder,
   // and a literal must go through the same scope check and must never reach the trace, the
   // progress event, the next prompt, or the freeze (#174). The handler then fills it exactly
   // once, for the driver only.
   if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
-  await new BuiltinStepHandler(secrets).execute(step, driver, ref, () => assertDecisionCurrent(driver, decision));
+  // Keep the adapter's live argument separate from the durable target returned to the loop.
+  const dispatch: Step = live ? { kind: "click", target: { ...live.target } } : step;
+  await new BuiltinStepHandler(secrets).execute(dispatch, driver, ref, () => {
+    live?.check();
+    assertDecisionCurrent(driver, decision);
+  }, live?.check);
   return step;
 }
 

@@ -21,6 +21,9 @@ import type {
   Verdict,
 } from "./types.js";
 import type { TraceEvent } from "./trace.js";
+import type { PageGuidanceScope, PageGuidanceScopeFacts } from "./guidance-scope.js";
+export type { PageGuidanceLocator, PageGuidanceSet, PageGuidanceScope, PageGuidanceScopeNode, PageGuidanceScopeFacts, GuidanceScopeDiagnostic } from "./guidance-scope.js";
+export { ScopedGuidanceExpired } from "./guidance-scope.js";
 
 /** Grounding from any source (NL, git diff, ticket, RAG). */
 export interface ContextProvider {
@@ -68,7 +71,9 @@ export interface Planner {
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target, ref?: string): Promise<void>;
+  /** A guidance receipt requires full scope validation (see snapshotWithGuidanceScope), then
+   * checkBeforeDispatch immediately before submitting input. Propagate a thrown check. */
+  click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void>;
   doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target, ref?: string): Promise<void>;
   type(target: Target, text: string, ref?: string): Promise<void>;
@@ -104,6 +109,17 @@ export interface Driver {
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
   snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
+  /** Capture the ordinary perception snapshot and optional scope facts at the same observation.
+   * Only attest complete facts for exhaustive, disjoint matches and stable node identities.
+   * Dispatch requires a nonempty, temporary targetRef bound to these facts and this unique node.
+   * click(target, targetRef, checkBeforeDispatch) must recheck the document and URL, the unique actionable
+   * target, and all declared prerequisite identities, states, membership and order immediately
+   * before input. Never choose a fallback target. If this cannot be established, do not click.
+   * Throw ScopedGuidanceExpired only when no input was submitted. Propagate transport errors and
+   * uncertain dispatch failures; never retry an input that may have been submitted.
+   * Receipts are private to discovery/exploration; they are not model refs or replay locators.
+   * When scope coverage cannot be established, still provide the listing but omit facts. */
+  snapshotWithGuidanceScope?(scope: PageGuidanceScope): Promise<{elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string}>;
   /** Optional positive coverage of the region scroll() actually affects. Unknown/unsupported
    * topology returns undefined. Called only by an opted-in discovery policy, around its snapshot. */
   scrollState?(): Promise<ScrollState | undefined>;
@@ -153,7 +169,8 @@ export interface PageGuidanceRequest {
 
 /** Host-authored advice for the current observation only. Never evidence, permission or a check.
  * Must not drive the browser or call a model on the engine's behalf. */
-export type PageGuidanceProvider = (request: PageGuidanceRequest) => string | undefined | Promise<string | undefined>;
+export type PageGuidanceReply = string | { text: string; freshness: "declared-scope" } | undefined;
+export type PageGuidanceProvider = (request: PageGuidanceRequest) => PageGuidanceReply | Promise<PageGuidanceReply>;
 
 /**
  * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step

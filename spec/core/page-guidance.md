@@ -6,11 +6,12 @@
 It returns short advice for **one** decision observation: where the page is, what a control on it
 does, what is invisible. Static application knowledge stays in [app context](app-context.md); the
 two are passed, labeled, budgeted and recorded separately. Without a provider nothing changes: no
-extra Driver read, no prompt change. A configured provider that returns nothing costs one URL read
+extra Driver read, no prompt change. Without a scope, a configured provider that returns nothing costs one URL read
 per `discover` turn and leaves the prompts unchanged.
 
 ```ts
-type PageGuidanceProvider = (request: PageGuidanceRequest) => string | undefined | Promise<string | undefined>;
+type PageGuidanceReply = string | { text: string; freshness: "declared-scope" } | undefined;
+type PageGuidanceProvider = (request: PageGuidanceRequest) => PageGuidanceReply | Promise<PageGuidanceReply>;
 interface PageGuidanceRequest {
   purpose: "discover" | "explore";
   observationId: string;          // the engine's temporary observation ID, never a Driver ref
@@ -38,12 +39,13 @@ Per loop turn, in this order:
    a prepared-selection event or dispatching an action. A retry starts with a new capture
    and a new provider call. Otherwise emit the prepared-selection event and call the model.
 6. Bind, then validate accepted guidance before any decision effect, including `done` and
-   exploration `note`. Check the URL. For a decision without an exact reference, also capture
+   exploration `note`. Check the URL. By default, for a decision without an exact reference also capture
    fresh elements, compare their semantic/perception state, and read the URL again after capture.
    A reference-bearing action retains the Driver's exact-node mutation guard instead of taking
    a new snapshot that would invalidate its reference.
-7. Ambiguity gate, pre-dispatch URL check, policy vet and dispatch. Existing action evidence
-   watermarks remain at their existing boundaries.
+7. Check ambiguity, URL and policy before dispatch. For a click using a declared scope, a fresh
+   scope measurement resolves the target and the Driver checks the receipt before input (below).
+   Existing action evidence watermarks are unchanged.
 
 The provider is called once per observation that reaches a decision prompt. Guidance lives in that
 turn's local scope; nothing carries it to another observation.
@@ -77,7 +79,7 @@ passing the raw observed URL to a `needsScrollState` policy. Unguided policy beh
 URLs are unchanged. Retaining a URL adds no Driver reads and never replaces the raw URL sent to
 the guidance provider or compared during guidance validation.
 
-Same-URL changes such as an overlay opening invalidate reference-free decisions when fresh
+With the default whole-observation comparison, same-URL changes such as an overlay opening invalidate reference-free decisions when fresh
 capture differs in role, name, value, checked/disabled state, active-popup/occlusion/clickable
 facts, or row order. The original comparison state is copied before the provider runs, so a
 host mutation of a returned array cannot rewrite it. Driver refs and local clickable-region IDs
@@ -92,7 +94,91 @@ still race. A navigation that returns to the same URL (A to B to A) is likewise 
 from URL equality. These limits are explicit; an observation ID is not proof of atomic capture.
 A new turn always receives a new observation and a new provider call.
 Late guidance cannot authorize anything: a value arriving after the timeout is discarded, and no
-guidance ever reaches binding, ambiguity, `ActionPolicy`, target validation or grounding.
+advice text ever reaches binding, ambiguity, `ActionPolicy`, target validation or grounding.
+
+## A declared freshness scope for a click (#356)
+
+Use this when the host knows which controls a click depends on. For example, a checkout decision
+may depend on the selected delivery and every row's checkbox, but not on a promotion. The engine
+has no rule about banners: a host could include a promotional control when its state matters.
+
+```ts
+await discover("Check out the selected rows", {
+  driver, llm,
+  pageGuidanceScope: {
+    target: { role: "button", name: "Checkout" },
+    prerequisites: [
+      { role: "combobox", name: "Delivery" },
+      { container: { role: "list", name: "Cart rows" }, memberRole: "checkbox" },
+    ],
+  },
+  pageGuidance: ({ url }) => url === cartUrl
+    ? { text: "Use Checkout for the selected rows and delivery.", freshness: "declared-scope" }
+    : undefined,
+});
+```
+
+The option says what the Driver must measure **before** the provider or model runs. The reply
+opts **this observation** into the comparison. On the next turn the Driver measures again and the
+provider chooses again. A plain string always uses the existing checks. A tagged reply without
+a configured scope also uses those checks. The provider does not receive IDs or extra page data.
+Declaring a scope costs a scoped capture even on turns where the provider returns nothing.
+
+Only a reference-free `click` with the target's exact role and name and no `nth` can use this
+comparison. The target must be unique and present in the model's listing. Exact refs keep their
+existing guard. All other reference-free decisions, including `done` and `note`, still compare
+the whole observation. The declaration does not constrain which actions the model may propose;
+use an action policy for that.
+
+An individual prerequisite must match exactly one control. A set selects every member of one
+role under one named container, in document order. There are no name patterns or selectors.
+Different runs can have different sets. Within one decision, losing or replacing the container,
+replacing or reordering a member, changing its measured state, or disabling or covering the target
+prevents the click. Equal counts do not establish equal membership. Missing or ambiguous
+prerequisites, empty sets and incomplete measurements cannot authorize a click. The declaration
+accepts 1–16 prerequisites; a capture covers at most 256 distinct target and prerequisite nodes.
+A malformed declaration with a configured provider throws before the first browser operation.
+
+Drivers opt in with `snapshotWithGuidanceScope`, which returns both the perception listing and
+scope facts from the same observation. Facts must cover every match and relevant state; IDs must
+identify actual nodes across captures within one document. Identically named replacements need
+new IDs. The engine copies the original facts, checks the policy, then asks for a fresh scope
+measurement and checks its URL. It does not call the ordinary name-based `locate()` for this
+click. The fresh measurement must return a nonempty `targetRef` bound to the measured target
+**and all prerequisites**. The Driver must revalidate that receipt before sending input, including
+changes made while the engine was checking the URL. Facts without a receipt cannot authorize a
+scoped click. Drivers that do not support this capability can still serve ordinary decisions.
+
+The receipt is for dispatch only; it is never sent to the model or frozen. The saved click uses
+the target's confirmed role and name. It has no positional fallback from a prior layout, so a
+later rename may require repair. If the target disappears or becomes ambiguous, no click runs
+and the rejection counts toward the normal three-expiration limit. A lost browser connection is
+an execution error, not a changed prerequisite. The engine does not retry an uncertain dispatch.
+
+Chrome supports `<button>` click targets (not `<input type="submit">`), native single-select,
+checkbox and radio prerequisites, and checkbox sets in named lists or groups in the top-level
+light DOM. For native checkboxes, it compares the underlying `checked` value separately from
+`indeterminate`: two controls that look mixed can submit different values. An adapter that only
+observes the mixed accessibility state cannot attest to a stable submission value.
+
+Before sending input, Chrome takes a fresh accessibility snapshot and compares its matches with
+live DOM nodes in document order. It checks their identity, the prerequisites' current state and
+whether the target can receive the click. A newly visible duplicate can fail this check even
+if only a CSS rule changed. An unrelated text update need not settle first. If Chrome cannot
+establish the match (for example, a frame, an unsupported accessible name or more than 4,096
+elements to inspect), it withholds the click. Hosts should use this feature only for controls
+and potential matches in the top-level light DOM. Page JavaScript cannot enumerate the contents
+of a closed shadow root, so this contract does not cover changes hidden there after the last
+accessibility snapshot.
+
+The Driver checks cancellation and the run deadline after validation, immediately before sending
+the click request. Validation and browser input are separate MCP operations; the page can still
+change after the last measurement.
+
+Node identity and measured control state cannot distinguish a recycled DOM row whose application
+data changed without any observable change. The host must establish
+application-specific readiness **before** supplying scoped advice: even a consistent, nonempty
+list may still be loading. No snapshot proves that an omitted dependency is ready.
 
 ## Repeated expiration (#340)
 
@@ -157,7 +243,7 @@ the same request shape; each needs its own invalidation point before dispatch.
 
 ## Failure, timeout, cancellation, caching and size
 
-- **Failure.** A thrown or rejected provider, or a non-string result, means no guidance for that
+- **Failure.** A thrown or rejected provider, or a result other than text or a supported scoped reply, means no guidance for that
   decision. The decision proceeds and the trace records a fixed reason. The error is not echoed.
 - **Timeout.** `PAGE_GUIDANCE_TIMEOUT_MS` (5,000 ms), fixed, matching the target-selection
   timeout. On expiry the request signal aborts, the engine stops waiting, and the decision proceeds
@@ -202,8 +288,8 @@ validation or required proof. Prompt wording is not a security boundary.
 ## Provenance, identity and caching
 
 Guidance never enters `Scenario`, `Scenario.provenance`, the judgment-contract fingerprint, suite
-`caseHash` or any cache key. `appContextHash` is computed exactly as before. With identical model
-replies, a guided and an unguided discovery freeze identical scenarios. Guidance changes what the
+`caseHash` or any cache key. `appContextHash` is computed exactly as before. For identical replies,
+executed steps, evidence and completion, the frozen scenario is the same. Guidance changes what the
 model chooses, so a different frozen path is still possible and is identified by its own steps.
 The optional `truncationReason` describes authoring termination; it contains no advice or page data
 and is not a new judgment input.
@@ -222,6 +308,14 @@ Trace 1.15 adds a terminal `page-guidance` gate with fixed reason
 `page guidance expired repeatedly before an action could complete`, code `page-guidance-expired`,
 `expirations: 3` and `limit: 3`. Results and `case-end.truncationReason` use the same reason code.
 No new application finding or fabricated scroll `no-progress` event is produced.
+
+Trace 1.16 adds `scopeStatus` to discarded scoped clicks: `scope-changed`, `target-ambiguous`
+or `scope-unverifiable`. When known, `targetUnambiguous` describes target resolution. Counts
+compare stable node IDs: added/removed IDs and retained IDs whose measured state or position
+changed. No count is guessed across documents or replaced containers. Outside counts are optional:
+they require a complete measured complement in both captures, and do not trigger another read.
+Omitted counts mean unavailable, not zero. If the scope can still be measured, a change only
+outside it does not expire the click.
 
 No guidance text, hash, length, request or URL enters a trace payload. A model can still echo
 guidance into a decision `reason`, which existing action events record; keep guidance nonsecret.
@@ -251,3 +345,14 @@ Chrome/MCP fixture. Its local app changes a countdown between the decision and v
 then acknowledges the DOM update. Continuous changes must stop both loops after three expired
 decisions with no click; one transient change must recover and complete. These scripted cases
 verify engine behavior, not model quality, and use the same MCP entry-point override as above.
+
+Run `node scripts/test-scoped-page-guidance.mjs` after building for scoped clicks. In both
+`discover` and `explore`, the local cart rotates a promotion every 30 ms and also changes its
+text during capture. The test checks that the timer is still running when the Checkout handler
+fires, and counts both click requests and actual button clicks. Separate cases introduce a
+same-name button (including with CSS between the last accessibility and DOM reads), replace the
+target or change a checkbox's underlying value while it still looks mixed. Each rejected decision
+must send no click and save no step. The fixture also moves an unrelated button and replays
+the frozen Checkout step with no model calls. Scripted Driver tests in
+`page-guidance-scope.test.ts` cover both decision loops; `guidance-scope.test.ts` checks
+identity, ordering and content-free diagnostics.

@@ -33,7 +33,10 @@ Per loop turn, in this order:
    capture never reaches the provider.
 3. The policy `stop` check. A stop never calls the provider.
 4. **Provider**, given this observation's listed rows and the URL from step 1.
-5. Decision prompt built from the same observation, the prepared-selection trace event, model dispatch.
+5. If the provider returned usable guidance, check the URL again before calling the decision
+   model (#344). If it differs, discard this observation without calling the model, emitting
+   a prepared-selection event or dispatching an action. A retry starts with a new capture
+   and a new provider call. Otherwise emit the prepared-selection event and call the model.
 6. Bind, then validate accepted guidance before any decision effect, including `done` and
    exploration `note`. Check the URL. For a decision without an exact reference, also capture
    fresh elements, compare their semantic/perception state, and read the URL again after capture.
@@ -47,15 +50,24 @@ turn's local scope; nothing carries it to another observation.
 
 ## URL consistency and invalidation
 
-The URL read and the capture are separate Driver calls; attaching an observation ID does not make
-them atomic. The decision is guarded instead: when guidance was attached and the pre-dispatch URL
-differs from the URL given to the provider, the decision is not dispatched. The loop records a
-failure line for the next decision, emits `gate: page-guidance`, and recaptures. A Driver that
-reports no URL gets no navigation invalidation; observation binding still applies.
+On a stable guided turn, the pre-call check adds one `driver.observe()` and no element snapshot.
+The engine uses only `execution.finalUrl`, but the cost depends on the Driver: the Chrome adapter's
+`observe()` reads pages, network requests and console messages in parallel. This check adds no read
+for absent or rejected guidance. It cannot prevent navigation during the model call, so the
+post-response and pre-dispatch checks still run.
+
+At each URL check, compare the raw observed URL with the one associated with the guidance.
+If only one read has a URL, the mismatch expires the observation. If neither has a URL,
+the URL check alone cannot detect a change; proceeding does not establish freshness.
+On mismatch the loop emits a `page-guidance` gate; the next decision uses a fresh observation.
+For a guided decision or a retry after expiration, the prompt's `Current page` line uses that
+turn's entry URL, or `(unknown)` if the Driver omitted it. This also applies when the provider
+returns no guidance on the retry. Policy checks and the exploration report can still use the
+last known URL.
 
 For policy completion checks during guided discovery, retain the latest defined URL separately
 from the prompt's URL. Start with a successful base navigation, then update it from the baseline,
-turn entry, scroll-policy, guidance-validation and pre-dispatch observations in that order of
+turn entry, scroll-policy, pre-call, post-response and pre-dispatch observations in that order of
 execution. A missing `finalUrl` does not erase a newer URL already observed, even when validation
 rejects the decision. If no URL is known, the policy still receives `undefined`.
 
@@ -85,9 +97,10 @@ guidance ever reaches binding, ambiguity, `ActionPolicy`, target validation or g
 ## Repeated expiration (#340)
 
 Each `discover`/`explore` invocation allows `MAX_PAGE_GUIDANCE_EXPIRATIONS` (3) expirations
-without a successfully executed action. Initial observation/URL validation and the later
-pre-dispatch URL check contribute to the same counter, once per rejected decision. Once the
-bound is reached, no further decision model request is made. The result is incomplete:
+without a successfully executed action. Pre-call URL checks, post-response validation and
+pre-dispatch URL checks contribute to the same counter, once per expired turn. A pre-call
+mismatch uses one iteration of the ordinary step limit even though it makes no decision call.
+Once the bound is reached, no further decision model request is made. The result is incomplete:
 `truncated: true`, `truncationReason: "page-guidance-expired"`. This is not goal completion or
 an observed application defect, and it never authorizes executing a rejected decision.
 
@@ -111,17 +124,19 @@ including when the third expiration ends the loop without another observation. T
 report fields, not guidance diagnostics; retaining them adds no browser reads.
 
 Discovery still finalizes prior actions and evidence through its existing assertion-proposal
-call. With no tighter bound, three expired decisions therefore cost four model admissions;
-exploration costs three. All calls share the original execution budget. Cancellation or budget
-exhaustion, including at the final proposal, retains its own terminal behavior and does not
+call. If all three turns expire before the model call, discovery makes only its final proposal
+call; exploration makes no model calls. If all three expire after the response, discovery makes
+three decision calls and one proposal call; exploration makes three decision calls. These examples
+assume three consecutive expired turns and no other decisions. All calls share the original
+execution budget. Cancellation or budget exhaustion, including at the final proposal, keeps its
+own terminal behavior and does not
 publish a guidance-expiration result. A terminal guidance trace is emitted only after successful
 finalization. Previously executed actions are not restarted or retried.
 
 After an expiration, retry advice is built from the next observation's actual `hasReferences`.
 It suggests fresh refs for target-bearing actions only when available, without bypassing any
 binding, description, policy or Driver mutation check. Reference-free Drivers remain supported,
-and the bound works even when the model ignores this advice. Healthy and no-guidance paths add
-no browser reads or model calls.
+and the bound works even when the model ignores this advice.
 
 ## Supported paths
 
@@ -227,6 +242,9 @@ The fixture uses a local HTTP server and scripted decisions; no model account is
 `CAIRN_MCP_ENTRY` may select an installed MCP 1.8.0 entry point.
 `page-guidance-expiration.test.ts` covers bounded instability, mixed failures, reset semantics,
 trusted completion, cancellation and shared-budget accounting with scripted Drivers/models.
+`page-guidance-preflight.test.ts` counts `observe()` calls between the provider and the decision
+model in both loops: one on a stable turn with accepted guidance, zero on a turn with empty
+guidance. This measures Driver calls, not live browser latency.
 
 Run `node scripts/test-page-guidance-expiration.mjs` after the build for the reference-free
 Chrome/MCP fixture. Its local app changes a countdown between the decision and validation,

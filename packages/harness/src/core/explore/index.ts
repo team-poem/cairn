@@ -197,8 +197,9 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     await driver.settle();
     const settleMs = Date.now() - settleStart;
     const observation = await driver.observe();
-    currentUrl = observation.execution.finalUrl ?? currentUrl;
-    visit(observation.execution.finalUrl);
+    const observedUrl = observation.execution.finalUrl;
+    currentUrl = observedUrl ?? currentUrl;
+    visit(observedUrl);
     const { elements, ctx, page, capturedState } = await perceivePage();
     if (!page) continue; // retry with a fresh capture within the existing step bound
     const render = page.render;
@@ -222,9 +223,26 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     if (policy?.incomplete?.()?.halt) break;
 
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
-      purpose: "explore", page, url: observation.execution.finalUrl, signal, scope: opts[budgetScope], gate: guidanceGate });
+      purpose: "explore", page, url: observedUrl, signal, scope: opts[budgetScope], gate: guidanceGate });
+    // Retain visits even when the expiration limit ends the loop before its next observation.
+    let validationUrl: string | undefined = currentUrl;
+    const rememberGuidanceUrl = (url: string | undefined) => {
+      validationUrl = url ?? validationUrl;
+      visit(url);
+    };
+    if (guidance) {
+      const invalidation = await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidanceUrl);
+      check();
+      if (invalidation) {
+        currentUrl = validationUrl;
+        guidanceAttempts.expired();
+        guidanceGate(invalidation);
+        continue;
+      }
+    }
     const recovery = guidanceAttempts.recovery(page.hasReferences);
-    const prompt = buildExplorePrompt(charter, page.listing, steps, recovery ? [...failures, recovery] : failures, visited, findings, currentUrl, page.hasReferences, guidance?.text);
+    const promptUrl = guidance || recovery ? observedUrl : currentUrl;
+    const prompt = buildExplorePrompt(charter, page.listing, steps, recovery ? [...failures, recovery] : failures, visited, findings, promptUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "explore", "explore");
     const reply = await llm.complete(
       prompt,
@@ -252,13 +270,6 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
 
-    // Validation already reads the live URL. Retain those visits even when the expiration
-    // limit ends the loop before its next observation; do not change this decision's marks.
-    let validationUrl: string | undefined = currentUrl;
-    const rememberGuidanceUrl = (url: string | undefined) => {
-      validationUrl = url ?? validationUrl;
-      visit(url);
-    };
     if (guidance) {
       signal?.throwIfAborted();
       const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl);

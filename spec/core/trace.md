@@ -69,7 +69,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
 | discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these and `page-guidance` only |
-| discover / explore | `gate` | `gate: page-guidance`, a fixed reason only: provider failed, timed out, invalid or oversized output, URL-expired decision, discarded guided `done` assertions | [page guidance](page-guidance.md) (#304); never guidance text, hashes or URLs |
+| discover / explore | `gate` | `gate: page-guidance`: provider failed, timed out, invalid or oversized output, expired guided observation (including before the model call), discarded guided `done` assertions, or repeated expiration | [page guidance](page-guidance.md); never guidance text, hashes or URLs |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
@@ -303,7 +303,8 @@ model port. `stage: prepared` means **prepared**, not admitted, sent, completed 
 A budget wrapper can still refuse this call, and a custom model client may never make a wire
 request. Model admission/transport outcomes are not tracked by this event. Never count these
 events as usage; use the existing usage/budget records. No new admission hook or budget change
-is introduced. A policy stop before prompt construction, an invalid observation, a healer that
+is introduced. A policy stop before prompt construction, an invalid observation, a guided URL
+mismatch detected before the model call (#344), a healer that
 has reached its attempt limit, and explore's final observation-only capture emit no selection
 event. Existing binding diagnostics still describe rejected observations.
 

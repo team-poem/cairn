@@ -238,7 +238,7 @@ describe("discovery policy URLs with optional driver evidence", () => {
     expect(requests.map(request => request.url)).toEqual([undefined]);
   });
 
-  it("still expires guidance when a missing raw URL becomes defined", async () => {
+  it("still expires a guided decision when a missing raw URL becomes defined during the model call", async () => {
     const driver = new StubDriver();
     driver.els = [{ role: "button", name: "Create order" }];
     let reportUrl = false;
@@ -248,15 +248,20 @@ describe("discovery policy URLs with optional driver evidence", () => {
       if (!reportUrl) delete evidence.execution.finalUrl;
       return evidence;
     };
-    const llm = decisions(n => n === 1 ? '{"action":"click","text":"Create order"}' : '{"action":"done"}');
+    const llm = decisions(n => {
+      reportUrl = true;
+      return n === 1 ? '{"action":"click","text":"Create order"}' : '{"action":"done"}';
+    });
     const requests: PageGuidanceRequest[] = [];
     const { events, scope } = traced();
     await discover("Inspect the order page", {
       driver, llm, baseUrl: START, trace: scope,
-      pageGuidance: request => { requests.push(request); reportUrl = true; return "Inspect this page"; },
+      pageGuidance: request => { requests.push(request); return "Inspect this page"; },
       policy: { vet: () => ({ ok: true }), stop: () => false },
     });
     expect(requests.map(request => request.url)).toEqual([undefined, START]);
+    expect(llm.calls).toHaveLength(2);
+    expect(llm.calls[1]).toContain("not run: the page changed after the observation it was decided on");
     expect(driver.clicked).toEqual([]);
     expect(gates(events)).toEqual(["page guidance expired: the page URL changed after the guided observation"]);
   });
@@ -323,18 +328,20 @@ describe("page guidance bound to a decision observation", () => {
     expect(llm.calls[1]!.prompt).not.toContain(section("No overlay"));
   });
 
-  it("refuses to dispatch a guided decision after the page URL changed", async () => {
+  it("does not ask for a decision on a page that changed during the provider call", async () => {
     const driver = new Pages();
     const { events, scope } = traced();
     let first = true;
-    const llm = new RecordingLlm(['{"action":"click","text":"Next"}', '{"action":"done"}', "[]"]);
-    await discover("Go", { driver, llm, baseUrl: START, trace: scope, pageGuidance: () => {
+    const llm = new RecordingLlm(['{"action":"done"}', "[]"]);
+    await discover("Go", { driver, llm, baseUrl: START, trace: scope, pageGuidance: request => {
       if (first) { first = false; driver.url = TWO; } // navigation lands while the provider runs
-      return "Click Next";
+      return `Guide for ${request.url}`;
     } });
     expect(driver.clicked).toEqual([]);
     expect(gates(events)).toEqual(["page guidance expired: the page URL changed after the guided observation"]);
-    expect(llm.calls[1]!.prompt).toContain("not run: the page changed after the observation it was decided on");
+    expect(llm.calls).toHaveLength(2); // one fresh decision and the final assertion proposal
+    expect(llm.calls[0]!.prompt).toContain(section(`Guide for ${TWO}`));
+    expect(llm.calls[0]!.prompt).not.toContain(section(`Guide for ${START}`));
   });
 
   it.each(["provider", "model"] as const)("rejects a guided done after a same-URL overlay opens during the %s", async (during) => {

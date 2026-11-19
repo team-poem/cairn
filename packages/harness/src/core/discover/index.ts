@@ -13,7 +13,7 @@ import { identifyScenario } from "../contract.js";
 import { snapshotAppContext, withAppContext, appContextProvenance } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
-import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
+import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
@@ -281,9 +281,19 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const capturedState = pageGuidance ? pageGuidanceState(raw) : undefined;
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
       purpose: "discover", page, url: observedUrl, secrets, signal, scope: opts[budgetScope], gate: guidanceGate });
-    // The prompt's page line must name the page the guidance was written for.
-    if (guidance) currentUrl = observedUrl ?? currentUrl;
+    if (guidance) {
+      const invalidation = await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidedPolicyUrl);
+      check();
+      if (invalidation) {
+        guidanceAttempts.expired();
+        guidanceGate(invalidation);
+        continue;
+      }
+    }
     const recovery = guidanceAttempts.recovery(page.hasReferences);
+    // A retry uses this capture's URL even if the provider no longer offers advice.
+    // A missing URL stays unknown; policy checks retain their own last known URL.
+    if (guidance || recovery) currentUrl = observedUrl;
     const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, currentUrl, page.hasReferences, guidance?.text);
     page.tracePrepared(trace, "discover", tracePhase);
     const reply = await llm.complete(prompt, {

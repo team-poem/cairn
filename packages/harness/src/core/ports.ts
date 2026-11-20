@@ -74,6 +74,20 @@ export interface Driver {
   /** A guidance receipt requires full scope validation (see snapshotWithGuidanceScope), then
    * checkBeforeDispatch immediately before submitting input. Propagate a thrown check. */
   click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void>;
+  /** Observe one action, including multi-input actions such as opening a custom select and
+   * choosing an option. Call beforeSend immediately before each input, never on a lookup.
+   * Propagate a thrown check without sending that input. An acknowledged first input cannot
+   * be undone by failure to resolve the second target. Synchronous; implement both hooks. */
+  armActionOutcomeDispatch?(beforeSend: () => void): void;
+  clearActionOutcomeDispatch?(): void;
+  /** Opt in for one click only. Immediately before sending input, call beforeClick with the
+   * document/node identity of the resolved target, or undefined if it could not be measured.
+   * A thrown callback vetoes dispatch. Never infer an identity from a locator, role or name.
+   * Check checkActive again before any follow-up input (e.g. accepting a native dialog). */
+  armActionOutcomeIdentity?(beforeClick?: (identity: string | undefined) => void, checkActive?: () => void): void;
+  /** Consume the identity after a confirmed click on that node, clearing the arm even if
+   * dispatch failed. Tokens are transient, not locators, trace data or replay evidence. */
+  takeActionOutcomeIdentity?(): string | undefined;
   doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target, ref?: string): Promise<void>;
   type(target: Target, text: string, ref?: string): Promise<void>;
@@ -120,7 +134,7 @@ export interface Driver {
    * errors and cancellation as such; never retry an input that may have been submitted.
    * Receipts are private to discovery/exploration; they are not model refs or replay locators.
    * When scope coverage cannot be established, still provide the listing but omit facts. */
-  snapshotWithGuidanceScope?(scope: PageGuidanceScope): Promise<{elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string}>;
+  snapshotWithGuidanceScope?(scope: PageGuidanceScope, options?: SnapshotOptions): Promise<{elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string}>;
   /** Optional positive coverage of the region scroll() actually affects. Unknown/unsupported
    * topology returns undefined. Called only by an opted-in discovery policy, around its snapshot. */
   scrollState?(): Promise<ScrollState | undefined>;

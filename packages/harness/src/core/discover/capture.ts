@@ -22,12 +22,14 @@ export function destinationKey(url: string): string {
   }
 }
 
-/** What the loop records before each executed step: the page URL and the request-log length. The
- * log is append-only within a run (statuses update in place), so `[mark.requestCount, next mark)`
- * is exactly the tail of requests that step fired. */
+/** Per-step boundaries in the append-only request log. Responses may update the
+ * status of an existing request after the interval has closed. */
 export interface OutcomeMark {
   url: string | undefined;
   requestCount: number;
+  /** Opt-in action interval ends at its first settled URL/request observation.
+   * Global evidence can keep growing during a later decision or freeze. */
+  end?: { url: string | undefined; requestCount: number };
   /** The raw a11y snapshot taken before the step (before any `perceive` hook — what the driver's
    * own locate sees at replay), recorded for a scroll step only, so the freeze can ask whether the
    * targets after the scroll were already reachable before it (#177). */
@@ -92,6 +94,8 @@ export function pruneIdleScrolls(
     const mark = marks[i];
     if (step.kind !== "scroll" || !mark?.elements) continue;
     const nextMark = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
+    // Late activity cannot prove the scroll fired it, but it can still be a lazy
+    // load. Keep the wider interval when deciding whether it is safe to delete.
     const tail = requests.slice(mark.requestCount, nextMark?.requestCount ?? requests.length);
     if (tail.some((r) => !isBenignRequest(r.url, benign))) continue;
     let idle = true;
@@ -131,7 +135,7 @@ export function lastMutationMark(
   for (let i = marks.length - 1; i >= 0; i--) {
     const mark = marks[i];
     if (!mark) continue;
-    const hasMutation = requests.slice(mark.requestCount, end).some((request) =>
+    const hasMutation = requests.slice(mark.requestCount, mark.end?.requestCount ?? end).some((request) =>
       isMutation(request.method) && request.status >= 200 && request.status < 400 &&
       !isBenignRequest(request.url, benign) && pages.some((page) => onSiteOf(page, request.url)),
     );
@@ -202,7 +206,7 @@ export function assignStepExpects(
     const mark = marks[i];
     if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
-    const urlAfter = next ? next.url : evidence.execution.finalUrl;
+    const urlAfter = mark.end ? mark.end.url : next ? next.url : evidence.execution.finalUrl;
     // Judge on the value ABOUT TO BE FROZEN, not on the concrete urls: replay pre-checks a URL
     // expect before running the step and skips it when already satisfied, so an expect the
     // pre-navigation page also satisfies makes the step vanish (#96's failure class). Generalizing
@@ -214,7 +218,7 @@ export function assignStepExpects(
       steps[i]!.expect = { url: frozenUrl };
       continue;
     }
-    const tail = requests.slice(mark.requestCount, next?.requestCount ?? requests.length);
+    const tail = requests.slice(mark.requestCount, mark.end?.requestCount ?? next?.requestCount ?? requests.length);
     const proven = freshMutationExpect(tail, benign);
     if (proven) steps[i]!.expect = proven;
   }

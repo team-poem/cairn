@@ -18,8 +18,8 @@ async function withPage(run: (page: Page) => Promise<void>) {
 }
 
 type Facts = Record<string, { inActivePopup?: boolean; occluded?: boolean; clickable?: boolean; clickableRegion?: string }>;
-async function probe(page: Page, ids: string[], clickables = true): Promise<Facts> {
-  return page.evaluate(`(${perceptionProbeScript(ids, clickables)})(...${JSON.stringify(ids)}.map(id => document.getElementById(id)))`);
+async function probe(page: Page, ids: string[], clickables = true, outcomes = false): Promise<Facts> {
+  return page.evaluate(`(${perceptionProbeScript(ids, clickables, undefined, undefined, outcomes)})(...${JSON.stringify(ids)}.map(id => document.getElementById(id)))`);
 }
 
 test("observationPopupRelation: an expanded control identifies its body-level portal options", async () => {
@@ -27,6 +27,41 @@ test("observationPopupRelation: an expanded control identifies its body-level po
     expect((await probe(page, ["option", "background"])).option).toMatchObject({ inActivePopup: true, occluded: false });
     await page.locator("#opener").evaluate(el => el.setAttribute("aria-expanded", "false"));
     expect((await probe(page, ["option"])).option?.inActivePopup).toBeUndefined();
+  });
+});
+
+test("perception measures false, mixed and unknown states on their own elements", async () => {
+  await withPage(async page => {
+    await page.setContent('<button id="mute" aria-pressed="false">Mute</button><button id="plain">Plain</button>' +
+      '<input id="check" type="checkbox"><div id="tab" role="tab" aria-selected="false">First</div>' +
+      '<button id="disclosure" aria-expanded="false">Details</button>');
+    const ids = ["mute", "plain", "check", "tab", "disclosure"];
+    const ordinary = await probe(page, ids);
+    expect(ordinary.mute).not.toHaveProperty("pressed");
+    expect(ordinary.check).not.toHaveProperty("checked");
+    const facts = await probe(page, ids, true, true);
+    expect(facts.mute).toHaveProperty("pressed", false);
+    expect(facts.plain).not.toHaveProperty("pressed");
+    expect(facts.check).toHaveProperty("checked", false);
+    expect(facts.tab).toHaveProperty("selected", false);
+    expect(facts.disclosure).toHaveProperty("expanded", false);
+    await page.locator("#mute").evaluate(el => el.setAttribute("aria-pressed", "mixed"));
+    expect((await probe(page, ids, true, true)).mute).toHaveProperty("pressed", "mixed");
+    await page.locator("#mute").evaluate(el => el.removeAttribute("aria-pressed"));
+    expect((await probe(page, ids, true, true)).mute).not.toHaveProperty("pressed");
+  });
+});
+
+test("value coverage excludes password and CSS-masked text without reading DOM values", async () => {
+  await withPage(async page => {
+    await page.setContent('<input id="plain"><input id="private" type="password"><input id="mask" style="-webkit-text-security:disc">');
+    await page.evaluate(`{
+      for (const input of document.querySelectorAll('input'))
+        Object.defineProperty(input, 'value', {get() { throw new Error('read of DOM value'); }});
+    }`);
+    const facts = await probe(page, ["plain", "private", "mask"], true, true);
+    expect(facts.plain).toHaveProperty("readableTextValue", true);
+    for (const id of ["private", "mask"]) expect(facts[id]).not.toHaveProperty("readableTextValue");
   });
 });
 

@@ -505,6 +505,9 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
               contract: scenario.contract,
               assertions: scenario.assertions,
               ...(scenario.unprovenAction ? { unprovenAction: scenario.unprovenAction } : { unprovenAction: undefined }),
+              // Same reason: the list is read against the original assertions' `criterionIds`, and
+              // the re-discovery was given no criteria to report on.
+              ...(scenario.unattributedCriteria?.length ? { unattributedCriteria: [...scenario.unattributedCriteria] } : {}),
             }, { ...judgment, judgmentIntent: ctx.intent ?? null }),
         ...(truncated ? { truncated: true as const } : {}),
         ...(truncationReason ? { truncationReason } : {}),

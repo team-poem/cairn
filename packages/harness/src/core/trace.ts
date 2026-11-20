@@ -26,8 +26,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
  * 1.14 — required inconclusive custom checks (#314).
  * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
- * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356). */
-export const TRACE_VERSION = "1.16";
+ * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356).
+ * 1.17 — `freeze.payload.unattributedCriteria` (#355), host criteria with no attributed request check. */
+export const TRACE_VERSION = "1.17";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -79,6 +80,8 @@ export type TraceEvent = Envelope &
           unprovenAction?: string;
           /** Destinations observed before the last qualifying mutation (#203); advisory, not failure. */
           observedBeforeLastMutation?: string[];
+          /** Host criteria no surviving request check was proposed for (#355); advisory, not failure. */
+          unattributedCriteria?: string[];
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's

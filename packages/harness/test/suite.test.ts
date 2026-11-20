@@ -291,6 +291,51 @@ describe("runSuite", () => {
     }
   });
 
+  it("outcome-heal re-freeze keeps unattributedCriteria beside the original assertions (#355)", async () => {
+    const events: TraceEvent[] = [];
+    const store = new MemoryStore();
+    const withCriteria: SuiteCase = { ...CASE, criteria: [{ id: "C1", text: "open the catalog" }, { id: "C2", text: "show a banner" }] };
+    // Same stale shape as the #153 test: "Catalog" is not on the page, so the outcome-heal runs.
+    const stale: FrozenSuiteScenario = {
+      ...frozen,
+      steps: [{ kind: "goto", url: "https://shop/" }, { kind: "click", target: { text: "Catalog" } }],
+      assertions: [{ kind: "navigated", to: "shop/products" }],
+      unattributedCriteria: ["C2"],
+      caseHash: hashCase(withCriteria),
+    };
+    store.skills.set(REF, stale);
+    const llm = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
+
+    await runSuite([withCriteria], { store, driverFactory: shopDriver, llm, reporter: silent, trace: { emit: (e) => { events.push(e); } } });
+
+    const refrozen = store.skills.get(REF)!;
+    expect(refrozen.steps).toContainEqual(expect.objectContaining({ target: { text: "Products" } }));
+    expect(refrozen.unattributedCriteria).toEqual(["C2"]);
+    const heal = events.find((e) => e.kind === "freeze" && e.phase === "heal");
+    expect(heal?.payload).toMatchObject({ unattributedCriteria: ["C2"] });
+  });
+
+  it("stamps the caseHash of the criteria discovery ran with when the host edits the case mid-run (#355)", async () => {
+    const store = new MemoryStore();
+    const before: SuiteCase = { ...CASE, criteria: [{ id: "C1", text: "open the catalog" }] };
+    const live: SuiteCase = { ...before };
+    const replies = new ScriptedLlm(['{"action":"click","text":"Products"}', '{"action":"done"}', "[]"]);
+    const llm: LlmClient = {
+      id: "host-edits-mid-run",
+      complete: async () => {
+        live.criteria = [{ id: "C9", text: "something else" }];
+        return replies.complete();
+      },
+    };
+
+    await runSuite([live], { store, driverFactory: shopDriver, llm, reporter: silent });
+
+    const stored = store.skills.get(REF) as FrozenSuiteScenario;
+    expect(stored.unattributedCriteria).toEqual(["C1"]);
+    expect(stored.caseHash).toBe(hashCase(before));
+    expect(stored.caseHash).not.toBe(hashCase(live));
+  });
+
   it("treats a repointed case url as stale — re-discovers instead of replaying against the old target (#131)", async () => {
     const store = new MemoryStore();
     // Frozen when the case pointed at the OLD shop — the skill's first goto still goes there.

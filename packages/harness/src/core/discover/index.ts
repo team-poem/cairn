@@ -16,7 +16,7 @@ import { snapshotAppContext, withAppContext, appContextProvenance } from "../app
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
 import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
-import type { Assertion, Scenario, Step } from "../types.js";
+import type { Assertion, HostCriterion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
 import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
@@ -26,7 +26,7 @@ import { validateSecrets, missingSecretOf, redactSecrets, slotSecretText } from 
 import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "../evidence-capture.js";
-import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
+import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions, unattributedCriteria } from "./grounding.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -75,9 +75,26 @@ export interface DiscoverOptions extends BudgetOptions {
   secrets?: Secrets;
   /** Per-event trace scope (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
+  /** Success criteria the host approved for this intent. The assertion proposer may name them on a
+   * `request-status` it proposes, and the freeze records the valid ids as `criterionIds` and lists
+   * the criteria no surviving request check was proposed for as `Scenario.unattributedCriteria`.
+   * Reporting only: grounding, grades and replay are unchanged. Absent → unchanged. */
+  criteria?: readonly HostCriterion[];
   /** Phase stamped on this discovery's events: "discover" normally, "heal" when it IS the
    * outcome-heal re-discovery (the phase says why it ran, the kinds say what ran). */
   tracePhase?: TracePhase;
+}
+
+/** A criterion id is the host's handle and must be unique: two criteria sharing one could not be
+ * told apart in the report this feeds. Refused at the boundary, before any model call. */
+function validateCriteria(criteria: readonly HostCriterion[] | undefined): void {
+  const seen = new Set<string>();
+  for (const c of criteria ?? []) {
+    if (typeof c?.id !== "string" || !c.id.trim() || typeof c.text !== "string")
+      throw new Error("criteria must be { id, text } with a non-empty string id");
+    if (seen.has(c.id)) throw new Error(`duplicate criterion id "${c.id}"`);
+    seen.add(c.id);
+  }
 }
 
 /** Consecutive policy rejections before the loop gives up — past this, the LLM has nothing
@@ -102,6 +119,7 @@ async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Sce
 
 async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Promise<Scenario> {
   validateSecrets(opts.secrets);
+  validateCriteria(opts.criteria);
   const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture,
     opts.tracePhase === "heal" ? "heal" : "discover", opts.secrets) : undefined;
   try {
@@ -114,6 +132,7 @@ async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Prom
 async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession): Promise<Scenario> {
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
+  const criteria = opts.criteria?.map((c) => ({ id: c.id, text: slotSecretText(c.text, opts.secrets) })) ?? [];
   const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
   const guidanceAttempts = new PageGuidanceAttempts();
@@ -161,7 +180,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     }
     assignStepExpects(steps, marks, evidence, { localePrefixes, benign });
     if (opts[budgetScope]) opts[budgetScope].phase = tracePhase === "heal" ? "outcome-assertions" : "assertions";
-    const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
+    const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks, criteria))];
     check();
     const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
       trace?.emit({
@@ -169,6 +188,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         phase: tracePhase,
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       }),
+      criteria,
     );
     const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
@@ -197,9 +217,11 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         payload: { gate: "unproven-action", action: unproven.unprovenAction, reason: "no stable URL to check" },
       });
     }
+    const unattributed = unattributedCriteria(criteria, assertions);
+    const attribution = unattributed.length ? { unattributedCriteria: unattributed } : {};
     const scenario: Scenario = truncated
-      ? { name: intent, steps, assertions, truncated: true, ...(truncationReason ? { truncationReason } : {}), ...wildcards, ...unproven }
-      : { name: intent, steps, assertions, ...wildcards, ...unproven };
+      ? { name: intent, steps, assertions, truncated: true, ...(truncationReason ? { truncationReason } : {}), ...wildcards, ...unproven, ...attribution }
+      : { name: intent, steps, assertions, ...wildcards, ...unproven, ...attribution };
     const identified = await identify(scenario);
     check();
     if (guidanceExpired) trace?.emit({ kind: "gate", phase: tracePhase,

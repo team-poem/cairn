@@ -24,13 +24,17 @@ type Row = { raw: PageElement; corrected?: PageElement };
 interface Frame {
   rows?: readonly Row[];
   targets?: ReadonlyMap<string, Row | undefined>;
-  unmatchedCorrection?: boolean;
+  incompleteCoverage?: boolean;
+  requireControlValues?: boolean;
   url?: string;
   requests?: number;
 }
+// Bind only a unique, exact accessible name in the resolver's case-insensitive pool.
+// The requested text is trimmed at lookup; do not trim a raw row into an exact match.
 const targetKey = (role?: string, name?: string) => name && (role?.length ?? 0) + name.length <= MAX_CHARS
-  ? JSON.stringify([role ?? null, name]) : "";
+  ? JSON.stringify([role || null, name.toLowerCase()]) : "";
 const boundedUrl = (url?: string) => url && url.length <= 4096 ? url : undefined;
+const differentPage = (a?: string, b?: string) => !!a && !!b && a !== b;
 const requestWatermark = (n: number | undefined) => n !== undefined && Number.isSafeInteger(n) && n >= 0 ? n : undefined;
 function copyRow(e: PageElement): PageElement {
   return { role: e.role, name: e.name, value: e.value, checked: e.checked, disabled: e.disabled,
@@ -67,19 +71,22 @@ function rowDelta(a: Row, b: Row): ActionOutcomeStatus {
 }
 /** A named checkbox is not a measurement of its check state. These roles identify
  * which fact the control itself must expose; an ordinary button need not be a toggle. */
-function hasControlState(row: Row): boolean {
+function hasControlState(row: Row, requireValue?: boolean): boolean {
   switch (row.raw.role) {
     case "checkbox": case "switch": case "radio": case "menuitemcheckbox": case "menuitemradio":
       return row.raw.checked !== undefined || row.corrected?.checked !== undefined;
     case "option": case "tab":
       return row.raw.selected !== undefined || row.corrected?.selected !== undefined;
+    case "textbox": case "searchbox": case "spinbutton": case "slider": case "combobox":
+    case "scrollbar": case "progressbar": case "meter":
+      return !requireValue || row.raw.value !== undefined || row.corrected?.value !== undefined;
     default: return true;
   }
 }
 function rowComparison(a: Frame, b: Frame, key?: string): ActionOutcomeStatus {
   if (!a.rows || !b.rows) return unknown;
   if (a.rows.length !== b.rows.length) return changed;
-  let result: ActionOutcomeStatus = a.unmatchedCorrection || b.unmatchedCorrection ? unknown : same;
+  let result: ActionOutcomeStatus = a.incompleteCoverage || b.incompleteCoverage ? unknown : same;
   for (let i = 0; i < a.rows.length; i++) {
     const delta = rowDelta(a.rows[i]!, b.rows[i]!);
     if (delta === changed) return changed;
@@ -92,12 +99,12 @@ function rowComparison(a: Frame, b: Frame, key?: string): ActionOutcomeStatus {
     if (!left || !right) return unknown;
     const target = rowDelta(left, right);
     if (target !== same) return target;
-    if (!hasControlState(left) || !hasControlState(right)) return unknown;
+    if (!hasControlState(left, a.requireControlValues) || !hasControlState(right, b.requireControlValues)) return unknown;
   }
   return result;
 }
 function compare(a: Frame, b: Frame, key?: string): ActionOutcomeStatus {
-  if (a.url !== undefined && b.url !== undefined && a.url !== b.url ||
+  if (differentPage(a.url, b.url) ||
       a.requests !== undefined && b.requests !== undefined && b.requests > a.requests) return changed;
   const rows = rowComparison(a, b, key);
   if (rows !== same) return rows;
@@ -121,6 +128,7 @@ export class ActionOutcomeTracker {
   private message?: string;
   private armed = false;
   private instrumented = false;
+  private dispatchInstrumented = false;
   private attempted?: "click-dispatch-uncertain" | "action-dispatch-uncertain";
   private click = false;
   private checkClick?: () => void;
@@ -164,10 +172,16 @@ export class ActionOutcomeTracker {
     let unmatched = false;
     if (perceived) {
       const matched = new Set<Row>();
+      let supplemental = false;
       for (const e of perceived) {
         const correction = copyRow(e);
         if (!fits(correction)) return frame;
-        const row = e.ref ? byRef.get(e.ref) : byTarget.get(targetKey(e.role, e.name));
+        const key = targetKey(e.role, e.name);
+        const row = e.ref ? byRef.get(e.ref) : byTarget.get(key);
+        if (!e.ref && key && !byTarget.has(key)) {
+          supplemental = true;
+          continue;
+        }
         if (!row || row.raw.role !== e.role || row.raw.name.trim().toLowerCase() !== e.name.trim().toLowerCase()) {
           unmatched = true;
           continue;
@@ -177,7 +191,9 @@ export class ActionOutcomeTracker {
         // Host display normalization isn't a state transition; keep the raw name for binding.
         row.corrected = { ...correction, name: row.raw.name };
       }
-      if (!matched.size) unmatched = true;
+      // A host can add rows of its own. With explicit scope and every raw row already
+      // accounted for, these extra unreferenced rows cannot be missing target corrections.
+      if (!matched.size || (supplemental && (!this.options?.scope || matched.size !== rows.length))) unmatched = true;
     }
     let selected = rows;
     if (this.options?.scope) {
@@ -191,7 +207,8 @@ export class ActionOutcomeTracker {
       // Selection defines membership. Only the observed page can establish a change in order.
       selected = rows.filter(row => !offered.has(row.raw));
     }
-    return { ...frame, rows: selected, targets: byTarget, unmatchedCorrection: unmatched };
+    return { ...frame, rows: selected, targets: byTarget, requireControlValues: !!this.options,
+      incompleteCoverage: unmatched || (!!this.options?.scope && selected.some(row => !hasControlState(row, true))) };
   }
 
   atDispatch(frame: Frame, url: string | undefined, requests: number): Frame {
@@ -209,23 +226,38 @@ export class ActionOutcomeTracker {
     this.armed = !!this.options && decision.action !== "waitFor";
     this.checkClick = this.armed ? check : undefined;
     this.proposedId = undefined;
-    this.instrumented = this.armed && this.click && !!driver.armActionOutcomeIdentity && !!driver.takeActionOutcomeIdentity;
-    if (this.instrumented) driver.armActionOutcomeIdentity!(id => {
-      check();
-      if (safeId(id) && this.blockedTargets.has(id)) throw new RepeatBlocked("repeated click without observed progress");
-      this.proposedId = safeId(id) ? id : undefined;
-      this.attempted = "click-dispatch-uncertain";
-    }, check);
+    this.instrumented = this.dispatchInstrumented = false;
+    try {
+      if (this.armed && driver.armActionOutcomeDispatch && driver.clearActionOutcomeDispatch) {
+        this.dispatchInstrumented = true;
+        driver.armActionOutcomeDispatch(() => {
+          check();
+          this.attempted = this.click ? "click-dispatch-uncertain" : "action-dispatch-uncertain";
+        });
+      }
+      if (this.armed && this.click && driver.armActionOutcomeIdentity && driver.takeActionOutcomeIdentity) {
+        this.instrumented = true;
+        driver.armActionOutcomeIdentity(id => {
+          check();
+          if (safeId(id) && this.blockedTargets.has(id)) throw new RepeatBlocked("repeated click without observed progress");
+          this.proposedId = safeId(id) ? id : undefined;
+          if (!this.dispatchInstrumented) this.attempted = "click-dispatch-uncertain";
+        }, check);
+      }
+    } catch (error) {
+      this.take(driver, decision);
+      throw error;
+    }
   }
   /** A legacy Driver cannot distinguish failed dispatch from an unacknowledged click. */
   beforeDriverInput = () => {
     this.checkClick?.();
-    if (this.armed && !this.instrumented)
+    if (this.armed && !this.instrumented && !this.dispatchInstrumented)
       this.attempted = this.click ? "click-dispatch-uncertain" : "action-dispatch-uncertain";
   };
   take(driver: Driver, _decision: Decision): string | undefined {
-    const armed = this.instrumented;
-    this.armed = this.instrumented = false;
+    const armed = this.instrumented, dispatchArmed = this.dispatchInstrumented;
+    this.armed = this.instrumented = this.dispatchInstrumented = false;
     this.checkClick = undefined;
     try {
       const id = armed ? driver.takeActionOutcomeIdentity?.() : undefined;
@@ -233,12 +265,22 @@ export class ActionOutcomeTracker {
     } catch {
       // Losing optional identity neither erases an acknowledged action nor masks its error.
       return undefined;
+    } finally {
+      if (dispatchArmed) {
+        try { driver.clearActionOutcomeDispatch?.(); } catch { /* optional observer cleanup */ }
+      }
     }
   }
   blocked(error: unknown) { return error instanceof RepeatBlocked; }
   executed(step: Step, frame: Frame, id: string | undefined, stepIndex: number) {
     this.attempted = undefined;
-    const key = "target" in step ? targetKey(step.target.role, step.target.text) : undefined;
+    // Rotating row refs cannot establish which duplicate an nth locator acted on.
+    // Even if a partial snapshot contains one candidate, an ordinal, a CSS
+    // or collection locator cannot establish equality from that row.
+    const key = "target" in step
+      ? step.target.collection || step.target.selector || step.target.nth !== undefined
+        ? "" : targetKey(step.target.role, step.target.text?.trim())
+      : undefined;
     this.pending = { action: step.kind, stepIndex, frame,
       id: step.kind === "click" && safeId(id) ? id : undefined, key };
     this.message = undefined;
@@ -247,9 +289,10 @@ export class ActionOutcomeTracker {
     const pending = this.pending;
     this.pending = undefined;
     const delayed = [...this.blockedTargets.values()].some(blocked => pending
-      // A request or navigation BEFORE another input is not an effect of that input.
-      // The original target's semantic state is still relevant on the same known page.
-      ? !!frame.url && blocked.frame.url === frame.url && rowComparison(blocked.frame, frame, blocked.key) === changed
+      // A confirmed departure from the blocked page before B releases A's recovery;
+      // it cannot be credited to B. Earlier traffic alone does not establish this.
+      ? differentPage(blocked.frame.url, pending.frame.url) || differentPage(blocked.frame.url, frame.url) ||
+        (!!frame.url && blocked.frame.url === frame.url && rowComparison(blocked.frame, frame, blocked.key) === changed)
       : compare(blocked.frame, frame, blocked.key) === changed);
     if (!pending) {
       // A delayed effect can appear while a proposed action is being vetoed. It changes
@@ -263,9 +306,7 @@ export class ActionOutcomeTracker {
     // If the pre-input watermark was already newer, a later veto/parse retry must
     // not rediscover that old traffic as a delayed effect of a blocked target.
     for (const blocked of this.blockedTargets.values()) {
-      if (blocked.frame.url !== pending.frame.url) {
-        blocked.frame = { url: pending.frame.url, requests: pending.frame.requests };
-      } else if (blocked.frame.requests !== pending.frame.requests) {
+      if (blocked.frame.requests !== pending.frame.requests) {
         blocked.frame = { ...blocked.frame, requests: pending.frame.requests };
       }
     }

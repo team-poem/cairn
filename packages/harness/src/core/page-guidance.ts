@@ -58,10 +58,11 @@ export function pageGuidanceState(elements: readonly PageElement[]): string {
  * invalidates Driver refs, so it must never run for a decision bound to an exact ref. */
 export async function pageGuidanceInvalidation(driver: Driver, guidance: PageGuidance,
   capturedState: string, hasReference: boolean, signal?: AbortSignal,
-  onUrl?: (url: string | undefined) => void): Promise<string | undefined> {
+  onUrl?: (url: string | undefined) => void, actionOutcomes = false): Promise<string | undefined> {
   const urlInvalidation = await pageGuidanceUrlInvalidation(driver, guidance, signal, onUrl);
   if (urlInvalidation) return urlInvalidation;
-  if (!hasReference && pageGuidanceState(await readCurrent(() => driver.snapshot({ perception: true }), signal)) !== capturedState) {
+  const options = actionOutcomes ? { perception: true, actionOutcomes: true } : { perception: true };
+  if (!hasReference && pageGuidanceState(await readCurrent(() => driver.snapshot(options), signal)) !== capturedState) {
     return "page guidance expired: the page elements changed after the guided observation";
   }
   // Capture and URL reads are separate. Detect navigation during this fresh capture too.

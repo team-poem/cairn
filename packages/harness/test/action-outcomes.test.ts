@@ -65,6 +65,60 @@ function run(mode: Mode, decide: (turn: number, prompt: string) => object | stri
 }
 
 describe.each(["discover", "explore"] as const)("%s action outcome feedback", mode => {
+  it("releases the old page's recovery when it navigates before the next input, without crediting that input", async () => {
+    const driver = new OutcomeDriver(), statuses: string[] = [];
+    delete driver.navOn["Open Alpha"];
+    const f = run(mode, turn => {
+      if (turn === 1) return inert;
+      if (turn === 2) {
+        driver.url = baseUrl + "/complete";
+        driver.els = [{ role: "link", name: "Open Alpha" }, { role: "heading", name: "Complete" }];
+        return link;
+      }
+      return done;
+    }, driver, { actionOutcomes: { maxRepeats: 1, onOutcome: e => statuses.push(e.status) } });
+    expect((await f.result).truncated).not.toBe(true);
+    expect(driver.clicked).toEqual(["Alpha", "Open Alpha"]);
+    expect(statuses).toEqual(["no-observed-change", "insufficient-evidence"]);
+  });
+
+  it("counts a unique case-insensitive target while excluding a supplemental host row from explicit scope", async () => {
+    const driver = new OutcomeDriver(), statuses: string[] = [];
+    const f = run(mode, () => ({ ...inert, text: "alpha" }), driver, {
+      perceive: rows => [...rows, { role: "status", name: "Host banner" }],
+      actionOutcomes: { maxRepeats: 1, scope: rows => rows.filter(row => row.role === "heading"),
+        onOutcome: e => statuses.push(e.status) },
+    });
+    expect((await f.result).truncationReason).toBe("action-no-progress");
+    expect(driver.clicked).toEqual(["alpha"]);
+    expect(statuses).toEqual(["no-observed-change"]);
+  });
+
+  it("does not block a toggling button by comparing its differently capitalized sibling", async () => {
+    const driver = new OutcomeDriver(), statuses: string[] = [];
+    driver.els = [{ role: "button", name: "Power", pressed: false }, { role: "button", name: "POWER" },
+      { role: "heading", name: "Summary" }];
+    driver.effect = () => { driver.els[0]!.pressed = !driver.els[0]!.pressed; };
+    const f = run(mode, turn => turn <= 2 ? { action: "click", role: "button", text: "POWER", nth: 0 } : done,
+      driver, { actionOutcomes: { maxRepeats: 1, scope: rows => rows.filter(row => row.role === "heading"),
+        onOutcome: e => statuses.push(e.status) } });
+    expect((await f.result).truncated).not.toBe(true);
+    expect(driver.clicked).toEqual(["POWER", "POWER"]);
+    expect(statuses).toEqual(["insufficient-evidence", "insufficient-evidence"]);
+  });
+
+  it("does not veto the next click when a required input value is unavailable", async () => {
+    const driver = new OutcomeDriver(), statuses: string[] = [];
+    driver.els = [{ role: "button", name: "Add" }, { role: "textbox", name: "Items" }];
+    const f = run(mode, turn => turn <= 2 ? { action: "click", role: "button", text: "Add" } : done, driver, {
+      actionOutcomes: { maxRepeats: 1, scope: rows => rows.filter(row => row.role === "textbox"),
+        onOutcome: e => statuses.push(e.status) },
+    });
+    expect((await f.result).truncated).not.toBe(true);
+    expect(driver.clicked).toEqual(["Add", "Add"]);
+    expect(statuses).toEqual(["insufficient-evidence", "insufficient-evidence"]);
+  });
+
   it("bounds inert clicks across rotating refs and reports incomplete without leaking receipts", async () => {
     const f = run(mode, () => inert);
     const result = await f.result;

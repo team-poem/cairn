@@ -21,6 +21,10 @@ const result = await discover(intent, { driver, llm, actionOutcomes });
 ```
 
 Without the option, the feedback costs no additional driver calls and cannot block input.
+In this mode, if the richer comparison is inconclusive, exploration keeps its existing
+dead-action check: the two valid rendered listings and destination must agree, with no
+new request. An invalid listing cannot establish that nothing changed.
+
 Passing `{}` enables the limits above. Both must be positive integers; the maxima are 32
 unchanged clicks and 16 recovery decisions. Only single clicks participate in the repetition
 count. Two different nodes with the same label do not share a count, and a double click,
@@ -32,7 +36,9 @@ before the model's listing cap, including rows a host omitted from the prompt. I
 uses changes to state that the host's `perceive` adapter measured on a matching control.
 For example, a custom checkbox can expose its checked state through a class rather than
 `aria-checked`. A changed host measurement is still evidence even when the raw accessibility
-row stayed the same. Discovery redacts configured secret values.
+row stayed the same. Discovery redacts configured secret values. Chrome requests the extra
+toggle and text comparisons only for opted-in perception snapshots. It does not read a
+password's DOM value for comparison or treat matching password masks as equal values.
 
 With the policy enabled, the loops read the URL and request count again before input. This
 keeps a request that already finished while the model or locator was working out of the
@@ -41,6 +47,15 @@ the engine drops those rows from the baseline: it cannot tell what the new page 
 completed request changed before input. Otherwise it keeps the decision's rows. A change
 on the same page may still happen before input without a new request. The samples are not
 atomic with browser input and cannot establish causation.
+
+If a policy approved a decision for one URL and the pre-input read shows a different URL,
+the loop asks for a new decision before sending input. Discovery does not freeze requests
+first seen between the settled observation of one action and dispatch of the next as an
+expectation of either action. Exploration still reports a 500 or console error first seen
+in that interval, marked `between-actions`. If a request is still pending, exploration
+keeps its original interval until the status arrives. It tracks up to 256 such requests
+at once. It can miss a later failure for an untracked pending request; this limit does
+not apply to errors already observed with a final status.
 
 - `observed-change`: a measured value changed, including navigation or a new request. A
   background change can also cause this; it does not establish that the action caused it.
@@ -63,7 +78,10 @@ comparison must also cover its target, whether or not the host supplied a scope.
 example, seeing a checkbox in both listings is not enough if neither the driver nor the
 host reports whether it is checked. If the clicked control disappears but a declared
 status changes from closed to open, the status change still counts as observed.
-URL and request evidence remain in scope.
+The row selector does not filter network traffic. A page that sends an analytics request on
+every click can therefore keep the repeat limit from firing. The engine cannot tell an
+analytics call from an application change by counting requests; the run's step and time
+limits still apply.
 The host owns the meaning and completeness of this selection. No comparison proves that it
 is safe to drop a saved click or repeat a business mutation.
 
@@ -72,12 +90,27 @@ is safe to drop a saved click or repeat a business mutation.
 For the count, the driver must confirm which node actually received each click. Its
 `armActionOutcomeIdentity` and `takeActionOutcomeIdentity` hooks surround one dispatch.
 The pre-input callback can veto that exact node, even when the model uses a different ref.
-Chrome measures a light-DOM node in the top-level document and checks for one trusted click
-on that node. If the click lands on a child, navigation loses the receipt, or identity is
-unavailable, the action is still recorded on success but cannot increase the repeat count.
+Chrome measures a light-DOM node in the top-level document and checks for one trusted click.
+A click on a label span inside its button can count for the button; a nested interactive
+control does not count for its parent. Replacing a node with a new one, even with the same
+accessible name, starts a new count. Losing the receipt on navigation or failing to identify
+the node prevents counting the click but does not erase an acknowledged action.
+A receipt identifies a node, not an accessibility row. If an ordinal or ambiguous name
+cannot bind the click to one measured row, the engine does not infer unchanged target state.
 A legacy driver without both hooks still gets feedback and the usual step/budget bounds.
-Receipt IDs and compared values are never put in outcomes, prompts, traces or frozen steps
-by this mechanism. Mutable tracker state belongs to a single invocation.
+Feedback and repeat gates contain neither receipt IDs nor compared values. The ordinary
+perception listing can still show accessible names and values. Receipt IDs never enter the
+prompt, trace or frozen steps. Mutable tracker state belongs to a single invocation.
+Chrome's receipt lives in the page's JavaScript realm. The page can inspect or interfere
+with it. It is a best-effort measurement for a cooperating application, never proof of
+user intent, authorization for an input or a substitute for a scenario assertion.
+
+For an ordinary tracked click that opens an informative `alert`, MCP 1.8 can report a
+click timeout even though the page received the event. Chrome closes that alert and
+records the click only if the original receipt independently confirms one trusted click.
+It never resends the click. A rejected click with a `confirm` or `prompt` does not
+authorize a choice. [Declared-scope guidance](page-guidance.md) keeps its stricter rule:
+a rejected scoped click is not acknowledged by dismissing a dialog.
 
 After the limit, the next decision can choose another control on a fresh page through the
 ordinary policy and freshness checks. The same repeat limit applies to that new control;
@@ -97,12 +130,25 @@ retry or assign the new page to an earlier action. For example, failure after in
 driver's `pressKey("Enter")` does not authorize another submission.
 Transport errors still propagate. No action-outcome result is verification evidence.
 
+A driver can implement `armActionOutcomeDispatch` and `clearActionOutcomeDispatch` to
+identify the actual input boundary. Failure to find a textbox before a fill allows a new
+decision. Failure to find an option after clicking a custom dropdown does not: the first
+input may already have changed the page. A legacy driver without a send or click hook
+cannot make that distinction; a `resolution` error alone is not proof that it sent no
+input. During tracked discovery and exploration, `SelfHealingDriver` leaves recovery to
+the loop instead of retrying or silently substituting another control. Replay is unchanged.
+
 ## Measurement
 
-Run `npm run build && node scripts/test-action-outcomes.mjs` against the local Chrome/MCP
-fixture. For one inert click followed by `done`, enabling the policy increased driver
-`observe()` calls from 3 to 5 in unguided discovery and from 2 to 3 in exploration.
-Each loop made two more MCP `evaluate_script` calls; snapshots and model decisions stayed
-the same. These counts describe this fixture, not browser latency. It also counts DOM
-clicks and MCP input requests separately for repeated clicks, recovery, a changing quantity
-and a button whose `aria-pressed` state toggles on each click.
+Run `npm run build && node scripts/test-action-outcomes.mjs` against local Chrome and MCP
+1.8.0. One inert click followed by `done` produced these driver `observe()` counts:
+
+| Loop | Default | With `actionOutcomes` | With `actionOutcomes` and a separate `policy.vet` |
+| --- | ---: | ---: | ---: |
+| discover | 3 | 5 | 6 |
+| explore | 2 | 4 | 4 |
+
+Each extra `observe()` calls `list_pages`, `list_network_requests` and `list_console_messages`.
+Both loops also made two `evaluate_script` calls for the click receipt. In this fixture
+the option added no snapshots, inputs or model decisions. These are call counts, not a
+latency estimate; settling a busy page can require more polling.

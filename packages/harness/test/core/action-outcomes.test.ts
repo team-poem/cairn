@@ -45,6 +45,65 @@ describe("bounded action outcome comparisons", () => {
     }
   });
 
+  it("distinguishes the identity check, a pre-send veto, and the first actual input", () => {
+    const tracker = new ActionOutcomeTracker({});
+    let identify: ((id: string) => void) | undefined, send: (() => void) | undefined, cancelled = false;
+    const driver = {
+      armActionOutcomeDispatch(cb: () => void) { send = cb; },
+      clearActionOutcomeDispatch() { send = undefined; },
+      armActionOutcomeIdentity(cb: (id: string) => void) { identify = cb; },
+      takeActionOutcomeIdentity() { identify = undefined; throw Error("lost receipt"); },
+    } as unknown as Driver;
+    const check = () => { if (cancelled) throw Error("cancelled"); };
+    tracker.arm(driver, { action: "click" }, check);
+    tracker.beforeDriverInput();
+    identify!("node");
+    expect(tracker.dispatchUncertain).toBeUndefined();
+    cancelled = true;
+    expect(() => send!()).toThrow("cancelled");
+    expect(tracker.dispatchUncertain).toBeUndefined();
+    tracker.take(driver, { action: "click" });
+    expect(identify).toBeUndefined();
+    expect(send).toBeUndefined();
+
+    cancelled = false;
+    tracker.arm(driver, { action: "select" }, check);
+    tracker.beforeDriverInput();
+    expect(tracker.dispatchUncertain).toBeUndefined();
+    send!(); // opened the popup; an option lookup or second input can still fail
+    cancelled = true;
+    expect(() => send!()).toThrow("cancelled");
+    tracker.take(driver, { action: "select" });
+    expect(send).toBeUndefined();
+    expect(tracker.dispatchUncertain).toBe("action-dispatch-uncertain");
+  });
+
+  it("disarms both observers if registration only partially succeeds", () => {
+    let dispatchArmed = false, identityArmed = false;
+    const driver = {
+      armActionOutcomeDispatch() { dispatchArmed = true; }, clearActionOutcomeDispatch() { dispatchArmed = false; },
+      armActionOutcomeIdentity() { identityArmed = true; throw Error("arm failed"); },
+      takeActionOutcomeIdentity() { identityArmed = false; },
+    } as unknown as Driver;
+    const tracker = new ActionOutcomeTracker({});
+    expect(() => tracker.arm(driver, { action: "click" }, () => {})).toThrow("arm failed");
+    expect([dispatchArmed, identityArmed]).toEqual([false, false]);
+    expect(tracker.dispatchUncertain).toBeUndefined();
+  });
+
+  it("requires a unique exact role/name match and never infers an ordinal from a partial listing", () => {
+    const tracker = new ActionOutcomeTracker({ maxRepeats: 1, scope: rows => rows.filter(r => r.role === "heading") });
+    const frame = tracker.capture([label, target, { role: "button", name: target.name.toUpperCase() }], url, 0);
+    for (const candidate of [{ text: "delivery" }, { role: "link", text: "Delivery" },
+      { ...click.target, nth: 0 }, { ...click.target, nth: 1 }, { ...click.target, selector: "#unverified" }]) {
+      tracker.executed({ kind: "click", target: candidate }, frame, "node", 0);
+      expect(tracker.observe(frame)).toBe("insufficient-evidence");
+      expect(tracker.suspect).toBe(false);
+    }
+    tracker.executed({ kind: "click", target: { role: "checkbox", text: " DELIVERY " } }, frame, "node", 0);
+    expect(tracker.observe(frame)).toBe("no-observed-change");
+  });
+
   it("abstains when the captured rows omit the acted control, even without a declared scope", () => {
     const tracker = new ActionOutcomeTracker({ maxRepeats: 1 });
     const frame = tracker.capture([label], url, 0);
@@ -93,6 +152,21 @@ describe("bounded action outcome comparisons", () => {
     tracker.executed(click, unbound, "node", 1);
     expect(tracker.observe(unbound)).toBe("insufficient-evidence");
     expect(tracker.suspect).toBe(false);
+  });
+
+  it("does not ignore ambiguous, foreign or possibly missing host corrections inside a scope", () => {
+    const tracker = new ActionOutcomeTracker({ scope: rows => rows.filter(r => r.role === "heading") });
+    const extra = { role: "status", name: "Host banner" };
+    for (const perceived of [[label, extra], [target, label, { ...extra, ref: "foreign" }],
+      [target, label, { ...target, checked: true }]]) {
+      const frame = tracker.capture([target, label], url, 0, perceived);
+      tracker.executed(click, frame, "node", 0);
+      expect(tracker.observe(frame)).toBe("insufficient-evidence");
+    }
+    const unscoped = new ActionOutcomeTracker({});
+    const frame = unscoped.capture([target, label], url, 0, [target, label, extra]);
+    unscoped.executed(click, frame, "node", 0);
+    expect(unscoped.observe(frame)).toBe("insufficient-evidence");
   });
 
   it("tracks the old target independently while attributing the next executed action", () => {
@@ -144,6 +218,19 @@ describe("bounded action outcome comparisons", () => {
     expect(tracker.suspect).toBe(true);
   });
 
+  it("keeps the blocked page's known URL across a missing watermark until a different page is observed", () => {
+    const tracker = new ActionOutcomeTracker({ maxRepeats: 1 });
+    const old = tracker.capture([target, label], url, 0);
+    tracker.executed(click, old, "a", 0);
+    expect(tracker.observe(old)).toBe("no-observed-change");
+    tracker.executed({ kind: "click", target: { role: label.role, text: label.name } },
+      tracker.atDispatch(old, undefined, 0), "b", 1);
+    expect(tracker.observe(tracker.capture([target, label], undefined, 0))).toBe("insufficient-evidence");
+    expect(tracker.suspect).toBe(true);
+    tracker.observe(tracker.capture([target, label], url + "/complete", 0));
+    expect(tracker.suspect).toBe(false);
+  });
+
   it("still observes a later change to the original target when a newer request watermark invalidated B's listing", () => {
     const tracker = new ActionOutcomeTracker({ maxRepeats: 1, scope: rows => rows.filter(r => r.role === "heading") });
     const before = tracker.capture([target, label], url, 0);
@@ -170,6 +257,37 @@ describe("bounded action outcome comparisons", () => {
       tracker.executed(action, before, "node", 2);
       expect(tracker.observe(tracker.capture([control, { ...label, name: "Details" }], url, 0))).toBe("observed-change");
     });
+
+  it.each(["textbox", "searchbox", "spinbutton", "slider", "combobox", "scrollbar", "progressbar", "meter"])(
+    "distinguishes a missing %s value from a measured empty value", role => {
+      const input = { role, name: "Field" }, action = { kind: "click", target: { role, text: input.name } } as const;
+      const tracker = new ActionOutcomeTracker({ maxRepeats: 1 });
+      const missing = tracker.capture([input], url, 0);
+      tracker.executed(action, missing, "node", 0);
+      expect(tracker.observe(missing)).toBe("insufficient-evidence");
+      expect(tracker.suspect).toBe(false);
+      const known = tracker.capture([input], url, 0, [{ ...input, value: "" }]);
+      tracker.executed(action, known, "node", 1);
+      expect(tracker.observe(known)).toBe("no-observed-change");
+    });
+
+  it("requires measured states from declared prerequisites without treating every control on the page as required", () => {
+    const input = { role: "textbox", name: "Email" }, button = { role: "button", name: "Save" };
+    const action = { kind: "click", target: { role: button.role, text: button.name } } as const;
+    const scoped = new ActionOutcomeTracker({ maxRepeats: 1, scope: rows => rows.filter(r => r.role !== "button") });
+    const rows = [button, input, label], missing = scoped.capture(rows, url, 0);
+    scoped.executed(action, missing, "node", 0);
+    expect(scoped.observe(missing)).toBe("insufficient-evidence");
+    expect(scoped.suspect).toBe(false);
+    scoped.executed(action, missing, "node", 1);
+    expect(scoped.observe(scoped.capture([button, input, { ...label, name: "Saved" }], url, 0))).toBe("observed-change");
+    const known = scoped.capture(rows, url, 0, [button, { ...input, value: "" }, label]);
+    scoped.executed(action, known, "node", 2);
+    expect(scoped.observe(known)).toBe("no-observed-change");
+    const unscoped = new ActionOutcomeTracker({ maxRepeats: 1 }), baseline = unscoped.capture(rows, url, 0);
+    unscoped.executed(action, baseline, "node", 0);
+    expect(unscoped.observe(baseline)).toBe("no-observed-change");
+  });
 
   it("does not interpret the host's subset return order as a page change", () => {
     let reversed = false;

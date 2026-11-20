@@ -94,6 +94,9 @@ export class SelfHealingDriver implements Driver {
   private healAttempts = 0;
   private readonly maxHeals: number;
   private readonly onHeal?: (heal: Heal) => void;
+  private readonly reportsDispatch: boolean;
+  private beforeSend?: () => void;
+  private identityArmed = false;
 
   constructor(
     private readonly inner: Driver,
@@ -104,6 +107,20 @@ export class SelfHealingDriver implements Driver {
     this.llm = withAppContext(llm, snapshotAppContext(opts.appContext, opts.secrets));
     this.maxHeals = opts.maxHeals ?? 5;
     this.onHeal = opts.onHeal;
+    this.reportsDispatch = !!inner.armActionOutcomeDispatch && !!inner.clearActionOutcomeDispatch;
+    if (inner.armActionOutcomeIdentity && inner.takeActionOutcomeIdentity) {
+      this.armActionOutcomeIdentity = (beforeClick, check) => {
+        this.identityArmed = true;
+        inner.armActionOutcomeIdentity!(id => {
+          beforeClick?.(id);
+          if (!this.reportsDispatch) this.beforeSend?.();
+        }, check);
+      };
+      this.takeActionOutcomeIdentity = () => {
+        this.identityArmed = false;
+        return inner.takeActionOutcomeIdentity!();
+      };
+    }
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
     if (typeof inner.observeCollection === "function") this.observeCollection = selection => inner.observeCollection!(selection);
     // Bound evidence dispatches never enter locator healing or retry a mutation.
@@ -112,6 +129,7 @@ export class SelfHealingDriver implements Driver {
   }
 
   async goto(url: string): Promise<void> {
+    this.beforeLegacyInput();
     return this.inner.goto(url);
   }
 
@@ -119,9 +137,27 @@ export class SelfHealingDriver implements Driver {
   observeCollection?: Driver["observeCollection"];
   clickWithSelectedItemEvidence?: Driver["clickWithSelectedItemEvidence"];
   readResourceKey?: Driver["readResourceKey"];
+  armActionOutcomeIdentity?: Driver["armActionOutcomeIdentity"];
+  takeActionOutcomeIdentity?: Driver["takeActionOutcomeIdentity"];
 
-  async click(target: Target, ref?: string): Promise<void> {
-    return this.act(target, ref, "click", (t, r) => this.inner.click(t, r));
+  armActionOutcomeDispatch(beforeSend: () => void): void {
+    this.beforeSend = beforeSend;
+    if (this.reportsDispatch) this.inner.armActionOutcomeDispatch!(beforeSend);
+  }
+
+  clearActionOutcomeDispatch(): void {
+    this.beforeSend = undefined;
+    if (this.reportsDispatch) this.inner.clearActionOutcomeDispatch!();
+  }
+
+  // Without an inner send hook, the call itself is the last known point before input.
+  private beforeLegacyInput(): void {
+    if (!this.reportsDispatch) this.beforeSend?.();
+  }
+
+  async click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void> {
+    return this.act(target, ref, "click", (t, r) => checkBeforeDispatch
+      ? this.inner.click(t, r, checkBeforeDispatch) : this.inner.click(t, r));
   }
 
   async doubleClick(target: Target, ref?: string): Promise<void> {
@@ -143,6 +179,12 @@ export class SelfHealingDriver implements Driver {
   private async act(target: Target, ref: string | undefined, action: Decision["action"], dispatch: (target: Target, ref?: string) => Promise<void>, value?: string): Promise<void> {
     const collection = "collection" in target;
     if (collection) validateCollectionTarget(target);
+    // During tracked discovery the loop owns recovery. Substitution here could send a
+    // second input after a lost reply, or record the original locator for a different node.
+    if (this.beforeSend) {
+      if (action !== "click" || !this.identityArmed) this.beforeLegacyInput();
+      return dispatch(target, ref);
+    }
     try {
       await dispatch(target, ref);
     } catch (cause) {
@@ -175,10 +217,12 @@ export class SelfHealingDriver implements Driver {
   }
 
   pressKey(key: string): Promise<void> {
+    this.beforeLegacyInput();
     return this.inner.pressKey(key);
   }
 
   scroll(direction?: "down" | "up"): Promise<void> {
+    this.beforeLegacyInput();
     return this.inner.scroll(direction);
   }
 

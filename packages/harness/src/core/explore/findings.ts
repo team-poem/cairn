@@ -38,8 +38,10 @@ export interface Finding {
   /** Page URL where the finding was observed, when known. */
   url?: string;
   /** Index into the report's `steps` of the action this finding is attributed to; for findings not
-   * tied to an executed step (`agent-note`, `action-error`) the last executed step at the time. */
+   * tied to an executed step, the last executed step at the time. */
   stepIndex: number;
+  /** The logs arrived outside an action interval; stepIndex is only a reproduction position. */
+  attribution?: "between-actions";
   /** How many times the deduped problem occurred (absent = once); set by `dedupeFindings`. */
   occurrences?: number;
 }
@@ -100,43 +102,12 @@ export function deriveActionFindings(
   stepIndex: number,
   opts: FindingOptions = {},
 ): Finding[] {
-  const { benign = [], benignConsole = [], slowSettleMs = DEFAULT_SLOW_SETTLE_MS } = opts;
-  const findings: Finding[] = [];
+  const { slowSettleMs = DEFAULT_SLOW_SETTLE_MS } = opts;
   const url = outcome.url ?? mark.url;
   const action = describeAction(decision);
+  const findings = deriveLogFindings(mark, outcome, stepIndex, opts, action);
 
-  // Logic layer — requests in the action's own tail that failed for real. Benign and recovered
-  // noise are excluded with the same predicates as `no-failed-requests`, so an explore finding
-  // is never stricter than a replay verdict would be.
-  for (let i = mark.requestCount; i < outcome.requests.length; i++) {
-    const r = outcome.requests[i]!;
-    if (r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(outcome.requests, i)) {
-      findings.push({
-        kind: "failed-request",
-        severity: "error",
-        detail: `${r.method.toUpperCase()} ${r.url} → ${r.status} (after ${action})`,
-        key: `failed-request:${r.method.toUpperCase()} ${endpointLabel(r.url)}`,
-        url,
-        stepIndex,
-      });
-    }
-  }
-
-  for (const m of outcome.console.slice(mark.consoleCount)) {
-    if (m.type === "error" && !benignConsole.some((s) => m.text.includes(s))) {
-      findings.push({
-        kind: "console-error",
-        severity: "error",
-        detail: `console error after ${action}: ${m.text.slice(0, 200)}`,
-        key: `console-error:${m.text.slice(0, 120)}`,
-        url,
-        stepIndex,
-      });
-    }
-  }
-
-  // Callers supplying only legacy render marks can still use the original comparison.
-  // A shared assessment, including insufficient evidence, always takes precedence.
+  // Callers can request the render fallback only for a validated pair of observations.
   if (EXPECTS_EFFECT.has(decision.action)) {
     const sameUrl =
       !!mark.url && !!outcome.url && destinationKey(mark.url) === destinationKey(outcome.url);
@@ -168,6 +139,96 @@ export function deriveActionFindings(
   }
 
   return findings;
+}
+
+/** Without an action label, report the interval without attributing it to either adjacent step. */
+type LogObservation = Pick<ActionOutcome, "url" | "requests" | "console">;
+function deriveLogFindings(
+  mark: Pick<ActionMark, "url" | "requestCount" | "consoleCount">,
+  outcome: LogObservation,
+  stepIndex: number,
+  { benign = [], benignConsole = [] }: FindingOptions,
+  action?: string,
+  requestEnd = outcome.requests.length,
+): Finding[] {
+  const findings: Finding[] = [];
+  const url = outcome.url ?? mark.url;
+  const timing = action === undefined ? "between actions" : `after ${action}`;
+  const origin = action === undefined ? { attribution: "between-actions" as const } : {};
+  const prefix = action === undefined ? "between-actions:" : "";
+
+  // Logic layer — requests in the action's own tail that failed for real. Benign and recovered
+  // noise are excluded with the same predicates as `no-failed-requests`, so an explore finding
+  // is never stricter than a replay verdict would be.
+  for (let i = mark.requestCount; i < requestEnd; i++) {
+    const r = outcome.requests[i]!;
+    if (r.status >= 400 && !isBenignRequest(r.url, benign) && !isRecoveredFailure(outcome.requests, i)) {
+      findings.push({
+        kind: "failed-request",
+        severity: "error",
+        detail: `${r.method.toUpperCase()} ${r.url} → ${r.status} (${timing})`,
+        key: `${prefix}failed-request:${r.method.toUpperCase()} ${endpointLabel(r.url)}`,
+        ...origin,
+        url,
+        stepIndex,
+      });
+    }
+  }
+
+  for (const m of outcome.console.slice(mark.consoleCount)) {
+    if (m.type === "error" && !benignConsole.some((s) => m.text.includes(s))) {
+      findings.push({
+        kind: "console-error",
+        severity: "error",
+        detail: `console error ${timing}: ${m.text.slice(0, 200)}`,
+        key: `${prefix}console-error:${m.text.slice(0, 120)}`,
+        ...origin,
+        url,
+        stepIndex,
+      });
+    }
+  }
+
+  return findings;
+}
+
+const MAX_PENDING_REQUESTS = 256;
+
+/** Append-only logs can update a pending request's status without appending an
+ * entry. Retain only a bounded set of original intervals. Failures already
+ * observed with a final status do not use this bookkeeping. */
+export class ExploreLogCursor {
+  private cursor?: Pick<ActionMark, "requestCount" | "consoleCount">;
+  private readonly pending = new Map<number, { method: string; url: string; page?: string; stepIndex: number; action?: string }>();
+
+  read(outcome: LogObservation, stepIndex: number, opts: FindingOptions, action?: string): Finding[] {
+    const { requests, console } = outcome;
+    const previous = this.cursor;
+    if (previous && requests.length < previous.requestCount) this.pending.clear();
+    const first = previous && previous.requestCount <= requests.length ? previous.requestCount : 0;
+    const findings: Finding[] = [];
+    for (const [i, owner] of this.pending) {
+      const r = requests[i];
+      if (r && r.url === owner.url && r.method === owner.method && r.status === 0) continue;
+      this.pending.delete(i);
+      if (!r || r.url !== owner.url || r.method !== owner.method || r.status < 400) continue;
+      findings.push(...deriveLogFindings({ requestCount: i, consoleCount: console.length },
+        { ...outcome, url: owner.page }, owner.stepIndex, opts, owner.action, i + 1));
+    }
+    // Current action findings are already derived with its render/settle outcome.
+    // Suppress preexisting failures at entry, but remember entries still pending.
+    if (previous && action === undefined) {
+      const consoleCount = previous.consoleCount <= console.length ? previous.consoleCount : 0;
+      findings.push(...deriveLogFindings({ requestCount: first, consoleCount }, outcome, stepIndex, opts));
+    }
+    for (let i = first; i < requests.length; i++) {
+      const r = requests[i]!;
+      if (r.status === 0 && this.pending.size < MAX_PENDING_REQUESTS)
+        this.pending.set(i, { url: r.url, method: r.method, page: outcome.url, stepIndex, action });
+    }
+    this.cursor = { requestCount: requests.length, consoleCount: console.length };
+    return findings;
+  }
 }
 
 /** Collapse repeats of the same problem (same `key`) into the first occurrence with an

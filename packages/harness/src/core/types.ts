@@ -229,6 +229,8 @@ export interface Scenario {
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
 export interface SnapshotOptions {
   perception?: boolean;
+  /** Include extra measured state for comparing actions. Omit for ordinary perception. */
+  actionOutcomes?: boolean;
 }
 
 /** Measured state of the region affected by Driver.scroll. Omission means unknown.

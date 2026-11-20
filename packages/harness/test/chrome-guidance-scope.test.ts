@@ -116,6 +116,16 @@ test("an acknowledged scoped click with an open dialog accepts it once", async (
   expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click", "handle_dialog"]);
 });
 
+test("arming outcomes never relaxes scoped guidance's rejected-click dialog policy", async () => {
+  const text = "# Open dialog\nalert: Done.\nCall handle_dialog to handle it before continuing.\nError: Failed to interact with the element with uid fresh-button. The element did not become interactive within the configured timeout.";
+  const { driver, click, events } = fixture({ clickReply: { text, isError:true } });
+  driver.armActionOutcomeIdentity();
+  driver.armActionOutcomeDispatch(() => {});
+  await expect(click()).rejects.toThrow(/Failed to interact/);
+  expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click"]);
+  expect(driver.takeActionOutcomeIdentity()).toBeUndefined();
+});
+
 test.each(["2: https://app/cart [selected]", "1: https://app/new [selected]", "unavailable"])(
   "scoped input refuses a changed or unknown page (%s)", async pages => {
     const { click, events } = fixture({ pages });

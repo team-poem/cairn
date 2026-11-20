@@ -17,7 +17,7 @@ import { snapshotAppContext, withAppContext, appContextProvenance } from "../app
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
 import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
-import type { Assertion, Scenario, Step } from "../types.js";
+import type { Assertion, Evidence, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
 import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
@@ -130,6 +130,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
+  const closeActionInterval = (evidence: Evidence | undefined): void => {
+    const last = marks[marks.length - 1];
+    if (actionOutcomes && evidence && last) {
+      last.end ??= { url: evidence.execution.finalUrl, requestCount: evidence.logic.requests.length };
+    }
+  };
   const identify = async (scenario: Scenario) => identifyScenario(scenario, {
     intent: slotSecretText(intent, secrets), benign, localePrefixes, provenance: await appContextProvenance(appContext),
   });
@@ -262,9 +268,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const entryEvidence = pageGuidance || actionOutcomes ? await driver.observe() : undefined;
     const observedUrl = entryEvidence?.execution.finalUrl;
     const observedRequests = entryEvidence?.logic.requests.length;
+    closeActionInterval(entryEvidence);
     rememberGuidedPolicyUrl(observedUrl);
     const scrollBefore = await readPolicyScroll(policy, driver);
-    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope);
+    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope, Boolean(actionOutcomes));
     const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
     if (policy?.needsScrollState) {
@@ -365,7 +372,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (guidance) {
       signal?.throwIfAborted();
       const invalidation = scoped ? await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidedPolicyUrl)
-        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidedPolicyUrl);
+        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidedPolicyUrl, Boolean(actionOutcomes));
       check();
       if (invalidation) {
         guidanceAttempts.expired();
@@ -418,6 +425,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const scopedBefore = scoped ? await driver.observe() : undefined;
     let executingScope: typeof scoped;
     let expiredAtInput = false;
+    let policyUrlExpired = false;
+    let vetting = false;
     try {
       // When nobody needs a pre-vet URL, move the usual pre-action read to just
       // before execution. The decision's own observation belongs to its listing.
@@ -435,9 +444,11 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       currentUrl = beforeObs.execution.finalUrl ?? currentUrl;
       // Policy gate (#77): sees the page (elements + url), runs inside the try so a throwing
       // vet is a recorded rejection, not a lost discovery. A rejected action never executes.
+      vetting = true;
       const verdict = policy?.vet(decision, { ...ctx, url: beforeObs.execution.finalUrl }) ?? {
         ok: true as const,
       };
+      vetting = false;
       if (!verdict.ok) {
         trace?.emit({
           kind: "gate",
@@ -467,11 +478,15 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         check();
         const url = evidence.execution.finalUrl;
         rememberGuidedPolicyUrl(url);
+        currentUrl = url ?? currentUrl;
         if (guidance && url !== guidance.url) {
           expiredAtInput = true;
           throw new Error("page guidance expired before input");
         }
-        currentUrl = url ?? currentUrl;
+        if (policy && url !== beforeObs.execution.finalUrl) {
+          policyUrlExpired = true;
+          throw new Error("policy decision expired before input: page URL changed");
+        }
         mark.url = url;
         mark.requestCount = evidence.logic.requests.length;
         dispatchFrame = outcomes.atDispatch(frame, url, mark.requestCount);
@@ -509,7 +524,13 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
-      if (actionOutcomes && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      if (!vetting && actionOutcomes && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      if (policyUrlExpired) {
+        trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "policy", reason: "the page URL changed after policy approval" } });
+        pushFailure("action not run: the page URL changed after policy approval; decide on the current page");
+        onStep?.(decision);
+        continue;
+      }
       if (expiredAtInput) {
         guidanceAttempts.expired();
         guidanceGate("page guidance expired: the page URL changed after the guided observation");
@@ -518,6 +539,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         continue;
       }
       if (outcomes.blocked(err)) {
+        trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "action-no-progress", reason: "repeated click blocked before input" } });
         onStep?.(decision);
         continue;
       }
@@ -581,7 +603,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // At the guidance bound, a stop-only policy needs the same corrected, validated view as
     // an ordinary decision turn. Keep the legacy capture mode for unrelated step-cap stops.
     const usePerception = Boolean(policy?.observe || guidanceAttempts.exhausted || actionOutcomes);
-    const raw = await driver.snapshot(usePerception ? { perception: true } : undefined);
+    const raw = await driver.snapshot(usePerception ? { perception: true, ...(actionOutcomes ? { actionOutcomes: true } : {}) } : undefined);
     const after = await readPolicyScroll(policy, driver);
     const elements = usePerception ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
     check();
@@ -595,7 +617,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         phase: tracePhase,
         payload: { gate: "perception-binding", reason: "perception binding rejected: invalid or changed element references" },
       });
-      if (outcomes.hasPending) outcomes.observe(outcomes.capture([], undefined, undefined));
+      if (actionOutcomes && outcomes.hasPending) {
+        const evidence = await driver.observe();
+        check();
+        closeActionInterval(evidence);
+        outcomes.observe(outcomes.capture([], evidence.execution.finalUrl, evidence.logic.requests.length));
+      }
       return finish(true);
     }
     const guidedGoal = Boolean(pageGuidance && guidanceAttempts.exhausted);
@@ -603,6 +630,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       ? await driver.observe() : undefined;
     const observedUrl = evidence?.execution.finalUrl;
     check();
+    closeActionInterval(evidence);
     if (actionOutcomes) outcomes.observe(outcomes.capture(perceive ? redactSecrets(raw, secrets) : elements, observedUrl,
       evidence?.logic.requests.length, perceive ? elements : undefined));
     check();

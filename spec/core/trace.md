@@ -170,6 +170,7 @@ two gate values and one phase value; the envelope is unchanged.
 ## Versioning — header `major.minor`
 
 Version 1.17 adds the `action-no-progress` gate for the opt-in [click repetition policy](action-outcomes.md).
+Each refused repeat emits a gate without recording an executed step; a later decision can still recover.
 Its terminal code is `action-no-progress` for repeated clicks. If an input may have been sent
 without confirmation, the code is `click-dispatch-uncertain` for a click and
 `action-dispatch-uncertain` for another input. Neither receipts nor compared page data enter the trace.

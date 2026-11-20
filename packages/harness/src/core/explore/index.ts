@@ -20,7 +20,7 @@ import { snapshotAppContext, withAppContext } from "../app-context.js";
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
 import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
-import type { RunUsage, Step, TruncationReason } from "../types.js";
+import type { Evidence, RunUsage, Step, TruncationReason } from "../types.js";
 import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
 import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
@@ -28,7 +28,7 @@ import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision
 import { destinationKey } from "../discover/capture.js";
 import { exploreSystem, buildExplorePrompt } from "./prompt.js";
 import { REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "../discover/prompt.js";
-import { dedupeFindings, deriveActionFindings } from "./findings.js";
+import { dedupeFindings, deriveActionFindings, ExploreLogCursor } from "./findings.js";
 import type { ActionMark, ActionOutcome, Finding } from "./findings.js";
 
 export interface ExploreOptions extends BudgetOptions {
@@ -129,7 +129,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   const guidanceGate = (reason: string, diagnostic?: GuidanceScopeDiagnostic) => trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", reason, ...diagnostic } });
   const perceivePage = async (declared: PageGuidanceScope | undefined, policyUrl: string | undefined) => {
     const before = await readPolicyScroll(policy, driver);
-    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, declared);
+    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, declared, Boolean(actionOutcomes));
     const after = await readPolicyScroll(policy, driver);
     const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
     const ctx = policyContext(elements, policyUrl, before, after);
@@ -181,6 +181,14 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   // settle+observe+snapshot per turn serves both as the previous action's outcome and the next
   // decision's input — no second observation per action.
   let pending: { mark: ActionMark; decision: Decision; stepIndex: number } | null = null;
+  const logCursor = actionOutcomes ? new ExploreLogCursor() : undefined;
+  let decisionSinceLogRead = false;
+  const readUnassignedLogs = (evidence: Evidence): void => {
+    if (!logCursor) return;
+    const outcome = { url: evidence.execution.finalUrl, ...evidence.logic };
+    for (const finding of logCursor.read(outcome, steps.length - 1, { benign, benignConsole })) record(finding);
+    decisionSinceLogRead = false;
+  };
   const settleOutcome = (
     mark: ActionMark,
     decision: Decision,
@@ -194,6 +202,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       perStepOutcomes: actionOutcomes !== undefined,
     })) {
       record(f);
+    }
+    if (logCursor) {
+      for (const finding of logCursor.read(outcome, stepIndex, { benign, benignConsole }, describeAction(decision))) record(finding);
+      decisionSinceLogRead = false;
     }
   };
 
@@ -213,6 +225,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     await driver.settle();
     const settleMs = Date.now() - settleStart;
     const observation = await driver.observe();
+    if (!pending) readUnassignedLogs(observation);
     const observedUrl = observation.execution.finalUrl;
     const observedRequests = observation.logic.requests.length;
     currentUrl = observedUrl ?? currentUrl;
@@ -233,7 +246,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         requests: observation.logic.requests,
         console: observation.logic.console,
         render,
-        observed,
+        observed: !actionOutcomes && observed === "insufficient-evidence" ? undefined : observed,
         settleMs,
       });
       pending = null;
@@ -271,6 +284,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     page.tracePrepared(trace, "explore", "explore");
     check();
     outcomes.admitDecision();
+    decisionSinceLogRead = true;
     const reply = await llm.complete(
       prompt,
       { system: exploreSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : "") },
@@ -301,7 +315,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     if (guidance) {
       signal?.throwIfAborted();
       const invalidation = scoped ? await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidanceUrl)
-        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl);
+        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl, Boolean(actionOutcomes));
       check();
       if (invalidation) {
         currentUrl = validationUrl;
@@ -362,7 +376,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       verdict = policy?.vet(decision, ctx) ?? { ok: true as const };
     } catch (err) {
       check();
-      if (actionOutcomes && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      rethrowBudget(err);
       pushFailure(`${describeAction(decision)} — ${err instanceof Error ? err.message : String(err)}`);
       onStep?.(decision);
       continue;
@@ -391,6 +405,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
 
     let executingScope = scoped;
     let expiredAtInput = false;
+    let policyUrlExpired = false;
     try {
       const mark: ActionMark = {
         url: observation.execution.finalUrl,
@@ -406,12 +421,15 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         const url = evidence.execution.finalUrl;
         currentUrl = url ?? currentUrl;
         visit(url);
+        readUnassignedLogs(evidence);
         if (guidance && url !== guidance.url) {
           expiredAtInput = true;
           throw new Error("page guidance expired before input");
         }
-        // Requests and console messages that arrived during the decision/lookup
-        // precede this input; they are not outcomes or findings of this step.
+        if (policy && url !== ctx.url) {
+          policyUrlExpired = true;
+          throw new Error("policy decision expired before input: page URL changed");
+        }
         mark.url = url;
         mark.requestCount = evidence.logic.requests.length;
         mark.consoleCount = evidence.logic.console.length;
@@ -440,6 +458,12 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       check();
       rethrowBudget(err);
       if (actionOutcomes && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      if (policyUrlExpired) {
+        trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "policy", reason: "the page URL changed after policy approval" } });
+        pushFailure("action not run: the page URL changed after policy approval; decide on the current page");
+        onStep?.(decision);
+        continue;
+      }
       if (expiredAtInput) {
         guidanceAttempts.expired();
         guidanceGate("page guidance expired: the page URL changed after the guided observation");
@@ -448,6 +472,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         continue;
       }
       if (outcomes.blocked(err)) {
+        trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "action-no-progress", reason: "repeated click blocked before input" } });
         onStep?.(decision);
         continue;
       }
@@ -501,6 +526,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const settleMs = Date.now() - settleStart;
     const observation = await driver.observe();
     const observedUrl = observation.execution.finalUrl, observedRequests = observation.logic.requests.length;
+    if (!pending) readUnassignedLogs(observation);
     currentUrl = observedUrl ?? currentUrl;
     visit(observedUrl);
     const { page, ctx, raw, elements } = await perceivePage(undefined,
@@ -515,7 +541,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         requests: observation.logic.requests,
         console: observation.logic.console,
         render: page.render,
-        observed,
+        observed: !actionOutcomes && observed === "insufficient-evidence" ? undefined : observed,
         settleMs,
       });
       if (policy?.stop?.(steps, ctx)) truncated = false;
@@ -523,19 +549,26 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       // The capture did not validate. Report that the acknowledged action could not be
       // assessed; its request and console logs are still independent evidence.
       if (pending) {
-        const observed = outcomes.observe(outcomes.capture([], undefined, undefined));
+        const observed = outcomes.observe(outcomes.capture([], observedUrl, observedRequests));
         check();
         settleOutcome(pending.mark, pending.decision, pending.stepIndex, {
           url: observation.execution.finalUrl,
           requests: observation.logic.requests,
           console: observation.logic.console,
           render: "",
-          observed,
+          observed: observed ?? "insufficient-evidence",
           settleMs,
         });
       }
       truncated = true;
     }
+  } else if (actionOutcomes && decisionSinceLogRead) {
+    // A done/denied/invalid decision may have outlasted a background request.
+    // No action was sent, so this tail belongs to neither neighbouring step.
+    check();
+    const evidence = await driver.observe();
+    check();
+    readUnassignedLogs(evidence);
   }
 
   check();

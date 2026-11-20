@@ -70,7 +70,7 @@ describe("parseElements", () => {
     ].join("\n");
     expect(parseElements(snap)).toEqual([
       { role: "checkbox", name: "Terms", checked: true },
-      { role: "checkbox", name: "Marketing", checked: false },
+      { role: "checkbox", name: "Marketing" },
       { role: "checkbox", name: "Partial", checked: "mixed" },
       { role: "button", name: "Pay", disabled: true },
       { role: "textbox", name: "Email", value: "a@b.com" },
@@ -87,7 +87,7 @@ describe("parseElements", () => {
       'uid=2_5 tab "Second" selectable',
       'uid=2_6 button "Details" expandable expanded',
       'uid=2_7 button "Details" disableable expandable',
-    ].join("\n"));
+    ].join("\n"), true);
     expect(rows).toEqual([
       { role: "button", name: "Mute", pressed: true },
       { role: "button", name: "Partially muted", pressed: "mixed" },
@@ -99,15 +99,30 @@ describe("parseElements", () => {
     ]);
   });
 
+  it("retains quoted AX textbox values on opt-in without inventing state from inside attributes", () => {
+    const text = 'uid=1_2 textbox "Length" value="2 "inch""';
+    expect(parseElements(text, true)).toEqual([{ role:"textbox", name:"Length", value:'2 "inch"' }]);
+    expect(parseElements('uid=1_3 checkbox "Terms" checkable', true)[0]?.checked).toBe(false);
+    expect(parseElements('uid=1_4 button "Pay" disableable', false)[0]?.disabled).toBeUndefined();
+    expect(parseElements('uid=1_5 button "Cart" description="Length "in" checked nope"', true)[0]?.checked).toBeUndefined();
+  });
+
   it("does not turn a failed DOM probe into a measured false state", async () => {
     const { driver } = stubbedDriver({
       list_pages: '1: https://example.test/ [selected]',
       take_snapshot: 'uid=1_1 button "Plain"\nuid=1_2 button "Muted" pressed',
       evaluate_script: () => { throw new Error("measurement unavailable"); },
     });
-    const [plain, muted] = await driver.snapshot({ perception: true });
+    const [plain, muted] = await driver.snapshot({ perception: true, actionOutcomes: true });
     expect(plain).not.toHaveProperty("pressed");
     expect(muted).toHaveProperty("pressed", true);
+  });
+
+  it("compact outcome snapshots abstain on textbox values without a DOM privacy measurement", async () => {
+    const { driver } = stubbedDriver({ take_snapshot: 'uid=a textbox "Access" value="••••"',
+      evaluate_script: () => "[]" }, { promoteClickables:false });
+    expect(await driver.snapshot({ actionOutcomes:true })).toEqual([{ role:"textbox", name:"Access" }]);
+    expect(await driver.snapshot()).toEqual([{ role:"textbox", name:"Access", value:"••••" }]);
   });
 });
 

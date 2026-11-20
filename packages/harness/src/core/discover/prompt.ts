@@ -194,6 +194,7 @@ export function buildPrompt(
   currentUrl?: string,
   hasReferences = false,
   guidance?: string,
+  selections: string[] = [],
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -216,6 +217,7 @@ export function buildPrompt(
     `Interactive elements now on the page:`,
     elementsBlock,
     ...pageGuidanceBlock(guidance),
+    ...selections,
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

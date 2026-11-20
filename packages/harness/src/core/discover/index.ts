@@ -27,10 +27,12 @@ import type { Secrets } from "../secrets.js";
 import type { OutcomeMark } from "./capture.js";
 import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "../evidence-capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions } from "./grounding.js";
+import { copySelections, executeSelection, freezeSelections, selectionBlock, selectionRejection, SELECTION_RULES, type DiscoverySelection } from "./selection.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
 export { rankElements, renderElements, renderRankedElements } from "./prompt.js";
+export type { DiscoverySelection } from "./selection.js";
 
 export interface DiscoverOptions extends BudgetOptions {
   evidenceCapture?: EvidenceCaptureOptions;
@@ -70,6 +72,9 @@ export interface DiscoverOptions extends BudgetOptions {
   pageGuidance?: PageGuidanceProvider;
   /** Measure these prerequisites; only a provider reply tagged "declared-scope" uses them. */
   pageGuidanceScope?: PageGuidanceScope;
+  /** Host-approved run-relative selections (spec/core/discovery-selection.md). Each is consumed by
+   * the one click decision that names its ID; an unused one truncates the freeze. */
+  selections?: readonly DiscoverySelection[];
   /** Values for `{name}` placeholders the model types (from the intent, e.g. "log in as {user} / {password}"):
    * the driver gets the value, the freeze keeps the placeholder (#174). */
   secrets?: Secrets;
@@ -118,6 +123,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   const policy = opts.policy?.createRun?.() ?? opts.policy;
   const guidanceAttempts = new PageGuidanceAttempts();
   const scope = pageGuidance && opts.pageGuidanceScope !== undefined ? copyGuidanceScope(opts.pageGuidanceScope) : undefined;
+  const selections = copySelections(opts.selections, driver);
+  const consumed = new Map<Step, DiscoverySelection>();
+  const available = () => selections.filter(selection => ![...consumed.values()].includes(selection));
   const check = () => { signal?.throwIfAborted(); opts[budgetScope]?.check(); };
   const guidanceGate = (reason: string, diagnostic?: GuidanceScopeDiagnostic) => trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", reason, ...diagnostic } });
   const steps: Step[] = [];
@@ -135,7 +143,11 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     check();
     const guidanceExpired = truncated && guidanceAttempts.exhausted;
     const incomplete = truncated && !guidanceExpired ? policy?.incomplete?.() : undefined;
-    const truncationReason = guidanceExpired ? "page-guidance-expired" : incomplete?.diagnostic.code;
+    // A declared selection the flow never used cannot be trusted as frozen.
+    const unbound = available().length > 0;
+    const truncationReason = guidanceExpired ? "page-guidance-expired" : incomplete?.diagnostic.code
+      ?? (unbound ? "selection-unbound" as const : undefined);
+    truncated ||= unbound;
     if (incomplete) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
     // Where the flow's own traffic starts: the first action's mark, or — when nothing acted — the
@@ -163,13 +175,14 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (opts[budgetScope]) opts[budgetScope].phase = tracePhase === "heal" ? "outcome-assertions" : "assertions";
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     check();
-    const grounded = deriveAssertions(all, evidence, semanticChecks, benign, (a, reason) =>
+    const dropped = (a: Assertion, reason: string) =>
       trace?.emit({
         kind: "gate",
         phase: tracePhase,
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
-      }),
-    );
+      });
+    const grounded = freezeSelections(steps, marks, evidence,
+      deriveAssertions(all, evidence, semanticChecks, benign, dropped), consumed, dropped);
     const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
     // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).
@@ -302,10 +315,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // A retry uses this capture's URL even if the provider no longer offers advice.
     // A missing URL stays unknown; policy checks retain their own last known URL.
     if (guidance || recovery) currentUrl = observedUrl;
-    const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, currentUrl, page.hasReferences, guidance?.text);
+    const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, currentUrl, page.hasReferences, guidance?.text, selectionBlock(available()));
     page.tracePrepared(trace, "discover", tracePhase);
     const reply = await llm.complete(prompt, {
-      system: discoverSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : ""),
+      system: discoverSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : "") + (selections.length ? SELECTION_RULES : ""),
     });
 
     let decision: Decision;
@@ -337,6 +350,18 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
       pushFailure(`${REFERENCE_REJECTION}: ${err instanceof Error ? err.message : String(err)}`);
       continue;
+    }
+
+    let selection: DiscoverySelection | undefined;
+    if (decision.selection !== undefined) {
+      const rejection = selectionRejection(decision, available());
+      if (rejection) {
+        trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "declared-selection", reason: rejection } });
+        pushFailure(`selection ${JSON.stringify(decision.selection)} — ${rejection}`);
+        onStep?.(decision);
+        continue;
+      }
+      selection = available().find(candidate => candidate.id === decision.selection);
     }
 
     const scoped = scopedClick(driver, scope, listedScope, guidance, decision, check, signal, rememberGuidedPolicyUrl);
@@ -436,13 +461,16 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       };
       check();
       executingScope = scoped;
-      const step = await executeDecision(driver, decision, secrets, scoped?.validate);
+      const step = selection ? await executeSelection(driver, selection, signal)
+        : await executeDecision(driver, decision, secrets, scoped?.validate);
       executingScope = undefined;
       // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
-      if (decision.reason?.trim()) step.intent = decision.reason.trim();
+      // A selection's reason may name this run's member, so it is not persisted.
+      if (selection) consumed.set(step, selection);
+      else if (decision.reason?.trim()) step.intent = decision.reason.trim();
       completedStep = step;
       steps.push(step);
       opts[budgetScope]?.recordAction({ step, ok: true });
@@ -480,6 +508,13 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       }
       capture?.invalidate();
       completedStep = undefined;
+      if (selection) {
+        // The click may have reached the application; another attempt is never authorized.
+        trace?.emit({ kind: "action", phase: tracePhase, payload: { ok: false, error: err instanceof Error ? err.message : String(err) } });
+        const partial = await identify({ name: intent, steps, assertions: [], truncated: true, truncationReason: "selection-failed" });
+        check();
+        return partial;
+      }
       trace?.emit({
         kind: "action",
         phase: tracePhase,

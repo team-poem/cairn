@@ -29,6 +29,8 @@ export interface Decision {
      * anyway, `decisionToStep` rejects it like `done`. */
     | "note"
     | "done";
+  /** ID of a host-declared selection this click consumes; the engine chooses the member. */
+  selection?: string;
   /** Engine-issued current-observation token; never part of a Step or Target. */
   ref?: string;
   text?: string;

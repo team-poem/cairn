@@ -69,6 +69,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
 | discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these and `page-guidance` only |
+| discover | `gate` | `gate: declared-selection`: a decision named an unknown or already used selection, a non-click action, or extra locator fields | [declared selections](discovery-selection.md); fixed reason only |
 | discover / explore | `gate` | `gate: page-guidance`: provider failed, timed out, invalid or oversized output, expired guided observation (including before the model call), discarded guided `done` assertions, or repeated expiration | [page guidance](page-guidance.md); never guidance text, hashes or URLs |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
@@ -168,6 +169,10 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.17 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
+selection (#343), and the `selection-unbound` and `selection-failed` truncation reasons. The gate
+carries a fixed reason only. See [declared selections in discovery](discovery-selection.md).
 
 Version 1.16 adds optional diagnostics to `page-guidance` gates for a discarded scoped click
 (#356). `scopeStatus` is `scope-changed`, `target-ambiguous`, or `scope-unverifiable`.

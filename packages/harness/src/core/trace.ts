@@ -26,8 +26,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
  * 1.14 — required inconclusive custom checks (#314).
  * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
- * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356). */
-export const TRACE_VERSION = "1.16";
+ * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356).
+ * 1.17 — `gate: declared-selection` and its truncation reasons (#343). */
+export const TRACE_VERSION = "1.17";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -61,7 +62,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance"; action?: string; reason: string;
+        payload: { gate: "policy" | "no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance" | "declared-selection"; action?: string; reason: string;
           code?: TruncationReason; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down";
           expirations?: number; limit?: number } & Partial<GuidanceScopeDiagnostic>;
       }

@@ -1,0 +1,102 @@
+// Real Chrome/MCP. A heading and a roleless widget have working click handlers but carry no
+// `clickable` hint, so their eligibility is unknown and they stay usable. A host that measured the
+// heading as click-disallowed gets it rejected before dispatch. Scripted decisions, no model account.
+// Build first. CAIRN_MCP_ENTRY may select an installed chrome-devtools-mcp 1.8.0.
+import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
+import { ChromeDevToolsDriver, discover, explore, runScenario, startTrace } from '../packages/harness/dist/index.js';
+
+const server = createServer((req, res) => {
+  if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(`<!doctype html><title>Action candidates</title>
+    <h1 id="heading">Alpha</h1>
+    <a href="#" id="link">Alpha Curated goods from the Alpha store</a>
+    <div id="widget">Open drawer</div>
+    <script>
+      window.clicks = [];
+      document.querySelector('#heading').addEventListener('click', () => clicks.push('heading'));
+      document.querySelector('#link').addEventListener('click', e => { e.preventDefault(); clicks.push('link'); });
+      document.addEventListener('click', e => { if (e.target.id === 'widget') clicks.push('widget'); });
+    </script>`);
+});
+await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const baseUrl = `http://127.0.0.1:${server.address().port}`;
+const flags = ['--isolated', '--headless', '--no-page-id-routing', '--no-usage-statistics'];
+const options = process.env.CAIRN_MCP_ENTRY
+  ? { command: process.execPath, args: [process.env.CAIRN_MCP_ENTRY, ...flags] }
+  : { command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.8.0', ...flags] };
+
+const refOf = (prompt, marker) => {
+  const ref = prompt.split('\n').find(row => row.includes('ref=') && row.includes(marker))?.match(/ref="([^"]+)"/)?.[1];
+  assert.ok(ref, `the listing must carry an exact reference for ${marker}`);
+  return ref;
+};
+const pageClicks = async driver => {
+  const reply = await driver.call('evaluate_script', { function: '() => window.clicks' }, 'observation');
+  return JSON.parse(reply.match(/```json\s*([\s\S]*?)\s*```/)[1]);
+};
+const scripted = picks => { const prompts = []; return { prompts, llm: { id: 'scripted-candidates', async complete(prompt) {
+  if (!prompt.includes('What is the single next action?')) return '[]';
+  prompts.push(prompt);
+  const pick = picks[prompts.length - 1];
+  return pick ? JSON.stringify({ action: 'click', ref: refOf(prompt, pick) }) : '{"action":"done"}';
+} } }; };
+
+const report = [];
+try {
+  // Unknown stays usable: the real Driver measures no hint and no eligibility on these rows.
+  let driver = new ChromeDevToolsDriver(options);
+  let frozen;
+  try {
+    await driver.goto(baseUrl);
+    const rows = await driver.snapshot({ perception: true });
+    for (const name of ['Alpha', 'Open drawer']) {
+      const row = rows.find(r => r.name === name);
+      assert.ok(row, `${name} must be observed`);
+      assert.equal(row.clickable, undefined, `${name} carries no clickable hint`);
+      assert.equal(row.actions, undefined, `${name} carries no measured eligibility`);
+    }
+    const { llm, prompts } = scripted(['[heading] Alpha', 'Open drawer']);
+    frozen = await discover('use the heading and the drawer', { driver, llm, baseUrl, maxSteps: 4 });
+    assert.notEqual(frozen.truncated, true);
+    assert.deepEqual(await pageClicks(driver), ['heading', 'widget']);
+    assert.ok(!prompts[0].includes('Interactive elements'));
+    assert.match(prompts[0], /Observed page elements:/);
+    report.push({ case: 'unknown-usable', pageClicks: ['heading', 'widget'] });
+  } finally { await driver.close(); }
+
+  // Frozen replay is not gated: the same steps run again with no model call. The verdict is
+  // all-vacuous for this click-only fixture, so only dispatch is asserted.
+  driver = new ChromeDevToolsDriver(options);
+  try {
+    let modelCalls = 0;
+    await runScenario(frozen, { driver, reporter: { async emit() {} },
+      llm: { id: 'forbidden', async complete() { modelCalls++; throw new Error('replay called a model'); } } });
+    assert.equal(modelCalls, 0);
+    assert.deepEqual(await pageClicks(driver), ['heading', 'widget']);
+    report.push({ case: 'replay', modelCalls, pageClicks: ['heading', 'widget'] });
+  } finally { await driver.close(); }
+
+  // A host-supplied measurement through `perceive`: the heading click is refused before dispatch.
+  for (const mode of ['discover', 'explore']) {
+    driver = new ChromeDevToolsDriver(options);
+    const gates = [];
+    const trace = startTrace({ emit: e => { if (e.kind === 'gate') gates.push(e.payload); } }, 'candidates').scope('candidates');
+    try {
+      const { llm, prompts } = scripted(['[heading] Alpha', '[link] Alpha Curated']);
+      const perceive = rows => rows.map(r => r.role === 'heading' ? { ...r, actions: { click: 'disallowed' } } : r);
+      const opts = { driver, llm, baseUrl, maxSteps: 4, perceive, trace };
+      if (mode === 'discover') await discover('open Alpha', opts); else await explore('survey Alpha', opts);
+      assert.deepEqual(await pageClicks(driver), ['link'], 'the heading handler must never fire');
+      assert.match(prompts[1], /not run: the observed target is measured as not accepting "click"/);
+      assert.deepEqual(gates, [{ gate: 'action-eligibility', action: 'click', reason: 'measured-disallowed' }]);
+      report.push({ case: `disallowed-${mode}`, pageClicks: ['link'] });
+    } finally { await driver.close(); }
+  }
+  console.log(JSON.stringify(report, null, 2));
+} finally {
+  server.closeAllConnections();
+  await new Promise(resolve => server.close(resolve));
+}

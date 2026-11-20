@@ -16,7 +16,7 @@ import type {
   Target,
 } from "../../core/types.js";
 import { PerceptionObservation, assertDecisionCurrent, decisionReference } from "../../core/observation.js";
-import { decisionToStep, describeAmbiguity, describeDisallowed, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
+import { decisionToStep, describeAmbiguity, disallowedGate, type Decision, type ActionPolicy } from "../../core/discover/decision.js";
 import { validateSecrets, redactSecrets, slotSecretText, type Secrets } from "../../core/secrets.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 import { snapshotAppContext, withAppContext } from "../../core/app-context.js";
@@ -254,7 +254,10 @@ export class SelfHealingDriver implements Driver {
     const decision = page.bind({ ...unbound, ...(value !== undefined ? { value: slotSecretText(value, this.opts.secrets) } : {}) });
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) throw stepError("resolution", ambiguity);
-    if (page.disallows(decision)) throw stepError("resolution", describeDisallowed(decision));
+    if (page.disallows(decision)) {
+      this.opts.trace?.emit({ kind: "gate", phase: "heal", payload: disallowedGate(decision) });
+      throw stepError("resolution", `${decision.action} not run: the observed target is measured as not accepting it; nothing was redirected`);
+    }
     if (this.opts.policy) {
       const evidence = await this.inner.observe();
       const verdict = this.opts.policy.vet(decision, { elements, url: evidence.execution.finalUrl });

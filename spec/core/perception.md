@@ -359,7 +359,9 @@ role. A Driver or the consumer's `perceive` callback may additionally attach
 - Only `disallowed` changes behavior. The engine rejects that action on that exact row before
   dispatch, in discovery, exploration, step repair and locator repair alike, and the next decision
   is the model's own. It never redirects to a similarly named row.
-- The fact belongs to the observation that carried it. It is read from the row bound to the
+- The fact belongs to the observation that carried it. The observation copies each row's
+  well-formed facts when it is built, so a host that later changes its own `actions` object
+  cannot lift or add a restriction while the model decides. It is read from the row bound to the
   decision's ref when the decision binds, so duplicate names, rotating refs and locator
   enrichment after the check cannot attach or reuse eligibility from another row or snapshot.
   A decision with no ref, a legacy Driver, a partial measurement and any other action on the same

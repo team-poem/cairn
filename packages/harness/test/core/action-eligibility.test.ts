@@ -160,9 +160,39 @@ describe("action eligibility", () => {
     }
     const make = (row: PageElement) => new SelfHealingDriver(new Broken([link(), row]), scripted([{ action: "click", row: "heading" }]).llm);
     const blocked = make(heading({ click: "disallowed" }));
-    await expect(blocked.click({ text: "Missing" })).rejects.toThrow(/not accepting "click"/);
+    await expect(blocked.click({ text: "Missing" })).rejects.toThrow(/not accepting it/);
     const allowed = make(heading());
     await allowed.click({ text: "Missing" });
     expect(allowed.heals).toHaveLength(1);
+  });
+
+  it("factsAreSnapshotted: a host changing its actions object while the model decides does not lift a restriction", async () => {
+    const hostFacts: Record<string, string> = { click: "disallowed" };
+    const driver = new RefDriver([link(), heading(hostFacts)]);
+    const { llm } = scripted([{ action: "click", row: "heading" }, { action: "click", row: "link" }]);
+    const mutating: LlmClient = { id: llm.id, async complete(prompt, opts) {
+      const reply = await llm.complete(prompt, opts);
+      hostFacts.click = "supported";
+      return reply;
+    } };
+    await loops.discover(driver, mutating);
+    expect(driver.acted).toEqual(["click:Alpha Curated goods from the Alpha store"]);
+  });
+
+  it("locatorRepairEmitsGate: locator repair records the same gate and keeps the row name out of the error", async () => {
+    class Broken extends RefDriver {
+      override async click(target: Target, ref?: string): Promise<void> {
+        if (ref === undefined) throw Object.assign(new Error("element not found"), { kind: "resolution" });
+        await super.click(target);
+      }
+    }
+    const gates: unknown[] = [];
+    const trace = startTrace({ emit: e => { if (e.kind === "gate") gates.push(e.payload); } }, "t").scope("eligibility");
+    const healer = new SelfHealingDriver(new Broken([link(), heading({ click: "disallowed" })]),
+      scripted([{ action: "click", row: "heading" }]).llm, { trace });
+    const error = await healer.click({ text: "Missing" }).then(() => undefined, (e: unknown) => e as Error);
+    expect(error?.message).toMatch(/not accepting it/);
+    expect(error?.message).not.toContain("Alpha");
+    expect(gates).toContainEqual({ gate: "action-eligibility", action: "click", reason: "measured-disallowed" });
   });
 });

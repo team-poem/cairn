@@ -5,7 +5,7 @@
  */
 import type { LlmClient } from "../ports.js";
 import { rethrowBudget } from "../budget.js";
-import type { Assertion, ConsoleMessage, Evidence, NetworkRequest } from "../types.js";
+import type { Assertion, ConsoleMessage, Evidence, HostCriterion, NetworkRequest } from "../types.js";
 import {
   findRequestStatus,
   isBenignRequest,
@@ -118,6 +118,9 @@ export function deriveAssertions(
   /** Reports each dropped proposal with why — a drop changed what the freeze checks, so the
    * trace surfaces it as a `gate` event instead of silence (spec/core/trace.md). */
   onDrop?: (proposed: Assertion, reason: string) => void,
+  /** The host's approved criteria. Only their ids can survive as `criterionIds`; absent → no
+   * attribution is read, so a proposal's own `criterionIds` cannot reach the freeze. */
+  criteria: readonly HostCriterion[] = [],
 ): Assertion[] {
   const out: Assertion[] = [];
   // Ground no-failed-requests: freeze it only if it actually HELD during discovery. "Held" uses
@@ -234,11 +237,16 @@ export function deriveAssertions(
         );
         continue;
       }
-      out.push(
-        method
-          ? { kind: "request-status", urlIncludes, status: a.status, method }
-          : { kind: "request-status", urlIncludes, status: a.status },
-      );
+      // Attribution is read only after every grounding gate has passed, and an invalid id only
+      // shrinks it: it never costs the check.
+      const criterionIds = validCriterionIds(a, criteria);
+      out.push({
+        kind: "request-status",
+        urlIncludes,
+        status: a.status,
+        ...(method ? { method } : {}),
+        ...(criterionIds.length ? { criterionIds } : {}),
+      });
     } else if (a.kind === "expect") {
       if (semantic && typeof a.criterion === "string" && a.criterion.trim()) {
         out.push({ kind: "expect", criterion: a.criterion.trim() });
@@ -380,15 +388,37 @@ function sawConsoleErrors(console: readonly ConsoleMessage[]): boolean {
   return console.some((m) => m.type === "error");
 }
 
-/** Drop duplicate assertions (e.g. a proposed request-status the LLM listed twice). */
+/** The proposal's ids that name a supplied criterion, in the proposal's order, once each. */
+function validCriterionIds(a: Assertion, criteria: readonly HostCriterion[]): string[] {
+  const proposed = (a as { criterionIds?: unknown }).criterionIds;
+  if (!Array.isArray(proposed)) return [];
+  const known = new Set(criteria.map((c) => c.id));
+  return [...new Set(proposed.filter((id): id is string => typeof id === "string" && known.has(id)))];
+}
+
+/** The supplied criteria no frozen request check carries an id for. Never a verdict on the
+ * criterion: it covers both "no check was proposed for it" and "its proposal was dropped". */
+export function unattributedCriteria(criteria: readonly HostCriterion[], assertions: readonly Assertion[]): string[] {
+  const attributed = new Set(
+    assertions.flatMap((a) => (a.kind === "request-status" ? a.criterionIds ?? [] : [])),
+  );
+  return criteria.filter((c) => !attributed.has(c.id)).map((c) => c.id);
+}
+
+/** Drop duplicate assertions (e.g. a proposed request-status the LLM listed twice). Duplicates that
+ * differ only in attribution merge their ids: grounding collapses distinct proposals onto one
+ * endpoint, and each criterion it was proposed for must survive that. */
 function dedupeAssertions(assertions: Assertion[]): Assertion[] {
-  const seen = new Set<string>();
-  return assertions.filter((a) => {
-    const key = JSON.stringify(a);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const seen = new Map<string, Assertion>();
+  for (const a of assertions) {
+    const { criterionIds, ...rest } = a as Assertion & { criterionIds?: string[] };
+    const key = JSON.stringify(rest);
+    const kept = seen.get(key) as (Assertion & { kind: "request-status" }) | undefined;
+    if (!kept) seen.set(key, a);
+    else if (criterionIds?.length)
+      kept.criterionIds = [...new Set([...(kept.criterionIds ?? []), ...criterionIds])];
+  }
+  return [...seen.values()];
 }
 
 const ASSERT_SYSTEM =
@@ -405,6 +435,11 @@ const ASSERT_SYSTEM =
 const ASSERT_SYSTEM_SEMANTIC =
   ' You may also add {"kind":"expect","criterion":"<natural-language success criterion>"} ' +
   "for a check no mechanical assertion captures (judged later by an LLM critic).";
+
+const ASSERT_SYSTEM_CRITERIA =
+  ' The intent has approved criteria. On a request-status you may add "criterionIds":["<id>"] naming the ' +
+  "criteria you propose that check for, using only the ids listed. This records why you proposed it; " +
+  "it is not a claim that the request proves the criterion.";
 
 /** Compact evidence rendering for the assertion-proposal prompt. */
 function renderEvidence(evidence: Evidence): string {
@@ -442,10 +477,16 @@ export async function proposeAssertions(
   intent: string,
   evidence: Evidence,
   semantic: boolean,
+  criteria: readonly HostCriterion[] = [],
 ): Promise<Assertion[]> {
-  const system = semantic ? ASSERT_SYSTEM + ASSERT_SYSTEM_SEMANTIC : ASSERT_SYSTEM;
+  const system =
+    (semantic ? ASSERT_SYSTEM + ASSERT_SYSTEM_SEMANTIC : ASSERT_SYSTEM) +
+    (criteria.length ? ASSERT_SYSTEM_CRITERIA : "");
   const prompt = [
     `Intent: ${intent}`,
+    ...(criteria.length
+      ? [``, `Approved criteria:`, ...criteria.map((c) => `${c.id}: ${c.text}`)]
+      : []),
     ``,
     `Observed evidence:`,
     renderEvidence(evidence),

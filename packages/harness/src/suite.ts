@@ -27,7 +27,7 @@ import { startTrace } from "./core/trace.js";
 import { ENGINE_VERSION } from "./version.js";
 import type { TraceEvent, Tracer } from "./core/trace.js";
 import type { Driver, LlmClient, Reporter, SkillStore, TraceSink } from "./core/ports.js";
-import type { Assertion, Result, RunUsage, Scenario, Verdict } from "./core/types.js";
+import type { Assertion, HostCriterion, Result, RunUsage, Scenario, Verdict } from "./core/types.js";
 import { identifyScenario, copyProvenance } from "./core/contract.js";
 
 export interface SuiteCase {
@@ -44,6 +44,9 @@ export interface SuiteCase {
   assertions?: Assertion[];
   /** Discover step cap for this case. */
   maxSteps?: number;
+  /** Host-approved criteria passed to discovery for attribution only (`DiscoverOptions.criteria`).
+   * They add no assertion: `expect` is still the only way to add a criterion to the freeze. */
+  criteria?: HostCriterion[];
 }
 
 /** A frozen skill's staleness fingerprint: the case's user-authored inputs (intent + the criteria
@@ -64,6 +67,8 @@ export function hashCase(c: SuiteCase, baseUrl?: string): string {
     url: c.url ?? baseUrl,
     expect: c.expect ?? [],
     assertions: c.assertions ?? [],
+    // Only when supplied, so a case without criteria keeps the hash it was frozen under.
+    ...(c.criteria?.length ? { criteria: c.criteria } : {}),
   });
   return createHash("sha256").update(material).digest("hex");
 }
@@ -234,6 +239,7 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
+    ...(s.unattributedCriteria?.length ? { unattributedCriteria: [...s.unattributedCriteria] } : {}),
     ...navigationEvidenceSummary(s),
   };
 }
@@ -349,6 +355,7 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
           llm: meter,
           baseUrl: c.url ?? ctx.baseUrl,
           maxSteps: c.maxSteps,
+          criteria: c.criteria,
           policy: ctx.policy,
           signal: ctx.signal,
           benign: ctx.benign,

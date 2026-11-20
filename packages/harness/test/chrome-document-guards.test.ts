@@ -2,6 +2,7 @@ import { createContext, runInContext } from "node:vm";
 import { expect, test } from "vitest";
 import { ChromeDocumentObservation } from "../src/adapters/drivers/chrome-documents.js";
 import { ChromeDevToolsDriver, parseSnapshotRows } from "../src/adapters/drivers/chrome.js";
+import { stepError } from "../src/core/errors.js";
 
 class Node {
   isConnected = true;
@@ -91,6 +92,25 @@ test("perception batches known documents without failed mixed-frame probes", asy
   const probes = f.calls.filter(call => String(call.args.function).includes("referenceReady"));
   expect(probes.map(probe => probe.args.args)).toEqual([["root", "a"], ["child", "b"]]);
   expect(await driver.locateRef(rows[3]!.ref!)).toEqual({ text: "Save", role: "button", index: 1, nth: 1 });
+});
+
+test.each(["ordinary", "scoped"])("the closing page read in a framed %s capture preserves its error contract", async mode => {
+  const f = fixture(), driver = new ChromeDevToolsDriver({ promoteClickables: false });
+  Object.assign(driver, { call: f.call });
+  const reason = stepError("transport", "lost closing page read");
+  let reads = 0;
+  f.state.hook = name => { if (name === "list_pages" && ++reads === 2) throw reason; };
+  if (mode === "ordinary") {
+    await expect(driver.snapshot({ perception: true })).rejects.toMatchObject({
+      kind: "resolution", message: "observation page changed during capture",
+    });
+  } else {
+    await expect(driver.snapshotWithGuidanceScope({
+      target: { role: "button", name: "Save" }, prerequisites: [{ role: "checkbox", name: "Include" }],
+    })).rejects.toBe(reason);
+  }
+  expect(reads).toBe(2);
+  expect(f.calls.some(call => call.name === "click")).toBe(false);
 });
 
 test.each(["root", "owner", "peer", "selected", "token", "detached", "shadow"])("document guards reject lost %s identity", async change => {

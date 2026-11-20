@@ -11,6 +11,8 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
+import { readGuidedPage, listedScopeBaseline, scopedClick } from "../guided-click.js";
+import { copyGuidanceScope, ScopedGuidanceExpired, type PageGuidanceScope, type GuidanceScopeDiagnostic } from "../guidance-scope.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
 import { snapshotAppContext, withAppContext } from "../app-context.js";
@@ -20,7 +22,7 @@ import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageG
 import type { RunUsage, Step, TruncationReason } from "../types.js";
 import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
-import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
+import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
 import { exploreSystem, buildExplorePrompt } from "./prompt.js";
@@ -50,6 +52,8 @@ export interface ExploreOptions extends BudgetOptions {
   perceive?: PerceptionAdapter;
   /** Host advice for each decision observation (spec/core/page-guidance.md). Absent → unchanged. */
   pageGuidance?: PageGuidanceProvider;
+  /** Measure these prerequisites; only a provider reply tagged "declared-scope" uses them. */
+  pageGuidanceScope?: PageGuidanceScope;
   /** Binding and prepared-selection diagnostics (spec/core/trace.md); absent → no emission. */
   trace?: TraceScope;
   /** URL substrings whose 4xx/5xx is product noise — excluded from failed-request findings. */
@@ -115,17 +119,18 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
   const guidanceAttempts = new PageGuidanceAttempts();
+  const scope = pageGuidance && opts.pageGuidanceScope !== undefined ? copyGuidanceScope(opts.pageGuidanceScope) : undefined;
   const check = () => { signal?.throwIfAborted(); opts[budgetScope]?.check(); };
-  const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", reason } });
-  const perceivePage = async () => {
+  const guidanceGate = (reason: string, diagnostic?: GuidanceScopeDiagnostic) => trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", reason, ...diagnostic } });
+  const perceivePage = async (declared?: PageGuidanceScope) => {
     const before = await readPolicyScroll(policy, driver);
-    const raw = await driver.snapshot({ perception: true });
+    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, declared);
     const after = await readPolicyScroll(policy, driver);
     const elements = perceive ? await perceive(raw.map(e => ({ ...e }))) : raw;
     const ctx = policyContext(elements, currentUrl, before, after);
     policy?.observe?.(ctx);
     try {
-      return { elements, ctx, capturedState: pageGuidance ? pageGuidanceState(raw) : undefined, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
+      return { elements, ctx, scopeBaseline, capturedState: pageGuidance ? pageGuidanceState(raw) : undefined, page: new PerceptionObservation(driver, raw, elements, charter, undefined, Boolean(trace)) };
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
       // Keep raw page content and rejected references out of the diagnostic stream.
@@ -187,6 +192,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   };
 
   let truncated = true;
+  const report = (truncationReason?: TruncationReason): ExploreReport => ({
+    charter, visited, steps, findings: dedupeFindings(findings), usage: llm.snapshot(), truncated,
+    ...(truncationReason ? { truncationReason } : {}), finalUrl: currentUrl,
+  });
   let consecutiveBlocks = 0;
 
   for (let i = 0; i < maxSteps; i++) {
@@ -200,8 +209,9 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const observedUrl = observation.execution.finalUrl;
     currentUrl = observedUrl ?? currentUrl;
     visit(observedUrl);
-    const { elements, ctx, page, capturedState } = await perceivePage();
+    const { elements, ctx, page, capturedState, scopeBaseline } = await perceivePage(scope);
     if (!page) continue; // retry with a fresh capture within the existing step bound
+    const listedScope = listedScopeBaseline(scope, scopeBaseline, page);
     const render = page.render;
 
     if (pending) {
@@ -270,15 +280,24 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
 
+    const scoped = scopedClick(driver, scope, listedScope, guidance, decision, check, signal, rememberGuidanceUrl);
     if (guidance) {
       signal?.throwIfAborted();
-      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl);
+      const invalidation = scoped ? await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidanceUrl)
+        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidanceUrl);
       check();
       if (invalidation) {
         currentUrl = validationUrl;
         guidanceAttempts.expired();
         guidanceGate(invalidation);
         pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+        continue;
+      }
+      if (scoped?.baselineError) {
+        const error = new ScopedGuidanceExpired(scoped.baselineError);
+        guidanceAttempts.expired();
+        guidanceGate(error.message, error.diagnostic);
+        pushFailure(error.message);
         continue;
       }
     }
@@ -352,6 +371,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
 
+    let executingScope = scoped;
     try {
       const mark: ActionMark = {
         url: observation.execution.finalUrl,
@@ -360,7 +380,8 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
         render,
       };
       check();
-      const step = await applyDecision(driver, decision);
+      const step = await executeDecision(driver, decision, {}, scoped?.validate);
+      executingScope = undefined;
       // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -371,8 +392,24 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       onStep?.(decision, step);
     } catch (err) {
       check();
-      const message = err instanceof Error ? err.message : String(err);
       rethrowBudget(err);
+      if (executingScope) {
+        const rejected = executingScope.failure(err);
+        if (!rejected) throw err;
+        currentUrl = validationUrl;
+        if ("code" in rejected) {
+          // Pending outcomes from earlier steps were observed before the decision.
+          // The unknown click's effects are not a new finding or a goal check.
+          trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", ...rejected } });
+          check();
+          return report(rejected.code);
+        }
+        guidanceAttempts.expired();
+        guidanceGate(rejected.reason, rejected.diagnostic);
+        pushFailure(rejected.reason);
+        continue;
+      }
+      const message = err instanceof Error ? err.message : String(err);
       pushFailure(`${describeAction(decision)} — ${message}`);
       // An action the page wouldn't take is itself a UX signal — an overlay-covered button, a
       // control that exists in the tree but can't be driven.
@@ -424,14 +461,5 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   if (incomplete) trace?.emit({ kind: "gate", phase: "explore",
     payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
   check();
-  return {
-    charter,
-    visited,
-    steps,
-    findings: dedupeFindings(findings),
-    usage: llm.snapshot(),
-    truncated,
-    ...(truncationReason ? { truncationReason } : {}),
-    finalUrl: currentUrl,
-  };
+  return report(truncationReason);
 }

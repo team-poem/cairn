@@ -7,6 +7,8 @@
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
 import { PerceptionObservation } from "../observation.js";
+import { readGuidedPage, listedScopeBaseline, scopedClick } from "../guided-click.js";
+import { copyGuidanceScope, ScopedGuidanceExpired, type PageGuidanceScope, type GuidanceScopeDiagnostic } from "../guidance-scope.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
 import { identifyScenario } from "../contract.js";
@@ -17,7 +19,7 @@ import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageG
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
-import { applyDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
+import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import { validateSecrets, missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
@@ -66,6 +68,8 @@ export interface DiscoverOptions extends BudgetOptions {
   /** Host advice for each decision observation (spec/core/page-guidance.md). Absent → unchanged.
    * Never reaches assertion proposals, judgment, provenance or a frozen scenario. */
   pageGuidance?: PageGuidanceProvider;
+  /** Measure these prerequisites; only a provider reply tagged "declared-scope" uses them. */
+  pageGuidanceScope?: PageGuidanceScope;
   /** Values for `{name}` placeholders the model types (from the intent, e.g. "log in as {user} / {password}"):
    * the driver gets the value, the freeze keeps the placeholder (#174). */
   secrets?: Secrets;
@@ -113,13 +117,17 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
   const guidanceAttempts = new PageGuidanceAttempts();
+  const scope = pageGuidance && opts.pageGuidanceScope !== undefined ? copyGuidanceScope(opts.pageGuidanceScope) : undefined;
   const check = () => { signal?.throwIfAborted(); opts[budgetScope]?.check(); };
-  const guidanceGate = (reason: string) => trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", reason } });
+  const guidanceGate = (reason: string, diagnostic?: GuidanceScopeDiagnostic) => trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", reason, ...diagnostic } });
   const steps: Step[] = [];
   // Per-step outcome marks, index-aligned with `steps` — expects are decided retroactively at
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
+  const identify = async (scenario: Scenario) => identifyScenario(scenario, {
+    intent: slotSecretText(intent, secrets), benign, localePrefixes, provenance: await appContextProvenance(appContext),
+  });
 
   // Emit the freeze: observe pending mutations and short post-response redirects within one
   // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
@@ -192,8 +200,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const scenario: Scenario = truncated
       ? { name: intent, steps, assertions, truncated: true, ...(truncationReason ? { truncationReason } : {}), ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
-    const identified = await identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
-      provenance: await appContextProvenance(appContext) });
+    const identified = await identify(scenario);
     check();
     if (guidanceExpired) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "page-guidance", ...guidanceAttempts.diagnostic() } });
@@ -247,7 +254,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const observedUrl = pageGuidance ? (await driver.observe()).execution.finalUrl : undefined;
     rememberGuidedPolicyUrl(observedUrl);
     const scrollBefore = await readPolicyScroll(policy, driver);
-    const raw = await driver.snapshot({ perception: true });
+    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope);
     const scrollAfter = await readPolicyScroll(policy, driver);
     const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
     if (policy?.needsScrollState) {
@@ -278,6 +285,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (guidanceAttempts.exhausted) return finish(true);
     if (policy?.incomplete?.()?.halt) return finish(true);
     const render = page.listing;
+    const listedScope = listedScopeBaseline(scope, scopeBaseline, page);
     const capturedState = pageGuidance ? pageGuidanceState(raw) : undefined;
     const guidance: PageGuidance | undefined = pageGuidance && await requestPageGuidance(pageGuidance, {
       purpose: "discover", page, url: observedUrl, secrets, signal, scope: opts[budgetScope], gate: guidanceGate });
@@ -331,14 +339,23 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       continue;
     }
 
+    const scoped = scopedClick(driver, scope, listedScope, guidance, decision, check, signal, rememberGuidedPolicyUrl);
     if (guidance) {
       signal?.throwIfAborted();
-      const invalidation = await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidedPolicyUrl);
+      const invalidation = scoped ? await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidedPolicyUrl)
+        : await pageGuidanceInvalidation(driver, guidance, capturedState!, decision.ref !== undefined, signal, rememberGuidedPolicyUrl);
       check();
       if (invalidation) {
         guidanceAttempts.expired();
         guidanceGate(invalidation);
         pushFailure(`${describeAction(decision)} — not run: the page changed after the observation it was decided on`);
+        continue;
+      }
+      if (scoped?.baselineError) {
+        const error = new ScopedGuidanceExpired(scoped.baselineError);
+        guidanceAttempts.expired();
+        guidanceGate(error.message, error.diagnostic);
+        pushFailure(error.message);
         continue;
       }
     }
@@ -373,8 +390,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     }
 
     let completedStep: Step | undefined;
+    // No input has been attempted yet. A scoped observation failure is an execution
+    // error; it must not look like an expired decision or an unacknowledged click.
+    const scopedBefore = scoped ? await driver.observe() : undefined;
+    let executingScope: typeof scoped;
     try {
-      const beforeObs = await driver.observe();
+      const beforeObs = scopedBefore ?? await driver.observe();
       check();
       rememberGuidedPolicyUrl(beforeObs.execution.finalUrl);
       // Guidance cannot carry a decision onto a page other than the one it was written for.
@@ -414,7 +435,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       check();
-      const step = await applyDecision(driver, decision, secrets);
+      executingScope = scoped;
+      const step = await executeDecision(driver, decision, secrets, scoped?.validate);
+      executingScope = undefined;
       // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
@@ -437,6 +460,24 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
+      if (executingScope) {
+        const rejected = executingScope.failure(err);
+        if (!rejected) throw err;
+        if ("code" in rejected) {
+          // finish() would read the post-click page and assign its effects to the
+          // last confirmed step. Only return what was recorded before this click.
+          capture?.invalidate();
+          const partial = await identify({ name: intent, steps, assertions: [], truncated: true, truncationReason: rejected.code });
+          check();
+          trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", ...rejected } });
+          check();
+          return partial;
+        }
+        guidanceAttempts.expired();
+        guidanceGate(rejected.reason, rejected.diagnostic);
+        pushFailure(rejected.reason);
+        continue;
+      }
       capture?.invalidate();
       completedStep = undefined;
       trace?.emit({

@@ -225,6 +225,28 @@ When any resource satisfying explicit conditions is acceptable, use
 can reference that run's bound resource in later actions, and permits reselection only before
 dispatch under an explicit limit. Fixed targets and positional collections do not gain fallback.
 
+### Which criteria a request check was proposed for
+
+Pass the criteria your host approved next to the intent. The model may say which of them it proposed
+each derived `request-status` check for:
+
+```ts
+const criteria = [
+  { id: "C1", text: "add the item to the basket" },
+  { id: "C2", text: "show a confirmation" },
+];
+const scenario = await discover("Add the item", { driver, llm, criteria });
+// scenario.assertions: { kind: "request-status", …, criterionIds: ["C1"] }
+// scenario.unattributedCriteria: ["C2"]
+```
+
+`criterionIds` survives save/load and appears on each assertion result at replay. It records why the
+check was proposed, not that it proves the criterion: a successful basket request does not show a
+confirmation. `unattributedCriteria` lists criteria with no surviving attributed request check,
+whether nothing was proposed or the proposal failed grounding. It is not a failure. Unknown ids are
+dropped without losing the check. Grading, verdicts and the contract are unchanged, replay makes no
+model call, and `runSuite` accepts `criteria` per case. Without `criteria` nothing changes.
+
 ### Optional app knowledge
 
 Pass reusable terminology and flow prerequisites separately from the task:

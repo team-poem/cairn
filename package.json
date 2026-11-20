@@ -28,6 +28,7 @@
     "test:collection-selection": "npm run test:browser -w cairn-engine -- test/browser/collection.browser.test.ts && node scripts/test-collection-selection.mjs",
     "test:selected-item-evidence": "node scripts/test-selected-item-evidence.mjs",
     "test:predicate-selection": "node scripts/test-predicate-selection.mjs",
+    "test:discovery-selection": "npm run build && node scripts/test-discovery-selection.mjs",
     "test:scroll-policy": "npm run test:browser -w cairn-engine -- test/browser/scroll-policy.browser.test.ts && node scripts/test-scroll-policy.mjs",
     "test:network-evidence": "node scripts/test-network-evidence.mjs",
     "test:declined-step-heal": "node scripts/test-declined-step-heal.mjs",

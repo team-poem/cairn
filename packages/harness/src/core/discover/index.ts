@@ -19,7 +19,7 @@ import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageG
 import type { Assertion, Scenario, Step } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
-import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
+import { executeDecision, describeAction, describeAmbiguity, describeDisallowed, disallowedGate, parseDecision } from "./decision.js";
 import type { ActionPolicy, Decision } from "./decision.js";
 import { assignStepExpects, observeOutcomes, pruneIdleScrolls } from "./capture.js";
 import { validateSecrets, missingSecretOf, redactSecrets, slotSecretText } from "../secrets.js";
@@ -386,6 +386,16 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       });
       pushFailure(`${describeAction(decision)} — ${ambiguity}`);
       onStep?.(decision);
+      continue;
+    }
+
+    // Measured eligibility: an explicitly disallowed action never reaches the driver, and the next
+    // decision is the model's own. Counts with policy blocks so a loop that keeps choosing it stops.
+    if (page.disallows(decision)) {
+      trace?.emit({ kind: "gate", phase: tracePhase, payload: disallowedGate(decision) });
+      pushFailure(describeDisallowed(decision));
+      onStep?.(decision);
+      if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) return finish(true);
       continue;
     }
 

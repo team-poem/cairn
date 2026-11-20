@@ -103,6 +103,17 @@ export class PerceptionObservation {
       ...(e.clickable !== undefined ? { clickable: e.clickable } : {}) }));
   }
 
+  /** True only when this observation's own row for the bound ref measured the decision's action as
+   * "disallowed". Unbound, legacy, partial or malformed facts are unknown, and another action's
+   * restriction never applies. Read from the row captured at construction, never from enrichment. */
+  disallows(decision: Decision): boolean {
+    const bound = bindings.get(decision);
+    if (!bound || bound.observation !== this) return false;
+    const actions: unknown = this.table.get(bound.token)?.element.actions;
+    if (typeof actions !== "object" || actions === null) return false;
+    return Object.hasOwn(actions, decision.action) && (actions as Record<string, unknown>)[decision.action] === "disallowed";
+  }
+
   /** Consume even rejected attempts. Canonicalize BEFORE ambiguity and consumer policy. */
   bind(decision: Decision): Decision {
     if (this.consumed) invalid("observation already consumed");

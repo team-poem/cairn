@@ -26,7 +26,7 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
  * 1.14 — required inconclusive custom checks (#314).
  * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
- * 1.16 — optional scope status and measured change counts on page-guidance gates (#356). */
+ * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356). */
 export const TRACE_VERSION = "1.16";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";

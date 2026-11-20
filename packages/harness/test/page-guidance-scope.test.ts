@@ -18,7 +18,7 @@ const scopedAdvice = { text: "Check the cart", freshness: "declared-scope" } as 
 type Mode = "discover" | "explore";
 
 class Cart extends StubDriver {
-  constructor() { super(URL); }
+  constructor(private otherButton = "Other") { super(URL); }
   slide = 1;
   destination = "private-standard";
   rows = ["private-row-1", "private-row-2"];
@@ -50,7 +50,7 @@ class Cart extends StubDriver {
     const button = { ...target, disabled: this.disabled, occluded: this.occluded,
       ...(this.ref ? { ref: this.ref } : {}) };
     return [...(this.missingTarget ? [] : [button]), ...(this.duplicate ? [{ ...button }] : []),
-      { role: "button", name: "Other" }, { ...delivery, value: this.destination }, container,
+      { role: "button", name: this.otherButton }, { ...delivery, value: this.destination }, container,
       ...this.rows.map(() => ({ role: "checkbox", name: "Select", checked: this.checked })),
       { role: "link", name: `Promo ${this.slide}` }];
   }
@@ -93,15 +93,16 @@ async function run(mode: Mode, driver: Driver, reply: (n: number, prompt: string
   options: Partial<Options> = {}) {
   const events: TraceEvent[] = [];
   const trace = startTrace({ emit: event => { events.push(event); } }, "scope").scope("cart");
-  let calls = 0;
+  let calls = 0, proposals = 0;
   const model = { id: "scripted", async complete(prompt: string) {
-    return prompt.includes("Propose the verification assertions.") ? "[]" : reply(++calls, prompt);
+    if (prompt.includes("Propose the verification assertions.")) { proposals++; return "[]"; }
+    return reply(++calls, prompt);
   } };
   const opts = { driver, llm: model, baseUrl: URL, trace, maxSteps: 1,
     pageGuidanceScope: scope, pageGuidance: () => scopedAdvice, ...options };
   const result = await (mode === "discover" ? discover("Check out", opts) : explore("Check out", opts));
   const gates = events.flatMap(e => e.kind === "gate" && e.payload.gate === "page-guidance" ? [e.payload] : []);
-  return { result, calls, gates, events };
+  return { result, calls, proposals, gates, events };
 }
 
 describe.each(["discover", "explore"] as const)("%s reference-free scoped guidance", mode => {
@@ -277,10 +278,114 @@ describe.each(["discover", "explore"] as const)("%s reference-free scoped guidan
     driver.snapshotWithGuidanceScope = capture;
     const click = driver.click.bind(driver);
     driver.click = async (...args) => { await click(...args); throw error; };
-    let decisions = 0;
-    await expect(run(mode, driver, () => { decisions++; return CLICK; }, { maxSteps: 7 })).rejects.toBe(error);
-    expect(decisions).toBe(1);
+    const partial = await run(mode, driver, () => CLICK, { maxSteps: 7 });
+    expect(partial.result.truncationReason).toBe("click-dispatch-uncertain");
+    expect(partial.calls).toBe(1);
     expect(driver.clicked).toEqual(["Checkout"]);
+  });
+
+  it("does not attribute an unacknowledged Checkout's destination or POST to the confirmed Start step", async () => {
+    const driver = new Cart("Start");
+    const receipt = "https://example.test/private-receipt";
+    const orderPost = { method: "POST", url: "https://example.test/private-orders", status: 201 };
+    const requests: (typeof orderPost)[] = [];
+    const readsAfterSend: string[] = [];
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      if (requests.length) readsAfterSend.push("observe");
+      const evidence = await observe();
+      evidence.logic.requests = requests.slice();
+      return evidence;
+    };
+    const click = driver.click.bind(driver);
+    driver.click = async (...args) => {
+      await click(...args); // Includes the Driver's check immediately before submission.
+      if (args[0].text !== "Checkout") return;
+      driver.url = receipt;
+      requests.push(orderPost);
+      throw new Error("private lost Checkout response");
+    };
+    const { result, calls, proposals, events, gates } = await run(mode, driver, n => {
+      if (n === 1) return '{"action":"click","role":"button","text":"Start"}';
+      if (mode === "explore" && n === 2) return '{"action":"note","text":"Delivery description is unclear"}';
+      return CLICK;
+    }, { maxSteps: 8, policy: {
+      vet: () => ({ ok: true }),
+      stop: () => { if (requests.length) readsAfterSend.push("stop"); return driver.url === receipt; },
+    } });
+    expect(driver.clicked).toEqual(["Start", "Checkout"]);
+    expect(requests).toEqual([orderPost]);
+    expect(result).toMatchObject({ truncated: true, truncationReason: "click-dispatch-uncertain" });
+    expect(result.steps).toMatchObject([{ kind: "goto", url: URL }, { kind: "click", target: { text: "Start" } }]);
+    expect(result.steps[1]).not.toHaveProperty("expect");
+    expect(readsAfterSend).toEqual([]);
+    expect(calls).toBe(mode === "discover" ? 2 : 3);
+    expect(proposals).toBe(0);
+    if ("assertions" in result) expect(result.assertions).toEqual([]);
+    if ("findings" in result) {
+      expect(result.findings).toContainEqual(expect.objectContaining({ kind: "agent-note", detail: "Delivery description is unclear" }));
+      expect(result.findings.some(f => f.kind === "action-error")).toBe(false);
+      expect(result.finalUrl).toBe(URL);
+    }
+    expect(gates).toHaveLength(1);
+    expect(gates[0]).toMatchObject({ code: "click-dispatch-uncertain" });
+    expect(JSON.stringify(gates)).not.toMatch(/Checkout|Start|private|receipt|example\.test/);
+    expect(JSON.stringify([result, events])).not.toMatch(/private-receipt|private-orders|private lost Checkout response/);
+    expect(events.some(e => e.kind === "action" && e.payload.ok &&
+      (e.payload.done || (e.payload.step?.kind === "click" && e.payload.step.target.text === "Checkout")))).toBe(false);
+  });
+
+  it("cannot retry an expiration a Driver reports after input was submitted", async () => {
+    const driver = new Cart();
+    const click = driver.click.bind(driver);
+    driver.click = async (...args) => {
+      await click(...args);
+      throw new ScopedGuidanceExpired({ scopeStatus: "target-ambiguous" });
+    };
+    const { result, calls } = await run(mode, driver, () => CLICK, { maxSteps: 8 });
+    expect(result.truncationReason).toBe("click-dispatch-uncertain");
+    expect(calls).toBe(1);
+    expect(driver.clicked).toEqual(["Checkout"]);
+  });
+
+  it("propagates an ordinary Driver error before the pre-send check", async () => {
+    const driver = new Cart(), error = new Error("cannot read active page");
+    driver.click = async () => { throw error; };
+    await expect(run(mode, driver, () => CLICK)).rejects.toBe(error);
+    expect(driver.clicked).toEqual([]);
+  });
+
+  it("retains ordinary failure handling when the host chooses plain advice", async () => {
+    const driver = new Cart(), failClick = vi.spyOn(driver, "click").mockRejectedValue(new Error("not interactable"));
+    const { result, calls } = await run(mode, driver, n => n === 1 ? CLICK : DONE,
+      { maxSteps: 4, pageGuidance: () => scopedAdvice.text });
+    expect(failClick).toHaveBeenCalledTimes(1);
+    expect(calls).toBe(2);
+    expect(result.truncated).not.toBe(true);
+    expect(result.steps.map(s => s.kind)).toEqual(["goto"]);
+    if ("findings" in result) expect(result.findings.some(f => f.kind === "action-error")).toBe(true);
+  });
+
+  it.each(["transport", "cancel", "deadline"])("preserves %s after the pre-send check", async failure => {
+    const driver = new Cart(), controller = new AbortController();
+    const error = Object.assign(new Error("connection closed"), { kind: "transport" });
+    const abort = new Error("run cancelled");
+    const click = driver.click.bind(driver);
+    let now = 0;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    try {
+      driver.click = async (...args) => {
+        await click(...args);
+        if (failure === "transport") throw error;
+        if (failure === "cancel") controller.abort(abort);
+        if (failure === "deadline") now += 1001;
+        throw new Error("no acknowledgment");
+      };
+      const result = run(mode, driver, () => CLICK, { signal: controller.signal, budget: { timeoutMs: 1000 } });
+      if (failure === "deadline") await expect(result).rejects.toMatchObject({ name: "BudgetExceededError", budget: { limit: "time" } });
+      else await expect(result).rejects.toBe(failure === "transport" ? error : abort);
+      expect(driver.clicked).toEqual(["Checkout"]);
+    } finally { clock.mockRestore(); }
   });
 
   it.each([
@@ -390,6 +495,9 @@ describe.each(["discover", "explore"] as const)("%s reference-free scoped guidan
     expect(driver.clicked).toEqual([]);
     expect(result.truncationReason).toBe("page-guidance-expired");
     expect(gates.filter(g => "scopeStatus" in g && g.scopeStatus === "scope-unverifiable")).toHaveLength(3);
+    // Plain advice is an explicit choice by the host, not an engine downgrade.
+    await run(mode, driver, () => CLICK, { pageGuidance: () => scopedAdvice.text });
+    expect(driver.clicked).toEqual(["Checkout"]);
   });
 
   it("rejects a malformed opt-in before navigation or capture", async () => {
@@ -471,6 +579,21 @@ describe.each(["discover", "explore"] as const)("%s reference-free scoped guidan
     });
     expect(click).toHaveBeenCalledWith(expect.objectContaining({ text: "Checkout" }), driver.ref);
   });
+});
+
+it("propagates a failed scoped discovery observation before policy or click", async () => {
+  const driver = new Cart(), error = new Error("page observation failed");
+  const observe = driver.observe.bind(driver);
+  const vet = vi.fn(() => ({ ok: true as const }));
+  let decided = false, postDecisionReads = 0;
+  driver.observe = async () => {
+    // The post-response URL check succeeds; the action's pre-policy read then fails.
+    if (decided && ++postDecisionReads === 2) throw error;
+    return observe();
+  };
+  await expect(run("discover", driver, () => { decided = true; return CLICK; }, { policy: { vet } })).rejects.toBe(error);
+  expect(vet).not.toHaveBeenCalled();
+  expect(driver.clicked).toEqual([]);
 });
 
 it("keeps exploration notes observation-wide", async () => {

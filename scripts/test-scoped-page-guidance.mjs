@@ -14,6 +14,7 @@ const server = createServer((req, res) => {
     <p id="promo">${variant === 'promo' ? 'Promotion "Round 0"' : 'Promotion A'}</p>
     <select aria-label="Delivery"><option value="s">Standard</option><option value="e">Express</option></select>
     <ul aria-label="Cart rows"><li><input id="row" type="checkbox" aria-label="Select row"></li></ul>
+    ${variant === 'dispatch-error' ? '<button id="start">Start</button>' : ''}
     ${variant === 'ordinal' && !replayLayout ? other : ''}
     <button id="checkout">${variant === 'promo' ? '<svg aria-hidden="true" width="12" height="12"><circle cx="6" cy="6" r="5"></circle></svg><span>Checkout</span>' : 'Checkout'}</button>
     ${variant === 'promo' ? '<button id="offer">Offer "Today"</button><input type="submit" id="coupon" value="Apply coupon">' : ''}
@@ -38,11 +39,14 @@ const server = createServer((req, res) => {
         const button = event.target.closest('button,input[type="submit"]');
         if (!button) return;
         cart.clicks.push(button.id);
+        if (button.id === 'checkout' && location.pathname === '/confirm') {
+          cart.confirmed = window.confirm('Place the order?');
+        }
         if (cart.interval) {
           cart.clickTick = cart.intervalTicks;
           cart.stop();
         }
-        if (button.id === 'checkout' && location.pathname === '/ordinal') {
+        if (button.id === 'checkout' && ['/ordinal', '/dispatch-error'].includes(location.pathname)) {
           history.pushState({}, '', '/receipt');
           const h = document.body.appendChild(document.createElement('h1'));
           h.textContent = 'Checkout complete';
@@ -120,7 +124,15 @@ const realClick = driver.click.bind(driver);
 let active, captureDepth = 0, insideClick = false;
 driver.call = async (name, ...args) => {
   if (name === 'click' && active) active.sends++;
-  const result = await call(name, ...args);
+  if (name === 'handle_dialog' && active?.variant === 'confirm') active.dialogActions++;
+  let result;
+  try {
+    result = await call(name, ...args);
+  } catch (error) {
+    if (name === 'click' && active?.variant === 'confirm' && String(error).includes('# Open dialog'))
+      active.dialogError = true;
+    throw error;
+  }
   if (name === 'take_snapshot' && (captureDepth || insideClick) && active?.variant === 'promo') {
     const { tick, text } = await rotate();
     assert.equal(text, `Promotion "Round ${tick}"`);
@@ -184,9 +196,10 @@ driver.click = async (...args) => {
 };
 
 async function runCase(mode, variant) {
-  const allow = variant === 'promo' || variant === 'ordinal';
+  const allow = ['promo', 'ordinal', 'confirm'].includes(variant);
   const gateEvents = [];
-  const state = { variant, captures: 0, decisions: 0, sends: 0, dispatchGuards: 0, ticksInCapture: 0 };
+  const state = { variant, captures: 0, decisions: 0, sends: 0, dispatchGuards: 0, ticksInCapture: 0,
+    dialogActions: 0, dialogError: false };
   active = state;
   try {
     const llm = { id: 'scripted-scoped-guidance', async complete(prompt) {
@@ -215,6 +228,19 @@ async function runCase(mode, variant) {
       } }, mode).scope(variant),
     });
     assert.equal(state.decisions, 1);
+    if (variant === 'confirm' && state.dialogError) {
+      // Chrome received the click, but MCP returned an error with an open-dialog notice.
+      // Leave that dialog to the host; neither its presence nor its message confirms a click.
+      assert.equal(result.truncationReason, 'click-dispatch-uncertain');
+      assert.equal(result.truncated, true);
+      assert.equal(result.steps.filter(step => step.kind === 'click').length, 0);
+      assert.equal(state.sends, 1);
+      assert.equal(state.dialogActions, 0);
+      await call('handle_dialog', { action: 'dismiss' }); // fixture cleanup, not an engine action
+      assert.deepEqual(await clicks(), ['checkout']);
+      assert.equal(await evaluate('return cart.confirmed;'), false);
+      return result;
+    }
     assert.deepEqual(await clicks(), allow ? ['checkout'] : [], `${mode}/${variant}: real DOM click handlers`);
     assert.equal(state.sends, Number(allow), 'Count real MCP click requests, including any retries');
     const frozen = result.steps.filter(step => step.kind === 'click');
@@ -222,6 +248,10 @@ async function runCase(mode, variant) {
     if (allow) {
       assert.deepEqual(frozen[0].target, target, 'Do not persist a volatile role index or a scoped receipt');
       assert.equal(gateEvents.length, 0);
+      if (variant === 'confirm') {
+        assert.equal(state.dialogActions, 1);
+        assert.equal(await evaluate('return cart.confirmed;'), true);
+      }
     } else {
       const status = variant === 'css-after-ax' ? 'scope-unverifiable'
         : variant.endsWith('duplicate') ? 'target-ambiguous' : 'scope-changed';
@@ -257,10 +287,48 @@ async function replayWithMovedButton(scenario) {
   } finally { replayLayout = false; }
 }
 
+// Chrome acts on both requests. Fail the second acknowledgement before the engine sees it.
+// The receipt page belongs to Checkout, never to the previously confirmed Start step.
+async function checkUnacknowledgedClick(mode) {
+  const previousCall = driver.call;
+  let sends = 0, decisions = 0;
+  driver.call = async (name, ...args) => {
+    const result = await previousCall(name, ...args);
+    if (name === 'click' && ++sends === 2) throw new Error('Injected click acknowledgement error');
+    return result;
+  };
+  try {
+    const result = await (mode === 'discover' ? discover : explore)('Start, then check out', {
+      driver, baseUrl: `${baseUrl}/dispatch-error`, maxSteps: 4, pageGuidanceScope: scope,
+      pageGuidance: () => ({ text: 'Check the cart.', freshness: 'declared-scope' }),
+      llm: { id: 'scripted-click-error', async complete(prompt) {
+        assert.ok(prompt.includes('What is the single next action?'), 'Do not propose assertions from the receipt page');
+        assert.ok(++decisions <= 2, 'Do not ask for a retry');
+        return JSON.stringify({ action: 'click', role: 'button', text: decisions === 1 ? 'Start' : 'Checkout' });
+      } },
+    });
+    assert.equal(result.truncationReason, 'click-dispatch-uncertain');
+    assert.equal(result.truncated, true);
+    assert.deepEqual(await clicks(), ['start', 'checkout'], 'The browser received each click exactly once');
+    assert.equal(await evaluate('return location.pathname;'), '/receipt');
+    assert.equal(sends, 2);
+    assert.deepEqual(result.steps.map(s => s.kind === 'click' ? s.target.text : s.kind), ['goto', 'Start']);
+    assert.equal(result.steps[1].expect, undefined);
+    if (mode === 'discover') assert.deepEqual(result.assertions, []);
+    else assert.equal(result.finalUrl, `${baseUrl}/dispatch-error`);
+  } finally {
+    driver.call = previousCall;
+  }
+}
+
 try {
   await checkDriverFacts();
+  for (const mode of ['discover', 'explore']) {
+    await checkUnacknowledgedClick(mode);
+    console.log(`PASS ${mode}/unacknowledged-click`);
+  }
   const failures = [];
-  for (const variant of ['promo', 'css-duplicate', 'css-after-ax', 'mixed', 'checked', 'dom-duplicate', 'replacement', 'ordinal']) {
+  for (const variant of ['promo', 'css-duplicate', 'css-after-ax', 'mixed', 'checked', 'dom-duplicate', 'replacement', 'ordinal', 'confirm']) {
     for (const mode of ['discover', 'explore']) {
       try {
         const result = await runCase(mode, variant);

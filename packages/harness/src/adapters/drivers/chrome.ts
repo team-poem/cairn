@@ -159,11 +159,24 @@ export function mcpToolError(name: string, text: string): Error {
   // healthy, and MCP repeats the dialog's own (page-provided) text inside the error line, so it is
   // recognised BEFORE any transport phrase is looked for. `callAccepting` handles it; a verb that
   // does not accept dialogs (hover) surfaces it untyped.
-  if (isDialogBlocked(text)) return new Error(`MCP ${name} failed: ${text}`);
+  return classifyToolError(name, text, isDialogBlocked(text) ? "" : text);
+}
+
+function classifyToolError(name: string, text: string, diagnostic: string): Error {
   const transport =
-    /Protocol error \([^)]*\): (?:Target closed|Session closed)|Session closed\. Most likely|Connection closed\. Most likely|chrome-devtools-mcp transport closed|Failed to launch the browser process|Could not find Chrome|Could not connect to Chrome|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/.test(text);
+    /Protocol error \([^)]*\): (?:Target closed|Session closed)|Session closed\. Most likely|Connection closed\. Most likely|chrome-devtools-mcp transport closed|Failed to launch the browser process|Could not find Chrome|Could not connect to Chrome|net::ERR_[A-Z_]+|\b(?:ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENOTFOUND)\b/.test(diagnostic);
   const message = `MCP ${name} failed: ${text}`;
   return transport ? stepError("transport", message) : new Error(message);
+}
+
+// MCP appends the tool error after the page's dialog text. Neither a dialog title nor
+// a control named "Open dialog" should hide a real transport failure or confirm a click.
+function scopedInputError(name: string, text: string): Error {
+  const split = "\nCall handle_dialog to handle it before continuing.\nError: ";
+  const boundary = text.lastIndexOf(split);
+  const diagnostic = boundary < 0 ? text : text.slice(boundary + split.length);
+  // The server repeats the page-supplied message when an already-open dialog blocks a tool.
+  return classifyToolError(name, text, /^(?:Error: )?A dialog is open \(/.test(diagnostic) ? "" : diagnostic);
 }
 
 export class ChromeDevToolsDriver implements Driver {
@@ -329,7 +342,7 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
-  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture",
+  private async call(name: string, args: Record<string, unknown> = {}, purpose?: "observation" | "capture" | "scoped-input",
     beforeSend?: () => void): Promise<string> {
     const client = await this.ensureConnected();
     // Let initial rendering settle before the guard starts retaining cohort mutations.
@@ -350,6 +363,7 @@ export class ChromeDevToolsDriver implements Driver {
         `MCP ${name}`,
       )) as typeof res;
     } catch (err) {
+      if (purpose === "scoped-input" && err instanceof Error && ["AbortError", "BudgetExceededError"].includes(err.name)) throw err;
       // The SDK rejects raw, without an envelope, when the stdio transport dies under an in-flight
       // call (`MCP error -32000: Connection closed`, `Not connected`) — the very call that saw the
       // browser go. Type it here; the next call would hit `crashed` and be typed anyway.
@@ -362,7 +376,7 @@ export class ChromeDevToolsDriver implements Driver {
       .filter((c) => c.type === "text" && typeof c.text === "string")
       .map((c) => c.text)
       .join("\n");
-    if (res.isError) throw mcpToolError(name, text);
+    if (res.isError) throw purpose === "scoped-input" ? scopedInputError(name, text) : mcpToolError(name, text);
     return text;
   }
 
@@ -386,7 +400,7 @@ export class ChromeDevToolsDriver implements Driver {
   private async clickGuidance(ref: string, check?: () => void): Promise<void> {
     const unavailable = () => new ScopedGuidanceExpired({ scopeStatus: "scope-unverifiable" });
     const receipt = this.guidanceClick;
-    if (!receipt || receipt.ref !== ref || await this.selectedPage() !== receipt.page) throw unavailable();
+    if (!receipt || receipt.ref !== ref || await this.selectedPage("guidance") !== receipt.page) throw unavailable();
     const { scope, stamp, version, expected } = receipt;
     let uid: string;
     try {
@@ -397,7 +411,7 @@ export class ChromeDevToolsDriver implements Driver {
       // Resolve and check ownership on the fresh AX handle. The live DOM comparison
       // runs last; a cached UID or a fallback locator can never submit this click.
       if (plan.uid) await this.hostRoots?.assertNode(plan.uid, true, stamp);
-      if (await this.selectedPage() !== receipt.page || this.guidanceClick !== receipt) throw unavailable();
+      if (await this.selectedPage("guidance") !== receipt.page || this.guidanceClick !== receipt) throw unavailable();
       const facts = await plan.measure();
       const problem = compareGuidanceScope(expected, captureGuidanceScope(scope, facts));
       if (problem) throw new ScopedGuidanceExpired(problem);
@@ -406,16 +420,22 @@ export class ChromeDevToolsDriver implements Driver {
     } catch (err) {
       // No input has been sent. A stale ownership stamp or an unresolvable AX handle
       // expires this decision, not the run. Transport and caller failures keep their cause.
-      check?.();
       if (errorKindOf(err) === "transport" || err instanceof ScopedGuidanceExpired ||
           (err instanceof Error && ["AbortError", "BudgetExceededError"].includes(err.name))) throw err;
       throw unavailable();
     }
-    await this.submitAccepting("click", { uid }, undefined, () => {
-      check?.();
+    const reply = await this.call("click", { uid }, "scoped-input", () => {
       if (this.guidanceClick !== receipt) throw unavailable();
+      check?.();
       this.invalidateObservation();
     });
+    // A dialog block also accompanies failed MCP calls (including clicks the server
+    // never executed). Only act on it in an acknowledged click reply.
+    if (reply.startsWith("Successfully clicked on the element\n") &&
+        /\n# Open dialog\n(?:alert|beforeunload|confirm|prompt): [\s\S]*\.\nCall handle_dialog to handle it before continuing\.$/.test(reply)) {
+      await this.call("handle_dialog", { action: "accept" }, "scoped-input", check);
+    }
+    await this.followNewTab();
   }
 
   /** Same-document evidence only. A missing receipt never retries or replaces the click. */
@@ -483,17 +503,11 @@ export class ChromeDevToolsDriver implements Driver {
     beforeFollow?: () => Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
     if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
     if (guard && typeof args.uid === "string") await guard.validate(args.uid);
-    onDispatch?.();
-    return this.submitAccepting(name, args, beforeFollow);
-  }
-
-  private async submitAccepting(name: string, args: Record<string, unknown>, beforeFollow?: () => Promise<void>,
-    beforeSend?: () => void): Promise<boolean | undefined> {
-    let submitted = !beforeSend;
     try {
-      await this.call(name, args, undefined, beforeSend && (() => { beforeSend(); submitted = true; }));
+      onDispatch?.();
+      await this.call(name, args);
     } catch (err) {
-      if (!submitted || !isOpenDialog(err)) throw err;
+      if (!isOpenDialog(err)) throw err;
       await this.call("handle_dialog", { action: "accept" });
     } finally {
       // Evidence cleanup never dispatches another action and precedes any tab switch.
@@ -680,6 +694,10 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   async snapshot(options?: SnapshotOptions): Promise<PageElement[]> {
+    return this.readSnapshot(options, "ordinary");
+  }
+
+  private async readSnapshot(options: SnapshotOptions | undefined, purpose: "ordinary" | "guidance"): Promise<PageElement[]> {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
     this.invalidateObservation();
@@ -725,7 +743,7 @@ export class ChromeDevToolsDriver implements Driver {
     assertCapture();
     const els = parseElements(raw);
     if (options?.perception) {
-      const page = await this.selectedPage();
+      const page = await this.selectedPage(purpose);
       assertCapture();
       this.observedPage = page;
       this.observedRows = parseSnapshotRows(raw);
@@ -735,7 +753,7 @@ export class ChromeDevToolsDriver implements Driver {
       const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined);
       assertCapture();
       if (this.documentObservation) {
-        const currentPage = await this.selectedPage();
+        const currentPage = await this.selectedPage(purpose);
         assertCapture();
         if (currentPage === undefined || currentPage !== page) throw stepError("resolution", "observation page changed during capture");
       }
@@ -783,7 +801,7 @@ export class ChromeDevToolsDriver implements Driver {
 
   async snapshotWithGuidanceScope(scope: PageGuidanceScope): Promise<{ elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string }> {
     const version = this.observationVersion + 1;
-    const elements = await this.snapshot({ perception: true });
+    const elements = await this.readSnapshot({ perception: true }, "guidance");
     const raw = this.observedRaw, page = this.observedPage, stamp = this.observedHostStamp;
     if (this.observationVersion !== version || !raw || page === undefined) return { elements };
     const listing = new Map(this.observedRows.filter(r => r.name.trim()).map((r, i) => [r.uid, elements[i]!]));
@@ -791,7 +809,7 @@ export class ChromeDevToolsDriver implements Driver {
       const plan = this.guidanceMeasurement(raw, scope, version, stamp, listing);
       if (!plan) return { elements };
       const facts = await plan.measure();
-      if (!facts || await this.selectedPage() !== page) return { elements };
+      if (!facts || await this.selectedPage("guidance") !== page) return { elements };
       await this.hostRoots?.assertStamp(stamp);
       if (this.observationVersion !== version) return { elements };
       const expected = captureGuidanceScope(scope, facts);
@@ -1305,12 +1323,14 @@ export class ChromeDevToolsDriver implements Driver {
     return uid;
   }
 
-  private async selectedPage(): Promise<string | undefined> {
+  private async selectedPage(purpose: "ordinary" | "guidance" = "ordinary"): Promise<string | undefined> {
     try {
       // Include the URL as well as the tab ID: navigation can retain the selected tab.
       return (await this.call("list_pages")).match(/^\s*(\d+:[^\n]*\[selected\])\s*$/m)?.[1];
     } catch (err) {
-      if (errorKindOf(err) === "transport") throw err;
+      // Legacy perception keeps candidates without refs; scoped guidance must not
+      // count a disconnected browser as another expired decision.
+      if (purpose === "guidance" && errorKindOf(err) === "transport") throw err;
       return undefined;
     }
   }

@@ -176,7 +176,7 @@ export async function executeDecision(driver: Driver, decision: Decision, secret
   await new BuiltinStepHandler(secrets).execute(dispatch, driver, ref, () => {
     live?.check();
     assertDecisionCurrent(driver, decision);
-  }, live?.check);
+  }, live?.checkBeforeDispatch);
   return step;
 }
 

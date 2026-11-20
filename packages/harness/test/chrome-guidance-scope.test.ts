@@ -17,7 +17,8 @@ const raw = `uid=doc RootWebArea "Cart"
 
 // Start at the engine's final receipt, keep the driver's actual MCP dispatch lifecycle,
 // and supply only the tool replies. DOM/AX measurement itself has a real Chrome fixture.
-function fixture(options: { pages?: string; failPage?: Error; failClick?: Error } = {}) {
+function fixture(options: { pages?: string; failPage?: Error; failPageAt?: number; failClick?: Error;
+  clickReply?: { text: string; isError?: boolean } } = {}) {
   const driver = new ChromeDevToolsDriver();
   const ref = "cairn-guidance:test";
   const events: string[] = [];
@@ -25,18 +26,28 @@ function fixture(options: { pages?: string; failPage?: Error; failClick?: Error 
     async callTool(tool: {name: string; arguments: Record<string, unknown>}) {
       const { name } = tool;
       events.push(name);
-      if (name === "list_pages" && options.failPage) throw options.failPage;
+      if (name === "list_pages" && options.failPage && events.filter(e => e === name).length === (options.failPageAt ?? 1)) throw options.failPage;
       if (name === "click") {
         expect(tool.arguments.uid).toBe("fresh-button");
         if (options.failClick) throw options.failClick;
+        if (options.clickReply) return { isError: options.clickReply.isError, content: [{ type: "text", text: options.clickReply.text }] };
       }
-      if (name === "evaluate_script") expect(tool.arguments.args).toEqual(["fresh-button", "fresh-input"]);
-      const text = name === "take_snapshot" ? raw : name === "evaluate_script" ? JSON.stringify(facts) : options.pages ?? page;
+      if (name === "handle_dialog") expect(tool.arguments).toEqual({ action: "accept" });
+      let text = name === "take_snapshot" ? raw : options.pages ?? page;
+      if (name === "evaluate_script") {
+        const uids = tool.arguments.args as string[] | undefined;
+        if (String(tool.arguments.function).includes("const peerRoles =")) {
+          expect(uids).toEqual(["fresh-button", "fresh-input"]);
+          text = JSON.stringify(facts);
+        } else {
+          text = JSON.stringify(Object.fromEntries((uids ?? []).map(uid => [uid, { referenceReady: true }])));
+        }
+      }
       return { content: [{ type: "text", text }] };
     },
   };
   Object.assign(driver, { client, guidanceClick: { ref, version: 1, page, scope, expected: captureGuidanceScope(scope, facts) } });
-  return { driver, events, click: (check?: () => void) => driver.click({ role:"button", text:"Checkout" }, ref, check) };
+  return { driver, client, events, click: (check?: () => void) => driver.click({ role:"button", text:"Checkout" }, ref, check) };
 }
 
 test("a scoped click checks cancellation after live validation and before sending any input", async () => {
@@ -55,6 +66,39 @@ test("a scoped click uses the refreshed exact UID and never resends on a lost re
   expect(events).toEqual(["list_pages", "take_snapshot", "list_pages", "evaluate_script", "checked", "click"]);
 });
 
+const dialog = '# Open dialog\nconfirm: Okay?.\nCall handle_dialog to handle it before continuing.';
+test.each([
+  stepError("transport", "connection closed while processing open dialog"),
+  Object.assign(new Error("Connection closed while processing open dialog"), { name: "AbortError" }),
+  Object.assign(new Error("Connection closed while processing open dialog"), { name: "BudgetExceededError" }),
+  new Error('could not click "Open dialog"'),
+])("a scoped click does not handle dialog words in a rejected tool call: %s", async reason => {
+  const { click, events } = fixture({ failClick: reason });
+  await expect(click()).rejects.toBe(reason);
+  expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click"]);
+});
+
+test.each([
+  ['Error: Cannot click element "Open dialog"', undefined],
+  ['Error: Protocol error (Input.dispatchMouseEvent): Target closed on "Open dialog"', "transport"],
+  [dialog + '\nError: Protocol error (Input.dispatchMouseEvent): Target closed', "transport"],
+  [dialog + '\nError: Failed to interact with the element with uid fresh-button. The element did not become interactive within the configured timeout.', undefined],
+  [dialog + '\nError: A dialog is open (confirm: Okay?).', undefined],
+  ['# Open dialog\nalert: Could not find Chrome.\nCall handle_dialog to handle it before continuing.\nError: A dialog is open (alert: Could not find Chrome).', undefined],
+] as const)("an MCP error never confirms a scoped click: %s", async (text, kind) => {
+  const { click, events } = fixture({ clickReply: { text, isError: true } });
+  const error = await click().then(() => undefined, (err: Error & { kind?: string }) => err);
+  expect(error?.message).toBe("MCP click failed: " + text);
+  expect(error?.kind).toBe(kind);
+  expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click"]);
+});
+
+test("an acknowledged scoped click with an open dialog accepts it once", async () => {
+  const { click, events } = fixture({ clickReply: { text: "Successfully clicked on the element\n" + dialog } });
+  await click();
+  expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click", "handle_dialog"]);
+});
+
 test.each(["2: https://app/cart [selected]", "1: https://app/new [selected]", "unavailable"])(
   "scoped input refuses a changed or unknown page (%s)", async pages => {
     const { click, events } = fixture({ pages });
@@ -62,11 +106,33 @@ test.each(["2: https://app/cart [selected]", "1: https://app/new [selected]", "u
     expect(events).toEqual(["list_pages"]);
   });
 
-test("a failed scoped page read preserves a typed transport error", async () => {
+test.each([1, 2])("a transport error at scoped dispatch page read %i preserves its cause and sends no input", async failPageAt => {
   const reason = stepError("transport", "page session lost");
-  const { click, events } = fixture({ failPage: reason });
-  await expect(click()).rejects.toBe(reason);
-  expect(events).toEqual(["list_pages"]);
+  const { click, events } = fixture({ failPage: reason, failPageAt });
+  await expect(click(() => { events.push("before-send"); })).rejects.toBe(reason);
+  expect(events.filter(name => name === "list_pages")).toHaveLength(failPageAt);
+  expect(events).not.toContain("before-send");
+  expect(events).not.toContain("click");
+});
+
+test.each([1, 2])("scoped capture preserves transport errors at page read %i rather than returning an incomplete observation", async failPageAt => {
+  const reason = stepError("transport", "page session lost");
+  const { driver, events } = fixture({ failPage: reason, failPageAt });
+  await expect(driver.snapshotWithGuidanceScope(scope)).rejects.toBe(reason);
+  expect(events.filter(name => name === "list_pages")).toHaveLength(failPageAt);
+  expect(events).not.toContain("click");
+});
+
+test("a receipt invalidated between validation and send expires without entering the dispatch boundary", async () => {
+  const { driver, client, click, events } = fixture();
+  Object.assign(driver, { async ensureConnected() {
+    if (events.at(-1) === "evaluate_script") Object.assign(driver, { guidanceClick: undefined });
+    return client;
+  } });
+  await expect(click(() => { events.push("before-send"); })).rejects.toMatchObject({ name: "ScopedGuidanceExpired" });
+  expect(events).toContain("evaluate_script");
+  expect(events).not.toContain("before-send");
+  expect(events).not.toContain("click");
 });
 
 test("an ownership change before input expires the scoped decision without leaking a handler error", async () => {

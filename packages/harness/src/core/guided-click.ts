@@ -41,7 +41,15 @@ export async function readGuidedPage(driver: Driver, scope?: PageGuidanceScope) 
 
 class GuidanceUrlChanged extends Error {}
 
-export function guidanceRejection(error: unknown): { reason: string; diagnostic?: GuidanceScopeDiagnostic } | undefined {
+/** Both loops report this stop without exposing the driver's error or attesting to a click. */
+const uncertainClick = {
+  code: "click-dispatch-uncertain",
+  reason: "the driver did not confirm the guided click; it was not retried",
+} as const;
+
+type GuidedFailure = typeof uncertainClick | { reason: string; diagnostic?: GuidanceScopeDiagnostic };
+
+function guidanceRejection(error: unknown): GuidedFailure | undefined {
   if (error instanceof ScopedGuidanceExpired) {
     // Third-party adapters may annotate an exception. Never forward their message or extra fields.
     const fixed = new ScopedGuidanceExpired(error.diagnostic);
@@ -51,7 +59,7 @@ export function guidanceRejection(error: unknown): { reason: string; diagnostic?
   return undefined;
 }
 
-export type ValidateGuidedClick = () => Promise<{ target: Target; ref: string; check: () => void }>;
+export type ValidateGuidedClick = () => Promise<{ target: Target; ref: string; check: () => void; checkBeforeDispatch: () => void }>;
 
 export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined, baseline: CapturedGuidanceScope | undefined,
   guidance: PageGuidance | undefined, decision: Decision,
@@ -64,10 +72,24 @@ export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined
   const baselineError = !baseline ? unavailable : "error" in baseline ? baseline.error :
     baseline.blocked ? { ...unavailable, targetUnambiguous: true } : undefined;
 
+  let dispatchPossible = false;
   const checkClick = () => {
     check();
     // A policy may have changed the decision since it qualified for this scope.
     if (!matchesDecision()) throw new ScopedGuidanceExpired(unavailable);
+  };
+  const checkBeforeDispatch = () => {
+    checkClick();
+    dispatchPossible = true;
+  };
+  const failure = (error: unknown): GuidedFailure | undefined => {
+    if (!dispatchPossible) return guidanceRejection(error);
+    // Only the adapter calls checkBeforeDispatch, immediately before submitting input.
+    // An exception after that boundary cannot justify repeating the click, even if the
+    // adapter labels the error as a stale reference. Transport and run stops still throw.
+    if (errorKindOf(error) === "transport" ||
+        (error instanceof Error && (error.name === "AbortError" || error.name === "BudgetExceededError"))) return;
+    return uncertainClick;
   };
   const validate: ValidateGuidedClick = async () => {
     checkClick();
@@ -91,7 +113,7 @@ export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined
     if (diagnostic) throw new ScopedGuidanceExpired(diagnostic);
     if (typeof targetRef !== "string" || !targetRef.trim())
       throw new ScopedGuidanceExpired({ ...unavailable, targetUnambiguous: true });
-    return { target: { role: scope.target.role, text: scope.target.name }, ref: targetRef, check: checkClick };
+    return { target: { role: scope.target.role, text: scope.target.name }, ref: targetRef, check: checkClick, checkBeforeDispatch };
   };
-  return { baselineError, validate };
+  return { baselineError, validate, failure };
 }

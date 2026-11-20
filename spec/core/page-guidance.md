@@ -147,13 +147,33 @@ measurement and checks its URL. It does not call the ordinary name-based `locate
 click. The fresh measurement must return a nonempty `targetRef` bound to the measured target
 **and all prerequisites**. The Driver must revalidate that receipt before sending input, including
 changes made while the engine was checking the URL. Facts without a receipt cannot authorize a
-scoped click. Drivers that do not support this capability can still serve ordinary decisions.
+scoped click.
+
+If the Driver lacks this capability or cannot measure the scope on this page, a matching scoped
+click does not run, even if the screen looks unchanged. Three expirations without a successful
+action end the run with `page-guidance-expired`. There is no automatic fallback: two rows can
+look identical even though one replaced the other. On a page where the ordinary comparison is
+appropriate, the host can return a plain guidance string instead of the tagged reply. The
+presence of the Driver method alone does not establish coverage for the current page.
 
 The receipt is for dispatch only; it is never sent to the model or frozen. The saved click uses
 the target's confirmed role and name. It has no positional fallback from a prior layout, so a
 later rename may require repair. If the target disappears or becomes ambiguous, no click runs
-and the rejection counts toward the normal three-expiration limit. A lost browser connection is
-an execution error, not a changed prerequisite. The engine does not retry an uncertain dispatch.
+and the rejection counts toward the normal three-expiration limit.
+
+Once the Driver passes its final pre-send check, a click can take effect even if the Driver
+then reports an error. For an ordinary click error after that point, both loops stop without
+retrying and return `truncated: true` with `truncationReason: "click-dispatch-uncertain"`.
+The result contains the confirmed steps, not the unacknowledged click. Discovery returns no
+assertions and does not read the page to derive step expectations: the last click could have
+caused the navigation or request. Exploration keeps findings it already recorded and the last
+URL it observed before dispatch. The uncertainty is not itself an application finding.
+For example, an MCP click error can mention an open confirmation dialog even if input
+never reached the button. Chrome does not accept a dialog or record a successful scoped
+click on the strength of that error.
+
+An observation failure before input is not an uncertain click. Connection loss, caller
+cancellation and run-budget exhaustion still propagate as errors, including after dispatch.
 
 Chrome supports `<button>` click targets (not `<input type="submit">`), native single-select,
 checkbox and radio prerequisites, and checkbox sets in named lists or groups in the top-level
@@ -316,6 +336,8 @@ changed. No count is guessed across documents or replaced containers. Outside co
 they require a complete measured complement in both captures, and do not trigger another read.
 Omitted counts mean unavailable, not zero. If the scope can still be measured, a change only
 outside it does not expire the click.
+An uncertain dispatch emits a terminal `page-guidance` gate with code
+`click-dispatch-uncertain`. It carries no Driver error message or scope-change counts.
 
 No guidance text, hash, length, request or URL enters a trace payload. A model can still echo
 guidance into a decision `reason`, which existing action events record; keep guidance nonsecret.
@@ -353,6 +375,8 @@ fires, and counts both click requests and actual button clicks. Separate cases i
 same-name button (including with CSS between the last accessibility and DOM reads), replace the
 target or change a checkbox's underlying value while it still looks mixed. Each rejected decision
 must send no click and save no step. The fixture also moves an unrelated button and replays
-the frozen Checkout step with no model calls. Scripted Driver tests in
+the frozen Checkout step with no model calls. A separate case lets Chrome click Checkout and
+navigate to the receipt, then injects an error in the click response. Both loops must return
+the earlier Start step without the receipt URL as its expected outcome. Scripted Driver tests in
 `page-guidance-scope.test.ts` cover both decision loops; `guidance-scope.test.ts` checks
 identity, ordering and content-free diagnostics.

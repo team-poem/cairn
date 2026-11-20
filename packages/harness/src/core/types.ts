@@ -198,7 +198,7 @@ export interface ScenarioProvenance {
 }
 
 /** Why authoring stopped incomplete; not evidence of an application defect. */
-export type TruncationReason = "no-progress" | "page-guidance-expired";
+export type TruncationReason = "no-progress" | "page-guidance-expired" | "click-dispatch-uncertain";
 
 export interface Scenario {
   name: string;
@@ -207,9 +207,8 @@ export interface Scenario {
   provenance?: ScenarioProvenance;
   steps: Step[];
   assertions: Assertion[];
-  /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
-   * policy blocks or guidance expirations — so a host can warn before trusting the freeze.
-   * Absent on a normal finish. */
+  /** Set when discovery stops incomplete, including an unconfirmed guided click. That click
+   * is not in the confirmed steps, and its possible effects are not assertion evidence. */
   truncated?: boolean;
   /** Advisory authoring failure, not evidence of a product defect. */
   truncationReason?: TruncationReason;

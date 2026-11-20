@@ -177,7 +177,10 @@ the declared scope; a change to state or position counts once per surviving node
 corresponding `addedOutside`, `removedOutside`, and `changedOutside` counts are optional:
 both captures must provide comparable outside measurements. Omission means unknown, not
 zero. An outside change alone does not emit a gate. No IDs, locators, values, URLs, or
-guidance text are included in these fields.
+guidance text are included in these fields. If a scoped click may have been submitted but its
+outcome was not confirmed, a terminal `page-guidance` gate carries code
+`click-dispatch-uncertain`. The incomplete result uses the same truncation reason. This is
+not a scope expiration; the gate includes neither scope counts nor the Driver's error text.
 
 Version 1.15 adds the `page-guidance-expired` truncation reason (#340) to Scenario, ExploreReport
 and `case-end`, and a terminal `page-guidance` gate with that `code`, `expirations` and `limit`.

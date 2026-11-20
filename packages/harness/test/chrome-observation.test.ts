@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { ChromeDevToolsDriver } from "../src/adapters/drivers/chrome.js";
+import { stepError } from "../src/core/errors.js";
 import type { PageElement, Target } from "../src/core/types.js";
 
 type Observed = PageElement & { ref?: string; inActivePopup?: boolean; occluded?: boolean };
@@ -15,6 +16,7 @@ function fixture() {
   const state = {
     snapshot: 'uid=1_1 button "Save"\nuid=1_2 button "Save"',
     page: '0: https://example.test/form [selected]',
+    pageError: undefined as Error | undefined,
     connected: true,
     rejectClick: false,
     facts: {} as Record<string, unknown>,
@@ -22,7 +24,10 @@ function fixture() {
   (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
     calls.push({ name, args });
     if (name === "take_snapshot") return state.snapshot;
-    if (name === "list_pages") return state.page;
+    if (name === "list_pages") {
+      if (state.pageError) throw state.pageError;
+      return state.page;
+    }
     if (name === "evaluate_script") {
       if (String(args.function).includes("connected:")) return JSON.stringify({ connected: state.connected });
       if (String(args.function).includes("const ids =")) return JSON.stringify(Object.fromEntries(
@@ -41,6 +46,25 @@ async function refOf(driver: ObservingChrome, index = 1) {
   expect(rows[index]?.ref).toBeTypeOf("string");
   return rows[index]!.ref!;
 }
+
+test("ordinary perception keeps candidates without issuing refs when the selected tab cannot be read", async () => {
+  const { driver, state } = fixture();
+  state.pageError = stepError("transport", "list_pages disconnected");
+  const rows = await driver.snapshot({ perception: true });
+  expect(rows.map(({ role, name, ref }) => [role, name, ref])).toEqual([
+    ["button", "Save", undefined], ["button", "Save", undefined],
+  ]);
+});
+
+test("an ordinary exact ref expires if page continuity is lost, even if the session then recovers", async () => {
+  const { driver, state, calls } = fixture();
+  const ref = await refOf(driver);
+  state.pageError = stepError("transport", "list_pages disconnected");
+  await expect(driver.click({ text: "Save" }, ref)).rejects.toMatchObject({ kind: "resolution" });
+  state.pageError = undefined;
+  await expect(driver.locateRef(ref)).rejects.toThrow(/unknown or expired/);
+  expect(calls.filter(c => c.name === "click")).toEqual([]);
+});
 
 test("chromeObservationExactNode: a duplicate ref enriches and clicks only its captured UID", async () => {
   const { driver, calls } = fixture();

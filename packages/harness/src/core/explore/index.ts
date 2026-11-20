@@ -11,7 +11,7 @@
  * SHARED with discover — one execution path, one safety gate (invariant #2).
  */
 import { PerceptionObservation } from "../observation.js";
-import { readGuidedPage, listedScopeBaseline, scopedClick, guidanceRejection } from "../guided-click.js";
+import { readGuidedPage, listedScopeBaseline, scopedClick } from "../guided-click.js";
 import { copyGuidanceScope, ScopedGuidanceExpired, type PageGuidanceScope, type GuidanceScopeDiagnostic } from "../guidance-scope.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, rethrowBudget, type BudgetOptions } from "../budget.js";
@@ -192,6 +192,10 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   };
 
   let truncated = true;
+  const report = (truncationReason?: TruncationReason): ExploreReport => ({
+    charter, visited, steps, findings: dedupeFindings(findings), usage: llm.snapshot(), truncated,
+    ...(truncationReason ? { truncationReason } : {}), finalUrl: currentUrl,
+  });
   let consecutiveBlocks = 0;
 
   for (let i = 0; i < maxSteps; i++) {
@@ -367,7 +371,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       continue;
     }
 
-    let scopedOperation = scoped !== undefined;
+    let executingScope = scoped;
     try {
       const mark: ActionMark = {
         url: observation.execution.finalUrl,
@@ -377,7 +381,7 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       };
       check();
       const step = await executeDecision(driver, decision, {}, scoped?.validate);
-      scopedOperation = false;
+      executingScope = undefined;
       // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       if (decision.reason?.trim()) step.intent = decision.reason.trim();
@@ -388,18 +392,24 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
       onStep?.(decision, step);
     } catch (err) {
       check();
-      const message = err instanceof Error ? err.message : String(err);
       rethrowBudget(err);
-      if (scopedOperation) {
-        const rejected = guidanceRejection(err);
-        // A transport failure or uncertain input is not a UX finding or a reason to retry.
+      if (executingScope) {
+        const rejected = executingScope.failure(err);
         if (!rejected) throw err;
         currentUrl = validationUrl;
+        if ("code" in rejected) {
+          // Pending outcomes from earlier steps were observed before the decision.
+          // The unknown click's effects are not a new finding or a goal check.
+          trace?.emit({ kind: "gate", phase: "explore", payload: { gate: "page-guidance", ...rejected } });
+          check();
+          return report(rejected.code);
+        }
         guidanceAttempts.expired();
         guidanceGate(rejected.reason, rejected.diagnostic);
         pushFailure(rejected.reason);
         continue;
       }
+      const message = err instanceof Error ? err.message : String(err);
       pushFailure(`${describeAction(decision)} — ${message}`);
       // An action the page wouldn't take is itself a UX signal — an overlay-covered button, a
       // control that exists in the tree but can't be driven.
@@ -451,14 +461,5 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
   if (incomplete) trace?.emit({ kind: "gate", phase: "explore",
     payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
   check();
-  return {
-    charter,
-    visited,
-    steps,
-    findings: dedupeFindings(findings),
-    usage: llm.snapshot(),
-    truncated,
-    ...(truncationReason ? { truncationReason } : {}),
-    finalUrl: currentUrl,
-  };
+  return report(truncationReason);
 }

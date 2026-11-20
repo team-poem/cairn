@@ -115,8 +115,9 @@ export interface Driver {
    * click(target, targetRef, checkBeforeDispatch) must recheck the document and URL, the unique actionable
    * target, and all declared prerequisite identities, states, membership and order immediately
    * before input. Never choose a fallback target. If this cannot be established, do not click.
-   * Throw ScopedGuidanceExpired only when no input was submitted. Propagate transport errors and
-   * uncertain dispatch failures; never retry an input that may have been submitted.
+   * Reject expired receipts before calling checkBeforeDispatch. Once that callback returns,
+   * an ordinary failure is an unconfirmed click, not a reason to retry. Propagate transport
+   * errors and cancellation as such; never retry an input that may have been submitted.
    * Receipts are private to discovery/exploration; they are not model refs or replay locators.
    * When scope coverage cannot be established, still provide the listing but omit facts. */
   snapshotWithGuidanceScope?(scope: PageGuidanceScope): Promise<{elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string}>;

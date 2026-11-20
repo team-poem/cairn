@@ -7,7 +7,7 @@
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
 import { PerceptionObservation } from "../observation.js";
-import { readGuidedPage, listedScopeBaseline, scopedClick, guidanceRejection } from "../guided-click.js";
+import { readGuidedPage, listedScopeBaseline, scopedClick } from "../guided-click.js";
 import { copyGuidanceScope, ScopedGuidanceExpired, type PageGuidanceScope, type GuidanceScopeDiagnostic } from "../guidance-scope.js";
 import { policyContext, readPolicyScroll } from "../action-policy.js";
 import { withBudget, withWorkflowEntry, budgetScope, BudgetExceededError, type BudgetOptions } from "../budget.js";
@@ -125,6 +125,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // freeze time from the COMPLETED evidence (#81), never from a mid-run snapshot that races the
   // step's own in-flight request. `null` = a step the loop doesn't verify (the baseUrl goto).
   const marks: (OutcomeMark | null)[] = [];
+  const identify = async (scenario: Scenario) => identifyScenario(scenario, {
+    intent: slotSecretText(intent, secrets), benign, localePrefixes, provenance: await appContextProvenance(appContext),
+  });
 
   // Emit the freeze: observe pending mutations and short post-response redirects within one
   // budget, then assign expects retroactively and ground assertions. `truncated` marks a step-cap stop.
@@ -197,8 +200,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const scenario: Scenario = truncated
       ? { name: intent, steps, assertions, truncated: true, ...(truncationReason ? { truncationReason } : {}), ...wildcards, ...unproven }
       : { name: intent, steps, assertions, ...wildcards, ...unproven };
-    const identified = await identifyScenario(scenario, { intent: slotSecretText(intent, secrets), benign, localePrefixes,
-      provenance: await appContextProvenance(appContext) });
+    const identified = await identify(scenario);
     check();
     if (guidanceExpired) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "page-guidance", ...guidanceAttempts.diagnostic() } });
@@ -388,10 +390,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     }
 
     let completedStep: Step | undefined;
-    let scopedOperation = scoped !== undefined;
+    // No input has been attempted yet. A scoped observation failure is an execution
+    // error; it must not look like an expired decision or an unacknowledged click.
+    const scopedBefore = scoped ? await driver.observe() : undefined;
+    let executingScope: typeof scoped;
     try {
-      const beforeObs = await driver.observe();
-      scopedOperation = false;
+      const beforeObs = scopedBefore ?? await driver.observe();
       check();
       rememberGuidedPolicyUrl(beforeObs.execution.finalUrl);
       // Guidance cannot carry a decision onto a page other than the one it was written for.
@@ -431,9 +435,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       check();
-      scopedOperation = scoped !== undefined;
+      executingScope = scoped;
       const step = await executeDecision(driver, decision, secrets, scoped?.validate);
-      scopedOperation = false;
+      executingScope = undefined;
       // A returned Step ran successfully; record it before propagating a concurrent stop.
       guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
@@ -456,11 +460,19 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
-      if (scopedOperation) {
-        const rejected = guidanceRejection(err);
-        // Only a certified non-dispatch expires this turn. A failed observation or uncertain
-        // click is not a changed scope and must not prompt the model to try that click again.
+      if (executingScope) {
+        const rejected = executingScope.failure(err);
         if (!rejected) throw err;
+        if ("code" in rejected) {
+          // finish() would read the post-click page and assign its effects to the
+          // last confirmed step. Only return what was recorded before this click.
+          capture?.invalidate();
+          const partial = await identify({ name: intent, steps, assertions: [], truncated: true, truncationReason: rejected.code });
+          check();
+          trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", ...rejected } });
+          check();
+          return partial;
+        }
         guidanceAttempts.expired();
         guidanceGate(rejected.reason, rejected.diagnostic);
         pushFailure(rejected.reason);

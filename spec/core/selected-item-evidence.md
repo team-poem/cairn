@@ -80,7 +80,8 @@ Active bindings cannot be combined with `runScenario`'s `heal` or `targetChoice`
 injected `runHarness` step healer. This also excludes repairs of earlier ordinary steps whose
 changed path would otherwise precede the selected click. Custom step-handler chains are not
 supported. Discovery, explore and healed paths are not supported binding phases in this version;
-the host must author a new declaration for another path.
+the host must author a new declaration for another path. A [declared discovery selection](discovery-selection.md)
+can freeze a replay-phase binding; discovery itself records no binding evidence.
 
 ## Results, deadlines and data
 

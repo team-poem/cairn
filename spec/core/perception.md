@@ -84,8 +84,9 @@ replacements are reflected in final role counts; retained evidence is never coun
 
 The engine builds a separate reference table for each decision. Model tokens map to captured
 Driver refs and canonical candidate descriptions. Raw Driver tokens are not sent to the model.
-The semantic page render contains no refs, so rotating handles do not defeat explore's
-dead-action comparison. Model prompts use a separate listing that describes each selected element
+The [action-outcome comparison](action-outcomes.md) uses bounded raw rows plus host-corrected
+state on matched controls before prompt selection; rotating handles do not count as a change.
+Model prompts use a listing that describes each selected element
 once, with its ref inline when the reference table binds it (#342). Elements without a ref keep
 their ordinary row and stay addressable by name, role and ordinal. Each independent model request
 includes the complete current listing and fresh refs, even when the semantic page is unchanged.

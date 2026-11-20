@@ -58,6 +58,23 @@ test("a scoped click checks cancellation after live validation and before sendin
   expect(events).toEqual(["list_pages", "take_snapshot", "list_pages", "evaluate_script", "abort"]);
 });
 
+test("an outcome veto on a scoped click precedes the guidance dispatch boundary", async () => {
+  const { driver, click, events } = fixture();
+  const veto = new Error("repeat veto");
+  // The fixture supplies no node identity. Even then, final cancellation/budget admission
+  // must run and a veto must not make this an unacknowledged click.
+  driver.armActionOutcomeIdentity(id => {
+    expect(id).toBeUndefined();
+    events.push("outcome-veto");
+    throw veto;
+  });
+  await expect(click(() => events.push("dispatch-possible"))).rejects.toBe(veto);
+  expect(events.at(-1)).toBe("outcome-veto");
+  expect(events).not.toContain("dispatch-possible");
+  expect(events).not.toContain("click");
+  expect(driver.takeActionOutcomeIdentity()).toBeUndefined();
+});
+
 test("a scoped click uses the refreshed exact UID and never resends on a lost response", async () => {
   const reason = stepError("transport", "lost input response");
   const { click, events } = fixture({ failClick: reason });

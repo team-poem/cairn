@@ -108,6 +108,29 @@ describe("deriveActionFindings — console-error", () => {
 });
 
 describe("deriveActionFindings — dead-action", () => {
+  it.each(["insufficient-evidence", "observed-change"] as const)(
+    "does not infer a dead click from equal prompt listings when the shared outcome is %s",
+    (observed) => {
+      expect(deriveActionFindings(mark(), outcome({ observed }), click, 1)).toEqual([]);
+    },
+  );
+
+  it("keeps independent failure evidence even when the scoped action outcome is unknown", () => {
+    const found = deriveActionFindings(mark(), outcome({
+      observed: "insufficient-evidence",
+      requests: [req(500)], console: [{ type: "error", text: "cart unavailable" }],
+    }), click, 3);
+    expect(found.map(f => [f.kind, f.stepIndex])).toEqual([["failed-request", 3], ["console-error", 3]]);
+  });
+
+  it("keeps opt-in findings per occurrence without echoing the target or page URL", () => {
+    const found = dedupeFindings([1, 2].flatMap(index => deriveActionFindings(
+      mark(), outcome({ observed: "no-observed-change" }), click, index, { perStepOutcomes: true },
+    )));
+    expect(found.map(f => f.key)).toEqual(["dead-action:step:1", "dead-action:step:2"]);
+    expect(JSON.stringify(found)).not.toMatch(/Buy|https:\/\/shop/);
+  });
+
   it("flags a click that changed nothing — no navigation, no request, no render change", () => {
     const found = deriveActionFindings(mark(), outcome(), click, 3);
     expect(found).toEqual([

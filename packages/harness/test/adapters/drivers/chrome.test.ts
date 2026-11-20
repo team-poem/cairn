@@ -70,12 +70,44 @@ describe("parseElements", () => {
     ].join("\n");
     expect(parseElements(snap)).toEqual([
       { role: "checkbox", name: "Terms", checked: true },
-      { role: "checkbox", name: "Marketing" },
+      { role: "checkbox", name: "Marketing", checked: false },
       { role: "checkbox", name: "Partial", checked: "mixed" },
       { role: "button", name: "Pay", disabled: true },
       { role: "textbox", name: "Email", value: "a@b.com" },
       { role: "button", name: "I have checked the box" },
     ]);
+  });
+
+  it("keeps measured toggle states, including false capability tokens, separate from missing states", () => {
+    const rows = parseElements([
+      'uid=2_1 button "Mute" pressed',
+      'uid=2_2 button "Partially muted" pressed="mixed"',
+      'uid=2_3 button "Mute" description="words like pressed expanded selected are not state"',
+      'uid=2_4 tab "First" selectable selected',
+      'uid=2_5 tab "Second" selectable',
+      'uid=2_6 button "Details" expandable expanded',
+      'uid=2_7 button "Details" disableable expandable',
+    ].join("\n"));
+    expect(rows).toEqual([
+      { role: "button", name: "Mute", pressed: true },
+      { role: "button", name: "Partially muted", pressed: "mixed" },
+      { role: "button", name: "Mute" },
+      { role: "tab", name: "First", selected: true },
+      { role: "tab", name: "Second", selected: false },
+      { role: "button", name: "Details", expanded: true },
+      { role: "button", name: "Details", expanded: false, disabled: false },
+    ]);
+  });
+
+  it("does not turn a failed DOM probe into a measured false state", async () => {
+    const { driver } = stubbedDriver({
+      list_pages: '1: https://example.test/ [selected]',
+      take_snapshot: 'uid=1_1 button "Plain"\nuid=1_2 button "Muted" pressed',
+      evaluate_script: () => { throw new Error("measurement unavailable"); },
+    });
+    const [plain, muted] = await driver.snapshot({ perception: true });
+    expect(plain).not.toHaveProperty("pressed");
+    expect(muted).toHaveProperty("pressed", true);
   });
 });
 

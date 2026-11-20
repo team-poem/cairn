@@ -30,6 +30,25 @@ test("observationPopupRelation: an expanded control identifies its body-level po
   });
 });
 
+test("perception measures false, mixed and unknown states on their own elements", async () => {
+  await withPage(async page => {
+    await page.setContent('<button id="mute" aria-pressed="false">Mute</button><button id="plain">Plain</button>' +
+      '<input id="check" type="checkbox"><div id="tab" role="tab" aria-selected="false">First</div>' +
+      '<button id="disclosure" aria-expanded="false">Details</button>');
+    const ids = ["mute", "plain", "check", "tab", "disclosure"];
+    const facts = await probe(page, ids);
+    expect(facts.mute).toHaveProperty("pressed", false);
+    expect(facts.plain).not.toHaveProperty("pressed");
+    expect(facts.check).toHaveProperty("checked", false);
+    expect(facts.tab).toHaveProperty("selected", false);
+    expect(facts.disclosure).toHaveProperty("expanded", false);
+    await page.locator("#mute").evaluate(el => el.setAttribute("aria-pressed", "mixed"));
+    expect((await probe(page, ids)).mute).toHaveProperty("pressed", "mixed");
+    await page.locator("#mute").evaluate(el => el.removeAttribute("aria-pressed"));
+    expect((await probe(page, ids)).mute).not.toHaveProperty("pressed");
+  });
+});
+
 test("observationOcclusionEvidence: covered is positive, offscreen and clipped fixed nodes are unknown", async () => {
   await withPage(async page => {
     const facts = await probe(page, ["background", "offscreen", "fixed-clipped"]);

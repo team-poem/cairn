@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.16**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.17**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.16", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.17", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -168,6 +168,11 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.17 adds the `action-no-progress` gate for the opt-in [click repetition policy](action-outcomes.md).
+Its terminal code is `action-no-progress` for repeated clicks. If an input may have been sent
+without confirmation, the code is `click-dispatch-uncertain` for a click and
+`action-dispatch-uncertain` for another input. Neither receipts nor compared page data enter the trace.
 
 Version 1.16 adds optional diagnostics to `page-guidance` gates for a discarded scoped click
 (#356). `scopeStatus` is `scope-changed`, `target-ambiguous`, or `scope-unverifiable`.

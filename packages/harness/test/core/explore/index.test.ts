@@ -117,6 +117,106 @@ describe("explore", () => {
     ]);
   });
 
+  it("compares the final click's raw observation even when perception omits the changed row", async () => {
+    const driver = new ExploreDriver(START);
+    driver.els = [{ role: "button", name: "Add" }, { role: "spinbutton", name: "Quantity", value: "1" }];
+    const click = driver.click.bind(driver);
+    driver.click = async target => {
+      await click(target);
+      driver.els[1]!.value = "2";
+    };
+    const observed: { stepIndex: number; status: string }[] = [];
+    const report = await explore("survey", {
+      driver, llm: new ScriptedLlm(['{"action":"click","text":"Add"}']), baseUrl: START, maxSteps: 1,
+      perceive: rows => rows.filter(row => row.role === "button"),
+      actionOutcomes: { onOutcome: event => observed.push(event) },
+    });
+    expect(report.truncated).toBe(true); // step cap; a quantity change does not verify the goal
+    expect(report.usage.llmCalls).toBe(1);
+    expect(observed).toEqual([{ action: "click", stepIndex: 1, status: "observed-change" }]);
+    expect(report.findings.some(finding => finding.kind === "dead-action")).toBe(false);
+  });
+
+  it("does not dispatch an opt-in click if cancellation arrives during target lookup", async () => {
+    const driver = new ExploreDriver(START);
+    const abort = new AbortController();
+    const locate = driver.locate.bind(driver);
+    driver.locate = async target => {
+      const result = await locate(target);
+      abort.abort(new Error("cancel during locate"));
+      return result;
+    };
+    await expect(explore("survey", {
+      driver, llm: new ScriptedLlm(['{"action":"click","text":"Open"}']), baseUrl: START,
+      actionOutcomes: {}, signal: abort.signal,
+    })).rejects.toThrow("cancel during locate");
+    expect(driver.clicked).toEqual([]);
+  });
+
+  it("does not treat an invalid final capture as a trusted goal or a dead click", async () => {
+    const driver = new ExploreDriver(START);
+    driver.els = [{ role: "button", name: "Go" }];
+    const settleClick = driver.click.bind(driver);
+    driver.click = async target => {
+      await settleClick(target);
+      driver.els = ["A", "B"].map(name => ({ role: "heading", name, ref: "duplicate" }));
+      driver.consoleMsgs.push({ type: "error", text: "could not save" });
+    };
+    const observed: string[] = [];
+    const report = await explore("survey", {
+      driver, llm: new ScriptedLlm(['{"action":"click","text":"Go"}']), baseUrl: START, maxSteps: 1,
+      actionOutcomes: { onOutcome: event => observed.push(event.status) },
+      policy: { vet: () => ({ ok: true }), stop: steps => steps.length === 2 },
+    });
+    expect(report.truncated).toBe(true);
+    expect(observed).toEqual(["insufficient-evidence"]);
+    expect(report.findings.map(f => [f.kind, f.stepIndex])).toEqual([["console-error", 1]]);
+  });
+
+  it("checks a fresh trusted goal at the cap after an invalid recovery reply", async () => {
+    class Identified extends ExploreDriver {
+      before?: (id: string | undefined) => void;
+      armActionOutcomeIdentity(before: (id: string | undefined) => void) { this.before = before; }
+      takeActionOutcomeIdentity() { this.before = undefined; return "button-id"; }
+      override async click(target: Target) { this.before?.("button-id"); await super.click(target); }
+    }
+    const driver = new Identified(START);
+    driver.els = [{ role: "button", name: "Buy" }];
+    const llm = { id: "done-at-cap", async complete() {
+      if (!driver.clicked.length) return '{"action":"click","text":"Buy"}';
+      driver.url = "https://shop/receipt"; // delayed completion during the recovery decision
+      return "not a decision";
+    } };
+    const report = await explore("survey", {
+      driver, llm, baseUrl: START, maxSteps: 2, actionOutcomes: { maxRepeats: 1 },
+      policy: { vet: () => ({ ok: true }), stop: (_steps, ctx) => ctx?.url === "https://shop/receipt" },
+    });
+    expect(report.truncated).toBe(false);
+    expect(report.truncationReason).toBeUndefined();
+    expect(driver.clicked).toEqual(["Buy"]);
+    expect(report.usage.llmCalls).toBe(2);
+  });
+
+  it("does not use the page after an unacknowledged click to judge the previous action", async () => {
+    const driver = new ExploreDriver(START);
+    driver.els = [{ role: "button", name: "Buy" }];
+    driver.click = async () => {
+      driver.url = "https://shop/receipt";
+      driver.clicked.push("Buy");
+      throw new Error("no acknowledgment");
+    };
+    const observed: string[] = [];
+    const report = await explore("survey", {
+      driver, llm: new ScriptedLlm(Array(5).fill('{"action":"click","text":"Buy"}')), baseUrl: START,
+      actionOutcomes: { onOutcome: event => observed.push(event.status) },
+    });
+    expect(report.truncationReason).toBe("click-dispatch-uncertain");
+    expect(report.steps).toEqual([{ kind: "goto", url: START }]);
+    expect(driver.clicked).toEqual(["Buy"]);
+    expect(report.visited).toEqual(["shop"]);
+    expect(observed).toEqual([]);
+  });
+
   it("records an action-error finding when the page won't take the action, and adapts", async () => {
     const driver = new ExploreDriver(START);
     driver.els = [{ role: "link", name: "Contact" }];

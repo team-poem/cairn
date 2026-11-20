@@ -5,6 +5,7 @@
  * `agent-note` findings; it never judges these.
  */
 import type { ConsoleMessage, NetworkRequest } from "../types.js";
+import type { ActionOutcomeStatus } from "../action-outcomes.js";
 import type { Decision } from "../discover/decision.js";
 import { describeAction } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
@@ -59,6 +60,9 @@ export interface ActionOutcome {
   requests: readonly NetworkRequest[];
   console: readonly ConsoleMessage[];
   render: string;
+  /** Shared assessment over the full observation (or the declared scope), independent of
+   * the capped prompt listing. An unknown result is not evidence of a dead action. */
+  observed?: ActionOutcomeStatus;
   /** Post-action settle wall-time; absent when the caller didn't time it. */
   settleMs?: number;
 }
@@ -70,6 +74,8 @@ export interface FindingOptions {
   benignConsole?: readonly string[];
   /** Settle wall-time at/above this is a slow-settle finding. */
   slowSettleMs?: number;
+  /** Attribute opted-in outcome findings by original step, not by a name shared across targets. */
+  perStepOutcomes?: boolean;
 }
 
 const DEFAULT_SLOW_SETTLE_MS = 5_000;
@@ -129,20 +135,22 @@ export function deriveActionFindings(
     }
   }
 
-  // Dead action: judged at destination granularity (a query/hash-only move still counts as an
-  // effect via the render change it causes, not the URL). All three layers must be silent —
-  // no navigation, no request, no element change — before an action is called dead.
+  // Callers supplying only legacy render marks can still use the original comparison.
+  // A shared assessment, including insufficient evidence, always takes precedence.
   if (EXPECTS_EFFECT.has(decision.action)) {
     const sameUrl =
       !!mark.url && !!outcome.url && destinationKey(mark.url) === destinationKey(outcome.url);
     const firedRequests = outcome.requests.length > mark.requestCount;
-    if (sameUrl && !firedRequests && outcome.render === mark.render) {
+    if (outcome.observed === "no-observed-change" ||
+        (outcome.observed === undefined && sameUrl && !firedRequests && outcome.render === mark.render)) {
       findings.push({
         kind: "dead-action",
         severity: "warn",
-        detail: `${action} had no observable effect — no navigation, no request, no page change`,
-        key: `dead-action:${decision.text ?? decision.action}`,
-        url,
+        detail: opts.perStepOutcomes
+          ? `No change was observed after the ${decision.action} at step ${stepIndex} in the compared observations.`
+          : `No change was observed after ${action} in the compared observations.`,
+        key: opts.perStepOutcomes ? `dead-action:step:${stepIndex}` : `dead-action:${decision.text ?? decision.action}`,
+        ...(opts.perStepOutcomes ? {} : { url }),
         stepIndex,
       });
     }

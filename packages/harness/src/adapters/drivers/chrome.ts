@@ -5,6 +5,7 @@
  * Driver port (invariant #5).
  */
 import { ChromeNetworkLog, networkRows } from "./chrome-network.js";
+import { ChromeClickIdentity } from "./chrome-click-identity.js";
 import { ChromeDocumentObservation, documentTopology } from "./chrome-documents.js";
 import { ChromeCollectionObservation, collectionRows } from "./chrome-collection.js";
 import { prepareChromeGuidanceScope } from "./chrome-guidance-scope.js";
@@ -102,6 +103,18 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
           !globalThis[Symbol.for(${JSON.stringify(guard ?? "")})]?.overflow;
       }
       if (!el || el.nodeType !== 1 || !el.isConnected) return [ids[i], facts];
+      // MCP 1.8 omits some false states from AX text. Read the exact element in this
+      // existing batch; a text node must not borrow its parent's state.
+      if (raw === el) {
+        for (const key of ['pressed', 'checked', 'selected', 'expanded', 'disabled']) {
+          const value = el.getAttribute('aria-' + key)?.toLowerCase();
+          if (value === 'true' || value === 'false') facts[key] = value === 'true';
+          else if (value === 'mixed' && (key === 'pressed' || key === 'checked')) facts[key] = 'mixed';
+        }
+        if (el.tagName === 'INPUT' && (el.type === 'checkbox' || el.type === 'radio'))
+          facts.checked = el.type === 'checkbox' && el.indeterminate ? 'mixed' : el.checked;
+        if (el.tagName === 'OPTION') facts.selected = el.selected;
+      }
       if (${clickables}) {
         let elAt = el;
         let region;
@@ -207,6 +220,7 @@ export class ChromeDevToolsDriver implements Driver {
   private guidanceClick?: { ref: string; version: number; page: string; stamp?: string;
     scope: PageGuidanceScope; expected: CapturedGuidanceScope };
   private readonly regionKey = `cairn-clickable-regions:${this.driverId}`;
+  private clickArm?: { receipt: ChromeClickIdentity; checkActive?: () => void; consumed: boolean; completed: boolean };
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
   private readonly collectionObservations = new Map<string, ChromeCollectionObservation>();
@@ -389,15 +403,47 @@ export class ChromeDevToolsDriver implements Driver {
     await this.trackPages();
   }
 
-  async click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void> {
-    if (ref?.startsWith("cairn-guidance:")) return this.clickGuidance(ref, checkBeforeDispatch);
-    const uid = await this.actionUid(target, ref);
-    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
-    this.invalidateObservation();
-    await this.callAccepting("click", { uid }, collection);
+  armActionOutcomeIdentity(beforeClick?: (identity: string | undefined) => void, checkActive?: () => void): void {
+    this.clickArm = { receipt: new ChromeClickIdentity((source, uids) =>
+      this.call("evaluate_script", { function: source, ...(uids && { args: uids }) }, "observation"), beforeClick),
+      checkActive, consumed: false, completed: false };
   }
 
-  private async clickGuidance(ref: string, check?: () => void): Promise<void> {
+  takeActionOutcomeIdentity(): string | undefined {
+    const arm = this.clickArm;
+    this.clickArm = undefined;
+    return arm?.completed ? arm.receipt.confirmed : undefined;
+  }
+
+  async click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void> {
+    const arm = this.clickArm;
+    const outcome = arm && !arm.consumed ? arm.receipt : undefined;
+    if (arm) { arm.completed = false; arm.consumed = true; }
+    if (ref?.startsWith("cairn-guidance:")) {
+      await this.clickGuidance(ref, checkBeforeDispatch, outcome);
+      if (arm && outcome) arm.completed = true;
+      return;
+    }
+    // For an exact binding, probe the original node BEFORE the final reference check.
+    // The optional probe must not open another gap after validation.
+    const original = ref && this.references.get(ref);
+    if (outcome && original) await outcome.prepare(original.uid);
+    const uid = await this.actionUid(target, ref);
+    if (outcome && ref === undefined) await outcome.prepare(uid);
+    const collection = ref === undefined ? undefined : this.collectionObservations.get(ref);
+    this.invalidateObservation();
+    if (!arm || !outcome) {
+      await this.callAccepting("click", { uid }, collection);
+      return;
+    }
+    await this.checkInputTarget(uid, collection);
+    await this.acknowledgedClick(uid, () => outcome.beforeSend(), arm.checkActive);
+    await outcome.finish();
+    await this.followNewTab();
+    arm.completed = true;
+  }
+
+  private async clickGuidance(ref: string, check?: () => void, outcome?: ChromeClickIdentity): Promise<void> {
     const unavailable = () => new ScopedGuidanceExpired({ scopeStatus: "scope-unverifiable" });
     const receipt = this.guidanceClick;
     if (!receipt || receipt.ref !== ref || await this.selectedPage("guidance") !== receipt.page) throw unavailable();
@@ -411,6 +457,7 @@ export class ChromeDevToolsDriver implements Driver {
       // Resolve and check ownership on the fresh AX handle. The live DOM comparison
       // runs last; a cached UID or a fallback locator can never submit this click.
       if (plan.uid) await this.hostRoots?.assertNode(plan.uid, true, stamp);
+      if (outcome && plan.uid) await outcome.prepare(plan.uid);
       if (await this.selectedPage("guidance") !== receipt.page || this.guidanceClick !== receipt) throw unavailable();
       const facts = await plan.measure();
       const problem = compareGuidanceScope(expected, captureGuidanceScope(scope, facts));
@@ -424,18 +471,24 @@ export class ChromeDevToolsDriver implements Driver {
           (err instanceof Error && ["AbortError", "BudgetExceededError"].includes(err.name))) throw err;
       throw unavailable();
     }
-    const reply = await this.call("click", { uid }, "scoped-input", () => {
+    await this.acknowledgedClick(uid, () => {
       if (this.guidanceClick !== receipt) throw unavailable();
+      outcome?.beforeSend();
       check?.();
       this.invalidateObservation();
-    });
+    }, check);
+    if (outcome) await outcome.finish();
+    await this.followNewTab();
+  }
+
+  private async acknowledgedClick(uid: string, beforeSend: () => void, beforeDialog?: () => void) {
+    const reply = await this.call("click", { uid }, "scoped-input", beforeSend);
     // A dialog block also accompanies failed MCP calls (including clicks the server
     // never executed). Only act on it in an acknowledged click reply.
     if (reply.startsWith("Successfully clicked on the element\n") &&
         /\n# Open dialog\n(?:alert|beforeunload|confirm|prompt): [\s\S]*\.\nCall handle_dialog to handle it before continuing\.$/.test(reply)) {
-      await this.call("handle_dialog", { action: "accept" }, "scoped-input", check);
+      await this.call("handle_dialog", { action: "accept" }, "scoped-input", beforeDialog);
     }
-    await this.followNewTab();
   }
 
   /** Same-document evidence only. A missing receipt never retries or replaces the click. */
@@ -501,8 +554,7 @@ export class ChromeDevToolsDriver implements Driver {
    */
   private async callAccepting(name: string, args: Record<string, unknown>, guard?: Pick<ChromeCollectionObservation, "validate">,
     beforeFollow?: () => Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
-    if (typeof args.uid === "string") await this.hostRoots?.assertNode(args.uid, true, this.hostRoots.stamp);
-    if (guard && typeof args.uid === "string") await guard.validate(args.uid);
+    if (typeof args.uid === "string") await this.checkInputTarget(args.uid, guard);
     try {
       onDispatch?.();
       await this.call(name, args);
@@ -515,6 +567,11 @@ export class ChromeDevToolsDriver implements Driver {
     }
     // Any interactive verb can open a tab (Enter submit, select onchange) — not just click (#89).
     return this.followNewTab();
+  }
+
+  private async checkInputTarget(uid: string, guard?: Pick<ChromeCollectionObservation, "validate">) {
+    await this.hostRoots?.assertNode(uid, true, this.hostRoots.stamp);
+    if (guard) await guard.validate(uid);
   }
 
   async hover(target: Target, ref?: string): Promise<void> {
@@ -768,7 +825,9 @@ export class ChromeDevToolsDriver implements Driver {
         // change the ordinal of a document row too, so coverage must hold for the whole capture.
         const addressable = guarded && documentCoverage && page !== undefined && this.unguarded.size === 0;
         if (addressable) this.references.set(ref, row);
-        return { ...element, ...facts.get(row.uid), ...(addressable ? { ref } : {}) };
+        // Keep an explicit AX state (including inherited disabled). DOM facts fill
+        // only values that MCP omitted from its text representation.
+        return { ...facts.get(row.uid), ...element, ...(addressable ? { ref } : {}) };
       });
     }
     if (this.opts.promoteClickables === false) {
@@ -925,6 +984,10 @@ export class ChromeDevToolsDriver implements Driver {
         const row: Partial<PageElement> = {};
         if (typeof raw.inActivePopup === "boolean") row.inActivePopup = raw.inActivePopup;
         if (typeof raw.occluded === "boolean") row.occluded = raw.occluded;
+        for (const key of ["pressed", "checked"] as const)
+          if (typeof raw[key] === "boolean" || raw[key] === "mixed") row[key] = raw[key];
+        for (const key of ["selected", "expanded", "disabled"] as const)
+          if (typeof raw[key] === "boolean") row[key] = raw[key];
         if (this.opts.promoteClickables !== false) {
           if (typeof raw.clickable === "boolean") row.clickable = raw.clickable;
           if (typeof raw.clickableRegion === "string") row.clickableRegion = raw.clickableRegion;
@@ -1472,11 +1535,22 @@ export function parseElements(snapshot: string): PageElement[] {
     const el: PageElement = { role: m[1]!, name: m[2]! };
     // Only the tail after the quoted name — a name like "I have checked the box" must not match.
     const tail = line.slice(m.index! + m[0].length);
-    if (/(?:^|\s)checked="mixed"/.test(tail)) el.checked = "mixed";
-    else if (/(?:^|\s)checked(?:\s|$)/.test(tail)) el.checked = true;
-    if (/(?:^|\s)disabled(?:\s|$)/.test(tail)) el.disabled = true;
-    const value = tail.match(/(?:^|\s)value="([^"]*)"/);
-    if (value) el.value = value[1]!;
+    // Parse entire attributes so state words inside a description are not evidence.
+    // MCP writes expandable/selectable for both boolean values, then expanded/selected
+    // only when true. There is no corresponding capability token for pressed=false.
+    for (const [, key, attr] of tail.matchAll(/(?:^|\s)([\w-]+)(?:="([^"]*)")?(?=\s|$)/g)) {
+      if ((key === "pressed" || key === "checked") && (attr === undefined || attr === "mixed"))
+        el[key] = attr === "mixed" ? "mixed" : true;
+      if (key === "value" && attr !== undefined) el.value = attr;
+      if (attr !== undefined) continue;
+      if (key === "checkable") el.checked ??= false;
+      if (key === "disableable") el.disabled ??= false;
+      if (key === "disabled") el.disabled = true;
+      if (key === "selectable") el.selected ??= false;
+      if (key === "selected") el.selected = true;
+      if (key === "expandable") el.expanded ??= false;
+      if (key === "expanded") el.expanded = true;
+    }
     out.push(el);
   }
   return out;

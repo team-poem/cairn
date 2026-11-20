@@ -74,6 +74,14 @@ export interface Driver {
   /** A guidance receipt requires full scope validation (see snapshotWithGuidanceScope), then
    * checkBeforeDispatch immediately before submitting input. Propagate a thrown check. */
   click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void>;
+  /** Opt in for one click only. Immediately before sending input, call beforeClick with the
+   * document/node identity of the resolved target, or undefined if it could not be measured.
+   * A thrown callback vetoes dispatch. Never infer an identity from a locator, role or name.
+   * Check checkActive again before any follow-up input (e.g. accepting a native dialog). */
+  armActionOutcomeIdentity?(beforeClick?: (identity: string | undefined) => void, checkActive?: () => void): void;
+  /** Consume the identity after a confirmed click on that node, clearing the arm even if
+   * dispatch failed. Tokens are transient, not locators, trace data or replay evidence. */
+  takeActionOutcomeIdentity?(): string | undefined;
   doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target, ref?: string): Promise<void>;
   type(target: Target, text: string, ref?: string): Promise<void>;

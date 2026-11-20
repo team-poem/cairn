@@ -102,7 +102,7 @@ function stepHealPrompt(step: Step, page: PerceptionObservation): string {
     `Step goal: ${step.intent ?? step.kind}`,
     `Expected outcome: ${step.expect ? JSON.stringify(step.expect) : "(reach the next state)"}`,
     ``,
-    `Current page:`,
+    `Observed page elements:`,
     page.listing,
     ``,
     `Reply with the single next action that achieves the goal.`,

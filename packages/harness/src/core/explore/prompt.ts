@@ -62,7 +62,7 @@ export function buildExplorePrompt(
     `Actions taken so far:`,
     history,
     ``,
-    `Interactive elements now on the page:`,
+    `Observed page elements:`,
     elementsBlock,
     ...pageGuidanceBlock(guidance),
     ``,

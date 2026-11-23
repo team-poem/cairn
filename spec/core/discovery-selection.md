@@ -83,6 +83,14 @@ A scenario whose only proof was observed after the selection, and that declares 
 closed on replay as all-vacuous. This is intended: nothing frozen can show that this run's selection
 reached its destination.
 
+A binding proves only its own selection step. It never stands in for a later step. When a step
+after the first selection, other than a consumed selection, carried a condition the freeze cannot
+keep, that step has no frozen proof. Such a condition is a derived expect on a later action, such as
+the request a Save click fired, or any `waitFor`, whose condition the model wrote from this run's
+member. Discovery then returns `truncated: true` with reason `selection-unproven`. A later action
+with no observed outcome is unaffected and stays advisory, as it is without a declaration. To wait
+for the selected destination, declare `expect` on the selection.
+
 ## Replay
 
 Replay is unchanged. Load the scenario and run it with `runScenario`. For a frozen binding, pass the
@@ -104,6 +112,7 @@ navigation becomes a new `verify` variant. `version: 1` declarations keep their 
 `test/discovery-selection.test.ts` covers positional and predicate declarations through discovery,
 save/load and fresh replay with changed lists and zero model calls. It also covers a B to C
 destination mismatch, freeze filtering, binding to one action, unbound and invalid declarations,
+an action or a `waitFor` after the selection that loses its only proof,
 unchanged behavior without declarations, uncertain dispatch, incomplete coverage, cancellation and
 budget. `npm run test:discovery-selection` runs discovery and replay against real Chrome/MCP. It
 covers a reordered same-document list, a matching destination and a rejected mismatched destination.

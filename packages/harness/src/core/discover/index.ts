@@ -16,7 +16,7 @@ import { snapshotAppContext, withAppContext, appContextProvenance } from "../app
 import { errorKindOf } from "../errors.js";
 import type { Driver, LlmClient, PageGuidanceProvider, PerceptionAdapter } from "../ports.js";
 import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageGuidanceUrlInvalidation, PageGuidanceAttempts, type PageGuidance } from "../page-guidance.js";
-import type { Assertion, Scenario, Step } from "../types.js";
+import type { Assertion, Scenario, Step, TruncationReason } from "../types.js";
 import type { TracePhase, TraceScope } from "../trace.js";
 import { discoverSystem, buildPrompt, REFERENCE_REJECTION, PAGE_GUIDANCE_RULES } from "./prompt.js";
 import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "./decision.js";
@@ -145,8 +145,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     const incomplete = truncated && !guidanceExpired ? policy?.incomplete?.() : undefined;
     // A declared selection the flow never used cannot be trusted as frozen.
     const unbound = available().length > 0;
-    const truncationReason = guidanceExpired ? "page-guidance-expired" : incomplete?.diagnostic.code
-      ?? (unbound ? "selection-unbound" as const : undefined);
+    let truncationReason: TruncationReason | undefined = guidanceExpired ? "page-guidance-expired"
+      : incomplete?.diagnostic.code ?? (unbound ? "selection-unbound" : undefined);
     truncated ||= unbound;
     if (incomplete) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "no-progress", reason: incomplete.diagnostic.code, ...incomplete.diagnostic } });
@@ -181,8 +181,11 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         phase: tracePhase,
         payload: { gate: "grounding", action: JSON.stringify(a), reason },
       });
-    const grounded = freezeSelections(steps, marks, evidence,
+    const frozen = freezeSelections(steps, marks, evidence,
       deriveAssertions(all, evidence, semanticChecks, benign, dropped), consumed, dropped);
+    // The selected-item binding cannot stand in for a later step's proof.
+    if (frozen.unproven && !truncated) [truncated, truncationReason] = [true, "selection-unproven"];
+    const grounded = frozen.assertions;
     const baselineMarked = markVacuous(grounded, baseline, benign, { localePrefixes });
     // Declare the notation only when this freeze actually used it, so a file without the marker
     // keeps reading `*` as the literal character it was frozen as (spec/core/judgment.md).

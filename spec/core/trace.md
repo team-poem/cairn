@@ -171,7 +171,8 @@ two gate values and one phase value; the envelope is unchanged.
 ## Versioning — header `major.minor`
 
 Version 1.17 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
-selection (#343), and the `selection-unbound` and `selection-failed` truncation reasons. The gate
+selection (#343), and the `selection-unbound`, `selection-failed` and `selection-unproven` truncation
+reasons. The gate
 carries a fixed reason only. See [declared selections in discovery](discovery-selection.md).
 
 Version 1.16 adds optional diagnostics to `page-guidance` gates for a discarded scoped click

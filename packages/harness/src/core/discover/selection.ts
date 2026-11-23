@@ -151,16 +151,22 @@ export async function executeSelection(driver: Driver, selection: DiscoverySelec
  * become a fixed check for later runs. Steps from the first selection keep only host-declared
  * expects. Assertions keep run health guards, user checks, and request checks a pre-selection
  * request satisfied; every selection with `verify` adds its binding.
+ *
+ * A binding proves only its own selection. `unproven` is set when another step from the first
+ * selection onward carried a condition the freeze cannot keep: a derived expect on a later action,
+ * or a `waitFor`. That step's obligation has no frozen proof, so the caller must not freeze it.
  */
 export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | null)[], evidence: Evidence,
   assertions: Assertion[], consumed: ReadonlyMap<Step, DiscoverySelection>,
-  onDrop: (assertion: Assertion, reason: string) => void): Assertion[] {
+  onDrop: (assertion: Assertion, reason: string) => void): { assertions: Assertion[]; unproven: boolean } {
   const first = steps.findIndex(step => consumed.has(step));
-  if (first < 0) return assertions;
+  if (first < 0) return { assertions, unproven: false };
+  let unproven = false;
   for (let i = first; i < steps.length; i++) {
     const step = steps[i]!;
-    delete step.expect;
     const selection = consumed.get(step);
+    if (!selection && (step.expect !== undefined || step.kind === "waitFor")) unproven = true;
+    delete step.expect;
     if (selection?.expect) step.expect = structuredClone(selection.expect);
   }
   const before = evidence.logic.requests.slice(0, marks[first]?.requestCount ?? 0);
@@ -178,5 +184,5 @@ export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | n
     const binding = bindingFor(selection, steps.slice(0, index + 1));
     return [{ kind: "custom" as const, name: selection.id, params: binding as unknown as Record<string, unknown> }];
   });
-  return [...kept, ...bindings];
+  return { assertions: [...kept, ...bindings], unproven };
 }

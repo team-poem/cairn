@@ -42,6 +42,7 @@ class PostsDriver extends StubDriver {
   open: boolean[];
   arrival?: string;
   selected?: string;
+  saves = true;
   complete = true;
   beforeObserve?: () => void;
   afterDispatch?: () => void;
@@ -78,11 +79,13 @@ class PostsDriver extends StubDriver {
     this.selected = post;
     this.url = `https://app/posts/${post.toLowerCase()}`;
     this.requests.push({ method: "GET", url: `https://app/api/posts/${post.toLowerCase()}`, status: 200 });
-    this.els = [{ role: "heading", name: "Post" }];
+    this.els = [{ role: "heading", name: "Post" }, { role: "button", name: "Save" }];
     this.afterDispatch?.();
     return post;
   }
   override async click(target: Target, ref?: string): Promise<void> {
+    if (!ref && target.text === "Save" && this.saves && this.selected)
+      this.requests.push({ method: "POST", url: `https://app/api/posts/${this.selected.toLowerCase()}/save`, status: 201 });
     if (!ref) return super.click(target);
     this.dispatch(target, ref);
   }
@@ -189,6 +192,28 @@ describe("declared selections in discovery (#343)", () => {
     const drops = events.filter(e => e.kind === "gate" && e.payload.gate === "grounding"
       && /run-relative selection/.test(e.payload.reason));
     expect(drops.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("withholds the freeze when an action after the selection loses its only proof", async () => {
+    const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
+      verify: { source: itemKey, destination } };
+    const { scenario } = await discoverWith(new PostsDriver(["Alpha", "Bravo"]), [selection], [
+      use("first-post"),
+      JSON.stringify({ action: "click", text: "Save", reason: "save the post" }),
+      done([{ kind: "request-status", urlIncludes: "app/api/posts/alpha/save", status: 201 }]),
+    ]);
+    expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
+  });
+
+  it("withholds the freeze when a waitFor after the selection names the member discovery selected", async () => {
+    const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
+      verify: { source: itemKey, destination } };
+    const { scenario } = await discoverWith(new PostsDriver(["Alpha", "Bravo"]), [selection], [
+      use("first-post"),
+      JSON.stringify({ action: "waitFor", until: { url: "/posts/alpha" } }),
+      done(),
+    ]);
+    expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
   });
 
   it("lets only a click naming an unused declared ID consume it", async () => {

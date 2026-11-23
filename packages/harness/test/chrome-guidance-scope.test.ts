@@ -58,6 +58,23 @@ test("a scoped click checks cancellation after live validation and before sendin
   expect(events).toEqual(["list_pages", "take_snapshot", "list_pages", "evaluate_script", "abort"]);
 });
 
+test("an outcome veto on a scoped click precedes the guidance dispatch boundary", async () => {
+  const { driver, click, events } = fixture();
+  const veto = new Error("repeat veto");
+  // The fixture supplies no node identity. Even then, final cancellation/budget admission
+  // must run and a veto must not make this an unacknowledged click.
+  driver.armActionOutcomeIdentity(id => {
+    expect(id).toBeUndefined();
+    events.push("outcome-veto");
+    throw veto;
+  });
+  await expect(click(() => events.push("dispatch-possible"))).rejects.toBe(veto);
+  expect(events.at(-1)).toBe("outcome-veto");
+  expect(events).not.toContain("dispatch-possible");
+  expect(events).not.toContain("click");
+  expect(driver.takeActionOutcomeIdentity()).toBeUndefined();
+});
+
 test("a scoped click uses the refreshed exact UID and never resends on a lost response", async () => {
   const reason = stepError("transport", "lost input response");
   const { click, events } = fixture({ failClick: reason });
@@ -97,6 +114,16 @@ test("an acknowledged scoped click with an open dialog accepts it once", async (
   const { click, events } = fixture({ clickReply: { text: "Successfully clicked on the element\n" + dialog } });
   await click();
   expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click", "handle_dialog"]);
+});
+
+test("arming outcomes never relaxes scoped guidance's rejected-click dialog policy", async () => {
+  const text = "# Open dialog\nalert: Done.\nCall handle_dialog to handle it before continuing.\nError: Failed to interact with the element with uid fresh-button. The element did not become interactive within the configured timeout.";
+  const { driver, click, events } = fixture({ clickReply: { text, isError:true } });
+  driver.armActionOutcomeIdentity();
+  driver.armActionOutcomeDispatch(() => {});
+  await expect(click()).rejects.toThrow(/Failed to interact/);
+  expect(events.filter(n => n === "click" || n === "handle_dialog")).toEqual(["click"]);
+  expect(driver.takeActionOutcomeIdentity()).toBeUndefined();
 });
 
 test.each(["2: https://app/cart [selected]", "1: https://app/new [selected]", "unavailable"])(

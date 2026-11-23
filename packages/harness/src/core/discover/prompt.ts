@@ -197,6 +197,7 @@ export function buildPrompt(
   currentUrl?: string,
   hasReferences = false,
   guidance?: string,
+  outcomeFeedback?: string,
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -215,6 +216,7 @@ export function buildPrompt(
     ...failureBlock(failures, hasReferences),
     `Actions taken so far:`,
     history,
+    ...(outcomeFeedback ? [outcomeFeedback] : []),
     ``,
     `Observed page elements:`,
     elementsBlock,

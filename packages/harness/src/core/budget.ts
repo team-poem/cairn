@@ -276,6 +276,10 @@ export class BudgetScope {
       const value = Reflect.get(inner, key, inner);
       if (typeof value !== "function") return value;
       if (key === "close") return value.bind(inner); // cleanup must remain possible after expiry
+      // Installing or clearing listeners must stay synchronous, even after a deadline.
+      // The checks and measurements run inside the budgeted driver operation.
+      if (key === "armActionOutcomeIdentity" || key === "takeActionOutcomeIdentity" ||
+          key === "armActionOutcomeDispatch" || key === "clearActionOutcomeDispatch") return value.bind(inner);
       return (...args: unknown[]) => scope.operation(`driver.${String(key)}`, async () => {
         const result = await value.apply(inner, args);
         if (key === "observe" && !scope.signal.aborted) scope.evidence = snapshot(result as Evidence);

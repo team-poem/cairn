@@ -198,7 +198,7 @@ export interface ScenarioProvenance {
 }
 
 /** Why authoring stopped incomplete; not evidence of an application defect. */
-export type TruncationReason = "no-progress" | "page-guidance-expired" | "click-dispatch-uncertain";
+export type TruncationReason = "no-progress" | "action-no-progress" | "page-guidance-expired" | "click-dispatch-uncertain" | "action-dispatch-uncertain";
 
 export interface Scenario {
   name: string;
@@ -229,6 +229,8 @@ export interface Scenario {
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
 export interface SnapshotOptions {
   perception?: boolean;
+  /** Include extra measured state for comparing actions. Omit for ordinary perception. */
+  actionOutcomes?: boolean;
 }
 
 /** Measured state of the region affected by Driver.scroll. Omission means unknown.
@@ -269,6 +271,10 @@ export interface PageElement {
   role: string;
   name: string;
   checked?: boolean | "mixed";
+  /** Observed toggle, selection and disclosure states. Missing does not mean false. */
+  pressed?: boolean | "mixed";
+  selected?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   value?: string;
 }

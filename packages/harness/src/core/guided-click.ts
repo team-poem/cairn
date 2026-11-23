@@ -29,14 +29,16 @@ export function listedScopeBaseline(scope: PageGuidanceScope | undefined, facts:
   return facts;
 }
 
-export async function readGuidedPage(driver: Driver, scope?: PageGuidanceScope) {
+export async function readGuidedPage(driver: Driver, scope?: PageGuidanceScope, actionOutcomes = false) {
+  const options = actionOutcomes ? { perception: true, actionOutcomes: true } : { perception: true };
   if (scope && driver.snapshotWithGuidanceScope) {
-    const { elements, facts } = await driver.snapshotWithGuidanceScope(scope);
+    const { elements, facts } = actionOutcomes ? await driver.snapshotWithGuidanceScope(scope, options)
+      : await driver.snapshotWithGuidanceScope(scope);
     const baseline = captureGuidanceScope(scope, facts);
     const error = checkListing(elements, scope);
     return { elements, baseline: error && !("error" in baseline) ? { error } : baseline };
   }
-  return { elements: await driver.snapshot({ perception: true }), baseline: undefined };
+  return { elements: await driver.snapshot(options), baseline: undefined };
 }
 
 class GuidanceUrlChanged extends Error {}

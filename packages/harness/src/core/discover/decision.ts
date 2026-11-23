@@ -186,6 +186,18 @@ export function describeAction(decision: Decision): string {
   return `${decision.action}${detail}`;
 }
 
+/** Feedback for an action measured as disallowed on its observed target. Names no page content
+ * beyond what the model chose itself, and never picks a replacement. */
+export function describeDisallowed(decision: Decision): string {
+  return `${describeAction(decision)} — not run: the observed target is measured as not accepting "${decision.action}". ` +
+    `Choose another element or action from the current listing; nothing was redirected.`;
+}
+
+/** Trace payload for that rejection: the verb and a code only, no names, refs or values. */
+export function disallowedGate(decision: Decision): { gate: "action-eligibility"; action: string; reason: "measured-disallowed" } {
+  return { gate: "action-eligibility", action: decision.action, reason: "measured-disallowed" };
+}
+
 /**
  * Why a target-bearing decision is ambiguous on this page, or undefined if it isn't (#127): the
  * name matches several elements within one role and the decision carries no `nth`. Checked by the

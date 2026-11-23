@@ -10,7 +10,7 @@ import { isCollectionStep } from "./collection.js";
 import { validateSecrets, redactSecrets, slotSecretText } from "./secrets.js";
 import type { Secrets } from "./secrets.js";
 import { applyDecision, parseDecision, type Decision, type ActionPolicy } from "./discover/index.js";
-import { describeAmbiguity } from "./discover/decision.js";
+import { describeAmbiguity, disallowedGate } from "./discover/decision.js";
 import { actionRules, actionVocabulary, PERCEPTION_RULES } from "./discover/prompt.js";
 import { PerceptionObservation } from "./observation.js";
 import { snapshotAppContext, withAppContext } from "./app-context.js";
@@ -69,6 +69,10 @@ export class LlmStepHealer implements StepHealer {
       if (decision.action === "type" && decision.value !== undefined) decision.value = slotSecretText(decision.value, this.secrets);
       decision = page.bind(decision);
       if (describeAmbiguity(decision, elements)) return null;
+      if (page.disallows(decision)) {
+        this.options.trace?.emit({ kind: "gate", phase: "heal", payload: disallowedGate(decision) });
+        return null;
+      }
       if (this.options.policy) {
         const evidence = await driver.observe();
         if (!this.options.policy.vet(decision, { elements, url: evidence.execution.finalUrl }).ok) return null;
@@ -102,7 +106,7 @@ function stepHealPrompt(step: Step, page: PerceptionObservation): string {
     `Step goal: ${step.intent ?? step.kind}`,
     `Expected outcome: ${step.expect ? JSON.stringify(step.expect) : "(reach the next state)"}`,
     ``,
-    `Current page:`,
+    `Observed page elements:`,
     page.listing,
     ``,
     `Reply with the single next action that achieves the goal.`,

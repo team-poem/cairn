@@ -1,6 +1,6 @@
 /** One decision's addressing table, separate from semantic page content and durable Targets. */
 import type { Driver } from "./ports.js";
-import type { PageElement, Target } from "./types.js";
+import type { ActionEligibility, PageElement, Target, TargetAction } from "./types.js";
 import type { Decision } from "./discover/decision.js";
 import { dupeOrdinals, renderElements, renderSelectionNotices, ELEMENT_LIMIT } from "./discover/prompt.js";
 import { selectElements } from "./perception.js";
@@ -75,7 +75,9 @@ export class PerceptionObservation {
       if (!driver.locateRef || !e.ref) return line;
       const token = `o${id}-${i}`;
       // Display normalization cannot replace the raw identity seen by policy and dispatch.
-      this.table.set(token, { element: { ...e, name: originals.get(e.ref)!.name }, nth: ordinals.get(e) });
+      const { actions, ...rest } = e;
+      const measured = snapshotEligibility(actions);
+      this.table.set(token, { element: { ...rest, name: originals.get(e.ref)!.name, ...(measured ? { actions: measured } : {}) }, nth: ordinals.get(e) });
       return `- ref="${token}" ${line.slice(2)}`;
     });
     this.hasReferences = this.table.size > 0;
@@ -101,6 +103,16 @@ export class PerceptionObservation {
       ...(e.disabled !== undefined ? { disabled: e.disabled } : {}),
       ...(e.inActivePopup !== undefined ? { inActivePopup: e.inActivePopup } : {}),
       ...(e.clickable !== undefined ? { clickable: e.clickable } : {}) }));
+  }
+
+  /** True only when this observation's own row for the bound ref measured the decision's action as
+   * "disallowed". Unbound, legacy, partial or malformed facts are unknown, and another action's
+   * restriction never applies. Read from the row captured at construction, never from enrichment. */
+  disallows(decision: Decision): boolean {
+    const bound = bindings.get(decision);
+    if (!bound || bound.observation !== this) return false;
+    const actions = this.table.get(bound.token)?.element.actions;
+    return actions !== undefined && Object.hasOwn(actions, decision.action) && actions[decision.action as TargetAction] === "disallowed";
   }
 
   /** Consume even rejected attempts. Canonicalize BEFORE ambiguity and consumer policy. */
@@ -155,4 +167,19 @@ export function persistentTarget(target: Target): Target {
   for (const key of ["index", "nth"] as const) if (typeof target[key] === "number" && Number.isInteger(target[key]) && target[key]! >= 0) out[key] = target[key];
   if (!out.text && !out.selector && !(out.role && out.index !== undefined)) invalid("exact node has no persistent target");
   return out;
+}
+
+const TARGET_ACTIONS: readonly TargetAction[] = ["click", "doubleClick", "hover", "type", "select"];
+
+/** Copy the own, well-formed facts at observation time. The host keeps its object, so a later
+ * change to it while the model decides cannot alter what this snapshot measured. */
+function snapshotEligibility(actions: unknown): ActionEligibility | undefined {
+  if (typeof actions !== "object" || actions === null) return undefined;
+  const copy: ActionEligibility = {};
+  for (const action of TARGET_ACTIONS) {
+    if (!Object.hasOwn(actions, action)) continue;
+    const fact = (actions as Record<string, unknown>)[action];
+    if (fact === "supported" || fact === "disallowed") copy[action] = fact;
+  }
+  return Object.keys(copy).length ? Object.freeze(copy) : undefined;
 }

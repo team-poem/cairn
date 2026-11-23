@@ -48,8 +48,12 @@ Derive the runtime options from the persisted params on each run, and never stor
 - `evidenceCapture.checkpoints` gets one `{ id, after, elements: true }` entry per heading obligation.
 - `selectedItemEvidence.bindings` gets every persisted binding.
 
-The heading check calls `checkpointEvidence(evidence, { id, after })`. If no record matches, it
-returns required inconclusive. Otherwise it returns whether the expected heading is present.
+The heading check calls `checkpointEvidence(evidence, { id, after })`. Checkpoint elements are a
+flat snapshot, so the check scopes itself: it reads only the headings between the detail view's
+region landmark and the next landmark. A heading elsewhere on the page, such as a sidebar entry
+named for the target, cannot satisfy it. If no record matches, or the snapshot has no detail
+region, it returns required inconclusive. Otherwise it returns whether the expected heading is
+present in the detail view.
 Captured records, run IDs and resource keys never enter the Scenario.
 
 ## Summarize per target
@@ -61,6 +65,9 @@ the last source step of each binding. A target is:
 - `failed` when either obligation failed;
 - `unconfirmed` otherwise, including a missing obligation.
 
+Also list the targets whose selected-item obligation passed (`opened`) and whose heading obligation
+passed (`heading`) separately, so one obligation never stands in for the other.
+
 Report the target count as `"unknown"` for unknown membership. Report route progress separately,
 as completed actions over scenario steps. Claim verified completion only when the verdict passed,
 membership is established, and no target is failed or unconfirmed.
@@ -70,6 +77,7 @@ membership is established, and no target is failed or unconfirmed.
 | Case | Result |
 | --- | --- |
 | A, B and C each have fresh passing evidence | Verdict passes; all three targets pass. |
+| A sidebar heading carries B's expected name but B's detail heading is wrong | B fails its heading obligation; `opened` still lists B, `heading` does not. |
 | Only A is checked | B and C are unconfirmed; the verdict fails as `environment` although the final assertion passes. |
 | B has a wrong heading and C later passes | B stays failed; the verdict fails as `flow`. |
 | A is visited three times through fixed clicks | A passes; B and C checkpoints are `path-changed`, so both stay unconfirmed. |

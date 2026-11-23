@@ -88,6 +88,17 @@ function collection(scenario: Scenario): { evidenceCapture: EvidenceCaptureOptio
   };
 }
 
+const landmarks = new Set(["region", "navigation", "complementary", "banner", "contentinfo"]);
+
+/** Headings between the "Detail" region and the next landmark; a flat snapshot has no other containment. */
+function detailHeadings(elements: PageElement[]): string[] | undefined {
+  const start = elements.findIndex(e => e.role === "region" && e.name === "Detail");
+  if (start < 0) return undefined;
+  const rest = elements.slice(start + 1);
+  const end = rest.findIndex(e => landmarks.has(e.role));
+  return (end < 0 ? rest : rest.slice(0, end)).filter(e => e.role === "heading").map(e => e.name);
+}
+
 const checks: CustomChecks = {
   "target-scope": params => params.membership === "established"
     ? { passed: true, detail: "target membership is established" }
@@ -95,9 +106,9 @@ const checks: CustomChecks = {
   "target-opened": selectedItemEquals,
   "target-heading": async (params, evidence) => {
     const record = await checkpointEvidence(evidence, { id: params.checkpoint as string, after: params.after as Step[] });
-    if (!record?.elements) return { inconclusive: true, required: true, detail: `heading of ${params.target} was not observed` };
-    return { passed: record.elements.some(e => e.role === "heading" && e.name === params.heading),
-      detail: `heading of ${params.target}` };
+    const headings = record?.elements && detailHeadings(record.elements);
+    if (!headings) return { inconclusive: true, required: true, detail: `detail heading of ${params.target} was not observed` };
+    return { passed: headings.includes(params.heading as string), detail: `detail heading of ${params.target}` };
   },
 };
 
@@ -106,6 +117,9 @@ interface Coverage {
   passed: string[];
   failed: string[];
   unconfirmed: string[];
+  /** Targets whose selected-item obligation passed, and whose detail-heading obligation passed. */
+  opened: string[];
+  heading: string[];
   route: { completed: number; total: number };
   verified: boolean;
 }
@@ -114,11 +128,14 @@ interface Coverage {
 function summarize(scenario: Scenario, result: Result): Coverage {
   const scope = paramsOf(scenario, "target-scope")[0] as TargetScope;
   const outcomes = new Map<string, string[]>(scope.membership === "established" ? scope.targets.map(t => [t, []]) : []);
+  const kinds: Record<"opened" | "heading", Set<string>> = { opened: new Set(), heading: new Set() };
   for (const r of result.verdict.results) {
     if (r.assertion.kind !== "custom" || !r.assertion.params) continue;
     const target = r.assertion.name === "target-heading" ? r.assertion.params.target as string
       : r.assertion.name === "target-opened" ? targetOf((r.assertion.params as unknown as SelectedItemBinding).source.after.at(-1)!)
       : undefined;
+    if (target !== undefined && r.passed)
+      kinds[r.assertion.name === "target-heading" ? "heading" : "opened"].add(target);
     if (target !== undefined) outcomes.get(target)?.push(r.passed ? "passed" : r.reason === "inconclusive" ? "unconfirmed" : "failed");
   }
   const by = (status: string) => [...outcomes].filter(([, list]) =>
@@ -127,6 +144,7 @@ function summarize(scenario: Scenario, result: Result): Coverage {
       : !list.includes("failed") && !(list.length === 2 && list.every(s => s === "passed"))).map(([t]) => t);
   const coverage = { targets: scope.membership === "established" ? scope.targets.length : "unknown" as const,
     passed: by("passed"), failed: by("failed"), unconfirmed: by("unconfirmed"),
+    opened: [...outcomes.keys()].filter(t => kinds.opened.has(t)), heading: [...outcomes.keys()].filter(t => kinds.heading.has(t)),
     route: { completed: result.evidence.execution.actions.filter(a => a.ok && !a.skipped).length, total: scenario.steps.length } };
   return { ...coverage, verified: result.verdict.passed && scope.membership === "established"
     && coverage.failed.length === 0 && coverage.unconfirmed.length === 0 };
@@ -141,6 +159,7 @@ class TargetsDriver extends StubDriver {
     { target: "C", available: true, key: "private-key-c" },
   ];
   readonly headings: Record<string, string> = {};
+  readonly sidebar: string[] = [];
   readonly mutations: string[] = [];
   private readonly refs = new Map<string, string>();
   private observations = 0;
@@ -175,7 +194,12 @@ class TargetsDriver extends StubDriver {
   override async snapshot(): Promise<PageElement[]> {
     if (this.captureFails) throw new Error("snapshot transport failed");
     const item = this.items.find(i => i.key === this.current);
-    return [{ role: "heading", name: item ? this.headings[item.target] ?? `Target ${item.target}` : "Targets" }];
+    return [
+      { role: "navigation", name: "Targets" },
+      ...this.sidebar.map(name => ({ role: "heading", name })),
+      { role: "region", name: "Detail" },
+      { role: "heading", name: item ? this.headings[item.target] ?? `Target ${item.target}` : "Targets" },
+    ];
   }
 }
 
@@ -195,6 +219,7 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     const { result, coverage, driver } = await replay(approved);
     expect(result.verdict.passed).toBe(true);
     expect(coverage).toEqual({ targets: 3, passed: ["A", "B", "C"], failed: [], unconfirmed: [],
+      opened: ["A", "B", "C"], heading: ["A", "B", "C"],
       route: { completed: 4, total: 4 }, verified: true });
     expect(driver.mutations).toEqual(["private-key-a", "private-key-b", "private-key-c", "finish"]);
   });
@@ -211,6 +236,21 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     const { result, coverage } = await replay(approved, driver);
     expect(result.verdict).toMatchObject({ passed: false, failure: "flow" });
     expect(coverage).toMatchObject({ passed: ["A", "C"], failed: ["B"], unconfirmed: [], verified: false });
+  });
+
+  it("a sidebar heading named for B does not satisfy B's detail heading", async () => {
+    const driver = new TargetsDriver(); driver.headings.B = "Wrong"; driver.sidebar.push("Target B");
+    const { result, coverage } = await replay(approved, driver);
+    expect(result.verdict).toMatchObject({ passed: false, failure: "flow" });
+    expect(coverage).toMatchObject({ passed: ["A", "C"], failed: ["B"], verified: false,
+      opened: ["A", "B", "C"], heading: ["A", "C"] });
+  });
+
+  it("a snapshot without a detail view leaves the heading unconfirmed", async () => {
+    const driver = new TargetsDriver();
+    driver.snapshot = async () => [{ role: "heading", name: "Target A" }];
+    const { coverage } = await replay(withPath([open("A"), finish]), driver);
+    expect(coverage).toMatchObject({ passed: [], opened: ["A"], heading: [], unconfirmed: ["A", "B", "C"] });
   });
 
   it("three visits to A satisfy neither B nor C", async () => {
@@ -332,7 +372,7 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     const driver = new TargetsDriver(); driver.headings.B = "Wrong";
     const { result, coverage } = await replay(approved, driver);
     expect(result.evidence.selectedItems?.every(r => r.equal !== undefined)).toBe(true);
-    expect(result.evidence.checkpoints?.every(r => r.elements?.length === 1)).toBe(true);
+    expect(result.evidence.checkpoints?.every(r => r.elements?.length === 3)).toBe(true);
     expect(JSON.stringify({ scenario: approved, result, coverage })).not.toMatch(/private-key|ref:/);
   });
 });

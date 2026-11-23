@@ -64,7 +64,7 @@ export function buildExplorePrompt(
     history,
     ...(outcomeFeedback ? [outcomeFeedback] : []),
     ``,
-    `Interactive elements now on the page:`,
+    `Observed page elements:`,
     elementsBlock,
     ...pageGuidanceBlock(guidance),
     ``,

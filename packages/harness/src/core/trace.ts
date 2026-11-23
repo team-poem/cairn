@@ -27,8 +27,9 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.14 — required inconclusive custom checks (#314).
  * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
  * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356).
- * 1.17 — action-no-progress gate and incomplete reason (#353). */
-export const TRACE_VERSION = "1.17";
+ * 1.17 — `gate: action-eligibility`, a measured-disallowed action rejected before dispatch (#352).
+ * 1.18 — action-no-progress gate and incomplete reason (#353). */
+export const TRACE_VERSION = "1.18";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -62,7 +63,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "no-progress" | "action-no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance"; action?: string; reason: string;
+        payload: { gate: "policy" | "no-progress" | "action-no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance" | "action-eligibility"; action?: string; reason: string;
           code?: TruncationReason; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down";
           expirations?: number; limit?: number } & Partial<GuidanceScopeDiagnostic>;
       }

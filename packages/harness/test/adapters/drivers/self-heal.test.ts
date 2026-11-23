@@ -213,7 +213,7 @@ import type { PageElement, Target } from "../../../src/core/types.js";
 
       const empty = new SelfHealingDriver(new FakeDriver({ evidence, elements: [], failOn: ["Old"] }), llm);
       await expect(empty.click({ text: "Old" })).rejects.toThrow(/found no match/);
-      expect(llm.prompts[1]).toContain("Current interactive elements:\n(none)");
+      expect(llm.prompts[1]).toContain("Observed page elements:\n(none)");
     });
   }
 

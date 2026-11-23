@@ -9,7 +9,10 @@ export { rankElements } from "../perception.js";
 /** How the model must read the page listing — shared by every loop prompt (discover, explore)
  * so the perception contract can't drift between them (#99). */
 export const PERCEPTION_RULES =
-  "At each turn you see the page's interactive elements and the actions taken so far. " +
+  "At each turn you see the observed page elements and the actions taken so far. " +
+  "The listing mixes controls with context rows such as headings and static text; context rows are state evidence, " +
+  "not recommended action targets. Prefer a row with a control role or a (clickable) hint, but a custom widget " +
+  "may carry neither, so a row without them is unknown, not forbidden. " +
   'Element state appears in parentheses — (checked), (mixed), (disabled) — and a current input value after "=": ' +
   "do not click disabled controls, and do not redo work the state already shows (a checked box, a filled field). " +
   "(clickable) marks a measured interaction candidate; it does not prove an effect. " +
@@ -215,7 +218,7 @@ export function buildPrompt(
     history,
     ...(outcomeFeedback ? [outcomeFeedback] : []),
     ``,
-    `Interactive elements now on the page:`,
+    `Observed page elements:`,
     elementsBlock,
     ...pageGuidanceBlock(guidance),
     ``,

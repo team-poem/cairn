@@ -247,6 +247,14 @@ export interface ScrollState {
   scrollHeight: number;
 }
 
+/** The target-bearing actions a decision can aim at one observed element. */
+export type TargetAction = "click" | "doubleClick" | "hover" | "type" | "select";
+
+/** Measured per-action eligibility of one observed element, supplied by a Driver or host and valid
+ * only for the snapshot that carries it. A missing action is unknown, never a negative fact. Only
+ * "disallowed" changes behavior: the engine rejects that action on that exact target before dispatch. */
+export type ActionEligibility = Partial<Record<TargetAction, "supported" | "disallowed">>;
+
 /** An observed candidate; accessible semantics remain separate from measured interaction facts. */
 export interface PageElement {
   /** Opaque driver token. Never persisted or sent directly to the model. */
@@ -258,6 +266,8 @@ export interface PageElement {
   clickable?: boolean;
   /** Driver-local measured clickable region identity, meaningful within this snapshot. */
   clickableRegion?: string;
+  /** Optional measured action eligibility. Not derived from `clickable`, `role` or `disabled`. */
+  actions?: ActionEligibility;
   role: string;
   name: string;
   checked?: boolean | "mixed";

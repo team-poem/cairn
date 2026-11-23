@@ -23,7 +23,7 @@ import { requestPageGuidance, pageGuidanceState, pageGuidanceInvalidation, pageG
 import type { Evidence, RunUsage, Step, TruncationReason } from "../types.js";
 import type { TraceScope } from "../trace.js";
 import { UsageMeter } from "../usage.js";
-import { executeDecision, describeAction, describeAmbiguity, parseDecision } from "../discover/decision.js";
+import { executeDecision, describeAction, describeAmbiguity, describeDisallowed, disallowedGate, parseDecision } from "../discover/decision.js";
 import type { ActionPolicy, Decision, PolicyVerdict } from "../discover/decision.js";
 import { destinationKey } from "../discover/capture.js";
 import { exploreSystem, buildExplorePrompt } from "./prompt.js";
@@ -365,6 +365,14 @@ async function exploreWithinBudget(charter: string, opts: ExploreOptions): Promi
     const ambiguity = describeAmbiguity(decision, elements);
     if (ambiguity) {
       pushFailure(`${describeAction(decision)} — ${ambiguity}`);
+      continue;
+    }
+
+    if (page.disallows(decision)) {
+      trace?.emit({ kind: "gate", phase: "explore", payload: disallowedGate(decision) });
+      pushFailure(describeDisallowed(decision));
+      onStep?.(decision);
+      if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) break; // report what exists, truncated
       continue;
     }
 

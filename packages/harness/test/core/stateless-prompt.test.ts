@@ -5,7 +5,7 @@ import { FakeDriver } from "../../src/adapters/drivers/fake.js";
 import type { LlmClient } from "../../src/core/ports.js";
 import type { Evidence, PageElement } from "../../src/core/types.js";
 
-const HEADER = "Interactive elements now on the page:\n";
+const HEADER = "Observed page elements:\n";
 const evidence: Evidence = {
   execution: { actions: [], navigated: false, finalUrl: "https://shop/", blocked: false },
   perception: {},

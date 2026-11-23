@@ -15,6 +15,7 @@ protocol. Legacy Drivers remain supported. Related: [#198](https://github.com/te
 | `occluded` | Positive hit-test evidence of coverage when true. Missing measurement is unknown. |
 | `clickable` | A measured interaction candidate. It does not prove that clicking produces an effect. |
 | `clickableRegion` | Observation-local identity of the measured click region, for de-nesting labels. |
+| `actions` | Optional measured eligibility per action, `supported` or `disallowed`; see below. |
 | `ref` | An opaque Driver token for one observed node. Never a durable locator. |
 
 Drivers supply candidates in source order before model ranking or truncation. Collection limits
@@ -347,3 +348,31 @@ a two-action flow with scripted replies, and replays it with zero model calls. T
 browser check, not a live-model benchmark or a claim of general discovery success improvement.
 The fixture only saves the expected input value; empty and incorrect values are checked not to
 navigate, and discovery/replay must type the correct value before reaching the saved destination.
+
+## Measured action eligibility (#352)
+
+Context rows (headings, static text) stay in the listing as state evidence, and a row with no
+role or `clickable` hint can still be a working widget. So the model's choice is not filtered by
+role. A Driver or the consumer's `perceive` callback may additionally attach
+`actions: { click?, doubleClick?, hover?, type?, select? }` to a row, each `supported` or
+`disallowed`. Three states exist and a missing key is the third, unknown.
+
+- Only `disallowed` changes behavior. The engine rejects that action on that exact row before
+  dispatch, in discovery, exploration, step repair and locator repair alike, and the next decision
+  is the model's own. It never redirects to a similarly named row.
+- The fact belongs to the observation that carried it. The observation copies each row's
+  well-formed facts when it is built, so a host that later changes its own `actions` object
+  cannot lift or add a restriction while the model decides. It is read from the row bound to the
+  decision's ref when the decision binds, so duplicate names, rotating refs and locator
+  enrichment after the check cannot attach or reuse eligibility from another row or snapshot.
+  A decision with no ref, a legacy Driver, a partial measurement and any other action on the same
+  row are unknown. `clickable: false` and `disabled` keep their existing meaning.
+- A rejection counts toward the consecutive-block limit with policy rejections, never executes,
+  and runs before policy and budget-consuming dispatch. Ordinary frozen replay does not consult it.
+- The trace carries `gate: action-eligibility` with the verb and a fixed reason, and no names,
+  refs, values or URLs. The model feedback names the action it chose and nothing else from the page.
+
+The reference Chrome driver supplies no `actions` today. Its measured facts are `inActivePopup`,
+`occluded` and positive `clickable`, none of which is a per-action refusal. Computed
+`pointer-events: none` or `inert` would be the first measurable source; until a Driver measures
+it, a host supplies the facts through `perceive`.

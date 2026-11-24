@@ -42,10 +42,8 @@ export class PerceptionObservation {
   readonly listed: readonly { element: PageElement; nth?: number }[];
 
   constructor(private readonly driver: Driver, raw: PageElement[], perceived: PageElement[], intent: string, limit = ELEMENT_LIMIT, diagnostics = false,
-    install = true) {
-    // A task rechecks the fresh listing without issuing another model decision or
-    // retiring the original decision's guarded driver token.
-    if (install) current.set(driver, this);
+    registration: "current" | "detached" = "current") {
+    if (registration === "current") current.set(driver, this);
     const id = ++generation;
     this.id = `o${id}`;
     const originals = new Map<string, PageElement>();
@@ -87,6 +85,11 @@ export class PerceptionObservation {
     this.listing = this.hasReferences
       ? `(A ref is valid for this decision only; use "ref" for exact selection.)\n${lines.join("\n")}${omitted}`
       : this.render;
+  }
+
+  /** List fresh rows without replacing the observation that owns the pending decision's ref. */
+  listForRecheck(raw: PageElement[], perceived: PageElement[], intent: string): PerceptionObservation["listed"] {
+    return new PerceptionObservation(this.driver, raw, perceived, intent, ELEMENT_LIMIT, false, "detached").listed;
   }
 
   /** Call only after constructing an actual decision prompt, never for observation-only capture.

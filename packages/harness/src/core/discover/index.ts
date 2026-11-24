@@ -99,7 +99,7 @@ export function discoverWithTasks(intent: string, opts: DiscoverOptions & { task
 Promise<{ scenario: Scenario; progress: DiscoveryTaskReport }> {
   return withWorkflowEntry(opts, async () => {
     if (opts.maxSteps !== undefined && (!Number.isSafeInteger(opts.maxSteps) || opts.maxSteps < 0))
-      throw new Error("discoverWithTasks requires a finite, nonnegative integer maxSteps");
+      throw new Error("discoverWithTasks: maxSteps must be a nonnegative safe integer when provided");
     const tasks: TaskSession = { run: new DiscoveryTaskRun(opts.taskPlan), reason: "engine-stopped" };
     const scenario = await discoverEntry(intent, opts, tasks);
     return { scenario, progress: tasks.run.report(tasks.reason) };
@@ -584,8 +584,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         rememberGuidedPolicyUrl(url);
         const expire = (): never => { taskExpired = true; throw new Error("task decision expired before input"); };
         if (url !== observedUrl) expire();
-        const listing = new PerceptionObservation(driver, ownedRows, perceived, intent, undefined, false, false);
-        if (!taskDecisionGrounded(decision, listing.listed, ownedRows, !perceive, grounding)) expire();
+        const listed = page.listForRecheck(ownedRows, perceived, intent);
+        if (!taskDecisionGrounded(decision, listed, ownedRows, !perceive, grounding)) expire();
         callingTaskHook = true;
         const liveTask = tasks.run.authorize(decision, policyContext(perceived, url, taskScrollBefore, after));
         callingTaskHook = false;

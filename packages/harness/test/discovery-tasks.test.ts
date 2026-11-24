@@ -68,6 +68,11 @@ function model(...replies: Reply[]) {
 const oneTask = () => plan().tasks.slice(0, 1);
 
 describe("discoverWithTasks", () => {
+  it.each([-1, Number.MAX_SAFE_INTEGER + 1])("explains the optional maxSteps constraint for %s", async maxSteps => {
+    await expect(discoverWithTasks("read A", { driver: new Documents(), llm: model("A").llm, taskPlan: plan(), maxSteps }))
+      .rejects.toThrow("maxSteps must be a nonnegative safe integer when provided");
+  });
+
   it("keeps the policy's known goal URL when the driver omits it, without presenting it as task evidence", async () => {
     const driver = new Documents(baseUrl), observe = driver.observe.bind(driver);
     driver.observe = async () => {

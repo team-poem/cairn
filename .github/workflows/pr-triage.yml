@@ -11,7 +11,7 @@ permissions:
 jobs:
   triage:
     name: label and validate PR
-    runs-on: poem-public
+    runs-on: ubuntu-latest
     steps:
       - name: Check cairn-bot secrets
         env:

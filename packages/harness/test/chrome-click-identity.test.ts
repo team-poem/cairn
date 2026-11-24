@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { ChromeDevToolsDriver } from "../src/adapters/drivers/chrome.js";
+import { ActionOutcomeTracker } from "../src/core/action-outcomes.js";
 
 const key = "bad40d2a-8a61-4e06-a563-9a0672b8a949:1";
 const target = {role: "heading", text: "Account"};
@@ -88,6 +89,40 @@ test("a successful click whose event cannot be confirmed is not retried", async 
 
 const alert = "# Open dialog\nalert: Done.\nCall handle_dialog to handle it before continuing.";
 const timeout = "\nError: Failed to interact with the element with uid latest_uid. The element did not become interactive within the configured timeout.";
+const click = {action: "click"} as const;
+test.each([true, false])("task-only dispatch checks the original receipt after an alert timeout (reached=%s)", async reached => {
+  const { driver, calls, run } = fixture({ reached, failure: alert + timeout });
+  const tracker = new ActionOutcomeTracker();
+  tracker.arm(driver, click, () => {}, true);
+  if (reached) await run();
+  else {
+    await expect(run()).rejects.toThrow(/Failed to interact/);
+    expect(tracker.dispatchUncertain).toBe("click-dispatch-uncertain");
+  }
+  expect(calls.filter(n => ["click", "handle_dialog", "read"].includes(n))).toEqual(["click", "handle_dialog", "read"]);
+  // The driver needed the receipt but the caller did not request a repeat policy.
+  expect(tracker.take(driver, click)).toBeUndefined();
+});
+
+test.each(["confirm: Proceed?", "prompt: Name?"])("task-only dispatch never answers a rejected %s or retries the click", async message => {
+  const { driver, calls, run } = fixture({ failure: dialog.replace("confirm: Proceed?", message) + timeout });
+  const tracker = new ActionOutcomeTracker();
+  tracker.arm(driver, click, () => {}, true);
+  await expect(run()).rejects.toThrow(/Failed to interact/);
+  expect(tracker.dispatchUncertain).toBe("click-dispatch-uncertain");
+  expect(calls.filter(n => ["click", "handle_dialog", "read"].includes(n))).toEqual(["click"]);
+  expect(tracker.take(driver, click)).toBeUndefined();
+});
+
+test("a click without tasks or action outcomes does not probe the page", async () => {
+  const { driver, calls, run } = fixture();
+  const tracker = new ActionOutcomeTracker();
+  tracker.arm(driver, click, () => {});
+  await run();
+  expect(calls).toEqual(["resolve", "click", "follow"]);
+  expect(tracker.take(driver, click)).toBeUndefined();
+});
+
 test.each(["prepare", "read"] as const)("don't swallow a dead transport during %s, including after handling an alert", async stage => {
   const error = Object.assign(new Error("transport lost"), {kind:"transport"});
   const { driver, calls, run } = fixture({ probeError:{ stage, error }, failure:alert + timeout });

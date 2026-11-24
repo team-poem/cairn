@@ -43,6 +43,9 @@ deterministic replay · loop only in discovery · pattern ≠ data · extend thr
 For feedback after an acknowledged action and the optional repeated-click limit, see
 [action outcomes in discovery and exploration](action-outcomes.md).
 
+To keep discovery running after an early model `done` when declared tasks remain, see
+[discovery with declared tasks](discovery-tasks.md).
+
 ## Optional observed scroll-cycle policy (#309)
 
 `createScrollNoProgressPolicy()` plugs into `discover` and `explore` through `ActionPolicy`.

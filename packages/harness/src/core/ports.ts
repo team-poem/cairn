@@ -123,6 +123,11 @@ export interface Driver {
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
   snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
+  /** Fresh perception rows for a pending task, without replacing the existing exact-node
+   * guard. Emit an existing ref only for its original node. Adapters implementing this
+   * capability require an exact ref (or a validated guidance receipt) for task inputs;
+   * their ordinary name lookup may use fuzzy fallbacks. */
+  snapshotForTask?(options: SnapshotOptions): Promise<PageElement[]>;
   /** Capture the ordinary perception snapshot and optional scope facts at the same observation.
    * Only attest complete facts for exhaustive, disjoint matches and stable node identities.
    * Dispatch requires a nonempty, temporary targetRef bound to these facts and this unique node.

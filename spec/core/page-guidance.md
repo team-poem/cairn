@@ -124,9 +124,11 @@ provider chooses again. A plain string always uses the existing checks. A tagged
 a configured scope also uses those checks. The provider does not receive IDs or extra page data.
 Declaring a scope costs a scoped capture even on turns where the provider returns nothing.
 
-Only a reference-free `click` with the target's exact role and name and no `nth` can use this
-comparison. The target must be unique and present in the model's listing. Exact refs keep their
-existing guard. All other reference-free decisions, including `done` and `note`, still compare
+In ordinary discovery and exploration, only a reference-free `click` with the target's exact
+role and name and no `nth` uses this comparison; ref clicks keep their existing guard.
+In [task discovery](discovery-tasks.md), selecting the declared target by ref also requires the
+scope check. The target must be unique and present in the model's listing.
+All other reference-free decisions, including `done` and `note`, still compare
 the whole observation. The declaration does not constrain which actions the model may propose;
 use an action policy for that.
 

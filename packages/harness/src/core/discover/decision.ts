@@ -7,11 +7,12 @@
 import type { Driver } from "../ports.js";
 import type { Assertion, PageElement, ScrollState, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
-import { slotSecretText } from "../secrets.js";
+import { mayCarryScopedSecret, slotSecretText } from "../secrets.js";
 import type { Secrets } from "../secrets.js";
 import { assertDecisionCurrent, decisionReference, persistentTarget } from "../observation.js";
 import type { ValidateGuidedClick } from "../guided-click.js";
 import { extractFirstJsonObject } from "../json.js";
+import { stepError } from "../errors.js";
 
 export interface Decision {
   action:
@@ -107,6 +108,10 @@ export function parseDecision(text: string): Decision {
  * Pure translation — execution happens through the shared step handler in `applyDecision`.
  */
 export async function decisionToStep(driver: Driver, decision: Decision): Promise<Step> {
+  return toStep(driver, decision);
+}
+
+async function toStep(driver: Driver, decision: Decision, exactTaskTarget?: Target): Promise<Step> {
   const ref = decisionReference(driver, decision, true);
   const located = async (): Promise<Target> => {
     if (ref !== undefined) {
@@ -114,6 +119,7 @@ export async function decisionToStep(driver: Driver, decision: Decision): Promis
       return persistentTarget(await driver.locateRef(ref));
     }
     if (!decision.text) throw new Error(`${decision.action} decision missing "text"`);
+    if (exactTaskTarget) return exactTaskTarget;
     return driver.locate({
       text: decision.text,
       ...(decision.role !== undefined ? { role: decision.role } : {}),
@@ -161,13 +167,14 @@ export async function applyDecision(driver: Driver, decision: Decision, secrets:
 
 /** A scoped capture resolves its own target. Only the exact role/name survives dispatch. */
 export async function executeDecision(driver: Driver, decision: Decision, secrets: Secrets = {},
-  validate?: ValidateGuidedClick, beforeDriverInput?: () => void, beforeExecute?: () => Promise<void>): Promise<Step> {
+  validate?: ValidateGuidedClick, beforeDriverInput?: () => void, beforeExecute?: () => Promise<void>,
+  task?: {exactTarget?: Target; observedUrl?: string}): Promise<Step> {
   // A guided validation resolves the exact node and checks its live prerequisites. Keep
   // any outcome read before that validation, not between the check and the guided click.
   if (validate && beforeExecute) await beforeExecute();
   const live = validate ? await validate() : undefined;
   const ref = live ? live.ref : decisionReference(driver, decision);
-  const step: Step = live ? { kind: "click", target: live.target } : await decisionToStep(driver, decision);
+  const step: Step = live ? { kind: "click", target: live.target } : await toStep(driver, decision, task?.exactTarget);
   // A secret's value is put back behind its `{name}` HERE, before the step is executed or kept:
   // the model may echo the literal it saw in a text field rather than the intent's placeholder,
   // and a literal must go through the same scope check and must never reach the trace, the
@@ -178,7 +185,15 @@ export async function executeDecision(driver: Driver, decision: Decision, secret
   const dispatch: Step = live ? { kind: "click", target: { ...live.target } } : step;
   // Ordinary target lookup can itself wait for the page. Mark the evidence afterwards;
   // bound references and caller cancellation are still checked before input.
-  if (!validate && beforeExecute) await beforeExecute();
+  // Origin validation has its own asynchronous read. In task mode, a same-origin
+  // SPA may switch documents during that read. Approve the task after it; both
+  // the secret's origin and the task's original URL must still pass.
+  const afterOrigin = task && beforeExecute && step.kind === "type" && mayCarryScopedSecret(step.text, secrets)
+    ? async (url: string | undefined) => {
+      if (url !== task.observedUrl) throw stepError("resolution", "task URL changed during secret origin validation");
+      await beforeExecute();
+    } : undefined;
+  if (!validate && !afterOrigin && beforeExecute) await beforeExecute();
   // Non-targeted inputs have no reference-validation callback in the step handler.
   // Targeted inputs call it after async location/secret resolution and just before dispatch.
   if (step.kind === "goto" || step.kind === "pressKey" || step.kind === "scroll") beforeDriverInput?.();
@@ -186,7 +201,7 @@ export async function executeDecision(driver: Driver, decision: Decision, secret
     live?.check();
     assertDecisionCurrent(driver, decision);
     beforeDriverInput?.();
-  }, live?.checkBeforeDispatch);
+  }, live?.checkBeforeDispatch, afterOrigin);
   return step;
 }
 

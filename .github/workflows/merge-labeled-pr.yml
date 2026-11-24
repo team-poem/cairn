@@ -35,7 +35,7 @@ jobs:
       && (!github.event.pull_request
       || github.event.action == 'closed'
       || contains(github.event.pull_request.labels.*.name, 'needs-merge'))
-    runs-on: ubuntu-latest
+    runs-on: poem-public
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v7

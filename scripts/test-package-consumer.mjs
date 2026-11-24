@@ -67,9 +67,11 @@ try {
   const { build } = await import('esbuild');
   await writeFile(join(consumer, 'browser.ts'), 'export * from "cairn-engine/browser";\n');
   await build({ absWorkingDir: consumer, entryPoints: ['browser.ts'], outfile: join(temp, 'browser.js'), bundle: true, platform: 'browser', format: 'esm' });
-  packageRun(['run', 'verify'], consumer);
+  // Google Chrome has no linux/arm64 build, so arm64 runners skip only the Chrome quickstart.
+  const chrome = process.env.CAIRN_CONSUMER_SKIP_CHROME !== '1';
+  if (chrome) packageRun(['run', 'verify'], consumer);
   if (manager === 'yarn') assert.ok(!existsSync(join(consumer, 'node_modules')), 'PnP consumer must not fall back to node_modules');
-  console.log(`PASS: ${manager}${manager === 'yarn' ? ' PnP' : ''} tarball consumer, public types, installed CLI, browser bundle, and Chrome quickstart`);
+  console.log(`PASS: ${manager}${manager === 'yarn' ? ' PnP' : ''} tarball consumer, public types, installed CLI, browser bundle${chrome ? ', and Chrome quickstart' : ' (Chrome quickstart skipped)'}`);
 } finally {
   await rm(temp, { recursive: true, force: true });
 }

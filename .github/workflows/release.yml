@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: poem-public
+    runs-on: poem-arm64
     steps:
       - uses: actions/checkout@v7
         with:

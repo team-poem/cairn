@@ -131,6 +131,8 @@ export class EvidenceCaptureSession {
   private readonly pending: EvidenceCheckpoint[];
   private invalidPrefix?: "step-skipped" | "step-failed";
 
+  get protectedPrefixLength(): number { return Math.max(0, ...this.pending.map(p => p.after.length)); }
+
   constructor(options: EvidenceCaptureOptions, private readonly phase: CapturePhase, private readonly secrets?: Secrets) {
     const timeoutMs = options.timeoutMs ?? 2_000;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("evidence capture timeoutMs must be positive and finite");

@@ -37,6 +37,7 @@ import { snapshotAppContext, withAppContext, appContextProvenance } from "./core
 import { isCollectionStep, validateCollectionTarget } from "./core/collection.js";
 import type { EvidenceCaptureOptions, EvidenceCheckpointRecord } from "./core/evidence-capture.js";
 import type { SelectedItemEvidenceOptions } from "./core/selected-item-evidence.js";
+import type { ReplayCleanupOptions } from "./core/replay-cleanup.js";
 
 export interface RunScenarioOptions extends BudgetOptions {
   /** Optional host guidance for legacy locator/surgical/outcome repair only. Not judging or targetChoice.
@@ -78,6 +79,7 @@ export interface RunScenarioOptions extends BudgetOptions {
   screenshots?: boolean;
   evidenceCapture?: EvidenceCaptureOptions;
   selectedItemEvidence?: SelectedItemEvidenceOptions;
+  replayCleanup?: ReplayCleanupOptions;
   /** Product-defined checks for `{ kind: "custom", name }` assertions — the host defines success. */
   custom?: CustomChecks;
   /** URL substrings whose 4xx/5xx is product noise (e.g. analytics), excluded from `no-failed-requests`. */
@@ -216,9 +218,41 @@ async function runScenarioEntry(scenario: Scenario, opts: RunScenarioOptions): P
 }
 
 async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOptions): Promise<RunScenarioResult> {
+  const cleanup = opts.replayCleanup;
+  if (cleanup && (opts.heal || opts.targetChoice || opts.replayEnvironment)) {
+    // The caller requested repair or a different environment. Run that mode exactly once;
+    // its existing validation still applies, but this approval cannot shorten its path.
+    const decision = { status: "declined", reason: "unsupported-replay" } as const;
+    const reporter = opts.reporter ?? new ConsoleReporter();
+    // Report at the ordinary point in replay. A reporter can stop the run before
+    // outcome healing starts; deferring it would allow extra model calls or input.
+    const run = await replayScenario(scenario, { ...opts, replayCleanup: undefined,
+      reporter: { emit: result => reporter.emit({ ...result, replayCleanup: { ...decision } }) } });
+    run.result.replayCleanup = decision;
+    try { cleanup.onDecision?.({ ...decision }); } catch { /* diagnostic only */ }
+    return run;
+  }
+  return replayScenario(scenario, opts);
+}
+
+async function replayScenario(scenario: Scenario, opts: RunScenarioOptions): Promise<RunScenarioResult> {
   const budget = opts[budgetScope];
   const initialModelCalls = budget?.modelCalls ?? 0;
   validateSecrets(opts.secrets);
+  // The built-in critic and the approval must use the same rules even if the host edits
+  // its configuration while a replay is running. A supplied critic owns its own settings;
+  // leave those declarations live so the pipeline can report a change during judgment.
+  if (opts.replayCleanup && !opts.critic) {
+    const registered = opts.custom;
+    // Capture only checks this scenario uses, including methods from the registry's prototype.
+    const custom: CustomChecks | undefined = registered && Object.create(null);
+    if (custom && registered) for (const a of scenario.assertions) if (a.kind === "custom") {
+      const check = registered[a.name];
+      if (check) custom[a.name] = check;
+    }
+    opts = { ...opts, benign: opts.benign?.slice(), benignConsole: opts.benignConsole?.slice(),
+      localePrefixes: opts.localePrefixes?.slice(), custom };
+  }
   if (opts.selectedItemEvidence?.bindings.length && (opts.heal || opts.targetChoice))
     throw new Error("selected-item evidence does not support automatic healing or targetChoice; explicitly rebind the repaired path");
   // Copy declarations before the first asynchronous boundary; callers own the source artifact.
@@ -374,6 +408,7 @@ async function runScenarioWithinBudget(scenario: Scenario, opts: RunScenarioOpti
         captureScreenshots: opts.screenshots && (opts.onStep !== undefined || scope?.acceptsAttachments === true),
         evidenceCapture: opts.evidenceCapture,
         selectedItemEvidence: opts.selectedItemEvidence,
+        replayCleanup: opts.replayCleanup,
         actions: opts.actions,
         stepHealer,
         expectTimeoutMs: opts.expectTimeoutMs,

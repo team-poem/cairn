@@ -30,6 +30,8 @@ import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "../evidence
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions, unattributedCriteria } from "./grounding.js";
 import { copySelections, executeSelection, freezeSelections, selectionBlock, selectionRejection, SELECTION_RULES, type DiscoverySelection } from "./selection.js";
 import { DiscoveryTaskRun, taskDecisionGrounded, type DiscoveryTaskPlan, type DiscoveryTaskReport, type DiscoveryTaskStopReason } from "./tasks.js";
+import { CleanupDiscovery, copyCleanupRows, quietBoundary } from "./cleanup.js";
+import { recordReplayCleanup, type ReplayCleanupRecording } from "../replay-cleanup.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -114,6 +116,18 @@ export function discover(intent: string, opts: DiscoverOptions): Promise<Scenari
   return withWorkflowEntry(opts, () => discoverEntry(intent, opts));
 }
 
+/** Keep the normal freeze and separately record whether its terminal repeat is eligible
+ * for host approval. Recording does not approve a removal or start another browser run. */
+export function discoverForReplayCleanup(intent: string, opts: DiscoverOptions):
+Promise<{scenario: Scenario; recording: ReplayCleanupRecording}> {
+  return withWorkflowEntry(opts, async () => {
+    if ("taskPlan" in opts) throw new Error("use discoverWithTasks for task plans; required task occurrences cannot be removed");
+    const cleanup = new CleanupDiscovery();
+    const scenario = await discoverEntry(intent, { ...opts, actionOutcomes: cleanup.track(opts.actionOutcomes) }, undefined, cleanup);
+    return { scenario, recording: cleanup.recording! };
+  });
+}
+
 interface TaskSession { run: DiscoveryTaskRun; reason: DiscoveryTaskStopReason }
 
 /** Run the same discovery loop with a host-declared task scope. Progress describes this run, not replay. */
@@ -128,10 +142,10 @@ Promise<{ scenario: Scenario; progress: DiscoveryTaskReport }> {
   });
 }
 
-async function discoverEntry(intent: string, opts: DiscoverOptions, tasks?: TaskSession): Promise<Scenario> {
+async function discoverEntry(intent: string, opts: DiscoverOptions, tasks?: TaskSession, cleanup?: CleanupDiscovery): Promise<Scenario> {
   try {
     return await withBudget(opts, opts.tracePhase === "heal" ? "outcome-heal" : "discover", (options, scope) =>
-      discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options, tasks));
+      discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options, tasks, cleanup));
   } catch (error) {
     // Without a budget wrapper, failed final/goal observations must still retain caller cancellation.
     if (!(error instanceof BudgetExceededError)) opts.signal?.throwIfAborted();
@@ -140,26 +154,39 @@ async function discoverEntry(intent: string, opts: DiscoverOptions, tasks?: Task
   }
 }
 
-async function discoverWithinBudget(intent: string, opts: DiscoverOptions, tasks?: TaskSession): Promise<Scenario> {
+async function discoverWithinBudget(intent: string, opts: DiscoverOptions, tasks?: TaskSession, cleanup?: CleanupDiscovery): Promise<Scenario> {
   validateSecrets(opts.secrets);
   validateCriteria(opts.criteria);
   const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture,
     opts.tracePhase === "heal" ? "heal" : "discover", opts.secrets) : undefined;
   try {
-    return await discoverWithCapture(intent, opts, capture, tasks);
+    const scenario = await discoverWithCapture(intent, opts, capture, tasks, cleanup);
+    if (cleanup) {
+      cleanup.recording ??= await recordReplayCleanup(scenario, scenario.truncated ? "incomplete-discovery" : "incomplete-recording");
+      opts.signal?.throwIfAborted();
+      opts[budgetScope]?.check();
+    }
+    return scenario;
   } finally {
     capture?.finish(opts.signal);
   }
 }
 
-async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession, tasks?: TaskSession): Promise<Scenario> {
+async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession, tasks?: TaskSession, cleanup?: CleanupDiscovery): Promise<Scenario> {
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
   const criteria = opts.criteria?.map((c) => ({ id: c.id, text: slotSecretText(c.text, opts.secrets) })) ?? [];
   const { driver, baseUrl, maxSteps = 20, onStep, signal, semanticChecks = false, benign = [], perceive, trace, tracePhase = "discover", localePrefixes, secrets, pageGuidance } = opts;
   const policy = opts.policy?.createRun?.() ?? opts.policy;
   const { actionOutcomes } = opts;
-  const outcomes = new ActionOutcomeTracker(actionOutcomes);
+  // Redaction can map a field's literal placeholder and its secret value to the same text.
+  const protectedCleanup = Boolean(cleanup && (capture || policy || pageGuidance || opts.selections?.length ||
+    tasks || tracePhase !== "discover" || Object.keys(secrets ?? {}).length));
+  if (protectedCleanup) cleanup!.invalidate();
+  const outcomes = new ActionOutcomeTracker(actionOutcomes, cleanup?.explicitOutcomes);
+  // Enabling cleanup alone must not move the start/end of a frozen step's normal
+  // request interval. A cleanup refusal still returns that original step and its expect.
+  const preserveFreezeMarks = cleanup !== undefined && !cleanup.explicitOutcomes;
   const guidanceAttempts = new PageGuidanceAttempts();
   const scope = pageGuidance && opts.pageGuidanceScope !== undefined ? copyGuidanceScope(opts.pageGuidanceScope) : undefined;
   const selections = copySelections(opts.selections, driver);
@@ -174,7 +201,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   const marks: (OutcomeMark | null)[] = [];
   const closeActionInterval = (evidence: Evidence | undefined): void => {
     const last = marks[marks.length - 1];
-    if (actionOutcomes && evidence && last) {
+    if (actionOutcomes && !preserveFreezeMarks && evidence && last) {
       last.end ??= { url: evidence.execution.finalUrl, requestCount: evidence.logic.requests.length };
     }
   };
@@ -269,6 +296,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       : { name: intent, steps, assertions, ...wildcards, ...unproven, ...attribution };
     const identified = await identify(scenario);
     check();
+    if (cleanup) {
+      if (pruned.length || protectedCleanup)
+        cleanup.recording = await recordReplayCleanup(identified, "protected-discovery");
+      else
+        cleanup.recording = await recordReplayCleanup(identified, await cleanup.refusal(identified, evidence, driver, outcomes, perceive, secrets, check));
+    }
     if (guidanceExpired) trace?.emit({ kind: "gate", phase: tracePhase,
       payload: { gate: "page-guidance", ...guidanceAttempts.diagnostic() } });
     if (truncationReason === "action-no-progress") trace?.emit({ kind: "gate", phase: tracePhase,
@@ -289,6 +322,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   if (baseUrl) {
     await driver.goto(baseUrl);
     steps.push({ kind: "goto", url: baseUrl });
+    cleanup?.record(steps[0]!);
     opts[budgetScope]?.recordAction({ step: { kind: "goto", url: baseUrl }, ok: true });
     marks.push(null);
     currentUrl = baseUrl;
@@ -338,6 +372,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   // must not rewrite the measured URL or page rows used to authorize or assess a task.
   const policyView = (ctx: ReturnType<typeof policyContext>) => tasks && policy ? structuredClone(ctx) : ctx;
   let consecutiveBlocks = 0;
+  const copyRows = tasks ? structuredClone : cleanup ? copyCleanupRows : undefined;
   for (let i = 0; i < maxSteps; i++) {
     check();
     // A trusted goal may still win on one fresh valid observation, but no further decision
@@ -352,12 +387,12 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     rememberGuidedPolicyUrl(observedUrl);
     const scrollBefore = await readPolicyScroll(policy, driver);
     const { elements: captured, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope, Boolean(actionOutcomes));
-    // Some adapters reuse their row objects. Keep the task's first match bound to what the
-    // model saw, even if the adapter or perception hook updates its own copy while it decides.
-    const raw = tasks ? structuredClone(captured) : captured;
+    // A task or cleanup decision needs the driver's facts even if the adapter reuses
+    // these rows or the perception hook edits a nested action-eligibility map.
+    const raw = copyRows ? copyRows(captured) : captured;
     const scrollAfter = await readPolicyScroll(policy, driver);
-    const perceived = perceive ? await perceive(tasks ? structuredClone(raw) : raw.map(e => ({ ...e }))) : raw;
-    const elements = redactSecrets(tasks && perceive ? structuredClone(perceived) : perceived, secrets);
+    const perceived = perceive ? await perceive(copyRows ? copyRows(raw) : raw.map(e => ({ ...e }))) : raw;
+    const elements = redactSecrets(copyRows && perceive ? copyRows(perceived) : perceived, secrets);
     // Never hand assess() the URL of one document and the rows of another.
     if (tasks) {
       const afterUrl = (await driver.observe()).execution.finalUrl;
@@ -381,6 +416,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       page = new PerceptionObservation(driver, raw, elements, intent, undefined, Boolean(trace));
     } catch (err) {
       if (errorKindOf(err) !== "resolution") throw err;
+      cleanup?.invalidate();
       // Keep raw page content and rejected references out of the diagnostic stream.
       trace?.emit({
         kind: "gate",
@@ -396,8 +432,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // merely because it needed a URL read that the unguided path would not have made.
     const frame = outcomes.capture(perceive ? redactSecrets(raw, secrets) : elements,
       actionOutcomes ? observedUrl : undefined, actionOutcomes ? observedRequests : undefined,
-      perceive ? elements : undefined);
+      perceive ? elements : undefined, !!cleanup && !protectedCleanup);
+    const quietListing = cleanup && entryEvidence && quietBoundary(entryEvidence, frame);
     outcomes.observe(frame);
+    if (cleanup && entryEvidence) cleanup.observe(frame, entryEvidence, outcomes);
     if (actionOutcomes) check();
     const taskEnd = taskCtx && taskBoundary(taskCtx);
     if (taskEnd !== undefined) return finish(taskEnd);
@@ -561,7 +599,8 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     try {
       // When nobody needs a pre-vet URL, move the usual pre-action read to just
       // before execution. The decision's own observation belongs to its listing.
-      const beforeObs = scopedBefore ?? (actionOutcomes && !policy && !guidance ? entryEvidence! : await driver.observe());
+      const beforeObs = scopedBefore ?? (actionOutcomes && !preserveFreezeMarks && !policy && !guidance ? entryEvidence! : await driver.observe());
+      const quietDecision = quietListing && quietBoundary(beforeObs, frame);
       check();
       rememberGuidedPolicyUrl(beforeObs.execution.finalUrl);
       // Guidance cannot carry a decision onto a page other than the one it was written for.
@@ -621,6 +660,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       let dispatchFrame = frame;
+      let cleanupInput: typeof frame | undefined;
       const options = { perception: true, ...(actionOutcomes ? { actionOutcomes: true } : {}) };
       let taskScrollBefore: Awaited<ReturnType<typeof readPolicyScroll>>;
       const authorizeLive = async (rows: typeof raw) => {
@@ -663,14 +703,18 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
           policyUrlExpired = true;
           throw new Error("policy decision expired before input: page URL changed");
         }
-        mark.url = url;
-        mark.requestCount = evidence.logic.requests.length;
-        dispatchFrame = outcomes.atDispatch(frame, url, mark.requestCount);
+        const requests = evidence.logic.requests.length;
+        if (!preserveFreezeMarks) {
+          mark.url = url;
+          mark.requestCount = requests;
+        }
+        dispatchFrame = outcomes.atDispatch(frame, url, requests);
         if (tasks) {
           taskScrollBefore = await readPolicyScroll(policy, driver);
           // A scoped receipt supplies its own live target and prerequisite capture.
           if (!scoped) await authorizeLive(await (driver.snapshotForTask ? driver.snapshotForTask(options) : driver.snapshot(options)));
         }
+        if (cleanup && quietDecision) cleanupInput = await cleanup.beforeClick(decision, frame, evidence, driver, outcomes, perceive, secrets, check);
       } : undefined;
       check();
       executingScope = scoped;
@@ -701,6 +745,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       if (selection) consumed.set(step, selection);
       else if (decision.reason?.trim()) step.intent = decision.reason.trim();
       completedStep = step;
+      cleanup?.record(step, identity, cleanupInput);
       steps.push(step);
       if (tasks && taskId) tasks.run.executed(taskId, step);
       opts[budgetScope]?.recordAction({ step, ok: true });
@@ -775,6 +820,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         return partial;
       }
       capture?.invalidate();
+      cleanup?.invalidate();
       completedStep = undefined;
       if (selection) {
         // The click may have reached the application; another attempt is never authorized.

@@ -44,6 +44,9 @@ class PostsDriver extends StubDriver {
   selected?: string;
   saves = true;
   complete = true;
+  /** A post's path segment; the label lowercased unless set. */
+  paths: Record<string, string> = {};
+  api = "https://app/api/posts";
   beforeObserve?: () => void;
   afterDispatch?: () => void;
 
@@ -71,23 +74,24 @@ class PostsDriver extends StubDriver {
           values: selection.choice.where.map(() => String(this.open[position])) } } : {}) };
     }) };
   }
+  private path(post: string): string { return this.paths[post] ?? post.toLowerCase(); }
   private dispatch(target: Target, ref?: string): string {
     const position = ref === undefined ? undefined : this.refs.get(ref);
     if (position === undefined || this.posts[position] !== target.text) throw new Error("exact collection reference required");
     const post = this.posts[position]!;
     this.dispatched.push(post);
     this.selected = post;
-    this.url = `https://app/posts/${post.toLowerCase()}`;
-    this.requests.push({ method: "GET", url: `https://app/api/posts/${post.toLowerCase()}`, status: 200 });
+    this.url = `https://app/posts/${this.path(post)}`;
+    this.requests.push({ method: "GET", url: `${this.api}/${this.path(post)}`, status: 200 });
     this.els = [{ role: "heading", name: "Post" }, { role: "button", name: "Save" }, { role: "button", name: "Load comments" }];
     this.afterDispatch?.();
     return post;
   }
   override async click(target: Target, ref?: string): Promise<void> {
     if (!ref && target.text === "Save" && this.saves && this.selected)
-      this.requests.push({ method: "POST", url: `https://app/api/posts/${this.selected.toLowerCase()}/save`, status: 201 });
+      this.requests.push({ method: "POST", url: `${this.api}/${this.path(this.selected)}/save`, status: 201 });
     if (!ref && target.text === "Load comments" && this.selected)
-      this.requests.push({ method: "GET", url: `https://app/api/posts/${this.selected.toLowerCase()}/comments`, status: 200 });
+      this.requests.push({ method: "GET", url: `${this.api}/${this.path(this.selected)}/comments`, status: 200 });
     if (!ref) return super.click(target);
     this.dispatch(target, ref);
   }
@@ -208,14 +212,35 @@ describe("declared selections in discovery (#343)", () => {
   });
 
   it("withholds the freeze when a read after the selection loses its only proof", async () => {
+    const events: TraceEvent[] = [];
     const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
       verify: { source: itemKey, destination } };
     const { scenario } = await discoverWith(new PostsDriver(["Alpha", "Bravo"]), [selection], [
       use("first-post", "open the first post"),
       JSON.stringify({ action: "click", text: "Load comments", reason: "load the comments" }),
       done([{ kind: "request-status", urlIncludes: "app/api/posts/alpha/comments", status: 200, method: "GET" }]),
-    ]);
+    ], events);
     expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
+    expect(JSON.stringify(events)).not.toMatch(/alpha/i);
+  });
+
+  it("keeps the selected member's ID out of the trace and unprovenAction", async () => {
+    const events: TraceEvent[] = [];
+    const driver = new PostsDriver(["Alpha", "Bravo"]);
+    // A path that starts with the ID leaves no stable prefix, so Save gets no derived expect.
+    driver.api = "https://app";
+    driver.paths = { Alpha: "4821", Bravo: "4822" };
+    const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
+      verify: { source: itemKey, destination } };
+    const { scenario } = await discoverWith(driver, [selection], [
+      use("first-post", "open the first post"),
+      JSON.stringify({ action: "click", text: "Save", reason: "save the post" }),
+      done([{ kind: "request-status", urlIncludes: "app/4821", status: 200, method: "GET" }]),
+    ], events);
+    expect(driver.requests.map(r => r.url)).toContain("https://app/4821/save");
+    expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
+    expect(scenario).not.toHaveProperty("unprovenAction");
+    expect(JSON.stringify(events)).not.toMatch(/4821|alpha/i);
   });
 
   it("withholds the freeze when a waitFor after the selection names the member discovery selected", async () => {

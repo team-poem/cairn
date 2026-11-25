@@ -175,7 +175,9 @@ two gate values and one phase value; the envelope is unchanged.
 Version 1.19 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
 selection (#343), and the `selection-unbound`, `selection-failed` and `selection-unproven` truncation
 reasons. The gate
-carries a fixed reason only. See [declared selections in discovery](discovery-selection.md).
+carries a fixed reason only. After a consumed selection, a `grounding` gate carries only the
+assertion kind and a fixed reason, and `unprovenAction` names only a request sent before the
+selection. See [declared selections in discovery](discovery-selection.md).
 
 Version 1.18 adds the `action-no-progress` gate for the opt-in [click repetition policy](action-outcomes.md).
 Each refused repeat emits a gate without recording an executed step; a later decision can still recover.

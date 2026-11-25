@@ -12,6 +12,7 @@ import { CollectionSelectionError, resolveChoiceValues, validateCollectionTarget
 import { copyCapturePath, copyEvidenceData } from "../evidence-capture.js";
 import { validateSelectedItemBinding, type DestinationResourceKey, type SelectedItemBinding, type SelectedItemKey } from "../selected-item-evidence.js";
 import type { OutcomeMark } from "./capture.js";
+import { findUnprovenAction } from "./grounding.js";
 
 export interface DiscoverySelection {
   version: 1;
@@ -153,17 +154,18 @@ export async function executeSelection(driver: Driver, selection: DiscoverySelec
  * request satisfied; every selection with `verify` adds its binding.
  *
  * A binding proves only its own selection. `unproven` is set when another step from the first
- * selection onward had an outcome the freeze cannot keep: a derived expect, a `waitFor`, or a
- * dropped request check that no selection's own requests satisfy. That step's obligation has no
- * frozen proof, so the caller must not freeze it.
+ * selection onward had an outcome the freeze cannot keep: a derived expect, a `waitFor`, a dropped
+ * request check that no selection's own requests satisfy, or a mutation with no stable path.
+ * That step's obligation has no frozen proof, so the caller must not freeze it. `selectedFrom` is
+ * the request index where the first selection starts; requests from there on may name the member.
  */
 export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | null)[], evidence: Evidence,
-  assertions: Assertion[], consumed: ReadonlyMap<Step, DiscoverySelection>,
-  onDrop: (assertion: Assertion, reason: string) => void): { assertions: Assertion[]; unproven: boolean } {
+  assertions: Assertion[], consumed: ReadonlyMap<Step, DiscoverySelection>, benign: readonly string[],
+  onDrop: (assertion: Assertion, reason: string) => void): { assertions: Assertion[]; unproven: boolean; selectedFrom?: number } {
   const first = steps.findIndex(step => consumed.has(step));
   if (first < 0) return { assertions, unproven: false };
   const requests = evidence.logic.requests;
-  const selectionRequests: NetworkRequest[] = [];
+  const selectionRequests: NetworkRequest[] = [], laterRequests: NetworkRequest[] = [];
   let unproven = false;
   for (let i = first; i < steps.length; i++) {
     const step = steps[i]!;
@@ -172,11 +174,13 @@ export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | n
     delete step.expect;
     if (selection?.expect) step.expect = structuredClone(selection.expect);
     const mark = marks[i];
-    if (!selection || !mark) continue;
+    if (!mark) continue;
     const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
-    selectionRequests.push(...requests.slice(mark.requestCount, mark.end?.requestCount ?? next?.requestCount ?? requests.length));
+    (selection ? selectionRequests : laterRequests)
+      .push(...requests.slice(mark.requestCount, mark.end?.requestCount ?? next?.requestCount ?? requests.length));
   }
-  const before = requests.slice(0, marks[first]?.requestCount ?? 0);
+  const selectedFrom = marks[first]?.requestCount ?? 0;
+  const before = requests.slice(0, selectedFrom);
   const reason = "observed after a run-relative selection; it may describe the member discovery selected";
   const kept = assertions.filter(assertion => {
     if (assertion.kind === "no-failed-requests" || assertion.kind === "no-console-errors" || assertion.origin === "user") return true;
@@ -188,11 +192,13 @@ export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | n
     onDrop(assertion, reason);
     return false;
   });
+  if (findUnprovenAction({ ...evidence, logic: { ...evidence.logic, requests: laterRequests } }, [],
+    { benign, pageUrls: marks.map(mark => mark?.url) })) unproven = true;
   const bindings = steps.flatMap((step, index) => {
     const selection = consumed.get(step);
     if (!selection?.verify) return [];
     const binding = bindingFor(selection, steps.slice(0, index + 1));
     return [{ kind: "custom" as const, name: selection.id, params: binding as unknown as Record<string, unknown> }];
   });
-  return { assertions: [...kept, ...bindings], unproven };
+  return { assertions: [...kept, ...bindings], unproven, selectedFrom };
 }

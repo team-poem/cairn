@@ -186,14 +186,14 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (opts[budgetScope]) opts[budgetScope].phase = tracePhase === "heal" ? "outcome-assertions" : "assertions";
     const all = [...proposed, ...(await proposeAssertions(llm, intent, evidence, semanticChecks))];
     check();
-    const dropped = (a: Assertion, reason: string) =>
-      trace?.emit({
-        kind: "gate",
-        phase: tracePhase,
-        payload: { gate: "grounding", action: JSON.stringify(a), reason },
-      });
-    const frozen = freezeSelections(steps, marks, evidence,
-      deriveAssertions(all, evidence, semanticChecks, benign, dropped), consumed, dropped);
+    const grounding = (action: string, reason: string) =>
+      trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "grounding", action, reason } });
+    // After a selection, an assertion's values and a grounding reason's URLs can name the member
+    // discovery selected, so the gate keeps only the kind and a fixed reason.
+    const dropped = (a: Assertion, reason: string) => consumed.size
+      ? grounding(a.kind, "not grounded in discovery evidence") : grounding(JSON.stringify(a), reason);
+    const frozen = freezeSelections(steps, marks, evidence, deriveAssertions(all, evidence, semanticChecks, benign, dropped),
+      consumed, benign, (a, reason) => grounding(a.kind, reason));
     // The selected-item binding cannot stand in for a later step's proof.
     if (frozen.unproven && !truncated) [truncated, truncationReason] = [true, "selection-unproven"];
     const grounded = frozen.assertions;
@@ -211,7 +211,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     });
     // Record an action the freeze could not express a check for — advisory for now (see
     // spec/core/judgment.md): the freeze carries it and the trace names it, replay does not fail on it.
-    const unprovenRequest = findUnprovenAction(evidence, assertions, {
+    // Requests from the first selection on can name the member; freezeSelections judges them.
+    const unprovenRequest = findUnprovenAction(frozen.selectedFrom === undefined ? evidence
+      : { ...evidence, logic: { ...evidence.logic, requests: evidence.logic.requests.slice(0, frozen.selectedFrom) } }, assertions, {
       benign,
       sinceRequest: firstCount,
       pageUrls: marks.map((m) => m?.url),

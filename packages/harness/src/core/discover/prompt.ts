@@ -198,6 +198,7 @@ export function buildPrompt(
   hasReferences = false,
   guidance?: string,
   outcomeFeedback?: string,
+  pendingTasks?: string,
   selections: string[] = [],
 ): string {
   const history = steps.length
@@ -222,6 +223,7 @@ export function buildPrompt(
     `Observed page elements:`,
     elementsBlock,
     ...pageGuidanceBlock(guidance),
+    ...(pendingTasks ? [pendingTasks] : []),
     ...selections,
     ``,
     `What is the single next action? Respond with JSON only.`,

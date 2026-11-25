@@ -6,7 +6,7 @@
  * Module layout: prompt (LLM surface) · decision (Decision→Step + shared execution) ·
  * capture (per-step expect) · grounding (freeze-time assertions). This file owns only the loop.
  */
-import { PerceptionObservation } from "../observation.js";
+import { decisionReference, PerceptionObservation } from "../observation.js";
 import { ActionOutcomeTracker, type ActionOutcomeOptions } from "../action-outcomes.js";
 import { readGuidedPage, listedScopeBaseline, scopedClick } from "../guided-click.js";
 import { copyGuidanceScope, ScopedGuidanceExpired, type PageGuidanceScope, type GuidanceScopeDiagnostic } from "../guidance-scope.js";
@@ -29,6 +29,7 @@ import type { OutcomeMark } from "./capture.js";
 import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "../evidence-capture.js";
 import { deriveAssertions, findUnprovenAction, markObservedBeforeLastMutation, markVacuous, proposeAssertions, unattributedCriteria } from "./grounding.js";
 import { copySelections, executeSelection, freezeSelections, selectionBlock, selectionRejection, SELECTION_RULES, type DiscoverySelection } from "./selection.js";
+import { DiscoveryTaskRun, taskDecisionGrounded, type DiscoveryTaskPlan, type DiscoveryTaskReport, type DiscoveryTaskStopReason } from "./tasks.js";
 
 export type { ActionPolicy, Decision, PolicyContext, PolicyVerdict } from "./decision.js";
 export { applyDecision, decisionToStep, parseDecision } from "./decision.js";
@@ -113,10 +114,24 @@ export function discover(intent: string, opts: DiscoverOptions): Promise<Scenari
   return withWorkflowEntry(opts, () => discoverEntry(intent, opts));
 }
 
-async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+interface TaskSession { run: DiscoveryTaskRun; reason: DiscoveryTaskStopReason }
+
+/** Run the same discovery loop with a host-declared task scope. Progress describes this run, not replay. */
+export function discoverWithTasks(intent: string, opts: DiscoverOptions & { taskPlan: DiscoveryTaskPlan }):
+Promise<{ scenario: Scenario; progress: DiscoveryTaskReport }> {
+  return withWorkflowEntry(opts, async () => {
+    if (opts.maxSteps !== undefined && (!Number.isSafeInteger(opts.maxSteps) || opts.maxSteps < 0))
+      throw new Error("discoverWithTasks: maxSteps must be a nonnegative safe integer when provided");
+    const tasks: TaskSession = { run: new DiscoveryTaskRun(opts.taskPlan), reason: "engine-stopped" };
+    const scenario = await discoverEntry(intent, opts, tasks);
+    return { scenario, progress: tasks.run.report(tasks.reason) };
+  });
+}
+
+async function discoverEntry(intent: string, opts: DiscoverOptions, tasks?: TaskSession): Promise<Scenario> {
   try {
     return await withBudget(opts, opts.tracePhase === "heal" ? "outcome-heal" : "discover", (options, scope) =>
-      discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options));
+      discoverWithinBudget(intent, scope ? { ...options, driver: scope.driver(options.driver), llm: scope.llm(options.llm) } : options, tasks));
   } catch (error) {
     // Without a budget wrapper, failed final/goal observations must still retain caller cancellation.
     if (!(error instanceof BudgetExceededError)) opts.signal?.throwIfAborted();
@@ -125,19 +140,19 @@ async function discoverEntry(intent: string, opts: DiscoverOptions): Promise<Sce
   }
 }
 
-async function discoverWithinBudget(intent: string, opts: DiscoverOptions): Promise<Scenario> {
+async function discoverWithinBudget(intent: string, opts: DiscoverOptions, tasks?: TaskSession): Promise<Scenario> {
   validateSecrets(opts.secrets);
   validateCriteria(opts.criteria);
   const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture,
     opts.tracePhase === "heal" ? "heal" : "discover", opts.secrets) : undefined;
   try {
-    return await discoverWithCapture(intent, opts, capture);
+    return await discoverWithCapture(intent, opts, capture, tasks);
   } finally {
     capture?.finish(opts.signal);
   }
 }
 
-async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession): Promise<Scenario> {
+async function discoverWithCapture(intent: string, opts: DiscoverOptions, capture?: EvidenceCaptureSession, tasks?: TaskSession): Promise<Scenario> {
   const appContext = snapshotAppContext(opts.appContext, opts.secrets);
   const llm = withAppContext(opts.llm, appContext);
   const criteria = opts.criteria?.map((c) => ({ id: c.id, text: slotSecretText(c.text, opts.secrets) })) ?? [];
@@ -189,7 +204,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // Before expects are assigned: indices shift, and a pruned scroll's (empty) tail folds into
     // the step that follows it. Each prune is a gate firing, not silence — the trace names the
     // original index so a viewer can reconcile it with the `action` events already emitted.
-    for (const { index, step } of pruneIdleScrolls(steps, marks, evidence, benign)) {
+    // Every dispatched task action was explicitly required, including a scroll that fired no request.
+    const pruned = tasks ? [] : pruneIdleScrolls(steps, marks, evidence, benign);
+    for (const { index, step } of pruned) {
       trace?.emit({
         kind: "gate",
         phase: tracePhase,
@@ -268,6 +285,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (pageGuidance) guidedPolicyUrl = url ?? guidedPolicyUrl;
   };
 
+  if (tasks) check();
   if (baseUrl) {
     await driver.goto(baseUrl);
     steps.push({ kind: "goto", url: baseUrl });
@@ -284,7 +302,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
 
   // #137: the starting state, before any flow action — freeze-time vacuity is judged against
   // this, so a check the landing page already satisfies gets flagged as proving nothing.
+  if (tasks) check();
   await driver.settle();
+  if (tasks) check();
   const baseline = await driver.observe();
   rememberGuidedPolicyUrl(baseline.execution.finalUrl);
 
@@ -295,6 +315,28 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
   const pushFailure = (line: string): void => {
     if (!failures.includes(line)) failures.push(line);
   };
+  // Only a fresh, valid observation can assess a confirmed action. Unknown verification is
+  // not executable work. A policy stop still stops immediately, without waiving pending tasks.
+  const taskBoundary = (ctx: ReturnType<typeof policyContext>) => {
+    if (!tasks) return;
+    check();
+    tasks.run.observe(ctx);
+    check();
+    const reason = tasks.run.stopReason();
+    if (reason) { tasks.reason = reason; return true; }
+    if (!tasks.run.hasPendingWork && !tasks.run.needsAssessment) {
+      const incomplete = Boolean(policy?.incomplete?.() || outcomes.suspect || guidanceAttempts.exhausted);
+      tasks.reason = incomplete ? "engine-stopped" : "tasks-complete";
+      return incomplete;
+    }
+  };
+  const policyStop = () => {
+    if (tasks) tasks.reason = "policy-stop";
+    return finish(Boolean(tasks));
+  };
+  // Policy hooks share their own context (including their historical URL fallback). A hook
+  // must not rewrite the measured URL or page rows used to authorize or assess a task.
+  const policyView = (ctx: ReturnType<typeof policyContext>) => tasks && policy ? structuredClone(ctx) : ctx;
   let consecutiveBlocks = 0;
   for (let i = 0; i < maxSteps; i++) {
     check();
@@ -303,23 +345,36 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     if (guidanceAttempts.exhausted && !policy?.stop) return finish(true);
     await driver.settle();
     // A guided decision needs this observation's own URL, not the one lagging an action behind.
-    const entryEvidence = pageGuidance || actionOutcomes ? await driver.observe() : undefined;
+    const entryEvidence = pageGuidance || actionOutcomes || tasks ? await driver.observe() : undefined;
     const observedUrl = entryEvidence?.execution.finalUrl;
     const observedRequests = entryEvidence?.logic.requests.length;
     closeActionInterval(entryEvidence);
     rememberGuidedPolicyUrl(observedUrl);
     const scrollBefore = await readPolicyScroll(policy, driver);
-    const { elements: raw, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope, Boolean(actionOutcomes));
+    const { elements: captured, baseline: scopeBaseline } = await readGuidedPage(driver, guidanceAttempts.exhausted ? undefined : scope, Boolean(actionOutcomes));
+    // Some adapters reuse their row objects. Keep the task's first match bound to what the
+    // model saw, even if the adapter or perception hook updates its own copy while it decides.
+    const raw = tasks ? structuredClone(captured) : captured;
     const scrollAfter = await readPolicyScroll(policy, driver);
-    const elements = redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets);
+    const perceived = perceive ? await perceive(tasks ? structuredClone(raw) : raw.map(e => ({ ...e }))) : raw;
+    const elements = redactSecrets(tasks && perceive ? structuredClone(perceived) : perceived, secrets);
+    // Never hand assess() the URL of one document and the rows of another.
+    if (tasks) {
+      const afterUrl = (await driver.observe()).execution.finalUrl;
+      check();
+      rememberGuidedPolicyUrl(afterUrl);
+      if (afterUrl !== observedUrl) continue;
+    }
     if (policy?.needsScrollState) {
       const scrollUrl = (await driver.observe()).execution.finalUrl;
       rememberGuidedPolicyUrl(scrollUrl);
       currentUrl = scrollUrl ?? currentUrl;
+      if (tasks && scrollUrl !== observedUrl) continue;
     }
     const policyUrl = pageGuidance ? guidedPolicyUrl : actionOutcomes && entryEvidence && !policy?.needsScrollState
       ? observedUrl : currentUrl;
-    const ctx = policyContext(elements, policyUrl, scrollBefore, scrollAfter);
+    const ctx = policyView(policyContext(elements, policyUrl, scrollBefore, scrollAfter));
+    const taskCtx = tasks ? policyContext(elements, observedUrl, scrollBefore, scrollAfter) : undefined;
     policy?.observe?.(ctx);
     let page: PerceptionObservation;
     try {
@@ -344,8 +399,10 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       perceive ? elements : undefined);
     outcomes.observe(frame);
     if (actionOutcomes) check();
+    const taskEnd = taskCtx && taskBoundary(taskCtx);
+    if (taskEnd !== undefined) return finish(taskEnd);
     // Goal check on the fresh page (#77) — "reached /confirmation" is a page property, not a step one.
-    if (policy?.stop?.(steps, ctx)) return finish(false);
+    if (policy?.stop?.(steps, ctx)) return policyStop();
     if (guidanceAttempts.exhausted) return finish(true);
     if (policy?.incomplete?.()?.halt) return finish(true);
     if (outcomes.halt) return finish(true);
@@ -367,13 +424,15 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     // A retry uses this capture's URL even if the provider no longer offers advice.
     // A missing URL stays unknown; policy checks retain their own last known URL.
     if (guidance || recovery) currentUrl = observedUrl;
-    const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, currentUrl, page.hasReferences, guidance?.text, outcomes.feedback, selectionBlock(available()));
+    const prompt = buildPrompt(intent, render, steps, recovery ? [...failures, recovery] : failures, tasks ? observedUrl : currentUrl,
+      page.hasReferences, guidance?.text, outcomes.feedback, tasks?.run.prompt(text => slotSecretText(text, secrets)), selectionBlock(available()));
     page.tracePrepared(trace, "discover", tracePhase);
-    if (actionOutcomes) check();
+    if (actionOutcomes || tasks) check();
     outcomes.admitDecision();
     const reply = await llm.complete(prompt, {
       system: discoverSystem(page.hasReferences) + (guidance ? PAGE_GUIDANCE_RULES : "") + (selections.length ? SELECTION_RULES : ""),
     });
+    if (tasks) check();
 
     let decision: Decision;
     try {
@@ -421,7 +480,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       selection = available().find(candidate => candidate.id === decision.selection);
     }
 
-    const scoped = scopedClick(driver, scope, listedScope, guidance, decision, check, signal, rememberGuidedPolicyUrl);
+    const scoped = scopedClick(driver, scope, listedScope, guidance, decision, check, signal, rememberGuidedPolicyUrl, Boolean(tasks));
     if (guidance) {
       signal?.throwIfAborted();
       const invalidation = scoped ? await pageGuidanceUrlInvalidation(driver, guidance, signal, rememberGuidedPolicyUrl)
@@ -444,16 +503,22 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
 
     if (decision.action === "done") {
       const incomplete = Boolean(policy?.incomplete?.() || outcomes.suspect);
+      const canContinue = tasks?.run.canContinueAfterDone();
       // The model's own end-of-flow decision is trace-visible too — without it, a stream can't
       // tell "model finished" apart from a policy stop (spec/core/trace.md addendum).
       trace?.emit({
         kind: "action",
         phase: tracePhase,
-        payload: { done: true, ok: !incomplete, intent: decision.reason?.trim() || undefined },
+        payload: { done: true, ok: !incomplete && !tasks, intent: decision.reason?.trim() || undefined },
       });
       onStep?.(decision);
       // Checks are authored only by the unguided proposal call.
       if (guidance && decision.assertions?.length) guidanceGate("page guidance: assertions proposed in a guided decision were not used");
+      if (tasks) {
+        if (!incomplete && canContinue) continue; // no assertions from this premature done
+        tasks.reason = incomplete ? "engine-stopped" : "early-done-limit";
+        return finish(true);
+      }
       return finish(incomplete, guidance ? [] : decision.assertions ?? []);
     }
 
@@ -483,12 +548,15 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
     }
 
     let completedStep: Step | undefined;
+    let taskId: string | undefined;
+    let callingTaskHook = false;
     // No input has been attempted yet. A scoped observation failure is an execution
     // error; it must not look like an expired decision or an unacknowledged click.
     const scopedBefore = scoped ? await driver.observe() : undefined;
     let executingScope: typeof scoped;
     let expiredAtInput = false;
     let policyUrlExpired = false;
+    let taskExpired = false;
     let vetting = false;
     try {
       // When nobody needs a pre-vet URL, move the usual pre-action read to just
@@ -525,6 +593,24 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         if (++consecutiveBlocks >= MAX_CONSECUTIVE_BLOCKS) return finish(true);
         continue;
       }
+      const grounding = tasks && { boundRef: decisionReference(driver, decision), hasRefPort: Boolean(driver.locateRef),
+        expectedRole: decision.role ?? raw.find(e => e.name === decision.text)?.role,
+        requiresExact: Boolean(driver.snapshotForTask), scoped: Boolean(scoped) };
+      if (tasks && grounding && taskCtx) {
+        check();
+        // A task label cannot authorize a guessed URL or bypass per-ref eligibility.
+        if (observedUrl === beforeObs.execution.finalUrl && taskDecisionGrounded(decision, page.listed, raw, !perceive, grounding)) {
+          callingTaskHook = true;
+          taskId = tasks.run.authorize(decision, taskCtx);
+          callingTaskHook = false;
+        }
+        if (!taskId) {
+          trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "policy", reason: "action not authorized by the discovery task plan" } });
+          pushFailure("Action not run. Choose an eligible pending task from the current observation; use its ref when listed.");
+          onStep?.(decision);
+          continue;
+        }
+      }
       consecutiveBlocks = 0;
       const mark: OutcomeMark = {
         url: beforeObs.execution.finalUrl,
@@ -535,7 +621,34 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
         ...(decision.action === "scroll" ? { elements: raw, ...(perceive ? { perceived: elements } : {}) } : {}),
       };
       let dispatchFrame = frame;
-      const beforeExecute = actionOutcomes ? async () => {
+      const options = { perception: true, ...(actionOutcomes ? { actionOutcomes: true } : {}) };
+      let taskScrollBefore: Awaited<ReturnType<typeof readPolicyScroll>>;
+      const authorizeLive = async (rows: typeof raw) => {
+        if (!tasks || !grounding) return;
+        const ownedRows = structuredClone(rows);
+        const after = await readPolicyScroll(policy, driver);
+        callingTaskHook = Boolean(perceive);
+        const corrected = perceive ? structuredClone(await perceive(structuredClone(ownedRows))) : ownedRows;
+        callingTaskHook = false;
+        const perceived = redactSecrets(corrected, secrets);
+        const evidence = await driver.observe();
+        const url = evidence.execution.finalUrl;
+        check();
+        rememberGuidedPolicyUrl(url);
+        const expire = (): never => { taskExpired = true; throw new Error("task decision expired before input"); };
+        if (url !== observedUrl) expire();
+        const listed = page.listForRecheck(ownedRows, perceived, intent);
+        if (!taskDecisionGrounded(decision, listed, ownedRows, !perceive, grounding)) expire();
+        callingTaskHook = true;
+        const liveTask = tasks.run.authorize(decision, policyContext(perceived, url, taskScrollBefore, after));
+        callingTaskHook = false;
+        if (liveTask !== taskId) expire();
+        check();
+        mark.url = url;
+        mark.requestCount = evidence.logic.requests.length;
+        dispatchFrame = outcomes.atDispatch(frame, url, mark.requestCount);
+      };
+      const beforeExecute = actionOutcomes || tasks ? async () => {
         check();
         const evidence = await driver.observe();
         check();
@@ -546,22 +659,35 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
           expiredAtInput = true;
           throw new Error("page guidance expired before input");
         }
-        if (policy && url !== beforeObs.execution.finalUrl) {
+        if ((policy || tasks) && url !== beforeObs.execution.finalUrl) {
           policyUrlExpired = true;
           throw new Error("policy decision expired before input: page URL changed");
         }
         mark.url = url;
         mark.requestCount = evidence.logic.requests.length;
         dispatchFrame = outcomes.atDispatch(frame, url, mark.requestCount);
+        if (tasks) {
+          taskScrollBefore = await readPolicyScroll(policy, driver);
+          // A scoped receipt supplies its own live target and prerequisite capture.
+          if (!scoped) await authorizeLive(await (driver.snapshotForTask ? driver.snapshotForTask(options) : driver.snapshot(options)));
+        }
       } : undefined;
       check();
       executingScope = scoped;
       let step: Step, identity: string | undefined;
       if (selection) step = await executeSelection(driver, selection, signal);
       else {
-        outcomes.arm(driver, decision, check);
+        outcomes.arm(driver, decision, check, Boolean(tasks));
         try {
-          step = await executeDecision(driver, decision, secrets, scoped?.validate, outcomes.beforeDriverInput, beforeExecute);
+          const validate = scoped && tasks ? () => scoped.validate(authorizeLive, options) : scoped?.validate;
+          // A legacy named task was authorized for this exact descriptor. Its locate()
+          // may add a selector or structural fallback for a different node. Neither
+          // dispatch nor freeze that broader locator.
+          const exactTaskTarget = grounding && !scoped && decision.ref === undefined && decision.text
+            ? { text: decision.text, role: grounding.expectedRole,
+              ...(decision.nth !== undefined ? {nth: decision.nth} : {}) } : undefined;
+          step = await executeDecision(driver, decision, secrets, validate, outcomes.beforeDriverInput, beforeExecute,
+            tasks ? {exactTarget: exactTaskTarget, observedUrl} : undefined);
         } finally {
           identity = outcomes.take(driver, decision);
         }
@@ -576,6 +702,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       else if (decision.reason?.trim()) step.intent = decision.reason.trim();
       completedStep = step;
       steps.push(step);
+      if (tasks && taskId) tasks.run.executed(taskId, step);
       opts[budgetScope]?.recordAction({ step, ok: true });
       marks.push(mark);
       policy?.executed?.(step, ctx);
@@ -591,7 +718,14 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       // A placeholder nobody supplied is the host's wiring: the model cannot route around it, and
       // every further turn would burn an LLM call on the same wall. Stop here, loudly (#174).
       if (err instanceof BudgetExceededError || missingSecretOf(err) !== undefined) throw err;
-      if (!vetting && actionOutcomes && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      if (callingTaskHook || (tasks && completedStep)) throw err; // host error, not a decision to retry
+      if (!vetting && (actionOutcomes || tasks) && (errorKindOf(err) === "transport" || (err instanceof Error && err.name === "AbortError"))) throw err;
+      if (taskExpired) {
+        trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "policy", reason: "discovery task no longer authorized on the current observation" } });
+        pushFailure("Action not run. The observation no longer authorizes the same task; decide on the current page.");
+        onStep?.(decision);
+        continue;
+      }
       if (policyUrlExpired) {
         trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "policy", reason: "the page URL changed after policy approval" } });
         pushFailure("action not run: the page URL changed after policy approval; decide on the current page");
@@ -617,6 +751,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
           // finish() would read the post-click page and assign its effects to the
           // last confirmed step. Only return what was recorded before this click.
           capture?.invalidate();
+          if (tasks && taskId) { tasks.reason = "dispatch-uncertain"; tasks.run.uncertain(taskId); }
           const partial = await identify({ name: intent, steps, assertions: [], truncated: true, truncationReason: rejected.code });
           check();
           trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "page-guidance", ...rejected } });
@@ -631,6 +766,7 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       if (outcomes.dispatchUncertain) {
         capture?.invalidate();
         const code = outcomes.dispatchUncertain;
+        if (tasks && taskId) { tasks.reason = "dispatch-uncertain"; tasks.run.uncertain(taskId); }
         const partial = await identify({ name: intent, steps, assertions: [], truncated: true, truncationReason: code });
         check();
         trace?.emit({ kind: "gate", phase: tracePhase, payload: { gate: "action-no-progress", code,
@@ -670,13 +806,15 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
 
   // Step cap reached without an explicit "done". Ask the policy once more on the final page —
   // a goal reached by the last action is a trusted finish, not a truncation (#77).
-  if (policy?.stop || policy?.observe || (actionOutcomes && (outcomes.hasPending || outcomes.suspect))) {
+  if (tasks) tasks.reason = "step-limit";
+  if (tasks?.run.needsAssessment || policy?.stop || policy?.observe || (actionOutcomes && (outcomes.hasPending || outcomes.suspect))) {
     check();
     await driver.settle();
+    const taskUrl = tasks ? (await driver.observe()).execution.finalUrl : undefined;
     const before = await readPolicyScroll(policy, driver);
     // At the guidance bound, a stop-only policy needs the same corrected, validated view as
     // an ordinary decision turn. Keep the legacy capture mode for unrelated step-cap stops.
-    const usePerception = Boolean(policy?.observe || guidanceAttempts.exhausted || actionOutcomes);
+    const usePerception = Boolean(policy?.observe || guidanceAttempts.exhausted || actionOutcomes || tasks);
     const raw = await driver.snapshot(usePerception ? { perception: true, ...(actionOutcomes ? { actionOutcomes: true } : {}) } : undefined);
     const after = await readPolicyScroll(policy, driver);
     const elements = usePerception ? redactSecrets(perceive ? await perceive(raw.map(e => ({ ...e }))) : raw, secrets) : raw;
@@ -700,19 +838,22 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       return finish(true);
     }
     const guidedGoal = Boolean(pageGuidance && guidanceAttempts.exhausted);
-    const evidence = policy?.needsScrollState || guidedGoal || (actionOutcomes && (outcomes.hasPending || outcomes.suspect))
-      ? await driver.observe() : undefined;
+    const policyNeedsEvidence = policy?.needsScrollState || guidedGoal || (actionOutcomes && (outcomes.hasPending || outcomes.suspect));
+    const evidence = policyNeedsEvidence || tasks ? await driver.observe() : undefined;
     const observedUrl = evidence?.execution.finalUrl;
     check();
+    if (tasks && observedUrl !== taskUrl) return finish(true);
     closeActionInterval(evidence);
     if (actionOutcomes) outcomes.observe(outcomes.capture(perceive ? redactSecrets(raw, secrets) : elements, observedUrl,
       evidence?.logic.requests.length, perceive ? elements : undefined));
     check();
     rememberGuidedPolicyUrl(observedUrl);
     // Only the guidance-limit check uses retained evidence; ordinary step caps keep the raw URL.
-    const ctx = policyContext(elements, guidedGoal ? guidedPolicyUrl : observedUrl, before, after);
+    const ctx = policyView(policyContext(elements, guidedGoal ? guidedPolicyUrl : policyNeedsEvidence ? observedUrl : undefined, before, after));
     policy?.observe?.(ctx);
-    if (policy?.stop?.(steps, ctx)) return finish(false);
+    const taskEnd = tasks && taskBoundary(policyContext(elements, observedUrl, before, after));
+    if (taskEnd !== undefined) return finish(taskEnd);
+    if (policy?.stop?.(steps, ctx)) return policyStop();
   }
   return finish(true);
 }

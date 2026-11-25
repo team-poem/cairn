@@ -792,6 +792,29 @@ export class ChromeDevToolsDriver implements Driver {
     return this.readSnapshot(options, "ordinary");
   }
 
+  async snapshotForTask(options: SnapshotOptions): Promise<PageElement[]> {
+    // A normal perception capture starts a new mutation guard. Keep the guard that
+    // belongs to the model's decision: dispatch must still validate its original ref.
+    const version = this.observationVersion;
+    const raw = await this.captureSnapshot({ verbose: true });
+    const stamp = this.hostRoots?.stamp;
+    const elements = parseElements(raw, options.actionOutcomes);
+    const named = parseSnapshotRows(raw).filter(row => row.name.trim());
+    const topology = documentTopology(raw);
+    const unguarded = new Set<string>();
+    const facts = await this.probePerceptionFacts(named, topology.valid ? topology.membership : undefined, options.actionOutcomes, unguarded);
+    await this.hostRoots?.assertStamp(stamp);
+    if (version !== this.observationVersion) throw stepError("resolution", "task observation superseded");
+    return elements.map((element, i) => {
+      const row = named[i]!;
+      const ref = `cairn:${this.driverId}:${version}:${row.uid}`;
+      const original = this.references.get(ref);
+      const { readableTextValue, ...measured } = facts.get(row.uid) ?? {};
+      if (options.actionOutcomes && /^(textbox|searchbox)$/.test(row.role) && !readableTextValue) delete element.value;
+      return { ...measured, ...element, ...(!unguarded.size && original?.role === row.role && original.name === row.name ? { ref } : {}) };
+    });
+  }
+
   private async readSnapshot(options: SnapshotOptions | undefined, purpose: "ordinary" | "guidance"): Promise<PageElement[]> {
     // Always observe fresh — a waitFor poll runs no actions, so a kept cache would never see
     // self-rendered content (#85). The cache still serves locate() within the same turn.
@@ -984,7 +1007,7 @@ export class ChromeDevToolsDriver implements Driver {
     }
   }
 
-  private async probePerceptionFacts(rows: SnapshotRow[], membership?: Map<string, number>, actionOutcomes = false) {
+  private async probePerceptionFacts(rows: SnapshotRow[], membership?: Map<string, number>, actionOutcomes = false, unguarded = this.unguarded) {
     const facts = new Map<string, Partial<PageElement> & { readableTextValue?: true }>();
     if (!rows.length) return facts;
     const measure = async (batch: SnapshotRow[]): Promise<void> => {
@@ -1003,7 +1026,7 @@ export class ChromeDevToolsDriver implements Driver {
         if (!isolatedNodeFailure) {
           // A global tool/schema failure will not improve by retrying every subset.
           // Keep its candidates, but do not claim facts or exact identity for this batch.
-          for (const uid of uids) this.unguarded.add(uid);
+          for (const uid of uids) unguarded.add(uid);
           return;
         }
         // MCP refuses mixed-frame batches and detached UIDs. Split by original rows; one
@@ -1014,16 +1037,16 @@ export class ChromeDevToolsDriver implements Driver {
           await measure(batch.slice(0, middle));
           await measure(batch.slice(middle));
         } else {
-          this.unguarded.add(batch[0]!.uid);
+          unguarded.add(batch[0]!.uid);
         }
         return;
       }
       const reported = extractFirstJsonObject(reply) as Record<string, unknown> | undefined;
       for (const uid of uids) {
         const value = reported?.[uid];
-        if (!value || typeof value !== "object") { this.unguarded.add(uid); continue; }
+        if (!value || typeof value !== "object") { unguarded.add(uid); continue; }
         const raw = value as Record<string, unknown>;
-        if (raw.referenceReady !== true) this.unguarded.add(uid);
+        if (raw.referenceReady !== true) unguarded.add(uid);
         const row: Partial<PageElement> & { readableTextValue?: true } = {};
         if (typeof raw.inActivePopup === "boolean") row.inActivePopup = raw.inActivePopup;
         if (typeof raw.occluded === "boolean") row.occluded = raw.occluded;

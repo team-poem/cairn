@@ -220,10 +220,10 @@ export class ActionOutcomeTracker {
     return { ...frame, ...watermark };
   }
 
-  arm(driver: Driver, decision: Decision, check: () => void) {
+  arm(driver: Driver, decision: Decision, check: () => void, trackDispatch = false) {
     this.attempted = undefined;
     this.click = decision.action === "click";
-    this.armed = !!this.options && decision.action !== "waitFor";
+    this.armed = (!!this.options || trackDispatch) && decision.action !== "waitFor";
     this.checkClick = this.armed ? check : undefined;
     this.proposedId = undefined;
     this.instrumented = this.dispatchInstrumented = false;
@@ -235,6 +235,7 @@ export class ActionOutcomeTracker {
           this.attempted = this.click ? "click-dispatch-uncertain" : "action-dispatch-uncertain";
         });
       }
+      // Task progress also needs the driver's exact receipt when an alert interrupts a click.
       if (this.armed && this.click && driver.armActionOutcomeIdentity && driver.takeActionOutcomeIdentity) {
         this.instrumented = true;
         driver.armActionOutcomeIdentity(id => {
@@ -261,7 +262,8 @@ export class ActionOutcomeTracker {
     this.checkClick = undefined;
     try {
       const id = armed ? driver.takeActionOutcomeIdentity?.() : undefined;
-      return safeId(id) && id === this.proposedId ? id : undefined;
+      // A task-only receipt acknowledges this dispatch; it does not opt in to repeat limits.
+      return this.options && safeId(id) && id === this.proposedId ? id : undefined;
     } catch {
       // Losing optional identity neither erases an acknowledged action nor masks its error.
       return undefined;

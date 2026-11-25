@@ -6,7 +6,7 @@ import { captureGuidanceScope, compareGuidanceScope, ScopedGuidanceExpired,
 import type { PerceptionObservation } from "./observation.js";
 import { pageGuidanceUrlInvalidation, type PageGuidance } from "./page-guidance.js";
 import type { Driver } from "./ports.js";
-import type { PageElement, Target } from "./types.js";
+import type { PageElement, SnapshotOptions, Target } from "./types.js";
 
 const unavailable: GuidanceScopeDiagnostic = { scopeStatus: "scope-unverifiable" };
 const ambiguous: GuidanceScopeDiagnostic = { scopeStatus: "target-ambiguous", targetUnambiguous: false };
@@ -61,14 +61,16 @@ function guidanceRejection(error: unknown): GuidedFailure | undefined {
   return undefined;
 }
 
-export type ValidateGuidedClick = () => Promise<{ target: Target; ref: string; check: () => void; checkBeforeDispatch: () => void }>;
+export type ValidateGuidedClick = (approve?: (elements: PageElement[]) => Promise<void>, options?: SnapshotOptions) =>
+  Promise<{ target: Target; ref: string; check: () => void; checkBeforeDispatch: () => void }>;
 
 export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined, baseline: CapturedGuidanceScope | undefined,
   guidance: PageGuidance | undefined, decision: Decision,
-  check: () => void, signal: AbortSignal | undefined, onUrl: (url: string | undefined) => void) {
+  check: () => void, signal: AbortSignal | undefined, onUrl: (url: string | undefined) => void, taskMode = false) {
   if (!guidance?.declaredScope || !scope) return;
-  const matchesDecision = () => decision.action === "click" && decision.ref === undefined &&
-    decision.nth === undefined && decision.text === scope.target.name && decision.role === scope.target.role;
+  const matchesDecision = () => decision.action === "click" && decision.text === scope.target.name &&
+    (decision.role === scope.target.role || (taskMode && decision.role === undefined)) &&
+    (taskMode || (decision.ref === undefined && decision.nth === undefined));
   if (!matchesDecision()) return;
 
   const baselineError = !baseline ? unavailable : "error" in baseline ? baseline.error :
@@ -93,14 +95,14 @@ export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined
         (error instanceof Error && (error.name === "AbortError" || error.name === "BudgetExceededError"))) return;
     return uncertainClick;
   };
-  const validate: ValidateGuidedClick = async () => {
+  const validate: ValidateGuidedClick = async (approve, options) => {
     checkClick();
     if (!baseline || !driver.snapshotWithGuidanceScope) throw new ScopedGuidanceExpired(unavailable);
     // This read resolves the target. Ordinary locate() could choose a fuzzy match or a
     // structural index that no longer identifies the node when the receipt is used.
     let capture;
     try {
-      capture = await driver.snapshotWithGuidanceScope(scope);
+      capture = options ? await driver.snapshotWithGuidanceScope(scope, options) : await driver.snapshotWithGuidanceScope(scope);
     } catch (error) {
       if (errorKindOf(error) === "resolution") throw new ScopedGuidanceExpired(unavailable);
       throw error;
@@ -115,6 +117,7 @@ export function scopedClick(driver: Driver, scope: PageGuidanceScope | undefined
     if (diagnostic) throw new ScopedGuidanceExpired(diagnostic);
     if (typeof targetRef !== "string" || !targetRef.trim())
       throw new ScopedGuidanceExpired({ ...unavailable, targetUnambiguous: true });
+    if (approve) { await approve(elements); checkClick(); }
     return { target: { role: scope.target.role, text: scope.target.name }, ref: targetRef, check: checkClick, checkBeforeDispatch };
   };
   return { baselineError, validate, failure };

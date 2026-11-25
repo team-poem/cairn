@@ -71,6 +71,16 @@ describe("observation bindings", () => {
     expect(step).toEqual({ kind: "click", target: { text: "Remove", role: "button", nth: 1, selector: "#node-b" } });
     await expect(applyDecision(driver, decision)).rejects.toThrow(/consumed|expired/);
   });
+  it("lists fresh rows for a recheck without expiring the pending decision", async () => {
+    const driver = new RefDriver();
+    const view = new PerceptionObservation(driver, rows, rows, "remove");
+    const decision = view.bind({ action: "click", ref: token(view.listing) });
+    const heading = { role: "heading", name: "Cart" };
+    const fresh = [...rows, heading];
+    expect(view.listForRecheck(fresh, fresh, "remove").map(row => row.element)).toContainEqual(heading);
+    await applyDecision(driver, decision);
+    expect(driver.dispatched).toEqual(["node-b"]);
+  });
   it("rejects forged, contradictory and superseded refs without legacy fallback", async () => {
     const driver = new RefDriver();
     const view = new PerceptionObservation(driver, rows, rows, "remove");

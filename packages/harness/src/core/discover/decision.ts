@@ -163,7 +163,10 @@ export async function applyDecision(driver: Driver, decision: Decision, secrets:
 
 /** A scoped capture resolves its own target. Only the exact role/name survives dispatch. */
 export async function executeDecision(driver: Driver, decision: Decision, secrets: Secrets = {},
-  validate?: ValidateGuidedClick): Promise<Step> {
+  validate?: ValidateGuidedClick, beforeDriverInput?: () => void, beforeExecute?: () => Promise<void>): Promise<Step> {
+  // A guided validation resolves the exact node and checks its live prerequisites. Keep
+  // any outcome read before that validation, not between the check and the guided click.
+  if (validate && beforeExecute) await beforeExecute();
   const live = validate ? await validate() : undefined;
   const ref = live ? live.ref : decisionReference(driver, decision);
   const step: Step = live ? { kind: "click", target: live.target } : await decisionToStep(driver, decision);
@@ -175,9 +178,16 @@ export async function executeDecision(driver: Driver, decision: Decision, secret
   if (step.kind === "type") step.text = slotSecretText(step.text, secrets);
   // Keep the adapter's live argument separate from the durable target returned to the loop.
   const dispatch: Step = live ? { kind: "click", target: { ...live.target } } : step;
+  // Ordinary target lookup can itself wait for the page. Mark the evidence afterwards;
+  // bound references and caller cancellation are still checked before input.
+  if (!validate && beforeExecute) await beforeExecute();
+  // Non-targeted inputs have no reference-validation callback in the step handler.
+  // Targeted inputs call it after async location/secret resolution and just before dispatch.
+  if (step.kind === "goto" || step.kind === "pressKey" || step.kind === "scroll") beforeDriverInput?.();
   await new BuiltinStepHandler(secrets).execute(dispatch, driver, ref, () => {
     live?.check();
     assertDecisionCurrent(driver, decision);
+    beforeDriverInput?.();
   }, live?.checkBeforeDispatch);
   return step;
 }
@@ -186,6 +196,18 @@ export async function executeDecision(driver: Driver, decision: Decision, secret
 export function describeAction(decision: Decision): string {
   const detail = decision.text ? ` "${decision.text}"` : decision.url ? ` ${decision.url}` : "";
   return `${decision.action}${detail}`;
+}
+
+/** Feedback for an action measured as disallowed on its observed target. Names no page content
+ * beyond what the model chose itself, and never picks a replacement. */
+export function describeDisallowed(decision: Decision): string {
+  return `${describeAction(decision)} — not run: the observed target is measured as not accepting "${decision.action}". ` +
+    `Choose another element or action from the current listing; nothing was redirected.`;
+}
+
+/** Trace payload for that rejection: the verb and a code only, no names, refs or values. */
+export function disallowedGate(decision: Decision): { gate: "action-eligibility"; action: string; reason: "measured-disallowed" } {
+  return { gate: "action-eligibility", action: decision.action, reason: "measured-disallowed" };
 }
 
 /**

@@ -12,7 +12,10 @@ const SEVERITY_MARK: Record<FindingSeverity, string> = { error: "🔴", warn: "�
 function renderFinding(f: Finding): string {
   const times = f.occurrences && f.occurrences > 1 ? ` (×${f.occurrences})` : "";
   const at = f.url ? ` — at ${f.url}` : "";
-  return `- **${f.kind}**${times}: ${f.detail}${at} _(step ${f.stepIndex + 1})_`;
+  const step = `step ${f.stepIndex + 1}`;
+  const position = f.attribution === "between-actions"
+    ? (f.stepIndex < 0 ? "before the first step" : `last executed: ${step}`) : step;
+  return `- **${f.kind}**${times}: ${f.detail}${at} _(${position})_`;
 }
 
 export function renderExploreReport(report: ExploreReport): string {

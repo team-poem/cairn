@@ -198,8 +198,8 @@ export interface ScenarioProvenance {
 }
 
 /** Why authoring stopped incomplete; not evidence of an application defect. */
-export type TruncationReason = "no-progress" | "page-guidance-expired" | "click-dispatch-uncertain"
-  | "selection-unbound" | "selection-failed" | "selection-unproven";
+export type TruncationReason = "no-progress" | "action-no-progress" | "page-guidance-expired" | "click-dispatch-uncertain"
+  | "action-dispatch-uncertain" | "selection-unbound" | "selection-failed" | "selection-unproven";
 
 export interface Scenario {
   name: string;
@@ -230,6 +230,8 @@ export interface Scenario {
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
 export interface SnapshotOptions {
   perception?: boolean;
+  /** Include extra measured state for comparing actions. Omit for ordinary perception. */
+  actionOutcomes?: boolean;
 }
 
 /** Measured state of the region affected by Driver.scroll. Omission means unknown.
@@ -246,6 +248,14 @@ export interface ScrollState {
   scrollHeight: number;
 }
 
+/** The target-bearing actions a decision can aim at one observed element. */
+export type TargetAction = "click" | "doubleClick" | "hover" | "type" | "select";
+
+/** Measured per-action eligibility of one observed element, supplied by a Driver or host and valid
+ * only for the snapshot that carries it. A missing action is unknown, never a negative fact. Only
+ * "disallowed" changes behavior: the engine rejects that action on that exact target before dispatch. */
+export type ActionEligibility = Partial<Record<TargetAction, "supported" | "disallowed">>;
+
 /** An observed candidate; accessible semantics remain separate from measured interaction facts. */
 export interface PageElement {
   /** Opaque driver token. Never persisted or sent directly to the model. */
@@ -257,9 +267,15 @@ export interface PageElement {
   clickable?: boolean;
   /** Driver-local measured clickable region identity, meaningful within this snapshot. */
   clickableRegion?: string;
+  /** Optional measured action eligibility. Not derived from `clickable`, `role` or `disabled`. */
+  actions?: ActionEligibility;
   role: string;
   name: string;
   checked?: boolean | "mixed";
+  /** Observed toggle, selection and disclosure states. Missing does not mean false. */
+  pressed?: boolean | "mixed";
+  selected?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   value?: string;
 }

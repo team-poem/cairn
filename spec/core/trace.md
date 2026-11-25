@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.16**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.18**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.16", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.18", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -68,7 +68,9 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | discover / explore / heal | `selection` | prepared decision ID, observation ID, purpose, fixed-size selection counts | actual decision input; **not** model admission or dispatch evidence (#302) |
 | discover | `action` | proposed `step`, its `intent` (the reason), `ok`/`error` | discover loop |
 | discover | `gate` | `gate: policy \| ambiguity \| grounding \| parse-retry \| unproven-action \| idle-scroll`, what was blocked/dropped/nudged/left unproven, why | `ActionPolicy` vet (#77) · nth refusal (#127) · grounding drop (#99) · malformed-reply nudge · an action no check can express (#184) · a scroll the freeze dropped, `stepRef` = its original index (#177) |
-| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding; explore emits these and `page-guidance` only |
+| discover / explore / heal | `gate` | `gate: action-eligibility`, the verb and `reason: measured-disallowed` only | an action a Driver or host measured as disallowed on its observed target, rejected before dispatch (#352) |
+| discover / explore / heal | `gate` | `gate: action-no-progress`, a reason and an optional terminal code | a repeat click was blocked, the loop stopped after repeated clicks, or the driver could not confirm an input (#353) |
+| discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding |
 | discover | `gate` | `gate: declared-selection`: a decision named an unknown or already used selection, a non-click action, or extra locator fields | [declared selections](discovery-selection.md); fixed reason only |
 | discover / explore | `gate` | `gate: page-guidance`: provider failed, timed out, invalid or oversized output, expired guided observation (including before the model call), discarded guided `done` assertions, or repeated expiration | [page guidance](page-guidance.md); never guidance text, hashes or URLs |
 | discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
@@ -170,10 +172,21 @@ two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
 
-Version 1.17 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
+Version 1.19 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
 selection (#343), and the `selection-unbound`, `selection-failed` and `selection-unproven` truncation
 reasons. The gate
 carries a fixed reason only. See [declared selections in discovery](discovery-selection.md).
+
+Version 1.18 adds the `action-no-progress` gate for the opt-in [click repetition policy](action-outcomes.md).
+Each refused repeat emits a gate without recording an executed step; a later decision can still recover.
+Its terminal code is `action-no-progress` for repeated clicks. If an input may have been sent
+without confirmation, the code is `click-dispatch-uncertain` for a click and
+`action-dispatch-uncertain` for another input. Neither receipts nor compared page data enter the trace.
+
+Version 1.17 adds `gate: action-eligibility` (#352). It fires when a Driver or host measured the
+chosen action as disallowed on the exact observed target and the engine rejected it before
+dispatch. The payload is `action` (the verb only) and `reason: "measured-disallowed"`; it carries
+no element name, ref, value or URL. See [targeting](perception.md#measured-action-eligibility-352).
 
 Version 1.16 adds optional diagnostics to `page-guidance` gates for a discarded scoped click
 (#356). `scopeStatus` is `scope-changed`, `target-ambiguous`, or `scope-unverifiable`.

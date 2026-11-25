@@ -29,6 +29,51 @@ function fixture(mode: Mode, reply: (prompt: string) => string = () => DONE, dri
 afterEach(() => vi.restoreAllMocks());
 
 describe.each(["discover", "explore"] as const)("%s guided decision admission", mode => {
+  it("expires guided input when target lookup moves to a different URL", async () => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Save" }];
+    let lookups = 0;
+    driver.locate = async target => {
+      driver.url = `https://example.test/page-${++lookups}`;
+      return target;
+    };
+    const f = fixture(mode, () => '{"action":"click","role":"button","text":"Save"}', driver);
+    const onOutcome = vi.fn();
+    const result = await f.run(() => "Use the visible Save control", { actionOutcomes: { onOutcome } });
+    expect(result).toMatchObject({ truncated: true, truncationReason: "page-guidance-expired" });
+    expect(lookups).toBe(3);
+    expect(driver.clicked).toEqual([]);
+    expect(result.steps.map(step => step.kind)).toEqual(["goto"]);
+    expect(onOutcome).not.toHaveBeenCalled();
+  });
+
+  it.each(["cancel", "transport"] as const)("does not dispatch or decide again after %s during the pre-input outcome read", async cause => {
+    const driver = new StubDriver(START);
+    driver.els = [{ role: "button", name: "Save" }];
+    const controller = new AbortController();
+    const failure = cause === "transport" ? Object.assign(new Error("browser disconnected"), { kind: "transport" })
+      : new Error("host stopped before input");
+    let located = false, preInputReads = 0;
+    driver.locate = async target => { located = true; return target; };
+    const observe = driver.observe.bind(driver);
+    driver.observe = async () => {
+      const evidence = await observe();
+      if (located) {
+        preInputReads++;
+        if (cause === "transport") throw failure;
+        controller.abort(failure);
+      }
+      return evidence;
+    };
+    const f = fixture(mode, () => '{"action":"click","role":"button","text":"Save"}', driver);
+    const onOutcome = vi.fn();
+    await expect(f.run(undefined, { actionOutcomes: { onOutcome }, signal: controller.signal })).rejects.toBe(failure);
+    expect(preInputReads).toBe(1);
+    expect(f.decisions).toHaveLength(1);
+    expect(driver.clicked).toEqual([]);
+    expect(onOutcome).not.toHaveBeenCalled();
+  });
+
   it("discards stale guidance and elements, then acts on a fresh observation", async () => {
     const driver = new class extends StubDriver {
       async locateRef(ref: string) {

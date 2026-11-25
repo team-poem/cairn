@@ -49,11 +49,19 @@ Derive the runtime options from the persisted params on each run, and never stor
 - `selectedItemEvidence.bindings` gets every persisted binding.
 
 The heading check calls `checkpointEvidence(evidence, { id, after })`. Checkpoint elements are a
-flat snapshot, so the check scopes itself: it reads only the headings between the detail view's
-region landmark and the next landmark. A heading elsewhere on the page, such as a sidebar entry
-named for the target, cannot satisfy it. If no record matches, or the snapshot has no detail
-region, it returns required inconclusive. Otherwise it returns whether the expected heading is
-present in the detail view.
+flat snapshot with no containment, so the check scopes itself. It reads only the headings between
+the detail view's region landmark and the landmark the page always renders after it, here a sidebar
+named "Related". A heading elsewhere on the page, such as a sidebar entry named for the target,
+cannot satisfy it.
+
+The check must also know where the detail view ends. The Chrome driver omits unnamed elements, so an
+unnamed sidebar landmark disappears from the snapshot and its headings appear to follow the detail
+heading. Give the closing landmark an accessible name and treat it as the only proof of the end. If
+no record matches, the snapshot has no detail region, or the first landmark after the detail region
+is missing or is not that named sidebar, the check returns required inconclusive. Otherwise it
+returns whether the expected heading is present in the detail view. A landmark nested inside the
+detail view therefore also makes the check inconclusive.
+
 Captured records, run IDs and resource keys never enter the Scenario.
 
 ## Summarize per target
@@ -78,6 +86,7 @@ membership is established, and no target is failed or unconfirmed.
 | --- | --- |
 | A, B and C each have fresh passing evidence | Verdict passes; all three targets pass. |
 | A sidebar heading carries B's expected name but B's detail heading is wrong | B fails its heading obligation; `opened` still lists B, `heading` does not. |
+| The snapshot omits the sidebar landmark after the detail view, or shows another landmark first | Every heading obligation is unconfirmed; the verdict fails as `environment`. |
 | Only A is checked | B and C are unconfirmed; the verdict fails as `environment` although the final assertion passes. |
 | B has a wrong heading and C later passes | B stays failed; the verdict fails as `flow`. |
 | A is visited three times through fixed clicks | A passes; B and C checkpoints are `path-changed`, so both stay unconfirmed. |

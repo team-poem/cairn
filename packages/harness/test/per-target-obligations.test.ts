@@ -88,15 +88,20 @@ function collection(scenario: Scenario): { evidenceCapture: EvidenceCaptureOptio
   };
 }
 
-const landmarks = new Set(["region", "navigation", "complementary", "banner", "contentinfo"]);
+const landmarks = new Set(["banner", "complementary", "contentinfo", "form", "main", "navigation", "region", "search"]);
 
-/** Headings between the "Detail" region and the next landmark; a flat snapshot has no other containment. */
+/**
+ * Headings between the "Detail" region and the "Related" sidebar that follows it, or undefined when
+ * the snapshot cannot show where Detail ends. Chrome omits unnamed landmarks from a flat snapshot,
+ * so no boundary, or any other landmark first, may hide a sidebar heading inside the span.
+ */
 function detailHeadings(elements: PageElement[]): string[] | undefined {
   const start = elements.findIndex(e => e.role === "region" && e.name === "Detail");
   if (start < 0) return undefined;
   const rest = elements.slice(start + 1);
   const end = rest.findIndex(e => landmarks.has(e.role));
-  return (end < 0 ? rest : rest.slice(0, end)).filter(e => e.role === "heading").map(e => e.name);
+  if (end < 0 || rest[end]!.role !== "complementary" || rest[end]!.name !== "Related") return undefined;
+  return rest.slice(0, end).filter(e => e.role === "heading").map(e => e.name);
 }
 
 const checks: CustomChecks = {
@@ -160,6 +165,8 @@ class TargetsDriver extends StubDriver {
   ];
   readonly headings: Record<string, string> = {};
   readonly sidebar: string[] = [];
+  /** Chrome drops an unnamed landmark from the snapshot, so the sidebar boundary can vanish. */
+  boundary = true;
   readonly mutations: string[] = [];
   private readonly refs = new Map<string, string>();
   private observations = 0;
@@ -196,9 +203,10 @@ class TargetsDriver extends StubDriver {
     const item = this.items.find(i => i.key === this.current);
     return [
       { role: "navigation", name: "Targets" },
-      ...this.sidebar.map(name => ({ role: "heading", name })),
       { role: "region", name: "Detail" },
       { role: "heading", name: item ? this.headings[item.target] ?? `Target ${item.target}` : "Targets" },
+      ...(this.boundary ? [{ role: "complementary", name: "Related" }] : []),
+      ...this.sidebar.map(name => ({ role: "heading", name })),
     ];
   }
 }
@@ -244,6 +252,21 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     expect(result.verdict).toMatchObject({ passed: false, failure: "flow" });
     expect(coverage).toMatchObject({ passed: ["A", "C"], failed: ["B"], verified: false,
       opened: ["A", "B", "C"], heading: ["A", "C"] });
+  });
+
+  it("a snapshot that omits the sidebar boundary cannot show where the detail view ends", async () => {
+    const driver = new TargetsDriver(); driver.headings.B = "Wrong"; driver.sidebar.push("Target B"); driver.boundary = false;
+    const { result, coverage } = await replay(approved, driver);
+    expect(result.verdict).toMatchObject({ passed: false, failure: "environment" });
+    expect(coverage).toMatchObject({ passed: [], failed: [], unconfirmed: ["A", "B", "C"], heading: [], verified: false });
+  });
+
+  it("a later landmark other than the sidebar boundary does not end the detail view", async () => {
+    const driver = new TargetsDriver(); driver.headings.B = "Wrong"; driver.sidebar.push("Target B"); driver.boundary = false;
+    const snapshot = driver.snapshot.bind(driver);
+    driver.snapshot = async () => [...await snapshot(), { role: "contentinfo", name: "Footer" }];
+    const { coverage } = await replay(approved, driver);
+    expect(coverage).toMatchObject({ passed: [], failed: [], unconfirmed: ["A", "B", "C"], heading: [], verified: false });
   });
 
   it("a snapshot without a detail view leaves the heading unconfirmed", async () => {
@@ -372,7 +395,7 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     const driver = new TargetsDriver(); driver.headings.B = "Wrong";
     const { result, coverage } = await replay(approved, driver);
     expect(result.evidence.selectedItems?.every(r => r.equal !== undefined)).toBe(true);
-    expect(result.evidence.checkpoints?.every(r => r.elements?.length === 3)).toBe(true);
+    expect(result.evidence.checkpoints?.every(r => r.elements?.length === 4)).toBe(true);
     expect(JSON.stringify({ scenario: approved, result, coverage })).not.toMatch(/private-key|ref:/);
   });
 });

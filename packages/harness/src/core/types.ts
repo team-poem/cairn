@@ -215,7 +215,8 @@ export interface ScenarioProvenance {
 }
 
 /** Why authoring stopped incomplete; not evidence of an application defect. */
-export type TruncationReason = "no-progress" | "action-no-progress" | "page-guidance-expired" | "click-dispatch-uncertain" | "action-dispatch-uncertain";
+export type TruncationReason = "no-progress" | "action-no-progress" | "page-guidance-expired" | "click-dispatch-uncertain"
+  | "action-dispatch-uncertain" | "selection-unbound" | "selection-failed" | "selection-unproven";
 
 export interface Scenario {
   name: string;

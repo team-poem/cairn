@@ -62,7 +62,7 @@ export { composePolicies } from "./core/action-policy.js";
 export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";
 export type { ScrollNoProgressOptions } from "./core/scroll-policy.js";
 export type { PolicyContext, PolicyDiagnostic } from "./core/discover/decision.js";
-export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
+export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict, DiscoverySelection } from "./core/discover/index.js";
 export type { ActionOutcomeOptions, ActionOutcomeStatus } from "./core/action-outcomes.js";
 export { explore } from "./core/explore/index.js";
 export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";

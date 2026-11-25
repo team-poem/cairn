@@ -60,7 +60,8 @@ protocol calls are not an atomic application transaction, as in the existing col
 
 Only replayed collection `click` steps in same-document flows are supported initially. Other
 verbs, automatic healing, targetChoice, custom step-handler chains, discovery and full navigation
-remain unsupported. Cancellation and shared execution budgets apply to each observation and
+remain unsupported. A [declared discovery selection](discovery-selection.md) can execute and freeze a
+constant-predicate choice; discovery does not reselect. Cancellation and shared execution budgets apply to each observation and
 dispatch attempt. An evidence acceptance deadline also bounds whether reselection can continue.
 
 ## Verification

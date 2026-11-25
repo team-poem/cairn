@@ -1,5 +1,5 @@
 /** Versioned, browser-safe identity of declared judgment inputs (#196). No model or I/O. */
-import type { ContractIdentity, Scenario, ScenarioProvenance } from "./types.js";
+import type { Assertion, ContractIdentity, Scenario, ScenarioProvenance } from "./types.js";
 import type { RequestMatchOptions } from "./requests.js";
 import { DEFAULT_LOCALE_PREFIXES } from "./steps.js";
 
@@ -116,7 +116,9 @@ export async function scenarioContract(scenario: Scenario, opts: IdentifyScenari
     fingerprint = await hashContractValue({
       version: 1,
       intentHash,
-      assertions: scenario.assertions,
+      // Attribution records why a check was proposed, not what it judges: changing it must not
+      // read as a changed contract.
+      assertions: scenario.assertions.map(({ criterionIds: _attribution, ...a }: Assertion & { criterionIds?: string[] }) => a),
       wildcards: scenario.wildcards === true,
       judgment: {
         // Bump this revision when built-in judgment semantics change, not on every release.

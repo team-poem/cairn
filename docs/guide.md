@@ -245,7 +245,9 @@ check was proposed, not that it proves the criterion: a successful basket reques
 confirmation. `unattributedCriteria` lists criteria with no surviving attributed request check,
 whether nothing was proposed or the proposal failed grounding. It is not a failure. Unknown ids are
 dropped without losing the check. Grading, verdicts and the contract are unchanged, replay makes no
-model call, and `runSuite` accepts `criteria` per case. Without `criteria` nothing changes.
+model call, and `runSuite` accepts `criteria` per case. A `request-status` you write in a case's
+`assertions` may carry `criterionIds`; the freeze keeps only ids in that case's current `criteria`.
+Without `criteria` nothing else changes.
 
 ### Optional app knowledge
 

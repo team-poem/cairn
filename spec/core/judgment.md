@@ -212,11 +212,18 @@ an id for, whether nothing was proposed for it or its proposal was dropped; the 
 trace event carries the same list. Neither case says the criterion failed. The host still owns
 requirement verification.
 
+A `request-status` the user writes in `SuiteCase.assertions` may carry `criterionIds` too. The suite
+freeze keeps only the ids that name one of the case's current criteria, once each, and drops the
+field when none remain, so an id left over from an earlier criteria list never reaches the freeze.
+The kept ids count as attribution for `unattributedCriteria`. `runSuite` reads a case's criteria
+once per case, absent or not, so a list the host adds or replaces mid-run reaches neither the
+freeze nor its `caseHash`, and the next run with the new list re-discovers.
+
 Attribution is reporting only. `criterionIds` is left out of the contract fingerprint, and it
 changes no result, `grade`, `failClosed`, `unprovenAction` or `SuiteCase.expect`, and adds no model
 call at replay. It rides through save/load and appears on `AssertionResult.assertion`. Engine-made
-checks (`navigated`, the guards) and `expect` stay unattributed. With no criteria, nothing here
-runs and the freeze and the proposer prompt are unchanged.
+checks (`navigated`, the guards) and `expect` stay unattributed. With no criteria, the proposer
+prompt is unchanged, and the freeze is unchanged except that user-written `criterionIds` are dropped.
 
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 

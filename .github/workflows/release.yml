@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: poem-arm64
     steps:
       - uses: actions/checkout@v7
         with:
@@ -100,6 +100,7 @@ jobs:
 
       - name: Create GitHub release
         if: steps.check.outputs.should_release == 'true'
+        # The self-hosted runner image ships without the gh CLI.
         uses: actions/github-script@v9
         env:
           TAG: v${{ steps.pkg.outputs.version }}

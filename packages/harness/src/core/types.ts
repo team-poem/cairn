@@ -177,11 +177,28 @@ export type Assertion = AssertionMeta &
   /** `urlIncludes` matches the same way as `WaitUntil.requestStatus` (`urlMatchesFrozen`): substring
    * before `?`, parsed-query subset after. `method` (optional) scopes the match, so a same-prefix
    * GET can't satisfy a POST check — parity with the step-level `expect.requestStatus`. */
-  | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
+  | {
+      kind: "request-status";
+      urlIncludes: string;
+      status: number;
+      method?: string;
+      /** Host criteria (`DiscoverOptions.criteria`) this check was PROPOSED for. Records why the
+       * model proposed it, never that it suffices to prove the criterion, and it takes no part in
+       * judgment, grading or the contract fingerprint. Set only on a model-proposed check, only
+       * with ids the host supplied; absent otherwise. A `SuiteCase.assertions` check's ids are
+       * dropped at the freeze. */
+      criterionIds?: string[];
+    }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> }
   );
+
+/** A success criterion the host approved for a discovery. `id` is the host's own handle. */
+export interface HostCriterion {
+  id: string;
+  text: string;
+}
 
 /** Declared judgment inputs, not a content hash of the steps or a guarantee of equal outcomes. */
 export interface ContractIdentity {
@@ -225,6 +242,10 @@ export interface Scenario {
    * ever firing, and the CLI says so at freeze time; replay does not fail on it yet. Absent whenever
    * a proof was frozen. */
   unprovenAction?: string;
+  /** Host criteria (`DiscoverOptions.criteria`) with no surviving request check attributed to them:
+   * never proposed for, or proposed for and dropped by grounding. Not a verdict on the criterion.
+   * Absent when no criteria were supplied or every one is attributed. */
+  unattributedCriteria?: string[];
 }
 
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */

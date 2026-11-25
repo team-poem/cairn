@@ -67,18 +67,24 @@ Captured records, run IDs and resource keys never enter the Scenario.
 ## Summarize per target
 
 Group `verdict.results` by target, not by action. Read the target from the heading params and from
-the last source step of each binding. A target is:
+the last source step of each binding. Keep the outcomes of each obligation kind apart. An obligation
+holds for a target when at least one assertion of that kind names the target and every one of them
+passed. A target is:
 
-- `passed` when both of its obligations passed;
-- `failed` when either obligation failed;
+- `failed` when any of its obligations failed;
+- `passed` otherwise, when both its selected-item and its heading obligation hold;
 - `unconfirmed` otherwise, including a missing obligation.
 
-Also list the targets whose selected-item obligation passed (`opened`) and whose heading obligation
-passed (`heading`) separately, so one obligation never stands in for the other.
+Do not count passing results per target. Two passing heading checks for B and no selected-item
+check leave B unconfirmed.
+
+Also list the targets whose selected-item obligation holds (`opened`) and whose heading obligation
+holds (`heading`) separately, so one obligation never stands in for the other.
 
 Report the target count as `"unknown"` for unknown membership. Report route progress separately,
 as completed actions over scenario steps. Claim verified completion only when the verdict passed,
-membership is established, and no target is failed or unconfirmed.
+membership is established, and every target passed, so each appears in both `opened` and
+`heading`.
 
 ## Supported cases
 
@@ -87,6 +93,7 @@ membership is established, and no target is failed or unconfirmed.
 | A, B and C each have fresh passing evidence | Verdict passes; all three targets pass. |
 | A sidebar heading carries B's expected name but B's detail heading is wrong | B fails its heading obligation; `opened` still lists B, `heading` does not. |
 | The snapshot omits the sidebar landmark after the detail view, or shows another landmark first | Every heading obligation is unconfirmed; the verdict fails as `environment`. |
+| B has two passing heading checks and no selected-item check | The verdict passes, but B is unconfirmed and the result is not verified. |
 | Only A is checked | B and C are unconfirmed; the verdict fails as `environment` although the final assertion passes. |
 | B has a wrong heading and C later passes | B stays failed; the verdict fails as `flow`. |
 | A is visited three times through fixed clicks | A passes; B and C checkpoints are `path-changed`, so both stay unconfirmed. |

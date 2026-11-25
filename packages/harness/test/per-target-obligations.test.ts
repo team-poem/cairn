@@ -55,6 +55,10 @@ function targetOf(step: Step): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function headingObligation(target: string, after: Step[], checkpoint = `heading-${target}`): Assertion {
+  return { kind: "custom", name: "target-heading", params: { version: 1, target, checkpoint, after, heading: `Target ${target}` } };
+}
+
 /** The approved requirements, persisted as assertion params. Scope never shrinks to what ran. */
 function approve(scope: TargetScope): Scenario {
   const targets = scope.membership === "established" ? scope.targets : [];
@@ -68,8 +72,7 @@ function approve(scope: TargetScope): Scenario {
       const after = steps.slice(0, i + 1);
       return [
         { kind: "custom", name: "target-opened", params: opened(after) as unknown as Record<string, unknown> },
-        { kind: "custom", name: "target-heading", params: { version: 1, target, checkpoint: `heading-${target}`, after,
-          heading: `Target ${target}` } },
+        headingObligation(target, after),
       ];
     }),
     { kind: "navigated", to: "https://app/done" },
@@ -129,30 +132,35 @@ interface Coverage {
   verified: boolean;
 }
 
+type Outcome = "passed" | "failed" | "unconfirmed";
+type Obligations = Record<"opened" | "heading", Outcome[]>;
+
+/** An obligation holds for a target only when it was evaluated and every evaluation passed. */
+const holds = (outcomes: Outcome[]) => outcomes.length > 0 && outcomes.every(o => o === "passed");
+const statusOf = ({ opened, heading }: Obligations): Outcome =>
+  [...opened, ...heading].includes("failed") ? "failed" : holds(opened) && holds(heading) ? "passed" : "unconfirmed";
+
 /** Aggregate per target, not per action: three visits to A are one target. */
 function summarize(scenario: Scenario, result: Result): Coverage {
   const scope = paramsOf(scenario, "target-scope")[0] as TargetScope;
-  const outcomes = new Map<string, string[]>(scope.membership === "established" ? scope.targets.map(t => [t, []]) : []);
-  const kinds: Record<"opened" | "heading", Set<string>> = { opened: new Set(), heading: new Set() };
+  const targets = scope.membership === "established" ? scope.targets : [];
+  const outcomes = new Map<string, Obligations>(targets.map(t => [t, { opened: [], heading: [] }]));
   for (const r of result.verdict.results) {
     if (r.assertion.kind !== "custom" || !r.assertion.params) continue;
-    const target = r.assertion.name === "target-heading" ? r.assertion.params.target as string
-      : r.assertion.name === "target-opened" ? targetOf((r.assertion.params as unknown as SelectedItemBinding).source.after.at(-1)!)
-      : undefined;
-    if (target !== undefined && r.passed)
-      kinds[r.assertion.name === "target-heading" ? "heading" : "opened"].add(target);
-    if (target !== undefined) outcomes.get(target)?.push(r.passed ? "passed" : r.reason === "inconclusive" ? "unconfirmed" : "failed");
+    const kind = r.assertion.name === "target-heading" ? "heading" : r.assertion.name === "target-opened" ? "opened" : undefined;
+    if (!kind) continue;
+    const target = kind === "heading" ? r.assertion.params.target as string
+      : targetOf((r.assertion.params as unknown as SelectedItemBinding).source.after.at(-1)!);
+    if (target !== undefined) outcomes.get(target)?.[kind].push(r.passed ? "passed" : r.reason === "inconclusive" ? "unconfirmed" : "failed");
   }
-  const by = (status: string) => [...outcomes].filter(([, list]) =>
-    status === "failed" ? list.includes("failed")
-      : status === "passed" ? list.length === 2 && list.every(s => s === "passed")
-      : !list.includes("failed") && !(list.length === 2 && list.every(s => s === "passed"))).map(([t]) => t);
-  const coverage = { targets: scope.membership === "established" ? scope.targets.length : "unknown" as const,
-    passed: by("passed"), failed: by("failed"), unconfirmed: by("unconfirmed"),
-    opened: [...outcomes.keys()].filter(t => kinds.opened.has(t)), heading: [...outcomes.keys()].filter(t => kinds.heading.has(t)),
+  const where = (keep: (o: Obligations) => boolean) => targets.filter(t => keep(outcomes.get(t)!));
+  const coverage = { targets: scope.membership === "established" ? targets.length : "unknown" as const,
+    passed: where(o => statusOf(o) === "passed"), failed: where(o => statusOf(o) === "failed"),
+    unconfirmed: where(o => statusOf(o) === "unconfirmed"),
+    opened: where(o => holds(o.opened)), heading: where(o => holds(o.heading)),
     route: { completed: result.evidence.execution.actions.filter(a => a.ok && !a.skipped).length, total: scenario.steps.length } };
   return { ...coverage, verified: result.verdict.passed && scope.membership === "established"
-    && coverage.failed.length === 0 && coverage.unconfirmed.length === 0 };
+    && coverage.passed.length === targets.length };
 }
 
 /** A same-document list of four members over targets A, B, C; one B member is unavailable. */
@@ -274,6 +282,22 @@ describe("per-target obligations composed from checkpoints and selected-item bin
     driver.snapshot = async () => [{ role: "heading", name: "Target A" }];
     const { coverage } = await replay(withPath([open("A"), finish]), driver);
     expect(coverage).toMatchObject({ passed: [], opened: ["A"], heading: [], unconfirmed: ["A", "B", "C"] });
+  });
+
+  it("two passing heading checks do not verify B when its selected item was never checked", async () => {
+    const steps: Step[] = [open("A"), { kind: "click", target: { text: "Open B" } }, finish];
+    const scenario: Scenario = { name: "check A and B", steps, assertions: [
+      { kind: "custom", name: "target-scope", params: { membership: "established", targets: ["A", "B"] } },
+      { kind: "custom", name: "target-opened", params: opened(steps.slice(0, 1)) as unknown as Record<string, unknown> },
+      headingObligation("A", steps.slice(0, 1)),
+      headingObligation("B", steps.slice(0, 2)),
+      headingObligation("B", steps.slice(0, 2), "heading-B-again"),
+      { kind: "navigated", to: "https://app/done" },
+    ] };
+    const { result, coverage } = await replay(scenario);
+    expect(result.verdict.passed).toBe(true);
+    expect(coverage).toMatchObject({ targets: 2, passed: ["A"], failed: [], unconfirmed: ["B"],
+      opened: ["A"], heading: ["A", "B"], verified: false });
   });
 
   it("three visits to A satisfy neither B nor C", async () => {

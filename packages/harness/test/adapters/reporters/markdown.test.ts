@@ -43,6 +43,13 @@ describe("renderExploreReport", () => {
     expect(md).toContain("stopped at its step cap");
   });
 
+  it("does not label a background failure as a step outcome", () => {
+    const md = renderExploreReport(report({ findings: [{ kind: "failed-request", severity: "error",
+      detail: "GET /status → 500 (between actions)", key: "background", stepIndex: 0, attribution: "between-actions" }] }));
+    expect(md).toContain("GET /status → 500 (between actions) _(last executed: step 1)_");
+    expect(md).not.toContain("_(step 1)_");
+  });
+
   it("reports guidance expiration as incomplete coverage, not a step cap or a finding", () => {
     const md = renderExploreReport(report({ truncated: true, truncationReason: "page-guidance-expired", findings: [] }));
     expect(md).toContain("stopped incomplete (page-guidance-expired)");

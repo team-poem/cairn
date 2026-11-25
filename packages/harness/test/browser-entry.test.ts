@@ -1,7 +1,14 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
-import { expect, it } from "vitest";
+import { expect, expectTypeOf, it } from "vitest";
+import type { ActionOutcomeOptions, ActionOutcomeStatus } from "../src/browser.js";
+import type * as NodeEntry from "../src/index.js";
+
+it("exports the same action outcome types through the browser and Node entries", () => {
+  expectTypeOf<ActionOutcomeOptions>().toEqualTypeOf<NodeEntry.ActionOutcomeOptions>();
+  expectTypeOf<ActionOutcomeStatus>().toEqualTypeOf<NodeEntry.ActionOutcomeStatus>();
+});
 
 // Consolidated audit coverage.
 

@@ -295,9 +295,8 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
 async function runCaseWithinBudget(input: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   // One criteria snapshot for the staleness check, discovery and every `caseHash` stamp. Read live,
   // a host edit during discovery would freeze one list's attribution under the other list's hash.
-  const c: SuiteCase = Array.isArray(input.criteria)
-    ? { ...input, criteria: input.criteria.map((criterion) => ({ ...criterion })) }
-    : input;
+  // Copied even when absent: aliasing `input` would let a list added mid-run reach the stamp.
+  const c: SuiteCase = { ...input, criteria: input.criteria?.map((criterion) => ({ ...criterion })) };
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
   const scope = ctx.tracer?.scope(c.id);

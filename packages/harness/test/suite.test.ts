@@ -336,6 +336,29 @@ describe("runSuite", () => {
     expect(stored.caseHash).not.toBe(hashCase(live));
   });
 
+  it("re-discovers on the next run when the host adds criteria to a case that had none mid-run (#355)", async () => {
+    const store = new MemoryStore();
+    const live: SuiteCase = { ...CASE };
+    const replies = new ScriptedLlm([
+      '{"action":"click","text":"Products"}', '{"action":"done"}', "[]",
+      '{"action":"click","text":"Products"}', '{"action":"done"}', "[]",
+    ]);
+    const llm: LlmClient = {
+      id: "host-adds-criteria-mid-run",
+      complete: async () => {
+        live.criteria = [{ id: "C1", text: "open the catalog" }];
+        return replies.complete();
+      },
+    };
+
+    await runSuite([live], { store, driverFactory: shopDriver, llm, reporter: silent });
+    expect(store.skills.get(REF)?.unattributedCriteria).toBeUndefined();
+
+    const next = await runSuite([live], { store, driverFactory: shopDriver, llm, reporter: silent });
+    expect(next.verdicts[0]).toMatchObject({ discovered: true });
+    expect(store.skills.get(REF)?.unattributedCriteria).toEqual(["C1"]);
+  });
+
   it("treats a repointed case url as stale — re-discovers instead of replaying against the old target (#131)", async () => {
     const store = new MemoryStore();
     // Frozen when the case pointed at the OLD shop — the skill's first goto still goes there.

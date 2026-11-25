@@ -1,26 +1,28 @@
 ---
 name: merge-develop
-description: Merge develop into a cairn pull request branch that conflicts with it. Resolves the conflicts cairn-pingu leaves to the author, renumbers the trace version, verifies, and commits a merge commit without rewriting the branch. Use when a PR shows "This branch has conflicts", when a reviewer asks to resolve the develop conflicts, or after another PR lands on develop first.
+description: Merge develop into a cairn pull request branch that conflicts with it. Resolves the conflicts cairn-pingu leaves to the author, renumbers the trace version, checks that both sides' features still compose, verifies, and commits a merge commit without rewriting the branch. Use when a PR shows "This branch has conflicts", when a reviewer asks to resolve the develop conflicts, or after another PR lands on develop first.
 user-invocable: true
 ---
 
 # Merge develop into a PR branch
 
-Usage: `/merge-develop <branch>`. `<branch>` is a same-repository PR branch based on `develop`.
+Usage: `/merge-develop <branch>`. `<branch>` is a same-repository PR branch based on `develop`. Run every command from the repository root.
 
 ## Rules
 
 - Merge `origin/develop` into the branch with a merge commit. Never rebase or force-push a PR branch.
 - cairn-pingu already resolves a conflict where the PR's side is already on develop. This skill handles the rest.
 - Ask the author when no rule below covers a conflict, or when you doubt the result. Show both sides and the resolution you propose. Do not guess.
+- When you stop to ask, leave the merge in progress with your resolutions in the working tree and nothing committed, so `git merge --abort` and `git add -A && git commit` both still work.
 - Do not commit while a failure caused by the merge remains.
 - Push and PR comments are the author's call. Stop after the commit and report.
 
 ## 1. Pre-flight
 
 1. The working tree is clean: `git status --porcelain` prints nothing.
-2. `git fetch origin`, then the local branch matches `origin/<branch>`. Stop when it does not.
-3. There is something to merge: `git log --oneline <branch>..origin/develop` is not empty.
+2. `git fetch origin`. `git branch --show-current` prints `<branch>`, and `HEAD` equals `origin/<branch>`. Stop when either fails.
+3. There is something to merge: `git log --oneline HEAD..origin/develop` is not empty.
+4. `npm ci` has run on this checkout, and `node` is on `PATH`.
 
 ## 2. Merge
 
@@ -28,7 +30,7 @@ Usage: `/merge-develop <branch>`. `<branch>` is a same-repository PR branch base
 git -c merge.conflictStyle=diff3 merge --no-ff --no-commit origin/develop
 ```
 
-No conflict: go to step 4. Then run cairn-pingu's resolver on each conflicted file. It resolves a file only when every block in it is contained in develop, and leaves the file untouched otherwise:
+If nothing conflicts, go to step 3's semantic check. If files conflict, run cairn-pingu's resolver on each one. It resolves a file only when every block in it is contained in develop, and leaves the file untouched otherwise:
 
 ```sh
 for f in $(git diff --name-only --diff-filter=U); do node --input-type=module -e "
@@ -55,7 +57,9 @@ git diff $MB origin/develop -- <file>
 | Trace version (`TRACE_VERSION` and its history comment in `packages/harness/src/core/trace.ts`, the versioning section of `spec/core/trace.md`) | Develop keeps every version it shipped. The PR's additions move to the next free version. In `spec/core/trace.md` the newest version paragraph goes first. |
 | Union types (`TruncationReason`, trace gate unions) | Keep both sides' members. |
 | Imports and exports (`src/index.ts`, `src/browser.ts`, import lines) | Keep both sides. |
+| Both sides append a parameter to one signature, or an argument to one call | Keep both, the PR's first, then develop's. Update every caller to the merged order. |
 | One side wraps a call, the other changes its arguments | Keep the wrapper and apply the argument change inside it. |
+| One side inserts a block next to a line the other side changes | Keep the block and apply the change to the line. |
 | `spec/journal/entries/` | Never conflicts: entries are append-only, one file each. If it does, ask. |
 
 ### After a trace version move
@@ -66,16 +70,21 @@ Clean hunks also name the current version. Search the working tree, not the inde
 grep -rn '<old version>' packages/harness/src packages/harness/test spec
 ```
 
-### Semantic conflicts
+### Semantic check
 
-The merge is clean but a test fails, or the two sides compose wrongly. Check where each side's new data passes through the other side's new code, and say in the report whether the result is correct.
+Run this even when the merge was clean. Two features can merge without a conflict and still not work together.
+
+1. List what each side added that the other side's code now sees: new options, decision fields, gates, and checks. `git diff $MB HEAD --stat` and `git diff $MB origin/develop --stat` show where to look.
+2. For each new input on one side, grep the other side's new code for the gates and branches it passes through.
+3. When the two features can be turned on together, write a scratch test that does so and run it. Delete it afterwards.
+4. Report one of: composes correctly, broken (fix it only when the fix is clearly part of the merge), or safe but useless. Safe but useless is a design question. Do not hold the merge for it: commit the merge, and put the question and your proposed options in the report for the author.
 
 ## 4. Verify
 
 1. No conflict marker: `grep -rnE '^(<<<<<<<|>>>>>>>) ' packages spec docs scripts` prints nothing.
 2. `npm run typecheck`, `npm run build` and `npm run test` pass.
 3. `npm run journal:check`, `npm run check:language` and `npm run check:boundaries` pass.
-4. The PR's own end-to-end scripts pass, such as `npm run test:discovery-selection` for a selection change. Find them in the PR body's verification list.
+4. The end-to-end scripts of both features pass: the PR's, and develop's for each feature the semantic check touched. Find them in `package.json` (`test:*`), or as `scripts/test-*.mjs` files in each side's diff. Run a script with no npm entry as `node scripts/<name>.mjs` after the build. macOS has no `timeout` command, so do not wrap them in one.
 
 A failing test in code neither side changed is pre-existing until proven otherwise. Confirm it on a clean worktree of `origin/develop` (`git worktree add --detach`), report it, and do not fix it here.
 
@@ -86,8 +95,8 @@ git add -A
 git commit
 ```
 
-Subject: `Merge develop into <branch>`. Body: one or two sentences on how the trace version and each hand-resolved conflict were settled. Copy the trailer from the branch's previous merge commit, usually `Assisted-by: <model>`. `git log -1 --format='%p'` shows the PR head first, then `origin/develop`.
+Subject: `Merge develop into <branch>`. Body: one or two sentences on how the trace version and each hand-resolved conflict were settled. Trailer: `Assisted-by: <the model doing this merge>`, never the trailer of whoever wrote the branch. `git log -1 --format='%p'` shows the PR head first, then `origin/develop`.
 
 ## 6. Report
 
-Merge commit, one line per hand-resolved conflict (the file, then what was done), the semantic check result, the commands run and their results. Push only when the author asks.
+Merge commit, one line per hand-resolved conflict (the file, then what was done), the semantic check result with any question for the author, and the commands run with their results. Push only when the author asks.

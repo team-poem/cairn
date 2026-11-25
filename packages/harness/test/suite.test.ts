@@ -359,13 +359,13 @@ describe("runSuite", () => {
     expect(store.skills.get(REF)?.unattributedCriteria).toEqual(["C1"]);
   });
 
-  it("keeps only current criterion ids on a user assertion and counts them as attribution (#355)", async () => {
+  it("drops criterionIds from user assertions so they never count as attribution (#355)", async () => {
     const store = new MemoryStore();
     const c: SuiteCase = {
       ...CASE,
       criteria: [{ id: "C1", text: "open the catalog" }, { id: "C2", text: "show a banner" }],
       assertions: [
-        { kind: "request-status", urlIncludes: "/api/catalog", status: 200, criterionIds: ["C1", "C-old", "C1"] },
+        { kind: "request-status", urlIncludes: "/api/catalog", status: 200, criterionIds: ["C1", "C-old"] },
         { kind: "request-status", urlIncludes: "/api/banner", status: 200, criterionIds: ["C-old"] },
       ],
     };
@@ -375,10 +375,10 @@ describe("runSuite", () => {
 
     const stored = store.skills.get(REF)!;
     expect(stored.assertions.filter((a) => a.origin === "user")).toEqual([
-      { kind: "request-status", urlIncludes: "/api/catalog", status: 200, criterionIds: ["C1"], origin: "user" },
+      { kind: "request-status", urlIncludes: "/api/catalog", status: 200, origin: "user" },
       { kind: "request-status", urlIncludes: "/api/banner", status: 200, origin: "user" },
     ]);
-    expect(stored.unattributedCriteria).toEqual(["C2"]);
+    expect(stored.unattributedCriteria).toEqual(["C1", "C2"]);
   });
 
   it("treats a repointed case url as stale — re-discovers instead of replaying against the old target (#131)", async () => {

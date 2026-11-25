@@ -184,8 +184,9 @@ export type Assertion = AssertionMeta &
       method?: string;
       /** Host criteria (`DiscoverOptions.criteria`) this check was PROPOSED for. Records why the
        * model proposed it, never that it suffices to prove the criterion, and it takes no part in
-       * judgment, grading or the contract fingerprint. Set on a model-proposed check or a
-       * `SuiteCase.assertions` check, only with ids the host supplied; absent otherwise. */
+       * judgment, grading or the contract fingerprint. Set only on a model-proposed check, only
+       * with ids the host supplied; absent otherwise. A `SuiteCase.assertions` check's ids are
+       * dropped at the freeze. */
       criterionIds?: string[];
     }
   | { kind: "expect"; criterion: string }

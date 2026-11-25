@@ -396,14 +396,6 @@ function validCriterionIds(a: Assertion, criteria: readonly HostCriterion[]): st
   return [...new Set(proposed.filter((id): id is string => typeof id === "string" && known.has(id)))];
 }
 
-/** A user-written check keeps only the ids that name a current criterion. Ids left from an earlier
- * criteria list are dropped, and with none left the field is removed. */
-export function withCurrentCriterionIds(a: Assertion, criteria: readonly HostCriterion[]): Assertion {
-  const { criterionIds: _stale, ...rest } = a as Assertion & { criterionIds?: unknown };
-  const ids = a.kind === "request-status" ? validCriterionIds(a, criteria) : [];
-  return (ids.length ? { ...rest, criterionIds: ids } : rest) as Assertion;
-}
-
 /** The supplied criteria no frozen request check carries an id for. Never a verdict on the
  * criterion: it covers both "no check was proposed for it" and "its proposal was dropped". */
 export function unattributedCriteria(criteria: readonly HostCriterion[], assertions: readonly Assertion[]): string[] {

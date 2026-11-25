@@ -15,7 +15,6 @@ import { snapshotAppContext } from "./core/app-context.js";
 import { validateReplayEnvironment, validateReplayEntry } from "./core/replay-environment.js";
 import { createHash } from "node:crypto";
 import { discover } from "./core/discover/index.js";
-import { unattributedCriteria, withCurrentCriterionIds } from "./core/discover/grounding.js";
 import type { ActionPolicy } from "./core/discover/index.js";
 import { runScenario } from "./run.js";
 import type { RunScenarioOptions } from "./run.js";
@@ -392,21 +391,19 @@ async function runCaseWithinBudget(input: SuiteCase, ctx: CaseContext): Promise<
         return { ...base, discovered, truncated: true, ...reason, heals: 0, usage: discoveryUsage, verdict };
       }
 
-      const criteria = c.criteria ?? [];
-      // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
-      // deriveAssertions) — so a trace/report can say which greens the USER vouched for
-      // (spec/core/trace.md). Note `hashCase` fingerprints the raw case fields, pre-stamp.
-      const assertions: Assertion[] = [
-        ...found.assertions,
-        ...(c.assertions ?? []).map((a): Assertion => ({ ...withCurrentCriterionIds(a, criteria), origin: "user" })),
-        ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
-      ];
-      const { unattributedCriteria: _discovered, ...rest } = found;
-      const unattributed = unattributedCriteria(criteria, assertions);
       const frozenScenario: FrozenSuiteScenario = await identifyScenario({
-        ...rest,
-        assertions,
-        ...(unattributed.length ? { unattributedCriteria: unattributed } : {}),
+        ...found,
+        // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
+        // deriveAssertions) — so a trace/report can say which greens the USER vouched for
+        // (spec/core/trace.md). Note `hashCase` fingerprints the raw case fields, pre-stamp.
+        // Attribution is the model's alone, so a user check's `criterionIds` is dropped and
+        // discover's `unattributedCriteria` stands.
+        assertions: [
+          ...found.assertions,
+          ...(c.assertions ?? []).map(({ criterionIds: _modelOnly, ...a }: Assertion & { criterionIds?: string[] }) =>
+            ({ ...a, origin: "user" }) as Assertion),
+          ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
+        ],
         caseHash: hashCase(c, ctx.baseUrl),
       }, { intent: c.intent, benign: ctx.benign, benignConsole: ctx.benignConsole,
         localePrefixes: ctx.localePrefixes, judgmentKey: ctx.judgmentKey });

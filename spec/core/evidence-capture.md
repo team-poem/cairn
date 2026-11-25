@@ -98,6 +98,9 @@ of trace assertion payloads (1.14), but captures themselves are not trace payloa
 Built-in judgment revision is 2: the new required-inconclusive aggregation must not compare as
 the same judgment contract as revision 1, which ignored that requirement.
 
+Per-target obligations over an approved target set compose one checkpoint and one selected-item
+binding per target; the [per-target recipe](../../docs/per-target-obligations.md) adds no API.
+
 ## Reproduction
 
 Unit tests: `npx vitest run test/evidence-capture.test.ts` from `packages/harness`.

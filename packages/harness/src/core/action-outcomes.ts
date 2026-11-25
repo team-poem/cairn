@@ -36,10 +36,12 @@ const targetKey = (role?: string, name?: string) => name && (role?.length ?? 0) 
 const boundedUrl = (url?: string) => url && url.length <= 4096 ? url : undefined;
 const differentPage = (a?: string, b?: string) => !!a && !!b && a !== b;
 const requestWatermark = (n: number | undefined) => n !== undefined && Number.isSafeInteger(n) && n >= 0 ? n : undefined;
-function copyRow(e: PageElement): PageElement {
+const verbs = ["click", "doubleClick", "hover", "type", "select"] as const;
+function copyRow(e: PageElement, cleanup: boolean): PageElement {
   return { role: e.role, name: e.name, value: e.value, checked: e.checked, disabled: e.disabled,
     inActivePopup: e.inActivePopup, occluded: e.occluded, clickable: e.clickable,
-    pressed: e.pressed, selected: e.selected, expanded: e.expanded };
+    pressed: e.pressed, selected: e.selected, expanded: e.expanded,
+    ...(cleanup && e.actions && { actions: Object.fromEntries(verbs.map(verb => [verb, e.actions![verb]])) }) };
 }
 function putUnique<T>(map: Map<string, T | undefined>, key: string, value: T) {
   if (key) map.set(key, map.has(key) ? undefined : value);
@@ -133,7 +135,7 @@ export class ActionOutcomeTracker {
   private click = false;
   private checkClick?: () => void;
   private proposedId?: string;
-  constructor(options?: ActionOutcomeOptions) {
+  constructor(options?: ActionOutcomeOptions, private readonly limitRepeats = true) {
     this.options = options && { ...options };
     this.repeats = limit(options?.maxRepeats, 2, 32);
     this.recovery = limit(options?.recoveryTurns, 2, 16);
@@ -150,7 +152,7 @@ export class ActionOutcomeTracker {
   admitDecision() { if (this.suspect) this.turns++; }
 
   capture(elements: readonly PageElement[], url: string | undefined, requestCount: number | undefined,
-    perceived?: readonly PageElement[]): Frame {
+    perceived?: readonly PageElement[], cleanup = false): Frame {
     const frame: Frame = { url: boundedUrl(url), requests: requestWatermark(requestCount) };
     if (!elements.length || elements.length > MAX_ROWS || (perceived?.length ?? 0) > MAX_ROWS) return frame;
     let chars = 1; // One array of all compared raw and corrected rows, including separators.
@@ -162,7 +164,7 @@ export class ActionOutcomeTracker {
     const rows: Row[] = [];
     const byTarget = new Map<string, Row | undefined>(), byRef = new Map<string, Row | undefined>();
     for (const e of elements) {
-      const row: Row = { raw: copyRow(e) };
+      const row: Row = { raw: copyRow(e, cleanup) };
       if (!fits(row.raw)) return frame;
       rows.push(row);
       putUnique(byTarget, targetKey(e.role, e.name), row);
@@ -174,7 +176,7 @@ export class ActionOutcomeTracker {
       const matched = new Set<Row>();
       let supplemental = false;
       for (const e of perceived) {
-        const correction = copyRow(e);
+        const correction = copyRow(e, cleanup);
         if (!fits(correction)) return frame;
         const key = targetKey(e.role, e.name);
         const row = e.ref ? byRef.get(e.ref) : byTarget.get(key);
@@ -274,6 +276,15 @@ export class ActionOutcomeTracker {
     }
   }
   blocked(error: unknown) { return error instanceof RepeatBlocked; }
+  /** Recheck the full settled view at freeze. A locator fallback cannot establish row equality. */
+  unchangedClick(before: Frame, after: Frame, step: Step): boolean {
+    return step.kind === "click" && !step.target.selector && !step.target.collection && step.target.nth === undefined
+      && [before, after].every(frame => frame.rows?.every(row => hasControlState(row, true)) && !frame.incompleteCoverage)
+      && compare(before, after, targetKey(step.target.role, step.target.text?.trim())) === same
+      && before.rows!.every((row, i) => verbs.every(verb =>
+        row.raw.actions?.[verb] === after.rows![i]!.raw.actions?.[verb] &&
+        row.corrected?.actions?.[verb] === after.rows![i]!.corrected?.actions?.[verb]));
+  }
   executed(step: Step, frame: Frame, id: string | undefined, stepIndex: number) {
     this.attempted = undefined;
     // Rotating row refs cannot establish which duplicate an nth locator acted on.
@@ -324,7 +335,7 @@ export class ActionOutcomeTracker {
     if (status === changed || delayed) {
       this.clearRepeats();
       if (delayed && status !== changed) this.message += " An earlier target or its comparison scope changed.";
-    } else if (status === same && pending.id) {
+    } else if (this.limitRepeats && status === same && pending.id) {
       const previous = this.suspect ? this.recoveryCounts.get(pending.id) :
         this.previous?.id === pending.id ? this.previous : undefined;
       const count = previous && compare(previous.frame, pending.frame, pending.key) === same

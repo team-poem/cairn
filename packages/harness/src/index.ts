@@ -78,7 +78,9 @@ export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/
 
 export { JsonlTraceSink } from "./adapters/sinks/jsonl.js";
 
-export { discover, discoverWithTasks, parseDecision } from "./core/discover/index.js";
+export { discover, discoverWithTasks, discoverForReplayCleanup, parseDecision } from "./core/discover/index.js";
+export { prepareReplayCleanup } from "./core/replay-cleanup.js";
+export type { ReplayCleanupDeclaration, ReplayCleanupRecording, ReplayCleanupApproval, ReplayCleanupDecision, ReplayCleanupOptions } from "./core/replay-cleanup.js";
 export type { DiscoveryTaskPlan, DiscoveryTaskAssessment, DiscoveryTaskReport, DiscoveryTaskStopReason } from "./core/discover/tasks.js";
 export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict, DiscoverySelection } from "./core/discover/index.js";
 export type { ActionOutcomeOptions, ActionOutcomeStatus } from "./core/action-outcomes.js";

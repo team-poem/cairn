@@ -57,7 +57,9 @@ export { AnthropicLlmClient } from "./adapters/llm/anthropic.js";
 export { OpenAILlmClient } from "./adapters/llm/openai.js";
 export { GeminiLlmClient } from "./adapters/llm/gemini.js";
 
-export { discover, discoverWithTasks, parseDecision } from "./core/discover/index.js";
+export { discover, discoverWithTasks, discoverForReplayCleanup, parseDecision } from "./core/discover/index.js";
+export { prepareReplayCleanup } from "./core/replay-cleanup.js";
+export type { ReplayCleanupDeclaration, ReplayCleanupRecording, ReplayCleanupApproval, ReplayCleanupDecision, ReplayCleanupOptions } from "./core/replay-cleanup.js";
 export type { DiscoveryTaskPlan, DiscoveryTaskAssessment, DiscoveryTaskReport, DiscoveryTaskStopReason } from "./core/discover/tasks.js";
 export { composePolicies } from "./core/action-policy.js";
 export { createScrollNoProgressPolicy } from "./core/scroll-policy.js";

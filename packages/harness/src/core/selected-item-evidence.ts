@@ -162,6 +162,8 @@ export class SelectedItemEvidenceSession {
   private invalid = false;
   private readonly timeoutMs: number;
 
+  get protectedPrefixLength(): number { return Math.max(0, ...this.pending.map(p => p.binding.destination.after.length)); }
+
   constructor(options: SelectedItemEvidenceOptions) {
     this.timeoutMs = options.timeoutMs ?? 2_000;
     if (!Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw new Error("selected-item timeoutMs must be positive and finite");

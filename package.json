@@ -23,6 +23,7 @@
     "test:compatibility": "node bench/ci-smoke.mjs",
     "test:document-refs": "node scripts/test-document-refs.mjs",
     "test:action-candidates": "node scripts/test-action-candidates.mjs",
+    "test:replay-cleanup": "node scripts/test-replay-cleanup.mjs",
     "test:selection": "node scripts/test-selection-diagnostics.mjs",
     "test:foreground": "npm run test:browser -w cairn-engine -- test/browser/foreground.browser.test.ts && node scripts/test-foreground.mjs",
     "test:host-owned": "npm run test:browser -w cairn-engine -- test/browser/host-owned.browser.test.ts && node scripts/test-host-owned.mjs",

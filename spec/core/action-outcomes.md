@@ -5,6 +5,9 @@ A driver can click a heading successfully without reaching the link the model wa
 action. A dispatch acknowledgement is not a state change, and neither proves the goal.
 This feature never removes actions from a recording or adds a model call to replay.
 
+A host that can guarantee a terminal click is redundant can separately opt into
+[replay cleanup](replay-cleanup.md). Outcome feedback alone cannot authorize it.
+
 ## Enable a repeated-click limit
 
 ```ts

@@ -473,6 +473,8 @@ export interface RunUsage {
 }
 
 export interface Result {
+  /** Present only when replay was asked to use a cleanup approval. */
+  replayCleanup?: import("./replay-cleanup.js").ReplayCleanupDecision;
   scenario: string;
   context: Context;
   evidence: Evidence;

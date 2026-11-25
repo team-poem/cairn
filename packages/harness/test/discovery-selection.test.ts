@@ -79,13 +79,15 @@ class PostsDriver extends StubDriver {
     this.selected = post;
     this.url = `https://app/posts/${post.toLowerCase()}`;
     this.requests.push({ method: "GET", url: `https://app/api/posts/${post.toLowerCase()}`, status: 200 });
-    this.els = [{ role: "heading", name: "Post" }, { role: "button", name: "Save" }];
+    this.els = [{ role: "heading", name: "Post" }, { role: "button", name: "Save" }, { role: "button", name: "Load comments" }];
     this.afterDispatch?.();
     return post;
   }
   override async click(target: Target, ref?: string): Promise<void> {
     if (!ref && target.text === "Save" && this.saves && this.selected)
       this.requests.push({ method: "POST", url: `https://app/api/posts/${this.selected.toLowerCase()}/save`, status: 201 });
+    if (!ref && target.text === "Load comments" && this.selected)
+      this.requests.push({ method: "GET", url: `https://app/api/posts/${this.selected.toLowerCase()}/comments`, status: 200 });
     if (!ref) return super.click(target);
     this.dispatch(target, ref);
   }
@@ -201,6 +203,17 @@ describe("declared selections in discovery (#343)", () => {
       use("first-post"),
       JSON.stringify({ action: "click", text: "Save", reason: "save the post" }),
       done([{ kind: "request-status", urlIncludes: "app/api/posts/alpha/save", status: 201 }]),
+    ]);
+    expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
+  });
+
+  it("withholds the freeze when a read after the selection loses its only proof", async () => {
+    const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
+      verify: { source: itemKey, destination } };
+    const { scenario } = await discoverWith(new PostsDriver(["Alpha", "Bravo"]), [selection], [
+      use("first-post", "open the first post"),
+      JSON.stringify({ action: "click", text: "Load comments", reason: "load the comments" }),
+      done([{ kind: "request-status", urlIncludes: "app/api/posts/alpha/comments", status: 200, method: "GET" }]),
     ]);
     expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
   });

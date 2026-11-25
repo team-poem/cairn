@@ -5,7 +5,7 @@
  * never the member discovery happened to select.
  */
 import type { Driver } from "../ports.js";
-import type { Assertion, Evidence, Step, Target, WaitUntil } from "../types.js";
+import type { Assertion, Evidence, NetworkRequest, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { findRequestStatus } from "../requests.js";
 import { CollectionSelectionError, resolveChoiceValues, validateCollectionTarget } from "../collection.js";
@@ -153,14 +153,17 @@ export async function executeSelection(driver: Driver, selection: DiscoverySelec
  * request satisfied; every selection with `verify` adds its binding.
  *
  * A binding proves only its own selection. `unproven` is set when another step from the first
- * selection onward carried a condition the freeze cannot keep: a derived expect on a later action,
- * or a `waitFor`. That step's obligation has no frozen proof, so the caller must not freeze it.
+ * selection onward had an outcome the freeze cannot keep: a derived expect, a `waitFor`, or a
+ * dropped request check that no selection's own requests satisfy. That step's obligation has no
+ * frozen proof, so the caller must not freeze it.
  */
 export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | null)[], evidence: Evidence,
   assertions: Assertion[], consumed: ReadonlyMap<Step, DiscoverySelection>,
   onDrop: (assertion: Assertion, reason: string) => void): { assertions: Assertion[]; unproven: boolean } {
   const first = steps.findIndex(step => consumed.has(step));
   if (first < 0) return { assertions, unproven: false };
+  const requests = evidence.logic.requests;
+  const selectionRequests: NetworkRequest[] = [];
   let unproven = false;
   for (let i = first; i < steps.length; i++) {
     const step = steps[i]!;
@@ -168,13 +171,20 @@ export function freezeSelections(steps: Step[], marks: readonly (OutcomeMark | n
     if (!selection && (step.expect !== undefined || step.kind === "waitFor")) unproven = true;
     delete step.expect;
     if (selection?.expect) step.expect = structuredClone(selection.expect);
+    const mark = marks[i];
+    if (!selection || !mark) continue;
+    const next = marks.slice(i + 1).find((m): m is OutcomeMark => m !== null);
+    selectionRequests.push(...requests.slice(mark.requestCount, mark.end?.requestCount ?? next?.requestCount ?? requests.length));
   }
-  const before = evidence.logic.requests.slice(0, marks[first]?.requestCount ?? 0);
+  const before = requests.slice(0, marks[first]?.requestCount ?? 0);
   const reason = "observed after a run-relative selection; it may describe the member discovery selected";
   const kept = assertions.filter(assertion => {
     if (assertion.kind === "no-failed-requests" || assertion.kind === "no-console-errors" || assertion.origin === "user") return true;
-    if (assertion.kind === "request-status"
-      && findRequestStatus(before, assertion.urlIncludes, assertion.status, assertion.method) !== undefined) return true;
+    if (assertion.kind === "request-status") {
+      if (findRequestStatus(before, assertion.urlIncludes, assertion.status, assertion.method) !== undefined) return true;
+      // A request only a later step sent was that step's proof; the binding cannot replace it.
+      if (findRequestStatus(selectionRequests, assertion.urlIncludes, assertion.status, assertion.method) === undefined) unproven = true;
+    }
     onDrop(assertion, reason);
     return false;
   });

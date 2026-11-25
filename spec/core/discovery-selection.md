@@ -87,7 +87,10 @@ A binding proves only its own selection step. It never stands in for a later ste
 after the first selection, other than a consumed selection, carried a condition the freeze cannot
 keep, that step has no frozen proof. Such a condition is a derived expect on a later action, such as
 the request a Save click fired, or any `waitFor`, whose condition the model wrote from this run's
-member. Discovery then returns `truncated: true` with reason `selection-unproven`. A later action
+member. A dropped `request-status` assertion counts too, unless a request sent by a selection step
+satisfies it: a Load comments click whose GET was checked only by that assertion would otherwise
+replay as passing without sending it. Discovery then returns `truncated: true` with reason
+`selection-unproven`. A later action
 with no observed outcome is unaffected and stays advisory, as it is without a declaration. To wait
 for the selected destination, declare `expect` on the selection.
 
@@ -112,7 +115,7 @@ navigation becomes a new `verify` variant. `version: 1` declarations keep their 
 `test/discovery-selection.test.ts` covers positional and predicate declarations through discovery,
 save/load and fresh replay with changed lists and zero model calls. It also covers a B to C
 destination mismatch, freeze filtering, binding to one action, unbound and invalid declarations,
-an action or a `waitFor` after the selection that loses its only proof,
+an action, a read or a `waitFor` after the selection that loses its only proof,
 unchanged behavior without declarations, uncertain dispatch, incomplete coverage, cancellation and
 budget. `npm run test:discovery-selection` runs discovery and replay against real Chrome/MCP. It
 covers a reordered same-document list, a matching destination and a rejected mismatched destination.

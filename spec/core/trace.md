@@ -1,7 +1,7 @@
 # Trace — unified lifecycle event contract
 
 > Status: **implemented** (#143) — the engine emits this stream through the `TraceSink` port,
-> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.18**.
+> and ships the stored serialization as the `JsonlTraceSink` adapter (#160). Header version **1.20**.
 > Field names bind.
 
 ## One line
@@ -47,7 +47,7 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 
 ```jsonc
 { "seq": 0, "ts": ..., "kind": "trace",
-  "payload": { "version": "1.18", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
+  "payload": { "version": "1.20", "runId": "…", "engine": { "name": "cairn", "version": "2.5.0" } } }
 ```
 
 - **Stored trace**: a file is read from the top → the header is naturally first.
@@ -71,8 +71,9 @@ lane maps kinds, the contract doesn't pre-chew presentation — same stance as #
 | discover / explore / heal | `gate` | `gate: action-eligibility`, the verb and `reason: measured-disallowed` only | an action a Driver or host measured as disallowed on its observed target, rejected before dispatch (#352) |
 | discover / explore / heal | `gate` | `gate: action-no-progress`, a reason and an optional terminal code | a repeat click was blocked, the loop stopped after repeated clicks, or the driver could not confirm an input (#353) |
 | discover / explore / heal | `gate` | `gate: perception-binding \| reference-binding`, fixed contract diagnostic without rejected model/page fields | rejected observation construction or reference binding |
+| discover | `gate` | `gate: declared-selection`: a decision named an unknown or already used selection, a non-click action, or extra locator fields | [declared selections](discovery-selection.md); fixed reason only |
 | discover / explore | `gate` | `gate: page-guidance`: provider failed, timed out, invalid or oversized output, expired guided observation (including before the model call), discarded guided `done` assertions, or repeated expiration | [page guidance](page-guidance.md); never guidance text, hashes or URLs |
-| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203) | `SkillStore.freeze` |
+| discover | `freeze` | `ref`, `caseHash`, assertion counts by origin, `truncated?`, `unprovenAction?` (`METHOD url`, #184), `observedBeforeLastMutation?` (`string[]` destinations, #203), `unattributedCriteria?` (`string[]` host criterion ids with no attributed request check, #355) | `SkillStore.freeze` |
 | replay | `step` | `ok`, `skipped?`, `error?`, `attachment?` (screenshot ref) | `StepProgress` |
 | replay | `assertion` | the assertion, `passed`, `detail?`, `origin`, `checkedBy` | `AssertionResult` |
 | heal | `heal` | `layer: locator \| step`, `broke` → `became`, `judgedBy: original` | locator `Heal` (`onHeal`) · `StepHeal` |
@@ -170,6 +171,18 @@ own the scope and trace lifecycle as they do for standalone discovery. The 1.6 a
 two gate values and one phase value; the envelope is unchanged.
 
 ## Versioning — header `major.minor`
+
+Version 1.20 adds `gate: declared-selection` for a discovery decision that cannot consume a declared
+selection (#343), and the `selection-unbound`, `selection-failed` and `selection-unproven` truncation
+reasons. The gate
+carries a fixed reason only. After a consumed selection, a `grounding` gate carries only the
+assertion kind and a fixed reason, `unprovenAction` names only a request sent before the
+selection, and no `action` event from the selection on carries the model's `intent`. See
+[declared selections in discovery](discovery-selection.md).
+
+Version 1.19 adds the optional `freeze.payload.unattributedCriteria` (#355): the host criterion ids
+no surviving request check was proposed for. Advisory; present only when criteria were supplied and
+some are unattributed. The envelope is unchanged.
 
 Version 1.18 adds the `action-no-progress` gate for the opt-in [click repetition policy](action-outcomes.md).
 Each refused repeat emits a gate without recording an executed step; a later decision can still recover.

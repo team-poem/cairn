@@ -199,6 +199,7 @@ export function buildPrompt(
   guidance?: string,
   outcomeFeedback?: string,
   pendingTasks?: string,
+  selections: string[] = [],
 ): string {
   const history = steps.length
     ? steps.map((s, i) => `${i + 1}. ${JSON.stringify(s)}`).join("\n")
@@ -223,6 +224,7 @@ export function buildPrompt(
     elementsBlock,
     ...pageGuidanceBlock(guidance),
     ...(pendingTasks ? [pendingTasks] : []),
+    ...selections,
     ``,
     `What is the single next action? Respond with JSON only.`,
   ].join("\n");

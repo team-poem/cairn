@@ -28,8 +28,10 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
  * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356).
  * 1.17 — `gate: action-eligibility`, a measured-disallowed action rejected before dispatch (#352).
- * 1.18 — action-no-progress gate and incomplete reason (#353). */
-export const TRACE_VERSION = "1.18";
+ * 1.18 — action-no-progress gate and incomplete reason (#353).
+ * 1.19 — `freeze.payload.unattributedCriteria` (#355), host criteria with no attributed request check.
+ * 1.20 — `gate: declared-selection` and its truncation reasons (#343). */
+export const TRACE_VERSION = "1.20";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -63,7 +65,7 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "no-progress" | "action-no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance" | "action-eligibility"; action?: string; reason: string;
+        payload: { gate: "policy" | "no-progress" | "action-no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance" | "action-eligibility" | "declared-selection"; action?: string; reason: string;
           code?: TruncationReason; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down";
           expirations?: number; limit?: number } & Partial<GuidanceScopeDiagnostic>;
       }
@@ -81,6 +83,8 @@ export type TraceEvent = Envelope &
           unprovenAction?: string;
           /** Destinations observed before the last qualifying mutation (#203); advisory, not failure. */
           observedBeforeLastMutation?: string[];
+          /** Host criteria no surviving request check was proposed for (#355); advisory, not failure. */
+          unattributedCriteria?: string[];
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's

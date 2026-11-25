@@ -27,7 +27,7 @@ import { startTrace } from "./core/trace.js";
 import { ENGINE_VERSION } from "./version.js";
 import type { TraceEvent, Tracer } from "./core/trace.js";
 import type { Driver, LlmClient, Reporter, SkillStore, TraceSink } from "./core/ports.js";
-import type { Assertion, Result, RunUsage, Scenario, Verdict } from "./core/types.js";
+import type { Assertion, HostCriterion, Result, RunUsage, Scenario, Verdict } from "./core/types.js";
 import { identifyScenario, copyProvenance } from "./core/contract.js";
 
 export interface SuiteCase {
@@ -44,6 +44,9 @@ export interface SuiteCase {
   assertions?: Assertion[];
   /** Discover step cap for this case. */
   maxSteps?: number;
+  /** Host-approved criteria passed to discovery for attribution only (`DiscoverOptions.criteria`).
+   * They add no assertion: `expect` is still the only way to add a criterion to the freeze. */
+  criteria?: HostCriterion[];
 }
 
 /** A frozen skill's staleness fingerprint: the case's user-authored inputs (intent + the criteria
@@ -64,6 +67,8 @@ export function hashCase(c: SuiteCase, baseUrl?: string): string {
     url: c.url ?? baseUrl,
     expect: c.expect ?? [],
     assertions: c.assertions ?? [],
+    // Only when supplied, so a case without criteria keeps the hash it was frozen under.
+    ...(c.criteria?.length ? { criteria: c.criteria } : {}),
   });
   return createHash("sha256").update(material).digest("hex");
 }
@@ -234,6 +239,7 @@ function freezePayload(ref: string, s: FrozenSuiteScenario): Extract<TraceEvent,
     assertions: { user: count("user"), derived: count("derived"), unknown: count(undefined) },
     ...(s.truncated ? { truncated: true } : {}),
     ...(s.unprovenAction ? { unprovenAction: s.unprovenAction } : {}),
+    ...(s.unattributedCriteria?.length ? { unattributedCriteria: [...s.unattributedCriteria] } : {}),
     ...navigationEvidenceSummary(s),
   };
 }
@@ -286,7 +292,11 @@ async function runCase(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
   return result;
 }
 
-async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
+async function runCaseWithinBudget(input: SuiteCase, ctx: CaseContext): Promise<SuiteVerdict> {
+  // One criteria snapshot for the staleness check, discovery and every `caseHash` stamp. Read live,
+  // a host edit during discovery would freeze one list's attribution under the other list's hash.
+  // Copied even when absent: aliasing `input` would let a list added mid-run reach the stamp.
+  const c: SuiteCase = { ...input, criteria: input.criteria?.map((criterion) => ({ ...criterion })) };
   const ref = `${ctx.skillDir}/${c.id}.skill.json`;
   const base = { id: c.id, intent: c.intent, skillRef: ref };
   const scope = ctx.tracer?.scope(c.id);
@@ -349,6 +359,7 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
           llm: meter,
           baseUrl: c.url ?? ctx.baseUrl,
           maxSteps: c.maxSteps,
+          criteria: c.criteria,
           policy: ctx.policy,
           signal: ctx.signal,
           benign: ctx.benign,
@@ -385,9 +396,12 @@ async function runCaseWithinBudget(c: SuiteCase, ctx: CaseContext): Promise<Suit
         // Merged criteria are stamped `origin: "user"` (discover's own carry `"derived"` from
         // deriveAssertions) — so a trace/report can say which greens the USER vouched for
         // (spec/core/trace.md). Note `hashCase` fingerprints the raw case fields, pre-stamp.
+        // Attribution is the model's alone, so a user check's `criterionIds` is dropped and
+        // discover's `unattributedCriteria` stands.
         assertions: [
           ...found.assertions,
-          ...(c.assertions ?? []).map((a): Assertion => ({ ...a, origin: "user" })),
+          ...(c.assertions ?? []).map(({ criterionIds: _modelOnly, ...a }: Assertion & { criterionIds?: string[] }) =>
+            ({ ...a, origin: "user" }) as Assertion),
           ...(c.expect ?? []).map((criterion): Assertion => ({ kind: "expect", criterion, origin: "user" })),
         ],
         caseHash: hashCase(c, ctx.baseUrl),

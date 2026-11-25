@@ -197,6 +197,33 @@ When discover proposes assertions, it **grounds them in what actually happened**
   prefix", and a wildcard is never offered as one, so it does not fire on a real regression.
   Advisory only: the verdict value is `urlReached`'s, unchanged.
 
+### Criterion attribution (#355)
+
+A host may pass approved criteria `{ id, text }[]` to `discover` (`DiscoverOptions.criteria`, or
+`SuiteCase.criteria`). The assertion proposer may name them on a `request-status` it proposes.
+Grounding is unchanged and runs first. A proposal that survives keeps the ids that name a supplied
+criterion as `criterionIds`, in the proposal's order. An unknown id is dropped, never invented, and
+never costs the check: with none valid the check is frozen unattributed. Proposals that collapse
+onto one endpoint merge their ids.
+
+The id records why the model proposed the check, not that the check proves the criterion.
+`Scenario.unattributedCriteria` lists each supplied criterion no surviving request check carries
+an id for, whether nothing was proposed for it or its proposal was dropped; the suite's `freeze`
+trace event carries the same list. Neither case says the criterion failed. The host still owns
+requirement verification.
+
+Only the model attributes. The suite freeze drops `criterionIds` from every check the user writes
+in `SuiteCase.assertions`, so a user check never counts toward `unattributedCriteria` and a
+criterion the model proposed no check for stays listed. `runSuite` reads a case's criteria once per
+case, absent or not, so a list the host adds or replaces mid-run reaches neither the freeze nor its
+`caseHash`, and the next run with the new list re-discovers.
+
+Attribution is reporting only. `criterionIds` is left out of the contract fingerprint, and it
+changes no result, `grade`, `failClosed`, `unprovenAction` or `SuiteCase.expect`, and adds no model
+call at replay. It rides through save/load and appears on `AssertionResult.assertion`. Engine-made
+checks (`navigated`, the guards) and `expect` stay unattributed. With no criteria, the proposer
+prompt is unchanged, and the freeze is unchanged except that user-written `criterionIds` are dropped.
+
 → This deterministically fills the weak default ("only `no-failed-requests` → passed but wrong").
 
 ### Destination evidence before a mutation (#203)

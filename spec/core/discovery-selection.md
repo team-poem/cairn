@@ -65,8 +65,11 @@ reason `selection-unbound`. A suite does not freeze a truncated scenario.
 ## Freeze
 
 The selection step persists `{ kind: "click", target: { collection } }`, with the declared
-`expect` when given. It carries no `intent`, because the model's reason can name the member. Runtime
-refs, observed labels and resource keys never enter the scenario, trace payloads or binding.
+`expect` when given. The model's reason for the selection, and for every decision after it, can
+name the member, so discovery drops it. The selection step and every later step carry no `intent`,
+and neither do their `action` trace events or the `done` event. Steps before the selection keep
+theirs. Runtime refs, observed labels and resource keys never enter the scenario, trace payloads
+or binding.
 
 Evidence from the first consumed selection onward can describe the member discovery happened to
 select: its URL, its API request, its page text. The freeze therefore applies these rules:
@@ -121,7 +124,8 @@ navigation becomes a new `verify` variant. `version: 1` declarations keep their 
 save/load and fresh replay with changed lists and zero model calls. It also covers a B to C
 destination mismatch, freeze filtering, binding to one action, unbound and invalid declarations,
 an action, a read or a `waitFor` after the selection that loses its only proof, a later mutation
-with no stable path, the member's ID kept out of the trace and `unprovenAction`,
+with no stable path, the member's ID kept out of the trace, later and `done` reasons and
+`unprovenAction`,
 unchanged behavior without declarations, uncertain dispatch, incomplete coverage, cancellation and
 budget. `npm run test:discovery-selection` runs discovery and replay against real Chrome/MCP. It
 covers a reordered same-document list, a matching destination and a rejected mismatched destination.

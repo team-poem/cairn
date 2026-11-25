@@ -361,6 +361,9 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       // policy gates, `onStep`, the trace, or execution see the decision (#174): every branch
       // below hands out this object, so it is sanitized once, at the source.
       if (decision.action === "type" && decision.value !== undefined) decision = { ...decision, value: slotSecretText(decision.value, secrets) };
+      // The model's reason for a selection, and for anything after one, can name the member
+      // discovery selected. Dropped here, it reaches no step intent, trace payload or `onStep`.
+      if (consumed.size || decision.selection !== undefined) decision = { ...decision, reason: undefined };
     } catch {
       // A malformed reply must not kill the whole discovery — nudge and retry.
       trace?.emit({
@@ -548,7 +551,6 @@ async function discoverWithCapture(intent: string, opts: DiscoverOptions, captur
       guidanceAttempts.executed();
       // Capture for surgical-heal: intent (heal rationale) now; the grounded per-step
       // post-condition is assigned retroactively in finish() from the completed evidence.
-      // A selection's reason may name this run's member, so it is not persisted.
       if (selection) consumed.set(step, selection);
       else if (decision.reason?.trim()) step.intent = decision.reason.trim();
       completedStep = step;

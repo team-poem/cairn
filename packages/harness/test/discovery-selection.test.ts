@@ -104,7 +104,7 @@ class PostsDriver extends StubDriver {
 }
 
 const use = (id: string, reason = "open Alpha") => JSON.stringify({ action: "click", selection: id, reason });
-const done = (assertions: unknown[] = []) => JSON.stringify({ action: "done", assertions });
+const done = (assertions: unknown[] = [], reason?: string) => JSON.stringify({ action: "done", assertions, reason });
 
 async function discoverWith(driver: PostsDriver, selections: DiscoverySelection[], replies: string[], events: TraceEvent[] = []) {
   const llm = new Llm(replies);
@@ -224,7 +224,7 @@ describe("declared selections in discovery (#343)", () => {
     expect(JSON.stringify(events)).not.toMatch(/alpha/i);
   });
 
-  it("keeps the selected member's ID out of the trace and unprovenAction", async () => {
+  it("keeps the selected member's ID out of the trace, model reasons and unprovenAction", async () => {
     const events: TraceEvent[] = [];
     const driver = new PostsDriver(["Alpha", "Bravo"]);
     // A path that starts with the ID leaves no stable prefix, so Save gets no derived expect.
@@ -233,14 +233,17 @@ describe("declared selections in discovery (#343)", () => {
     const selection: DiscoverySelection = { version: 1, id: "first-post", target: { collection: positional() },
       verify: { source: itemKey, destination } };
     const { scenario } = await discoverWith(driver, [selection], [
+      JSON.stringify({ action: "click", text: "Newest", reason: "sort by newest" }),
       use("first-post", "open the first post"),
-      JSON.stringify({ action: "click", text: "Save", reason: "save the post" }),
-      done([{ kind: "request-status", urlIncludes: "app/4821", status: 200, method: "GET" }]),
+      JSON.stringify({ action: "click", text: "Save", reason: "save /posts/4821" }),
+      done([{ kind: "request-status", urlIncludes: "app/4821", status: 200, method: "GET" }], "saved /posts/4821"),
     ], events);
     expect(driver.requests.map(r => r.url)).toContain("https://app/4821/save");
     expect(scenario).toMatchObject({ truncated: true, truncationReason: "selection-unproven" });
     expect(scenario).not.toHaveProperty("unprovenAction");
     expect(JSON.stringify(events)).not.toMatch(/4821|alpha/i);
+    expect(JSON.stringify(scenario)).not.toMatch(/4821|alpha/i);
+    expect(scenario.steps[1]).toMatchObject({ target: { text: "Newest" }, intent: "sort by newest" });
   });
 
   it("withholds the freeze when a waitFor after the selection names the member discovery selected", async () => {

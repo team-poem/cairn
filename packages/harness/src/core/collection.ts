@@ -200,12 +200,20 @@ export function validateCollectionTarget(target: Target): CollectionDeclaration 
   return out;
 }
 
+/** A declared readerId needs the driver's explicit say-so (#370): a driver that predates it would
+ * silently read its default list. Refused before any observation or click. */
+export function requireReaderSupport(driver: Driver, selection: CollectionDeclaration): void {
+  if (selection.readerId !== undefined && !(Array.isArray(driver.readerIds) && driver.readerIds.includes(selection.readerId)))
+    throw new CollectionSelectionError("unsupported", `driver does not declare support for readerId "${selection.readerId}"`);
+}
+
 /** The resolved target is transient. Persist the declaration, never these observed names/refs. */
 export async function resolveCollectionTarget(driver: Driver, target: Target): Promise<{ target: Target; ref: string }> {
   const selection = validateCollectionTarget(target);
   // Each form has its own port, so a Driver that predates links never receives one.
   const observeCollection = isLinkCollection(selection) ? driver.observeLinkCollection : driver.observeCollection;
   if (typeof observeCollection !== "function") throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
+  requireReaderSupport(driver, selection);
   // Resolve run-local references privately. Even constant choices require the session to
   // authorize their source binding before the driver can observe or dispatch them.
   let expected: string[] | undefined;

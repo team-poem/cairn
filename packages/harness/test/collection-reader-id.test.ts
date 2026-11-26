@@ -7,7 +7,7 @@ import { persistentTarget } from "../src/core/observation.js";
 import { resolveCollectionTarget, validateCollectionTarget } from "../src/core/collection.js";
 import { CollectionSelectionError } from "../src/core/collection.js";
 import { StubDriver } from "./support/doubles.js";
-import type { CollectionDeclaration, CollectionObservation, CollectionTarget, Scenario, Target } from "../src/index.js";
+import type { CollectionDeclaration, CollectionObservation, CollectionTarget, LinkCollectionScope, Scenario, Target } from "../src/index.js";
 
 const silent = { emit: async () => {} };
 
@@ -29,7 +29,11 @@ const scenario = (collection: CollectionDeclaration): Scenario => ({
 class ReaderDriver extends StubDriver {
   readonly seen: Array<string | undefined> = [];
   override readonly clicked: string[] = [];
-  constructor(private readonly readers: Record<string, string[]>, private readonly fallback?: string[]) { super(); }
+  readonly readerIds: readonly string[];
+  constructor(private readonly readers: Record<string, string[]>, private readonly fallback?: string[]) {
+    super();
+    this.readerIds = Object.keys(readers);
+  }
 
   async observeCollection(declaration: CollectionTarget): Promise<CollectionObservation> {
     this.seen.push(declaration.readerId);
@@ -37,6 +41,10 @@ class ReaderDriver extends StubDriver {
     if (!names) throw new CollectionSelectionError("unsupported", "no reader for the declared ID");
     return { order: "dom", complete: true, conditions: [],
       items: names.map((name, position) => ({ position, target: { role: "button", name, ref: `r:${position}`, disabled: false } })) };
+  }
+  async observeLinkCollection(declaration: LinkCollectionScope): Promise<CollectionObservation> {
+    const observation = await this.observeCollection(declaration as unknown as CollectionTarget);
+    return { ...observation, items: observation.items.map(item => ({ ...item, target: item.target && { ...item.target, role: "link" } })) };
   }
   override async click(target: Target, ref?: string): Promise<void> {
     if (!ref) throw new Error("Exact collection reference required");
@@ -82,15 +90,73 @@ describe("collection reader ID (#370)", () => {
     }
   });
 
-  it.each([["role", role], ["link", links]] as const)("reports an unsupported %s readerId and performs no click", async (_, make) => {
-    const driver = new ReaderDriver({ "catalog.v1": ["Old Alpha", "Old Beta"] }, ["Default Alpha", "Default Beta"]);
-    await expect(resolveCollectionTarget(driver, { collection: make("catalog.v9") }))
+  it.each([["role", role], ["link", links]] as const)("refuses an unlisted %s readerId before any observation or click", async (_, make) => {
+    const driver = new ReaderDriver({ "posts.v2": ["Old Alpha", "Old Beta"] }, ["Default Alpha", "Default Beta"]);
+    await expect(resolveCollectionTarget(driver, { collection: make("posts.v9") }))
       .rejects.toMatchObject({ code: "unsupported", kind: "handler" });
-    const { result } = await node.runScenario(scenario(make("catalog.v9")), { driver, reporter: silent });
+    const { result } = await node.runScenario(scenario(make("posts.v9")), { driver, reporter: silent });
     expect(result.verdict.passed).toBe(false);
     expect(driver.clicked).toEqual([]);
-    expect(driver.seen).toContain("catalog.v9");
-    expect(driver.seen).not.toContain(undefined);
+    expect(driver.seen).toEqual([]);
+  });
+
+  it.each([["role", role], ["link", links]] as const)("serves a %s readerId the driver lists", async (_, make) => {
+    const driver = new ReaderDriver({ "posts.v2": ["New Alpha", "New Beta"] });
+    const { result } = await node.runScenario(scenario(make("posts.v2")), { driver, reporter: silent });
+    expect(result.verdict.passed).toBe(true);
+    expect(driver.seen).toEqual(["posts.v2"]);
+    expect(driver.clicked).toEqual(["New Alpha"]);
+  });
+
+  /** A driver written before #370: it never reads readerId and always serves its default list. */
+  class LegacyDriver extends StubDriver {
+    readonly observed: Array<string | undefined> = [];
+    override readonly clicked: string[] = [];
+    private read(declaration: { readerId?: string }, kind: "button" | "link"): CollectionObservation {
+      this.observed.push(declaration.readerId);
+      return { order: "dom", complete: true, conditions: [],
+        items: ["Default Alpha", "Default Beta"].map((name, position) => ({ position, target: { role: kind, name, ref: `r:${position}`, disabled: false } })) };
+    }
+    async observeCollection(declaration: CollectionTarget): Promise<CollectionObservation> { return this.read(declaration, "button"); }
+    async observeLinkCollection(declaration: LinkCollectionScope): Promise<CollectionObservation> { return this.read(declaration, "link"); }
+    override async click(target: Target, ref?: string): Promise<void> {
+      if (!ref) throw new Error("Exact collection reference required");
+      this.clicked.push(target.text!);
+      this.url = new URL("/selected", this.url).href;
+    }
+  }
+
+  it.each([["role", role], ["link", links]] as const)("refuses a %s readerId on a driver that declares no reader support, with zero clicks", async (_, make) => {
+    const driver = new LegacyDriver();
+    await expect(resolveCollectionTarget(driver, { collection: make("posts.v2") }))
+      .rejects.toMatchObject({ code: "unsupported", kind: "handler" });
+    const { result } = await node.runScenario(scenario(make("posts.v2")), { driver, reporter: silent });
+    expect(result.verdict.passed).toBe(false);
+    expect(driver.observed).toEqual([]);
+    expect(driver.clicked).toEqual([]);
+  });
+
+  it("still replays a legacy driver on a target without an ID", async () => {
+    const driver = new LegacyDriver();
+    const { result } = await node.runScenario(scenario(role()), { driver, reporter: silent });
+    expect(result.verdict.passed).toBe(true);
+    expect(driver.clicked).toEqual(["Default Alpha"]);
+  });
+
+  it("keeps a listed readerId served through the self-healing wrapper, and refuses an unlisted one", async () => {
+    const inner = new ReaderDriver({ "posts.v2": ["New Alpha", "New Beta"] });
+    const wrapped = new node.SelfHealingDriver(inner, { complete: async () => "" } as never);
+    expect(wrapped.readerIds).toEqual(["posts.v2"]);
+    await expect(resolveCollectionTarget(wrapped, { collection: role("posts.v2") })).resolves.toMatchObject({ ref: "r:0" });
+    await expect(resolveCollectionTarget(wrapped, { collection: role("posts.v9") })).rejects.toMatchObject({ code: "unsupported" });
+    const legacy = new node.SelfHealingDriver(new LegacyDriver(), { complete: async () => "" } as never);
+    await expect(resolveCollectionTarget(legacy, { collection: role("posts.v2") })).rejects.toMatchObject({ code: "unsupported" });
+  });
+
+  it("refuses a declared readerId on the built-in Chrome driver", async () => {
+    const chrome = Object.create(node.ChromeDevToolsDriver.prototype) as InstanceType<typeof node.ChromeDevToolsDriver>;
+    await expect(resolveCollectionTarget(chrome, { collection: role("posts.v2") }))
+      .rejects.toMatchObject({ code: "unsupported", kind: "handler" });
   });
 
   it("replays a target without an ID as before", async () => {

@@ -97,13 +97,18 @@ export interface Driver {
   /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
    * Implementations accepting refs must honor them in every target-bearing interaction. */
   locateRef?(ref: string): Promise<Target>;
+  /** Reader IDs (#370) this driver serves, for both `observeCollection` and `observeLinkCollection`.
+   * A collection that declares a `readerId` is observed only when the ID is listed here. A driver that
+   * omits this, or an unlisted ID, is refused with `unsupported` and zero clicks, because a driver that
+   * predates readerId would silently read its default list. Targets without a `readerId` are unaffected. */
+  readonly readerIds?: readonly string[];
   /** Observe a complete declared collection independently of model selection/truncation.
    * Each returned ref must reject changed membership/order, control conditions or selected-node
    * state before targeted dispatch. Choice declarations additionally require complete identity
    * and predicate facts for every member; ignoring them cannot authorize dispatch. Never reselect
    * by name or silently substitute a neighbor.
-   * A declared `readerId` selects the host's reader. A driver that cannot serve it must throw
-   * `CollectionSelectionError("unsupported")`, never read with a default reader.
+   * A declared `readerId` selects the host's reader. Core hands it to the driver only when the
+   * driver lists it in `readerIds`; otherwise it refuses with `unsupported` before any observation.
    * Optional: unsupported drivers are refused by the built-in handler before any action. */
   observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
   /** Perform exactly one collection click, retaining an explicit pre-action resource key only

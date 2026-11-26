@@ -6,7 +6,7 @@ import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ChromeDevToolsDriver, CollectionSelectionError, discover, loadSkillFile, runScenario, saveSkillFile, selectedItemEquals } from '../packages/harness/dist/index.js';
+import { ChromeDevToolsDriver, discover, loadSkillFile, runScenario, saveSkillFile, selectedItemEquals } from '../packages/harness/dist/index.js';
 
 let ids = ['alpha', 'beta'];
 let wrongDetail = false;
@@ -25,12 +25,12 @@ const flags = ['--isolated', '--headless', '--viewport=1280x800', '--no-page-id-
 const transport = process.env.CAIRN_MCP_ENTRY
   ? { command: process.execPath, args: [process.env.CAIRN_MCP_ENTRY, ...flags] }
   : { command: 'npx', args: ['-y', 'chrome-devtools-mcp@1.8.0', ...flags] };
-/** A host that owns one reader. It strips the ID before delegating to the built-in reader. */
+/** A host that owns one reader and declares it. It strips the ID before delegating to the built-in reader. */
 class HostDriver extends ChromeDevToolsDriver {
+  readerIds = ['posts.v2'];
   seen = [];
   async observeCollection(selection) {
     this.seen.push(selection.readerId);
-    if (selection.readerId !== 'posts.v2') throw new CollectionSelectionError('unsupported', `no reader ${selection.readerId}`);
     const { readerId, ...rest } = selection;
     return super.observeCollection(rest);
   }
@@ -80,9 +80,11 @@ try {
   const unknown = structuredClone(loaded);
   unknown.steps[1].target.collection.readerId = 'posts.v9';
   await driver.goto(baseUrl);
+  driver.seen.length = 0;
   const unsupported = await runScenario(unknown, { driver, llm: noModel, reporter: { emit: async () => {} }, judgmentKey: 'posts-v1',
     selectedItemEvidence: { bindings }, custom: { 'first-post': selectedItemEquals } });
   assert.equal(unsupported.result.verdict.passed, false, 'an unsupported reader ID must fail the replay');
+  assert.deepEqual(driver.seen, [], 'core refuses an unlisted reader ID before the driver observes anything');
   assert.match(await driver.call('evaluate_script', { function: "() => document.querySelector('#post').dataset.postId ?? null" }), /null/, 'no click may follow an unsupported reader ID');
   await assert.rejects(ChromeDevToolsDriver.prototype.observeCollection.call(driver, selection.target.collection), /readerId/, 'the built-in reader refuses a declared ID');
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], changedFirst: 'beta', mismatchRejected: true, unsupportedReaderRefused: true, replayModelCalls: 0 }, null, 2));

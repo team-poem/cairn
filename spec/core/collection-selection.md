@@ -11,6 +11,8 @@ The positional rules below remain unchanged; predicates never become implicit ne
 Use `runScenario`, the CLI replay of a saved Scenario, or browser `runHarness` with a
 `StaticPlanner`. This is not a new interaction verb or a new discovery loop. A host can also
 approve a declaration for one discovery action; see [declared selections](discovery-selection.md).
+Plain links with no accessible root use a separate host-declared membership form,
+[`collection.links`](link-selection.md). Everything below describes the role form.
 
 ```ts
 const target = {

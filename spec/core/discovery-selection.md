@@ -110,13 +110,15 @@ under the selection ID, and supply a `judgmentKey`. Replay selects the current m
 model. Selecting B and arriving at C fails the binding. Missing evidence is required inconclusive.
 Rediscovery and repair stay refused for collection steps.
 
-## Extension point for phase 2
+## Plain links (phase 2)
 
-Phase 2 (positional selection over plain links without an accessible collection root) extends this
-contract without changing it. Discovery handles the declaration only through `Target` validation and
-the replay step handler. A new membership form inside `Target.collection`, such as host-declared
-member scope and expected count, therefore needs no change here. A destination check for full
-navigation becomes a new `verify` variant. `version: 1` declarations keep their meaning.
+A declaration's `target` can also be a [plain-link collection](link-selection.md):
+`{ collection: { links: { scope, member, action?, group? }, order: "dom", index, expectedCount } }`.
+Discovery handles it only through `Target` validation and the replay step handler, so nothing in
+this contract changes. Its `verify` uses the link key pair,
+`{ source: { kind: "href" }, destination: { kind: "location" } }`, which compares the selected
+link's destination with the arrival observed after the step. `version: 1` declarations keep their
+meaning.
 
 ## Verification
 

@@ -220,6 +220,12 @@ To check that the destination represents the resource actually selected on this 
 [selected-item resource-key evidence](selected-item-evidence.md). This explicit relation is
 separate from selecting a position and does not replace fixed-resource assertions.
 
+A grid of plain links with no accessible list root uses a host-declared membership instead:
+`collection: { links: { scope: ".grid", member: ":scope > a" }, order: "dom", index: 1, expectedCount: 3 }`.
+The host's selectors decide what counts, DOM order decides position, and `expectedCount` is required.
+Bind it with `{ source: { kind: "href" }, destination: { kind: "location" } }` to check that the
+browser arrived where the selected link points. See [plain-link selection](../spec/core/link-selection.md).
+
 When any resource satisfying explicit conditions is acceptable, use
 [predicate selection](predicate-selection.md). It chooses one eligible member deterministically,
 can reference that run's bound resource in later actions, and permits reselection only before

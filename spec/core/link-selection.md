@@ -97,9 +97,13 @@ role form.
   canonical URL declares the canonical `href` or uses an attribute binding on a role collection.
 - Values over 256 characters cannot be compared and leave the relation unconfirmed.
 
-Chrome refuses, in that final check and so before dispatch, a selected link that opens another tab
-(its own `target`, or a `<base target>` when it has none, other than `_self`), downloads, is not
-`http(s)`, or points at the current document apart from its fragment. Discovery with a link
+Chrome refuses, in that final check and so before dispatch, a selected link that opens another tab,
+downloads, is not `http(s)`, or points at the current document apart from its fragment. The link's
+target is its own `target` attribute, or the first `<base target>` when that attribute is missing or
+empty. Chrome resolves an empty `target` this way, although the HTML spec keeps it, so
+`target=""` under `<base target="_blank">` opens a new tab and is refused. Only an empty target or
+exactly `_self` counts as the same tab. Any other value, including ` _self` with whitespace, is
+refused. Discovery with a link
 `verify` dispatches through the same check, so it refuses these links before clicking too.
 Otherwise the check plants a document-local marker. If the marker survives, no new document
 committed, and the relation is unconfirmed (required inconclusive). A pushState-only navigation is
@@ -127,7 +131,8 @@ a badged first card, off-screen members, wrapped and grouped cards, hidden membe
 ambiguous, nested, miscounted and invalid scopes, pre-dispatch changes, and the destination
 check's single dispatch, a real same-tab navigation that confirms, a `<base href>` that differs
 between earlier reads and the final check, which cannot confirm, and its refusals (new tab,
-`<base target>`, download, same document, non-http).
+`<base target>`, an empty `target` under `<base target="_blank">`, a whitespace-padded `_self`,
+download, same document, non-http). A link's own `_self` under `<base target="_blank">` still dispatches.
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
 that stays inconclusive, a click that closes the original tab so another tab showing the expected

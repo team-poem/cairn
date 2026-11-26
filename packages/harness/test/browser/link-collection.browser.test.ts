@@ -162,15 +162,20 @@ test("a changed destination, order or membership before dispatch refuses the cli
 });
 
 test("a link destination check dispatches a same-tab link once and refuses other links before dispatch", async () => {
-  await withPage(async ({ driver, actions }) => {
-    const bound = await resolveCollectionTarget(driver, grid());
-    // The transport double does not navigate, so the departure marker survives and nothing is confirmed.
-    await expect(driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" })).resolves.toEqual({ complete: false });
-    expect(actions).toEqual(["click:bravo"]);
-  });
+  for (const setup of ["", "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>'); document.querySelector('#bravo').target = '_self'"])
+    await withPage(async ({ driver, page, actions }) => {
+      await page.evaluate(setup);
+      const bound = await resolveCollectionTarget(driver, grid());
+      // The transport double does not navigate, so the departure marker survives and nothing is confirmed.
+      await expect(driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" })).resolves.toEqual({ complete: false });
+      expect(actions).toEqual(["click:bravo"]);
+    });
   for (const change of [
     "document.querySelector('#bravo').target = '_blank'",
     "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>')",
+    // Chrome treats an empty target as absent, so this link opens in the base target's new tab.
+    "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>'); document.querySelector('#bravo').setAttribute('target', '')",
+    "document.querySelector('#bravo').setAttribute('target', ' _self')",
     "document.querySelector('#bravo').setAttribute('download', '')",
     "document.querySelector('#bravo').href = '/posts#bravo'",
     "document.querySelector('#bravo').href = 'mailto:bravo@example.test'",

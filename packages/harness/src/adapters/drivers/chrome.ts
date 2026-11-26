@@ -128,29 +128,38 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       // fall through to whatever lies beneath while the driver still reports success. A descendant
       // that opts back in can receive it and bubble to this node, and a subtree too large to scan
       // stays unknown rather than refused. The scan covers generated ::before and ::after content and
-      // open shadow trees, whose nodes count toward that limit. A closed shadow root cannot be read
-      // from page script and no read-only probe detects one, so a defined custom element without a
-      // readable root may hide a pointer target and leaves the row unknown. A label that still
-      // takes the pointer activates its control, so Chrome checks the box on the same click.
-      // Chrome drops an inert subtree from the AX tree, so it never becomes a row.
+      // open shadow trees, whose nodes count toward that limit. A label that still takes the pointer
+      // activates its control, so the subtree of each associated label is scanned the same way and
+      // shares the limit. A closed shadow root cannot be read from page script and no read-only probe
+      // detects one, so any element that may host a shadow root (a built-in host name or a valid
+      // custom element name) and has no readable root may hide a pointer target and leaves the row
+      // unknown. Chrome drops an inert subtree from the AX tree, so it never becomes a row.
       const pseudoTakesPointer = node => ['::before', '::after'].some(which => {
         const style = getComputedStyle(node, which);
         return style.content !== 'none' && style.content !== 'normal' && style.pointerEvents !== 'none';
       });
-      const mayHideClosedRoot = node => !node.shadowRoot &&
-        !!customElements.get(node.getAttribute('is') || node.localName);
+      const shadowHostNames = /^(article|aside|blockquote|body|div|footer|h[1-6]|header|main|nav|p|section|span)$/;
+      const reservedNames = /^(annotation-xml|color-profile|font-face|font-face-src|font-face-uri|font-face-format|font-face-name|missing-glyph)$/;
+      const mayHideClosedRoot = node => !node.shadowRoot && node.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+        (shadowHostNames.test(node.localName) || node.localName.includes('-') && !reservedNames.test(node.localName));
+      const mayTakePointer = node => getComputedStyle(node).pointerEvents !== 'none' ||
+        pseudoTakesPointer(node) || mayHideClosedRoot(node);
       const reachableByPointer = () => {
-        if (mayHideClosedRoot(el)) return true;
-        for (const label of el.labels ?? []) if (getComputedStyle(label).pointerEvents !== 'none') return true;
-        if (pseudoTakesPointer(el)) return true;
-        const scopes = [el];
-        if (el.shadowRoot) scopes.push(el.shadowRoot);
+        const seen = new Set();
+        const scopes = [];
+        for (const root of [el, ...(el.labels ?? [])]) {
+          if (mayTakePointer(root)) return true;
+          seen.add(root);
+          scopes.push(root);
+          if (root.shadowRoot) scopes.push(root.shadowRoot);
+        }
         let scanned = 0;
         while (scopes.length) {
           for (const node of scopes.pop().querySelectorAll('*')) {
+            if (seen.has(node)) continue;
+            seen.add(node);
             if (++scanned > ${POINTER_SCAN_LIMIT}) return true;
-            if (getComputedStyle(node).pointerEvents !== 'none' || pseudoTakesPointer(node)) return true;
-            if (mayHideClosedRoot(node)) return true;
+            if (mayTakePointer(node)) return true;
             if (node.shadowRoot) scopes.push(node.shadowRoot);
           }
         }

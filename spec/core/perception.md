@@ -379,16 +379,21 @@ for `type` or `select`, which need no pointer. A descendant that opts back in wi
 `pointer-events` value can receive the pointer and bubble to the row, and so can the row's or a
 descendant's generated `::before` or `::after` content, and a child inside an open shadow tree,
 which retargets to its host. A subtree of more than 64 elements, shadow descendants included, is too
-large to scan. Each of these leaves the row unknown. A closed shadow root cannot be read from page
-script, and no read-only probe detects one: `attachShadow` throws on a host that has a root but
-attaches one otherwise, and `attachInternals` can be taken only once. So the row, or any scanned
-element, that is a defined custom element (by tag name or `is`) with no readable `shadowRoot` leaves
-the row unknown, even if it hosts no root. A built-in element such as a `div` can also host a closed
-root and is not flagged, because that would leave nearly every row unknown; a row whose only pointer
-target lives in a closed root on a built-in host is still reported disallowed. A labelable control with an associated
+large to scan. Each of these leaves the row unknown. A labelable control with an associated
 label (wrapping or `for=`) whose own `pointer-events` is not `none` also stays unknown: the click
-can land on that label, which activates the control, and Chrome checks the box on the same ref. An on-screen `pointer-events: none`
-control already fails the foreground hit test and leaves the listing as occluded; the measurement
+can land on that label, which activates the control, and Chrome checks the box on the same ref. A
+label that is itself `none` is scanned like the row, descendants, generated content and open shadow
+trees included, and shares the 64-element limit. A closed shadow root cannot be read from page
+script, and no read-only probe detects one: `attachShadow` throws on a host that has a root but
+attaches one otherwise, and `attachInternals` can be taken only once. So the row, a label, or any
+scanned element that may host a shadow root and has no readable `shadowRoot` leaves the row
+unknown, even if it hosts no root. The elements that may host one are the DOM spec's list
+(`article`, `aside`, `blockquote`, `body`, `div`, `footer`, `h1` to `h6`, `header`, `main`, `nav`,
+`p`, `section`, `span`) and any valid custom element name, defined or not. A bare `button`, `input`
+or `a` with only text, `b`, `em` or `i` children is not a possible host and is still measured
+disallowed. The cost is that a row holding a `span` or `div` stays unknown even when nothing
+in it takes the pointer. The safe direction is unknown.
+An on-screen `pointer-events: none` control already fails the foreground hit test and leaves the listing as occluded; the measurement
 covers the rows that test cannot reach, such as offscreen or clipped ones. Chrome drops an inert
 subtree from the accessibility tree, so `inert` never becomes a row and is not measured. Any other
 refusal comes from a host through `perceive`.

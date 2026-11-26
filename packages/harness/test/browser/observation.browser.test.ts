@@ -214,7 +214,7 @@ test("observationActionEligibility: computed pointer-events none measures pointe
   await withPage(async page => {
     await page.setContent(
       '<h1 id="plain">Alpha</h1><button id="none" style="pointer-events:none">Save</button>' +
-      '<div id="none-parent" style="pointer-events:none"><button id="reenabled" style="pointer-events:auto">Open</button><span id="inherited">Label</span></div>' +
+      '<div id="none-parent" style="pointer-events:none"><button id="reenabled" style="pointer-events:auto">Open</button><a id="inherited" href="#">Label</a></div>' +
       '<div id="none-with-child" style="pointer-events:none"><a id="child-link" href="#" style="pointer-events:auto">Go</a></div>' +
       '<div id="none-wide" style="pointer-events:none">' + "<i></i>".repeat(70) + '</div>' +
       '<button id="cursor-hint" style="pointer-events:none;cursor:pointer" onclick="0">Hint</button>');
@@ -287,7 +287,8 @@ test("observationActionEligibility: a custom element that may hide a closed shad
       '<div id="open-then-closed" style="pointer-events:none"></div>' +
       '<light-host id="light-host" style="pointer-events:none"></light-host>' +
       '<undefined-host id="undefined-host" style="pointer-events:none"></undefined-host>' +
-      '<div id="plain" style="pointer-events:none"><span>text</span></div>');
+      '<font-face id="reserved-name" role="button" style="pointer-events:none">text</font-face>' +
+      '<button id="plain" style="pointer-events:none">text</button>');
     await page.evaluate(`(() => {
       customElements.define("closed-host", class extends HTMLElement {
         connectedCallback() {
@@ -299,12 +300,62 @@ test("observationActionEligibility: a custom element that may hide a closed shad
       open.innerHTML = "<closed-host></closed-host>";
       document.getElementById("closed-host").addEventListener("click", () => { window.hit = "closed"; });
     })()`);
-    const ids = ["closed-host", "closed-child", "open-then-closed", "light-host", "undefined-host", "plain"];
+    const ids = ["closed-host", "closed-child", "open-then-closed", "light-host", "undefined-host", "reserved-name", "plain"];
     const facts = await probe(page, ids);
     const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
-    for (const id of ["closed-host", "closed-child", "open-then-closed", "light-host"]) expect(facts[id]).not.toHaveProperty("actions");
-    for (const id of ["undefined-host", "plain"]) expect(facts[id]?.actions).toEqual(pointer);
+    for (const id of ["closed-host", "closed-child", "open-then-closed", "light-host", "undefined-host"]) expect(facts[id]).not.toHaveProperty("actions");
+    for (const id of ["reserved-name", "plain"]) expect(facts[id]?.actions).toEqual(pointer);
     await page.locator("#closed-host").click({ position: { x: 10, y: 10 }, force: true });
     expect(await page.evaluate("window.hit")).toBe("closed");
+  });
+});
+
+test("observationActionEligibility: a pointer-events none label whose subtree takes the pointer keeps its control unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<style>#lp::before{content:"";display:block;width:20px;height:20px;pointer-events:auto}</style>' +
+      '<label style="pointer-events:none;position:relative;display:inline-block"><input id="by-span" type="checkbox" style="pointer-events:none">Span<span style="pointer-events:auto;position:absolute;inset:0"></span></label>' +
+      '<label id="lp" style="pointer-events:none"><input id="by-pseudo" type="checkbox" style="pointer-events:none">Pseudo</label>' +
+      '<input id="by-for" type="checkbox" style="pointer-events:none"><label for="by-for" style="pointer-events:none"><a href="#" style="pointer-events:auto">Link</a></label>' +
+      '<label style="pointer-events:none"><input id="by-open" type="checkbox" style="pointer-events:none"><span id="open-host" style="pointer-events:none"></span></label>' +
+      '<label style="pointer-events:none"><input id="by-wide" type="checkbox" style="pointer-events:none">' + "<i></i>".repeat(70) + '</label>' +
+      '<label style="pointer-events:none"><input id="by-closed" type="checkbox" style="pointer-events:none"><b id="closed-b" style="pointer-events:none"><div></div></b></label>' +
+      '<label style="pointer-events:none"><input id="dead" type="checkbox" style="pointer-events:none">Dead <b style="pointer-events:none">bold</b></label>');
+    await page.evaluate(`(() => {
+      document.getElementById("open-host").attachShadow({ mode: "open" }).innerHTML = '<a href="#" style="pointer-events:auto">Go</a>';
+    })()`);
+    const ids = ["by-span", "by-pseudo", "by-for", "by-open", "by-wide", "by-closed", "dead"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    for (const id of ["by-span", "by-pseudo", "by-for", "by-open", "by-wide", "by-closed"]) expect(facts[id]).not.toHaveProperty("actions");
+    expect(facts.dead?.actions).toEqual(pointer);
+    await page.locator("#by-span").click({ position: { x: 4, y: 4 }, force: true });
+    expect(await page.locator("#by-span").isChecked()).toBe(true);
+  });
+});
+
+test("observationActionEligibility: an element that may host a closed shadow root keeps a pointer-events none row unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<div id="closed-div" role="button" style="display:block;pointer-events:none"></div>' +
+      '<button id="span-child" style="pointer-events:none"><span>text</span></button>' +
+      '<div id="open-div" style="pointer-events:none"></div>' +
+      '<button id="bare" style="pointer-events:none">Save</button>' +
+      '<input id="input" type="checkbox" style="pointer-events:none">' +
+      '<a id="link" href="#" style="pointer-events:none">Home</a>' +
+      '<button id="inline" style="pointer-events:none">Go <b>now</b> <em>fast</em></button>');
+    await page.evaluate(`(() => {
+      const closed = document.getElementById("closed-div").attachShadow({ mode: "closed" });
+      closed.innerHTML = '<span style="display:block;width:40px;height:20px;pointer-events:auto">Go</span>';
+      document.getElementById("closed-div").addEventListener("click", () => { window.hit = "closed-div"; });
+      document.getElementById("open-div").attachShadow({ mode: "open" }).innerHTML = '<button style="pointer-events:none">Go</button>';
+    })()`);
+    const ids = ["closed-div", "span-child", "open-div", "bare", "input", "link", "inline"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    for (const id of ["closed-div", "span-child"]) expect(facts[id]).not.toHaveProperty("actions");
+    for (const id of ["open-div", "bare", "input", "link", "inline"]) expect(facts[id]?.actions).toEqual(pointer);
+    await page.locator("#closed-div").click({ position: { x: 10, y: 10 }, force: true });
+    expect(await page.evaluate("window.hit")).toBe("closed-div");
   });
 });

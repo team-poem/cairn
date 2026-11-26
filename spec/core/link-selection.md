@@ -85,9 +85,11 @@ role form.
 - The source key is the selected link's `href`, read from the exact guarded node before dispatch
   and confirmed unchanged by the final continuity check.
 - The arrival is the top-level `location` at the selection step's after-step boundary, read
-  independently of the link. The binding's destination prefix must equal its source prefix: a later
-  step, such as a `goto` or a breadcrumb, could reach the selected href itself and hide a wrong
-  arrival.
+  independently of the link and only in the tab the click was dispatched in. If another tab is
+  selected when the departure marker or the arrival is read, for example because the original tab
+  closed and Chrome selected the next one, the relation is unconfirmed. The binding's destination
+  prefix must equal its source prefix: a later step, such as a `goto` or a breadcrumb, could reach
+  the selected href itself and hide a wrong arrival.
 - Both sides drop the fragment. The query is compared exactly. Redirects are compared on where the
   browser landed, so a redirect that changes the URL fails. A host whose links redirect to a
   canonical URL declares the canonical `href` or uses an attribute binding on a role collection.
@@ -122,4 +124,5 @@ check's single dispatch and its refusals (new tab, `<base target>`, download, sa
 non-http).
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
-that stays inconclusive, and grouped image and title links.
+that stays inconclusive, a click that closes the original tab so another tab showing the expected
+post is selected, which stays inconclusive, and grouped image and title links.

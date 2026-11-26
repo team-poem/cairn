@@ -238,6 +238,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
   private readonly collectionObservations = new Map<string, ChromeCollectionObservation>();
+  /** The tab a link destination check dispatched in. Its arrival is read only there. */
+  private linkDeparturePage?: number;
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {
     if (opts.hostOwnedRoots) this.hostRoots = new ChromeHostRoots(
@@ -535,7 +537,7 @@ export class ChromeDevToolsDriver implements Driver {
       const uid = await this.actionUid(target, ref);
       const collection = this.collectionObservations.get(ref);
       if (!collection) throw new CollectionSelectionError("unsupported", "selected-item evidence requires a collection reference");
-      const knownSource = await this.knownSourcePage();
+      const knownSource = await this.knownSourcePage() !== undefined;
       if (collection.choice && !knownSource) throw new CollectionSelectionError("incomplete", "choice requires an observed source page");
       receipt = await collection.prepareSelectedItemKey(uid, source);
       if (collection.choice && !receipt.ready) throw new SelectionNotDispatchedError(ref);
@@ -561,28 +563,35 @@ export class ChromeDevToolsDriver implements Driver {
 
   /** Hosts can attach to an already loaded page without calling goto(). Establish the
    * pre-click tab set so an existing tab is not mistaken for the click's popup. */
-  private async knownSourcePage(): Promise<boolean> {
+  private async knownSourcePage(): Promise<number | undefined> {
     const pagesBefore = await this.call("list_pages").catch(() => "");
     const entriesBefore = parsePageEntries(pagesBefore);
-    const sourceId = pagesBefore.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
-    const knownSource = sourceId !== undefined && entriesBefore.some(entry => entry.id === Number(sourceId));
-    if (knownSource) entriesBefore.forEach(entry => this.seenPages.add(entry.id));
-    return knownSource;
+    const sourceId = selectedPageId(pagesBefore);
+    if (sourceId === undefined || !entriesBefore.some(entry => entry.id === sourceId)) return undefined;
+    entriesBefore.forEach(entry => this.seenPages.add(entry.id));
+    return sourceId;
+  }
+
+  private async selectedPageIs(id: number): Promise<boolean> {
+    return selectedPageId(await this.call("list_pages").catch(() => "")) === id;
   }
 
   /** The source key is the selected link's href, read before the guarded click. The receipt is a
-   * document nonce: if it survives the click, no new document committed and nothing is confirmed. */
+   * document nonce: if it survives the click, no new document committed and nothing is confirmed.
+   * Both the nonce and the arrival are read in the tab the click was dispatched in. */
   private async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
+    this.linkDeparturePage = undefined;
     const uid = await this.actionUid(target, ref);
     const collection = this.collectionObservations.get(ref);
     if (!collection?.links) throw new CollectionSelectionError("unsupported", "a link destination requires a link collection reference");
-    const knownSource = await this.knownSourcePage();
+    const sourcePage = await this.knownSourcePage();
     const href = await collection.linkDestination(uid);
     const nonce = `Symbol.for(${JSON.stringify(`cairn-link-departure:${this.driverId}:${nextLinkDeparture++}`)})`;
     await this.call("evaluate_script", { function: `() => { globalThis[${nonce}] = true; return {}; }` }, "observation");
     this.invalidateObservation();
     const changedPage = await this.callAccepting("click", { uid }, collection);
-    if (!knownSource || changedPage !== false) return { complete: false };
+    if (sourcePage === undefined || changedPage !== false || !await this.selectedPageIs(sourcePage)) return { complete: false };
+    this.linkDeparturePage = sourcePage;
     const stayed = await this.call("evaluate_script", {
       function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}]; return {stayed}; }`,
     }, "observation").then(raw => (extractFirstJsonObject(raw) as { stayed?: unknown } | undefined)?.stayed, () => undefined);
@@ -591,6 +600,8 @@ export class ChromeDevToolsDriver implements Driver {
 
   async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
     if (destination.kind === "location") {
+      const page = this.linkDeparturePage;
+      if (page === undefined || !await this.selectedPageIs(page)) return { complete: false };
       const observed = extractFirstJsonObject(await this.call("evaluate_script", {
         function: `() => {
           if (window.top !== window) return {complete:false};
@@ -600,7 +611,7 @@ export class ChromeDevToolsDriver implements Driver {
         }`,
       }, "observation")) as ResourceKeyObservation | undefined;
       return observed?.complete === true && typeof observed.value === "string" && observed.value.length <= 256
-        ? { complete: true, value: observed.value } : { complete: false };
+        && await this.selectedPageIs(page) ? { complete: true, value: observed.value } : { complete: false };
     }
     const observed = extractFirstJsonObject(await this.call("evaluate_script", {
       function: resourceKeyScript(destination, this.opts.hostOwnedRoots?.key),
@@ -1958,6 +1969,12 @@ export function parsePageEntries(text: string): PageEntry[] {
 export function followableTab(entries: PageEntry[], seen: ReadonlySet<number>): number | undefined {
   const real = entries.filter((e) => !seen.has(e.id) && e.url && e.url !== "about:blank");
   return real.length ? Math.max(...real.map((e) => e.id)) : undefined;
+}
+
+/** `2: Example Domain (https://example.com/) [selected]` → 2. */
+function selectedPageId(text: string): number | undefined {
+  const id = text.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
+  return id === undefined ? undefined : Number(id);
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

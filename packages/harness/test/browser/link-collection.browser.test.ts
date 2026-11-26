@@ -205,7 +205,7 @@ test("a <base href> that differs between the destination read and the final guar
     const bound = await resolveCollectionTarget(driver, grid());
     // A page script swaps the base. Each guard window, from a revision read through its measurement, sees the
     // original base. Every other read and the click itself see the mirror.
-    const base = (href: string) => page.evaluate(`(() => { const base = document.querySelector('base');
+    const base = (href: string) => page.evaluate<void>(`(() => { const base = document.querySelector('base');
       if (base && base.getAttribute('href') !== ${JSON.stringify(href)}) base.setAttribute('href', ${JSON.stringify(href)}); })()`);
     let guarding = true, leaving = false;
     hook.before = async (name, args) => {

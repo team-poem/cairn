@@ -1,6 +1,6 @@
 /** Explicit collection selection. Drivers measure; core validates; no model or fallback. */
 import type { Driver } from "./ports.js";
-import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
+import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionDeclaration, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
 
 export type CollectionSelectionCode = "invalid" | "unsupported" | "incomplete" | "condition" | "missing" | "disabled" | "stale" | "ambiguous";
 
@@ -155,12 +155,12 @@ function linkCollection(raw: unknown): LinkCollectionScope {
     order: "dom", index, expectedCount };
 }
 
-export function isLinkCollection(selection: CollectionTarget): selection is LinkCollectionScope {
+export function isLinkCollection(selection: CollectionDeclaration): selection is LinkCollectionScope {
   return "links" in selection && selection.links !== undefined;
 }
 
 /** Validate frozen input at runtime, returning a private copy before awaited browser work. */
-export function validateCollectionTarget(target: Target): CollectionTarget {
+export function validateCollectionTarget(target: Target): CollectionDeclaration {
   const outer = record(target, ["collection"], "target");
   const raw = outer.collection;
   if (raw && typeof raw === "object" && "links" in raw) return linkCollection(raw);
@@ -195,7 +195,8 @@ export function validateCollectionTarget(target: Target): CollectionTarget {
 /** The resolved target is transient. Persist the declaration, never these observed names/refs. */
 export async function resolveCollectionTarget(driver: Driver, target: Target): Promise<{ target: Target; ref: string }> {
   const selection = validateCollectionTarget(target);
-  const observeCollection = driver.observeCollection;
+  // Each form has its own port, so a Driver that predates links never receives one.
+  const observeCollection = isLinkCollection(selection) ? driver.observeLinkCollection : driver.observeCollection;
   if (typeof observeCollection !== "function") throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
   // Resolve run-local references privately. Even constant choices require the session to
   // authorize their source binding before the driver can observe or dispatch them.
@@ -215,7 +216,7 @@ export async function resolveCollectionTarget(driver: Driver, target: Target): P
     }
   }
   // Adapter input is separate too: a consumer cannot mutate the expectation while capturing.
-  const observed = observedRecord(await observeCollection.call(driver, request),
+  const observed = observedRecord(await (observeCollection as (this: Driver, request: CollectionDeclaration) => Promise<unknown>).call(driver, request),
     ["complete", "order", "items", "conditions"], "collection observation");
   if (observed.complete !== true || observed.order !== selection.order)
     throw new CollectionSelectionError("incomplete", "complete ordered membership was not established");

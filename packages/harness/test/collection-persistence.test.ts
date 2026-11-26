@@ -6,7 +6,7 @@ import * as node from "../src/index.js";
 import * as browser from "../src/browser.js";
 import { persistentTarget } from "../src/core/observation.js";
 import { StubDriver } from "./support/doubles.js";
-import type { CollectionObservation, RoleCollectionTarget as CollectionTarget, Scenario, Target } from "../src/index.js";
+import type { CollectionObservation, CollectionTarget, Scenario, Target } from "../src/index.js";
 
 const silent = { emit: async () => {} };
 const intent = "Open the first result in the current collection";

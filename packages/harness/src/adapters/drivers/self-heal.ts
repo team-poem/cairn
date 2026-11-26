@@ -129,6 +129,9 @@ export class SelfHealingDriver implements Driver {
     // Bound evidence dispatches never enter locator healing or retry a mutation.
     if (inner.clickWithSelectedItemEvidence) this.clickWithSelectedItemEvidence = (target, ref, source) => inner.clickWithSelectedItemEvidence!(target, ref, source);
     if (inner.readResourceKey) this.readResourceKey = destination => inner.readResourceKey!(destination);
+    if (inner.observeLinkCollection) this.observeLinkCollection = selection => inner.observeLinkCollection!(selection);
+    if (inner.clickLinkWithDestination) this.clickLinkWithDestination = (target, ref) => inner.clickLinkWithDestination!(target, ref);
+    if (inner.readLinkArrival) this.readLinkArrival = () => inner.readLinkArrival!();
   }
 
   async goto(url: string): Promise<void> {
@@ -141,6 +144,9 @@ export class SelfHealingDriver implements Driver {
   observeCollection?: Driver["observeCollection"];
   clickWithSelectedItemEvidence?: Driver["clickWithSelectedItemEvidence"];
   readResourceKey?: Driver["readResourceKey"];
+  observeLinkCollection?: Driver["observeLinkCollection"];
+  clickLinkWithDestination?: Driver["clickLinkWithDestination"];
+  readLinkArrival?: Driver["readLinkArrival"];
   armActionOutcomeIdentity?: Driver["armActionOutcomeIdentity"];
   takeActionOutcomeIdentity?: Driver["takeActionOutcomeIdentity"];
 

@@ -1,7 +1,7 @@
 /** Narrow, exact-node collection evidence. No accessible-name inference or visual ordering. */
 import { CollectionSelectionError, isLinkCollection } from "../../core/collection.js";
 import { extractFirstJsonObject } from "../../core/json.js";
-import type { CollectionObservation, CollectionTarget, PageElement } from "../../core/types.js";
+import type { CollectionDeclaration, CollectionObservation, PageElement } from "../../core/types.js";
 import { documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { HOST_ROOT_REGISTRY } from "./host-owned-roots.js";
@@ -52,7 +52,7 @@ export class ChromeCollectionObservation {
   private captured = false;
 
   constructor(
-    private readonly selection: CollectionTarget,
+    private readonly selection: CollectionDeclaration,
     private readonly call: Call,
     private readonly capture: () => Promise<string>,
     private readonly guardKey: string,

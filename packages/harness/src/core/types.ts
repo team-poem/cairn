@@ -53,7 +53,7 @@ export interface WaitUntil {
 export interface Target {
   /** Explicit run-relative selection (#306), exclusive with all legacy locator fields.
    * The selected resource may differ on each replay. Never a fixed-resource identity. */
-  collection?: CollectionTarget;
+  collection?: CollectionDeclaration;
   text?: string;
   role?: string;
   index?: number;
@@ -141,13 +141,15 @@ export interface LinkCollectionScope {
   root?: never; itemRole?: never; target?: never; conditions?: never; choice?: never;
 }
 
-/** A position and an eligible choice are separate persisted contracts. */
-export type RoleCollectionTarget = CollectionScope & { links?: never } & (
+/** A position and an eligible choice are separate persisted contracts. This is the role form, the
+ * type `Driver.observeCollection` receives; link declarations reach `Driver.observeLinkCollection`. */
+export type CollectionTarget = CollectionScope & { links?: never } & (
   | { /** Zero-based position among ALL members, not only enabled/matching action candidates. */
       index: number; choice?: never }
   | { choice: CollectionChoice; index?: never }
 );
-export type CollectionTarget = RoleCollectionTarget | LinkCollectionScope;
+/** Either collection form, as a `Target.collection` declares it. */
+export type CollectionDeclaration = CollectionTarget | LinkCollectionScope;
 
 /** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
  * Missing or ambiguous actions retain their member's position with no target. */

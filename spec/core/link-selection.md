@@ -60,11 +60,23 @@ grid placement) is never read. A member keeps its position whatever it shows: a 
 
 ## Driver boundary
 
-`Driver.observeCollection` receives the link declaration and returns the same
-`CollectionObservation` as the role form, one item per member. Core checks completeness, the
-declared count, positions and the selected action, which must be a `link` (its name is not checked,
-because an image link may have none). A Driver that does not recognize `links` must refuse it, not
-read it as a role declaration.
+Links have their own optional Driver ports, so the role form's ports and their types stay as they
+were before links existed. A Driver written against those types keeps compiling and never receives
+a link declaration or a link key.
+
+| Port | Receives | Without it |
+| --- | --- | --- |
+| `observeLinkCollection(selection)` | the link declaration (`LinkCollectionScope`) | the collection is refused as `unsupported` before any action |
+| `clickLinkWithDestination(target, ref)` | the selected link's exact ref | a link `verify` is refused in discovery before navigation; replay clicks plainly and the relation stays unconfirmed |
+| `readLinkArrival()` | nothing | the relation stays unconfirmed |
+
+`observeLinkCollection` returns the same `CollectionObservation` as the role form, one item per
+member. Core checks completeness, the declared count, positions and the selected action, which must
+be a `link` (its name is not checked, because an image link may have none).
+`Driver.observeCollection` receives only the role form (`CollectionTarget`), and
+`clickWithSelectedItemEvidence` and `readResourceKey` receive only attribute keys.
+`Target.collection` holds either form (`CollectionDeclaration`). A missing port never becomes a
+pass.
 
 The Chrome adapter passes every accessibility `link` row (at most 4,096) to one guarded DOM
 measurement. In the page it resolves `scope`, `member` and `action`, and binds each member's link to
@@ -131,7 +143,7 @@ refs as a post-condition.
 ## Verification
 
 `test/link-selection.test.ts` covers discovery, save/load and fresh replay after a reorder with zero
-model calls, a discovery that refuses a link the destination check cannot observe before dispatch,
+model calls, the same replay through the self-healing wrapper, a discovery that refuses a link the destination check cannot observe before dispatch,
 a B-to-C destination mismatch, and declaration validation.
 `test/browser/link-collection.browser.test.ts` measures real DOM in Chrome: DOM versus visual order,
 a badged first card, off-screen members, wrapped and grouped cards, hidden members, empty,
@@ -141,6 +153,9 @@ selected link, which cannot stand in for the arrival, a `<base href>` that diffe
 between earlier reads and the final check, which cannot confirm, and its refusals (new tab,
 `<base target>`, an empty `target` under `<base target="_blank">`, a whitespace-padded `_self`,
 download, same document, non-http). A link's own `_self` under `<base target="_blank">` still dispatches.
+`test/driver-compatibility.test.ts` runs a Driver written against the 2.9.8 port
+(`test/support/driver-2.9.8.ts`), which `npm run typecheck` compiles. Its link collection and link
+`verify` are refused before it observes or clicks anything.
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
 that stays inconclusive, a click that closes the original tab so another tab showing the expected

@@ -8,9 +8,10 @@ import type { Driver } from "../ports.js";
 import type { Assertion, Evidence, NetworkRequest, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { findRequestStatus } from "../requests.js";
-import { CollectionSelectionError, resolveChoiceValues, validateCollectionTarget } from "../collection.js";
+import { CollectionSelectionError, isLinkCollection, resolveChoiceValues, validateCollectionTarget } from "../collection.js";
 import { copyCapturePath, copyEvidenceData } from "../evidence-capture.js";
-import { validateSelectedItemBinding, type DestinationResourceKey, type SelectedItemBinding, type SelectedItemKey } from "../selected-item-evidence.js";
+import { validateSelectedItemBinding, type DestinationResourceKey, type LinkDestinationKey, type LinkSourceKey, type ResourceKeyBinding,
+  type SelectedItemKey } from "../selected-item-evidence.js";
 import type { OutcomeMark } from "./capture.js";
 import { findUnprovenAction } from "./grounding.js";
 
@@ -23,7 +24,7 @@ export interface DiscoverySelection {
   /** Host-approved post-condition. The freeze derives none from the member discovery selected. */
   expect?: WaitUntil;
   /** Freeze a #327 binding read at this action. Required for a choice. */
-  verify?: { source: SelectedItemKey; destination: DestinationResourceKey };
+  verify?: { source: SelectedItemKey; destination: DestinationResourceKey } | { source: LinkSourceKey; destination: LinkDestinationKey };
 }
 
 const MAX_SELECTIONS = 16;
@@ -66,7 +67,7 @@ export function copySelections(value: readonly DiscoverySelection[] | undefined,
     ids.add(row.id);
     const collection = validateCollectionTarget(row.target as Target);
     const target: Target = { collection };
-    if (typeof driver.observeCollection !== "function")
+    if (typeof (isLinkCollection(collection) ? driver.observeLinkCollection : driver.observeCollection) !== "function")
       throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
     if (collection.choice) {
       if (collection.choice.where.some(predicate => typeof predicate.value !== "string"))
@@ -81,17 +82,17 @@ export function copySelections(value: readonly DiscoverySelection[] | undefined,
       const verify = row.verify as Record<string, unknown>;
       if (!verify || typeof verify !== "object" || Object.keys(verify).some(key => !["source", "destination"].includes(key)))
         invalid("selection verify requires source and destination keys");
-      out.verify = { source: verify.source as SelectedItemKey, destination: verify.destination as DestinationResourceKey };
+      out.verify = { source: verify.source, destination: verify.destination } as DiscoverySelection["verify"];
       // The real prefix exists only after discovery; check the key declarations now.
       bindingFor(out, [{ kind: "click", target }]);
-      if (out.verify.source.kind === "href" && typeof driver.clickWithSelectedItemEvidence !== "function")
+      if (out.verify!.source.kind === "href" && typeof driver.clickLinkWithDestination !== "function")
         throw new CollectionSelectionError("unsupported", "a link destination requires guarded dispatch");
     }
     return out;
   });
 }
 
-function bindingFor(selection: DiscoverySelection, prefix: readonly Step[]): SelectedItemBinding {
+function bindingFor(selection: DiscoverySelection, prefix: readonly Step[]): ResourceKeyBinding {
   const after = copyCapturePath(prefix);
   return validateSelectedItemBinding({ version: 1, id: selection.id, relation: "resource-key-equals", phase: "replay",
     source: { after, key: selection.verify!.source }, destination: { after, key: selection.verify!.destination } });
@@ -129,10 +130,9 @@ export function selectionRejection(decision: { action: string; selection?: unkno
 export async function executeSelection(driver: Driver, selection: DiscoverySelection, signal?: AbortSignal): Promise<Step> {
   const step: Step = { kind: "click", target: { collection: validateCollectionTarget(selection.target) } };
   const choice = step.target.collection!.choice;
-  const guarded: SelectedItemKey | undefined = choice ? choice.identity
-    : selection.verify?.source.kind === "href" ? { kind: "href" } : undefined;
+  const link = !choice && selection.verify?.source.kind === "href";
   let dispatch = driver;
-  if (guarded) {
+  if (choice || link) {
     const values = choice?.where.map(predicate => predicate.value as string);
     let dispatched = false;
     dispatch = new Proxy({} as Driver, { get: (_target, property) => {
@@ -141,7 +141,8 @@ export async function executeSelection(driver: Driver, selection: DiscoverySelec
         if (dispatched) throw new CollectionSelectionError("invalid", "a selection dispatches once");
         dispatched = true;
         if (!ref) throw new CollectionSelectionError("unsupported", "a declared selection requires guarded dispatch");
-        const observed = await driver.clickWithSelectedItemEvidence!(target, ref, { ...guarded });
+        const observed = link ? await driver.clickLinkWithDestination!(target, ref)
+          : await driver.clickWithSelectedItemEvidence!(target, ref, { ...choice!.identity });
         if (choice && (observed?.complete !== true || typeof observed.value !== "string" || !observed.value.trim()))
           throw new CollectionSelectionError("incomplete", "selected resource continuity could not be confirmed after dispatch");
       };

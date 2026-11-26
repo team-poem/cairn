@@ -30,7 +30,9 @@ import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
   CollectionObservation,
+  CollectionDeclaration,
   CollectionTarget,
+  LinkCollectionScope,
   Evidence,
   NetworkRequest,
   PageElement,
@@ -529,7 +531,6 @@ export class ChromeDevToolsDriver implements Driver {
 
   /** Same-document evidence only. A missing receipt never retries or replaces the click. */
   async clickWithSelectedItemEvidence(target: Target, ref: string, source: SelectedItemKey): Promise<ResourceKeyObservation> {
-    if (source.kind === "href") return this.clickLinkWithDestination(target, ref);
     const capturedCollection = this.collectionObservations.get(ref);
     let receipt: SelectedItemReceipt | undefined, dispatched = false;
     let observed: ResourceKeyObservation = { complete: false };
@@ -577,7 +578,7 @@ export class ChromeDevToolsDriver implements Driver {
    * new document committed and nothing is confirmed. evaluate_script runs in whichever tab is
    * selected, so the nonce read also returns its document URL, and that URL must equal the one the
    * tab listing reports for the dispatch tab. */
-  private async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
+  async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
     this.linkDeparturePage = undefined;
     const uid = await this.actionUid(target, ref);
     const collection = this.collectionObservations.get(ref);
@@ -600,13 +601,14 @@ export class ChromeDevToolsDriver implements Driver {
     return { complete: true, value: href };
   }
 
+  /** The listing reports each tab's own top-level URL by page ID, whichever tab is selected. */
+  async readLinkArrival(): Promise<ResourceKeyObservation> {
+    const page = this.linkDeparturePage;
+    const url = page === undefined ? undefined : listedPageUrl(await this.call("list_pages").catch(() => ""), page);
+    return url !== undefined && url.length <= 256 ? { complete: true, value: url } : { complete: false };
+  }
+
   async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
-    if (destination.kind === "location") {
-      // The listing reports each tab's own top-level URL by page ID, whichever tab is selected.
-      const page = this.linkDeparturePage;
-      const url = page === undefined ? undefined : listedPageUrl(await this.call("list_pages").catch(() => ""), page);
-      return url !== undefined && url.length <= 256 ? { complete: true, value: url } : { complete: false };
-    }
     const observed = extractFirstJsonObject(await this.call("evaluate_script", {
       function: resourceKeyScript(destination, this.opts.hostOwnedRoots?.key),
     }, "observation")) as ResourceKeyObservation | undefined;
@@ -995,7 +997,15 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
-  async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+  observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  observeLinkCollection(selection: LinkCollectionScope): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  private async observeDeclaration(selection: CollectionDeclaration): Promise<CollectionObservation> {
     const declaration = validateCollectionTarget({ collection: selection });
     const elements = await this.snapshot({ perception: true });
     const version = this.observationVersion, page = this.observedPage, stamp = this.observedHostStamp;

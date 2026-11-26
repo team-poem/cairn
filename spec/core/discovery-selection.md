@@ -117,7 +117,9 @@ A declaration's `target` can also be a [plain-link collection](link-selection.md
 Discovery handles it only through `Target` validation and the replay step handler, so nothing in
 this contract changes. Its `verify` uses the link key pair,
 `{ source: { kind: "href" }, destination: { kind: "location" } }`, which compares the selected
-link's destination with the arrival observed after the step. With that `verify`, discovery
+link's destination with the arrival observed after the step. A link declaration requires
+`Driver.observeLinkCollection`, and its `verify` requires `Driver.clickLinkWithDestination`; either
+missing throws `CollectionSelectionError` before navigation. With that `verify`, discovery
 dispatches through the same guarded destination click as replay, so a link replay would refuse
 (another tab, a download, the same document, a non-http link) is refused before the click and the
 selection fails. Discovery discards the observed destination. A link selection without `verify`

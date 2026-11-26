@@ -195,4 +195,33 @@ describe("action eligibility", () => {
     expect(error?.message).not.toContain("Alpha");
     expect(gates).toContainEqual({ gate: "action-eligibility", action: "click", reason: "measured-disallowed" });
   });
+  it("rejectedDecisionNeverEnriches: a disallowed choice is refused before any locator work", async () => {
+    class Counting extends RefDriver {
+      located = 0;
+      override async locateRef(ref: string): Promise<Target> { this.located++; return super.locateRef(ref); }
+    }
+    const driver = new Counting([link(), heading({ click: "disallowed" })]);
+    await loops.discover(driver, scripted([{ action: "click", row: "heading" }, { action: "click", row: "link" }]).llm);
+    expect(driver.located).toBe(1);
+    expect(driver.acted).toEqual(["click:Alpha Curated goods from the Alpha store"]);
+  });
+
+  it("asyncEnrichmentKeepsEligibilityOfTheBoundRow: a snapshot published while the locator resolves neither blocks nor frees the decision", async () => {
+    class Rotating extends RefDriver {
+      override async locateRef(ref: string): Promise<Target> {
+        const target = await super.locateRef(ref);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        this.els = [heading({ click: "disallowed" }, { ref: "n-rotated" })];
+        return target;
+      }
+    }
+    const driver = new Rotating([heading(undefined, { ref: "n-first" })]);
+    const gates: unknown[] = [];
+    const trace = startTrace({ emit: e => { if (e.kind === "gate") gates.push(e.payload); } }, "t").scope("eligibility");
+    const { llm, prompts } = scripted([{ action: "click", row: "heading" }, { action: "click", row: "heading" }]);
+    await loops.discover(driver, llm, { trace });
+    expect(driver.acted).toEqual(["click:Alpha"]);
+    expect(prompts[2]).toContain("not run: the observed target is measured as not accepting \"click\"");
+    expect(gates).toEqual([{ gate: "action-eligibility", action: "click", reason: "measured-disallowed" }]);
+  });
 });

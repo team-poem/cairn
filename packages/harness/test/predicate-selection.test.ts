@@ -5,13 +5,13 @@ import { identifyScenario, compareContracts } from "../src/core/contract.js";
 import { selectedItemEquals, SelectedItemEvidenceSession } from "../src/core/selected-item-evidence.js";
 import { scoreTarget } from "../src/core/freeze.js";
 import type { SelectedItemBinding, SelectedItemKey, ResourceKeyObservation } from "../src/core/selected-item-evidence.js";
-import type { CollectionObservation, CollectionResourceKey, RoleCollectionTarget as CollectionTarget, Scenario, Step, Target } from "../src/core/types.js";
+import type { CollectionObservation, CollectionTarget, Scenario, Step, Target } from "../src/core/types.js";
 import { StubDriver } from "./support/doubles.js";
 import { runWorkflow, type WorkflowLease } from "../src/core/budget.js";
 import { rediscoveryEligibility as nodeEligibility } from "../src/index.js";
 import { rediscoveryEligibility as browserEligibility } from "../src/browser.js";
 
-const identity: CollectionResourceKey = { kind: "attribute", scope: "item", attribute: "data-resource-id" };
+const identity: SelectedItemKey = { kind: "attribute", scope: "item", attribute: "data-resource-id" };
 function choice(name: string, bound = false): Step & { kind: "click" } {
   return { kind: "click", target: { collection: {
     root: { role: "list", name }, itemRole: "listitem", target: { role: "button", name: bound ? "Select" : "Add" },

@@ -8,7 +8,7 @@ import { identifyScenario, compareContracts } from "../src/core/contract.js";
 import { prepareReplayCleanup, recordReplayCleanup } from "../src/core/replay-cleanup.js";
 import { selectedItemEquals } from "../src/core/selected-item-evidence.js";
 import type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, ResourceKeyObservation } from "../src/core/selected-item-evidence.js";
-import type { CollectionObservation, RoleCollectionTarget as CollectionTarget, Evidence, Scenario, Step, Target } from "../src/core/types.js";
+import type { CollectionObservation, CollectionTarget, Evidence, Scenario, Step, Target } from "../src/core/types.js";
 import { StubDriver } from "./support/doubles.js";
 
 const reporter = { emit: async () => {} };
@@ -358,7 +358,7 @@ describe("run-local selected-item resource equality", () => {
 
   it("cannot satisfy a persisted relation by changing only runtime extraction settings", async () => {
     const authored = binding();
-    const runtime = binding(); Object.assign(runtime.destination.key, { attribute: "data-other-id" });
+    const runtime = binding(); runtime.destination.key.attribute = "data-other-id";
     const { result } = await runScenario(scenario([authored]), { driver: new ResourceDriver(), reporter, custom,
       selectedItemEvidence: { bindings: [runtime] } });
     expect(result.verdict.results[0]).toMatchObject({ reason: "inconclusive", required: true });
@@ -413,10 +413,10 @@ describe("selected-item binding bounds and lifecycle", () => {
     ["phase", (value: SelectedItemBinding) => Object.assign(value, { phase: "heal" })],
     ["relation", (value: SelectedItemBinding) => Object.assign(value, { relation: "label-equals" })],
     ["version", (value: SelectedItemBinding) => Object.assign(value, { version: 2 })],
-    ["source attribute", (value: SelectedItemBinding) => { Object.assign(value.source.key, { attribute: "value" }); }],
-    ["destination attribute", (value: SelectedItemBinding) => { Object.assign(value.destination.key, { attribute: "innerHTML" }); }],
-    ["empty selector", (value: SelectedItemBinding) => { Object.assign(value.destination.key, { selector: "" }); }],
-    ["long selector", (value: SelectedItemBinding) => { Object.assign(value.destination.key, { selector: "a".repeat(513) }); }],
+    ["source attribute", (value: SelectedItemBinding) => { value.source.key.attribute = "value"; }],
+    ["destination attribute", (value: SelectedItemBinding) => { value.destination.key.attribute = "innerHTML"; }],
+    ["empty selector", (value: SelectedItemBinding) => { value.destination.key.selector = ""; }],
+    ["long selector", (value: SelectedItemBinding) => { value.destination.key.selector = "a".repeat(513); }],
     ["empty prefix", (value: SelectedItemBinding) => { value.source.after = []; }],
     ["legacy source", (value: SelectedItemBinding) => { value.source.after = [{ kind: "click", target: { text: "Open" } }]; }],
     ["different destination prefix", (value: SelectedItemBinding) => { value.destination.after = [{ kind: "goto", url: "https://app" }]; }],
@@ -486,12 +486,12 @@ describe("selected-item binding bounds and lifecycle", () => {
     const runtime = binding(); const authored = structuredClone(runtime);
     const running = runScenario(scenario([authored]), { driver, reporter, custom, selectedItemEvidence: { bindings: [runtime] } });
     await entered.promise;
-    Object.assign(runtime.destination.key, { attribute: "data-changed" });
+    runtime.destination.key.attribute = "data-changed";
     (runtime.destination.after as Step[]).length = 0;
     release.resolve();
     const { result } = await running;
     expect(result.verdict.passed).toBe(true);
-    expect(driver.destinationKeys[0]).toMatchObject({ attribute: "data-resource-id" });
+    expect(driver.destinationKeys[0]?.attribute).toBe("data-resource-id");
   });
 
   it("discards late destination evidence without retrying or abandoning the in-flight read", async () => {

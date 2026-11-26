@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CollectionSelectionError, resolveCollectionTarget, validateCollectionTarget } from "../src/core/collection.js";
 import { BuiltinStepHandler } from "../src/core/steps.js";
 import { StubDriver } from "./support/doubles.js";
-import type { CollectionObservation, RoleCollectionTarget as CollectionTarget, Driver, Step, Target } from "../src/index.js";
+import type { CollectionObservation, CollectionTarget, Driver, Step, Target } from "../src/index.js";
 import { runHarness } from "../src/core/pipeline.js";
 
 const selection: CollectionTarget = {

@@ -4,12 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { discover, loadSkillFile, runScenario, saveSkillFile, selectedItemEquals, CollectionSelectionError } from "../src/index.js";
 import type { CollectionObservation, CollectionTarget, DiscoverySelection, Evidence, LlmClient, NetworkRequest,
-  ResourceKeyObservation, Scenario, SelectedItemBinding, CollectionResourceKey, Target, TraceEvent } from "../src/index.js";
+  ResourceKeyObservation, Scenario, SelectedItemBinding, SelectedItemKey, Target, TraceEvent } from "../src/index.js";
 import { startTrace } from "../src/core/trace.js";
 import { StubDriver } from "./support/doubles.js";
 
 const reporter = { emit: async () => {} };
-const itemKey: CollectionResourceKey = { kind: "attribute", scope: "item", attribute: "data-post-id" };
+const itemKey: SelectedItemKey = { kind: "attribute", scope: "item", attribute: "data-post-id" };
 const destination = { kind: "attribute" as const, selector: "#post", attribute: "data-post-id" };
 
 function positional(): CollectionTarget {

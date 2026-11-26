@@ -3,7 +3,7 @@ export * from "./core/types.js";
 export type { EvidenceCaptureOptions, EvidenceCheckpoint, EvidenceCheckpointRecord, CapturePhase, CaptureStatus } from "./core/evidence-capture.js";
 export { sameCapturePath, checkpointEvidence } from "./core/evidence-capture.js";
 export { selectedItemEquals } from "./core/selected-item-evidence.js";
-export type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, ResourceKeyObservation, SelectedItemEvidenceOptions, SelectedItemEvidenceRecord, SelectedItemSelectionAttempt } from "./core/selected-item-evidence.js";
+export type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, LinkSelectedItemBinding, LinkSourceKey, LinkDestinationKey, ResourceKeyBinding, ResourceKeyObservation, SelectedItemEvidenceOptions, SelectedItemEvidenceRecord, SelectedItemSelectionAttempt } from "./core/selected-item-evidence.js";
 export { CollectionSelectionError, SelectionNotDispatchedError, validateCollectionTarget } from "./core/collection.js";
 export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";

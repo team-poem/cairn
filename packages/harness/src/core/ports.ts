@@ -9,6 +9,7 @@ import type {
   CollectionTarget,
   CollectionObservation,
   Evidence,
+  LinkCollectionScope,
   LlmUsage,
   PageElement,
   SnapshotOptions,
@@ -115,6 +116,19 @@ export interface Driver {
     source: import("./selected-item-evidence.js").SelectedItemKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Independently read one explicitly configured destination key, not an expected value. */
   readResourceKey?(destination: import("./selected-item-evidence.js").DestinationResourceKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Observe a declared plain-link collection (#343) under the observeCollection contract. A member's
+   * action is its declared link, bound to that link's exact node, and a changed href expires the ref.
+   * Optional: without it, link collections are refused before any action. */
+  observeLinkCollection?(selection: LinkCollectionScope): Promise<CollectionObservation>;
+  /** Click a link collection's selected link once. Return its href as the final guard reads it,
+   * immediately before dispatch, complete only when the click left that document for a new one in
+   * the same tab. Refuse, before dispatch, a link whose arrival cannot be observed (new tab,
+   * download, same document, non-http). Optional: without it, a link destination check is refused
+   * in discovery and left unconfirmed on replay, never passed. */
+  clickLinkWithDestination?(target: Target, ref: string): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Read the top-level URL, without its fragment, of the tab the last clickLinkWithDestination
+   * dispatched in, by that tab's identity rather than whichever tab is selected. */
+  readLinkArrival?(): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string, ref?: string): Promise<void>;

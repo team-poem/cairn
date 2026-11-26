@@ -65,7 +65,11 @@ async function withPage(run: (ctx: {
         return hook.snapshot?.(raw) ?? raw;
       }
       if (name === "evaluate_script") return JSON.stringify(await page.evaluate(`(${String(args.function)})(...${JSON.stringify(args.args ?? [])}.map(uid => globalThis.nodes.get(uid)))`));
-      if (name === "list_pages") return "0: https://example.test/posts [selected]";
+      if (name === "list_pages") {
+        // The MCP listing format: a page-controlled title, then the tab's own URL.
+        const title = await page.title();
+        return `0: ${title ? `${title} (${page.url()})` : page.url()} [selected]`;
+      }
       if (name === "list_network_requests") return "";
       if (["click", "hover", "fill"].includes(name)) {
         const id = await page.evaluate<string>(`(() => {
@@ -162,22 +166,27 @@ test("a changed destination, order or membership before dispatch refuses the cli
 });
 
 test("a link destination check dispatches a same-tab link once and refuses other links before dispatch", async () => {
-  await withPage(async ({ driver, actions }) => {
-    const bound = await resolveCollectionTarget(driver, grid());
-    // The transport double does not navigate, so the departure marker survives and nothing is confirmed.
-    await expect(driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" })).resolves.toEqual({ complete: false });
-    expect(actions).toEqual(["click:bravo"]);
-  });
+  for (const setup of ["", "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>'); document.querySelector('#bravo').target = '_self'"])
+    await withPage(async ({ driver, page, actions }) => {
+      await page.evaluate(setup);
+      const bound = await resolveCollectionTarget(driver, grid());
+      // The transport double does not navigate, so the departure marker survives and nothing is confirmed.
+      await expect(driver.clickLinkWithDestination(bound.target, bound.ref)).resolves.toEqual({ complete: false });
+      expect(actions).toEqual(["click:bravo"]);
+    });
   for (const change of [
     "document.querySelector('#bravo').target = '_blank'",
     "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>')",
+    // Chrome treats an empty target as absent, so this link opens in the base target's new tab.
+    "document.head.insertAdjacentHTML('beforeend', '<base target=\\'_blank\\'>'); document.querySelector('#bravo').setAttribute('target', '')",
+    "document.querySelector('#bravo').setAttribute('target', ' _self')",
     "document.querySelector('#bravo').setAttribute('download', '')",
     "document.querySelector('#bravo').href = '/posts#bravo'",
     "document.querySelector('#bravo').href = 'mailto:bravo@example.test'",
   ]) await withPage(async ({ driver, page, actions }) => {
     await page.evaluate(change);
     const bound = await resolveCollectionTarget(driver, grid());
-    await expect(driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" })).rejects.toMatchObject({ code: "unsupported" });
+    await expect(driver.clickLinkWithDestination(bound.target, bound.ref)).rejects.toMatchObject({ code: "unsupported" });
     expect(actions).toEqual([]);
   });
 });
@@ -191,8 +200,8 @@ test("a link destination check confirms a same-tab navigation to the selected li
   await withPage(async ({ driver, page, hook }) => {
     hook.click = navigate(page);
     const bound = await resolveCollectionTarget(driver, grid());
-    const source = await driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" });
-    const arrival = await driver.readResourceKey({ kind: "location" });
+    const source = await driver.clickLinkWithDestination(bound.target, bound.ref);
+    const arrival = await driver.readLinkArrival();
     expect(source).toEqual({ complete: true, value: "https://example.test/posts/bravo" });
     expect(arrival).toEqual(source);
   });
@@ -217,11 +226,25 @@ test("a <base href> that differs between the destination read and the final guar
       if (script.includes("const spec =")) leaving = true;
       await base(guarding ? "https://example.test/" : "https://mirror.example.test/");
     };
-    const source = await driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" });
+    const source = await driver.clickLinkWithDestination(bound.target, bound.ref);
     hook.before = undefined;
-    const arrival = await driver.readResourceKey({ kind: "location" });
+    const arrival = await driver.readLinkArrival();
     expect(arrival).toEqual({ complete: true, value: "https://mirror.example.test/posts/bravo" });
     // The guarded link pointed at example.test, so arriving at the mirror must not confirm it.
     expect(source.complete && source.value === arrival.value).toBe(false);
+  });
+});
+
+test("a page title that names the selected link cannot stand in for the arrival", async () => {
+  await withPage(async ({ driver, page, hook }) => {
+    hook.click = async () => {
+      await page.goto("https://example.test/posts/charlie");
+      await page.evaluate("document.title = 'Bravo (https://example.test/posts/bravo)'");
+    };
+    const bound = await resolveCollectionTarget(driver, grid());
+    const source = await driver.clickLinkWithDestination(bound.target, bound.ref);
+    const arrival = await driver.readLinkArrival();
+    expect(source).toEqual({ complete: true, value: "https://example.test/posts/bravo" });
+    expect(arrival).toEqual({ complete: true, value: "https://example.test/posts/charlie" });
   });
 });

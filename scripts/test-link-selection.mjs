@@ -106,6 +106,36 @@ try {
   assert.equal(switched.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
   closeOnClick = false;
 
+  // A decoy tab shows the expected post. After the click, every page-scoped read is sent while the
+  // decoy is selected, and the run's tab is selected again before the next call. The run's tab
+  // follows alpha's redirect to charlie, so the relation must not pass.
+  await driver.call('navigate_page', { type: 'url', url: `${origin}/posts/alpha` });
+  const decoy = Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
+  await driver.call('new_page', { url: `${origin}/posts` });
+  const run = Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
+  assert.notEqual(run, decoy);
+  redirects.set('alpha', 'charlie');
+  const call = driver.call;
+  let clicked = false, decoyReads = 0;
+  driver.call = async function (name, ...rest) {
+    if (!clicked || name === 'list_pages' || name === 'select_page') {
+      const reply = await call.call(this, name, ...rest);
+      if (name === 'click') clicked = true;
+      return reply;
+    }
+    await call.call(this, 'select_page', { pageId: decoy });
+    decoyReads++;
+    try { return await call.call(this, name, ...rest); } finally { await call.call(this, 'select_page', { pageId: run }); }
+  };
+  opened.length = 0;
+  const swapped = await replay(loaded).finally(() => { driver.call = call; redirects.clear(); });
+  assert.ok(decoyReads > 0, 'reads after the click were sent to the decoy tab');
+  assert.deepEqual(opened, ['alpha', 'charlie'], 'the run tab follows the redirect');
+  assert.match(await here(), /\/posts\/charlie/, 'the run tab is selected and shows charlie');
+  assert.equal(swapped.result.verdict.passed, false, 'charlie must not pass as alpha because another tab showed alpha');
+  assert.notEqual(swapped.result.verdict.results.find(r => r.assertion.kind === 'custom')?.passed, true);
+  await driver.call('close_page', { pageId: decoy });
+
   // Discovery refuses a new-tab link before clicking it, as replay does.
   ids = ['alpha', 'bravo', 'charlie'];
   newTab.add('bravo');
@@ -135,7 +165,7 @@ try {
   assert.equal(cardReplay.result.usage.llmCalls, 0);
 
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], reorderedOpened: 'alpha', mismatchRejected: true, missingArrivalInconclusive: true,
-    switchedTabInconclusive: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha', replayModelCalls: 0 }, null, 2));
+    switchedTabInconclusive: true, temporarySwitchRejected: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha', replayModelCalls: 0 }, null, 2));
 } finally {
   await driver.close();
   server.close();

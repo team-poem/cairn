@@ -4,12 +4,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CollectionSelectionError, discover, loadSkillFile, runScenario, saveSkillFile, selectedItemEquals, validateCollectionTarget } from "../src/index.js";
 import { validateSelectedItemBinding } from "../src/core/selected-item-evidence.js";
-import type { CollectionObservation, CollectionTarget, DiscoverySelection, LlmClient, ResourceKeyObservation, Scenario,
-  SelectedItemBinding, SelectedItemKey, Target } from "../src/index.js";
+import { SelfHealingDriver } from "../src/adapters/drivers/self-heal.js";
+import type { CollectionObservation, DiscoverySelection, LinkCollectionScope, LinkSelectedItemBinding, LlmClient, ResourceKeyObservation,
+  Scenario, Target } from "../src/index.js";
 import { StubDriver } from "./support/doubles.js";
 
 const reporter = { emit: async () => {} };
-const grid = (): CollectionTarget => ({ links: { scope: ".grid", member: ":scope > a" }, order: "dom", index: 1, expectedCount: 3 });
+const grid = (): LinkCollectionScope => ({ links: { scope: ".grid", member: ":scope > a" }, order: "dom", index: 1, expectedCount: 3 });
 const linkVerify = { source: { kind: "href" as const }, destination: { kind: "location" as const } };
 
 class Llm implements LlmClient {
@@ -23,14 +24,14 @@ const noModel: LlmClient = { id: "forbidden", complete: async () => { throw new 
 /** A grid of plain links. A click navigates to the link's href, or to `redirects[href]` when set. */
 class GridDriver extends StubDriver {
   readonly dispatched: string[] = [];
-  readonly observed: CollectionTarget[] = [];
+  readonly observed: LinkCollectionScope[] = [];
   readonly redirects: Record<string, string> = {};
   /** Posts whose link opens a new tab: the destination check refuses them before dispatch. */
   readonly newTab = new Set<string>();
   private readonly refs = new Map<string, string>();
   constructor(public posts: string[]) { super("https://app/posts"); }
   private href(post: string): string { return `https://app/posts/${post.toLowerCase()}`; }
-  async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+  async observeLinkCollection(selection: LinkCollectionScope): Promise<CollectionObservation> {
     this.observed.push(structuredClone(selection));
     return { order: "dom", complete: true, conditions: [], items: this.posts.map((post, position) => {
       const ref = `ref-${this.observed.length}-${position}`;
@@ -49,12 +50,11 @@ class GridDriver extends StubDriver {
     if (!ref) return super.click(target);
     this.dispatch(ref);
   }
-  async clickWithSelectedItemEvidence(_target: Target, ref: string, source: SelectedItemKey): Promise<ResourceKeyObservation> {
-    if (source.kind !== "href") throw new Error("link collections bind their href");
+  async clickLinkWithDestination(_target: Target, ref: string): Promise<ResourceKeyObservation> {
     if (this.newTab.has(this.refs.get(ref)!)) throw new CollectionSelectionError("unsupported", "the selected link has no same-tab document destination");
     return { complete: true, value: this.href(this.dispatch(ref)) };
   }
-  async readResourceKey(): Promise<ResourceKeyObservation> { return { complete: true, value: this.url }; }
+  async readLinkArrival(): Promise<ResourceKeyObservation> { return { complete: true, value: this.url }; }
 }
 
 async function roundTrip(scenario: Scenario): Promise<{ loaded: Scenario; raw: string }> {
@@ -69,7 +69,7 @@ async function roundTrip(scenario: Scenario): Promise<{ loaded: Scenario; raw: s
 }
 
 const bindingsOf = (scenario: Scenario) =>
-  scenario.assertions.flatMap(a => a.kind === "custom" ? [a.params as unknown as SelectedItemBinding] : []);
+  scenario.assertions.flatMap(a => a.kind === "custom" ? [a.params as unknown as LinkSelectedItemBinding] : []);
 
 async function discoverSecond(selection: DiscoverySelection, driver = new GridDriver(["Alpha", "Bravo", "Charlie"])) {
   const llm = new Llm([JSON.stringify({ action: "click", selection: selection.id, reason: "open Bravo" }), JSON.stringify({ action: "done" })]);
@@ -96,6 +96,16 @@ describe("declared positional selection over plain links (#343)", () => {
     expect(replayDriver.observed).toEqual([grid()]);
     expect(result.verdict.passed).toBe(true);
     expect(result.usage?.llmCalls).toBe(0);
+  });
+
+  it("replays a link binding through the self-healing wrapper, which forwards the link ports", async () => {
+    const selection: DiscoverySelection = { version: 1, id: "second-post", target: { collection: grid() }, verify: linkVerify };
+    const { loaded } = await roundTrip((await discoverSecond(selection)).scenario);
+    const inner = new GridDriver(["Charlie", "Alpha", "Bravo"]);
+    const { result } = await runScenario(loaded, { driver: new SelfHealingDriver(inner, noModel), llm: noModel, reporter,
+      judgmentKey: "posts-v1", selectedItemEvidence: { bindings: bindingsOf(loaded) }, custom: { "second-post": selectedItemEquals } });
+    expect(inner.dispatched).toEqual(["Alpha"]);
+    expect(result.verdict.passed).toBe(true);
   });
 
   it("refuses in discovery, before dispatch, a link the destination check cannot observe", async () => {

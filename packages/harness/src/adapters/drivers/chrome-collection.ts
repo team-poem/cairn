@@ -1,7 +1,7 @@
 /** Narrow, exact-node collection evidence. No accessible-name inference or visual ordering. */
 import { CollectionSelectionError, isLinkCollection } from "../../core/collection.js";
 import { extractFirstJsonObject } from "../../core/json.js";
-import type { CollectionObservation, CollectionTarget, PageElement } from "../../core/types.js";
+import type { CollectionDeclaration, CollectionObservation, PageElement } from "../../core/types.js";
 import { documentTopology } from "./chrome-documents.js";
 import { DOM_FOREGROUND_PROBE } from "./dom-foreground.js";
 import { HOST_ROOT_REGISTRY } from "./host-owned-roots.js";
@@ -52,7 +52,7 @@ export class ChromeCollectionObservation {
   private captured = false;
 
   constructor(
-    private readonly selection: CollectionTarget,
+    private readonly selection: CollectionDeclaration,
     private readonly call: Call,
     private readonly capture: () => Promise<string>,
     private readonly guardKey: string,
@@ -389,7 +389,9 @@ export class ChromeCollectionObservation {
             spec.choice.where.some((predicate, index) => choices[selectedItem].choice.values[index] !== predicate.value))) return fail('ineligible choice');
         if (departure !== null) {
           const link = element(args[args.length - 1]);
-          const target = link?.hasAttribute('target') ? link.target : document.querySelector('base[target]')?.target ?? '';
+          // As in Chrome, an empty target is absent: the first <base target> applies. The HTML spec keeps
+          // an empty one, so this refuses more than the spec would, never less.
+          const target = link?.getAttribute('target') || (document.querySelector('base[target]')?.getAttribute('target') ?? '');
           let url = null;
           try { url = new URL(link.href); } catch {}
           const here = new URL(location.href);

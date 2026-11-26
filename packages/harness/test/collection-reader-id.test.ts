@@ -7,7 +7,7 @@ import { persistentTarget } from "../src/core/observation.js";
 import { resolveCollectionTarget, validateCollectionTarget } from "../src/core/collection.js";
 import { CollectionSelectionError } from "../src/core/collection.js";
 import { StubDriver } from "./support/doubles.js";
-import type { CollectionObservation, CollectionTarget, Scenario, Target } from "../src/index.js";
+import type { CollectionDeclaration, CollectionObservation, CollectionTarget, Scenario, Target } from "../src/index.js";
 
 const silent = { emit: async () => {} };
 
@@ -15,11 +15,11 @@ const role = (readerId?: string): CollectionTarget => ({
   root: { role: "list", name: "Results" }, ...(readerId ? { readerId } : {}),
   itemRole: "listitem", target: { role: "button" }, order: "dom", index: 0, expectedCount: 2,
 });
-const links = (readerId?: string): CollectionTarget => ({
+const links = (readerId?: string): CollectionDeclaration => ({
   links: { scope: ".grid", member: ":scope > a" }, ...(readerId ? { readerId } : {}),
   order: "dom", index: 0, expectedCount: 2,
 });
-const scenario = (collection: CollectionTarget): Scenario => ({
+const scenario = (collection: CollectionDeclaration): Scenario => ({
   name: "Open the first result",
   steps: [{ kind: "goto", url: "https://app/results" }, { kind: "click", target: { collection } }],
   assertions: [{ kind: "navigated", to: "app/selected" }],
@@ -65,7 +65,7 @@ describe("collection reader ID (#370)", () => {
   it.each([["empty", ""], ["blank", "  "], ["a number", 7], ["an object", {}], ["too long", "a".repeat(101)], ["a leading dash", "-x"], ["a space", "a b"]])(
     "refuses a readerId that is %s", (_, bad) => {
       for (const make of [role, links]) {
-        const collection = { ...make(), readerId: bad } as unknown as CollectionTarget;
+        const collection = { ...make(), readerId: bad } as unknown as CollectionDeclaration;
         expect(() => validateCollectionTarget({ collection })).toThrow(/readerId/);
       }
     });

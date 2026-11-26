@@ -30,7 +30,9 @@ import type { Driver } from "../../core/ports.js";
 import type {
   ConsoleMessage,
   CollectionObservation,
+  CollectionDeclaration,
   CollectionTarget,
+  LinkCollectionScope,
   Evidence,
   NetworkRequest,
   PageElement,
@@ -529,7 +531,6 @@ export class ChromeDevToolsDriver implements Driver {
 
   /** Same-document evidence only. A missing receipt never retries or replaces the click. */
   async clickWithSelectedItemEvidence(target: Target, ref: string, source: SelectedItemKey): Promise<ResourceKeyObservation> {
-    if (source.kind === "href") return this.clickLinkWithDestination(target, ref);
     const capturedCollection = this.collectionObservations.get(ref);
     let receipt: SelectedItemReceipt | undefined, dispatched = false;
     let observed: ResourceKeyObservation = { complete: false };
@@ -572,15 +573,12 @@ export class ChromeDevToolsDriver implements Driver {
     return sourceId;
   }
 
-  private async selectedPageIs(id: number): Promise<boolean> {
-    return selectedPageId(await this.call("list_pages").catch(() => "")) === id;
-  }
-
   /** The source key is the selected link's href, read by the final guard immediately before the
    * click. The receipt is a document nonce planted by that same guard: if it survives the click, no
-   * new document committed and nothing is confirmed. Both the nonce and the arrival are read in the
-   * tab the click was dispatched in. */
-  private async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
+   * new document committed and nothing is confirmed. evaluate_script runs in whichever tab is
+   * selected, so the nonce read also returns its document URL, and that URL must equal the one the
+   * tab listing reports for the dispatch tab. */
+  async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
     this.linkDeparturePage = undefined;
     const uid = await this.actionUid(target, ref);
     const collection = this.collectionObservations.get(ref);
@@ -592,30 +590,25 @@ export class ChromeDevToolsDriver implements Driver {
     this.invalidateObservation();
     const changedPage = await this.callAccepting("click", { uid },
       { validate: async (uid: string) => (href = await collection.validate(uid, departure)) });
-    if (href === undefined || sourcePage === undefined || changedPage !== false || !await this.selectedPageIs(sourcePage))
-      return { complete: false };
+    if (href === undefined || sourcePage === undefined || changedPage !== false) return { complete: false };
+    const read = await this.call("evaluate_script", {
+      function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}];
+        const url = new URL(location.href); url.hash = ''; return {stayed, url: url.href}; }`,
+    }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown; url?: unknown } | undefined, () => undefined);
+    const listed = listedPageUrl(await this.call("list_pages").catch(() => ""), sourcePage);
+    if (read?.stayed !== false || listed === undefined || read.url !== listed) return { complete: false };
     this.linkDeparturePage = sourcePage;
-    const stayed = await this.call("evaluate_script", {
-      function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}]; return {stayed}; }`,
-    }, "observation").then(raw => (extractFirstJsonObject(raw) as { stayed?: unknown } | undefined)?.stayed, () => undefined);
-    return stayed === false ? { complete: true, value: href } : { complete: false };
+    return { complete: true, value: href };
+  }
+
+  /** The listing reports each tab's own top-level URL by page ID, whichever tab is selected. */
+  async readLinkArrival(): Promise<ResourceKeyObservation> {
+    const page = this.linkDeparturePage;
+    const url = page === undefined ? undefined : listedPageUrl(await this.call("list_pages").catch(() => ""), page);
+    return url !== undefined && url.length <= 256 ? { complete: true, value: url } : { complete: false };
   }
 
   async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
-    if (destination.kind === "location") {
-      const page = this.linkDeparturePage;
-      if (page === undefined || !await this.selectedPageIs(page)) return { complete: false };
-      const observed = extractFirstJsonObject(await this.call("evaluate_script", {
-        function: `() => {
-          if (window.top !== window) return {complete:false};
-          const url = new URL(location.href);
-          url.hash = '';
-          return {complete:true, value:url.href};
-        }`,
-      }, "observation")) as ResourceKeyObservation | undefined;
-      return observed?.complete === true && typeof observed.value === "string" && observed.value.length <= 256
-        && await this.selectedPageIs(page) ? { complete: true, value: observed.value } : { complete: false };
-    }
     const observed = extractFirstJsonObject(await this.call("evaluate_script", {
       function: resourceKeyScript(destination, this.opts.hostOwnedRoots?.key),
     }, "observation")) as ResourceKeyObservation | undefined;
@@ -1004,7 +997,15 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
-  async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+  observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  observeLinkCollection(selection: LinkCollectionScope): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  private async observeDeclaration(selection: CollectionDeclaration): Promise<CollectionObservation> {
     const declaration = validateCollectionTarget({ collection: selection });
     // No reader registry: serving a declared ID with the built-in reader would be a silent default.
     if (declaration.readerId !== undefined)
@@ -1981,6 +1982,19 @@ export function followableTab(entries: PageEntry[], seen: ReadonlySet<number>): 
 function selectedPageId(text: string): number | undefined {
   const id = text.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
   return id === undefined ? undefined : Number(id);
+}
+
+/** The listed top-level URL of one page, without its fragment. The title before it is page-controlled,
+ * so the URL is the last parenthesized group, or the whole label when the title is empty. */
+function listedPageUrl(text: string, id: number): string | undefined {
+  for (const line of text.split("\n")) {
+    const entry = line.match(/^\s*(\d+): (.*?)(?: \[selected\])?(?: isolatedContext=\S+)?\s*$/);
+    if (!entry || Number(entry[1]) !== id) continue;
+    const raw = entry[2]!.match(/\((https?:\/\/\S+)\)$/)?.[1] ?? entry[2]!.match(/^(https?:\/\/\S+)$/)?.[1];
+    if (raw === undefined) return undefined;
+    try { const url = new URL(raw); url.hash = ""; return url.href; } catch { return undefined; }
+  }
+  return undefined;
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

@@ -29,6 +29,15 @@ runtime settings alone do not add an assertion or define what must pass. The
 - `destination.key`: `{ kind: "attribute", selector, attribute }`. The selector must identify
   exactly one node in the supported document; it is not inferred from the source key.
 
+A [plain-link collection](link-selection.md) instead pairs `source.key: { kind: "href" }` with
+`destination.key: { kind: "location" }`: the selected link's destination read before the click and
+the top-level document URL read after it. The two pairs never mix, and each belongs to its own
+collection form. A link binding is a `LinkSelectedItemBinding`; `SelectedItemBinding` keeps the
+attribute keys. The link pair is dispatched and read through the link ports
+(`clickLinkWithDestination`, `readLinkArrival`), not through the Driver methods below. That page
+defines fragment, query and redirect handling and the Chrome support for full-document navigation,
+which the receipt rules below do not cover.
+
 Action matching follows intermediate checkpoint rules: `intent` and `expect` metadata do not
 define action identity. Repeated identical clicks have different prefixes. Declarations must be
 plain, finite, acyclic JSON. Prefixes have at most 1,000 steps; IDs have at most 100 characters and

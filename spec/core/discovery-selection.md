@@ -29,7 +29,9 @@ const scenario = await discover("Open the first post and check its detail", {
 - `version: 1` and a bounded `id` (letters, digits, `_ . : -`, at most 100 characters).
   IDs are unique within one call. At most 16 declarations are accepted.
 - `target` is a complete `Target` with only `collection`, validated by `validateCollectionTarget`.
-  It is persisted verbatim. A `choice` must use constant predicates. Binding references
+  It is persisted verbatim, including an optional [`readerId`](collection-selection.md#reader-id-370),
+  which discovery never rewrites. A `readerId` the driver does not list in `Driver.readerIds` is
+  refused as `unsupported`. A `choice` must use constant predicates. Binding references
   (`{ bindingId }`) need a source from the same run and are refused in discovery.
 - `expect` is an optional host-approved post-condition (`url`, `text`, `role` or `requestStatus`)
   for the selection step. It must not depend on which member is selected.
@@ -110,13 +112,20 @@ under the selection ID, and supply a `judgmentKey`. Replay selects the current m
 model. Selecting B and arriving at C fails the binding. Missing evidence is required inconclusive.
 Rediscovery and repair stay refused for collection steps.
 
-## Extension point for phase 2
+## Plain links (phase 2)
 
-Phase 2 (positional selection over plain links without an accessible collection root) extends this
-contract without changing it. Discovery handles the declaration only through `Target` validation and
-the replay step handler. A new membership form inside `Target.collection`, such as host-declared
-member scope and expected count, therefore needs no change here. A destination check for full
-navigation becomes a new `verify` variant. `version: 1` declarations keep their meaning.
+A declaration's `target` can also be a [plain-link collection](link-selection.md):
+`{ collection: { links: { scope, member, action?, group? }, order: "dom", index, expectedCount } }`.
+Discovery handles it only through `Target` validation and the replay step handler, so nothing in
+this contract changes. Its `verify` uses the link key pair,
+`{ source: { kind: "href" }, destination: { kind: "location" } }`, which compares the selected
+link's destination with the arrival observed after the step. A link declaration requires
+`Driver.observeLinkCollection`, and its `verify` requires `Driver.clickLinkWithDestination`; either
+missing throws `CollectionSelectionError` before navigation. With that `verify`, discovery
+dispatches through the same guarded destination click as replay, so a link replay would refuse
+(another tab, a download, the same document, a non-http link) is refused before the click and the
+selection fails. Discovery discards the observed destination. A link selection without `verify`
+dispatches as a plain exact-ref click. `version: 1` declarations keep their meaning.
 
 ## Verification
 

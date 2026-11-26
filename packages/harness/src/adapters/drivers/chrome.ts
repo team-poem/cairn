@@ -31,7 +31,9 @@ import type {
   ActionEligibility,
   ConsoleMessage,
   CollectionObservation,
+  CollectionDeclaration,
   CollectionTarget,
+  LinkCollectionScope,
   Evidence,
   NetworkRequest,
   PageElement,
@@ -257,6 +259,7 @@ function scopedInputError(name: string, text: string): Error {
     rejectedAlertClicks.set(error, diagnostic.split("\nCause: ")[0]!);
   return error;
 }
+let nextLinkDeparture = 0;
 const rejectedAlertClicks = new WeakMap<Error, string>();
 const dialogTrailer = /\n# Open dialog\n(?:alert|beforeunload|confirm|prompt): [\s\S]*\.\nCall handle_dialog to handle it before continuing\.$/;
 
@@ -293,6 +296,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
   private readonly collectionObservations = new Map<string, ChromeCollectionObservation>();
+  /** The top-level document returned by the guarded click, never a ref taken in a later tab. */
+  private linkArrivalDocument?: string;
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {
     if (opts.hostOwnedRoots) this.hostRoots = new ChromeHostRoots(
@@ -589,13 +594,7 @@ export class ChromeDevToolsDriver implements Driver {
       const uid = await this.actionUid(target, ref);
       const collection = this.collectionObservations.get(ref);
       if (!collection) throw new CollectionSelectionError("unsupported", "selected-item evidence requires a collection reference");
-      // Hosts can attach to an already loaded page without calling goto(). Establish the
-      // pre-click tab set so an existing tab is not mistaken for the click's popup.
-      const pagesBefore = await this.call("list_pages").catch(() => "");
-      const entriesBefore = parsePageEntries(pagesBefore);
-      const sourceId = pagesBefore.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
-      const knownSource = sourceId !== undefined && entriesBefore.some(entry => entry.id === Number(sourceId));
-      if (knownSource) entriesBefore.forEach(entry => this.seenPages.add(entry.id));
+      const knownSource = await this.knownSourcePage() !== undefined;
       if (collection.choice && !knownSource) throw new CollectionSelectionError("incomplete", "choice requires an observed source page");
       receipt = await collection.prepareSelectedItemKey(uid, source);
       if (collection.choice && !receipt.ready) throw new SelectionNotDispatchedError(ref);
@@ -617,6 +616,59 @@ export class ChromeDevToolsDriver implements Driver {
     } finally {
       await receipt?.dispose().catch(() => {});
     }
+  }
+
+  /** Hosts can attach to an already loaded page without calling goto(). Establish the
+   * pre-click tab set so an existing tab is not mistaken for the click's popup. */
+  private async knownSourcePage(): Promise<number | undefined> {
+    const pagesBefore = await this.call("list_pages").catch(() => "");
+    const entriesBefore = parsePageEntries(pagesBefore);
+    const sourceId = selectedPageId(pagesBefore);
+    if (sourceId === undefined || !entriesBefore.some(entry => entry.id === sourceId)) return undefined;
+    entriesBefore.forEach(entry => this.seenPages.add(entry.id));
+    return sourceId;
+  }
+
+  /** The source key is the selected link's href, read by the final guard immediately before the
+   * click. The receipt is a document nonce planted by that same guard: if it survives the click, no
+   * new document committed and nothing is confirmed. Request the resulting document's exact ref
+   * from the click itself: a later evaluate_script in a different tab cannot resolve that ref. */
+  async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
+    this.linkArrivalDocument = undefined;
+    const uid = await this.actionUid(target, ref);
+    const collection = this.collectionObservations.get(ref);
+    if (!collection?.links) throw new CollectionSelectionError("unsupported", "a link destination requires a link collection reference");
+    const sourcePage = await this.knownSourcePage();
+    const departure = `cairn-link-departure:${this.driverId}:${nextLinkDeparture++}`;
+    const nonce = `Symbol.for(${JSON.stringify(departure)})`;
+    let href: string | undefined;
+    this.invalidateObservation();
+    let documentUid: string | undefined;
+    const changedPage = await this.callAccepting("click", { uid, includeSnapshot: true },
+      { validate: async (uid: string) => (href = await collection.validate(uid, departure)) },
+      reply => { documentUid = clickedDocumentUid(reply); });
+    if (href === undefined || sourcePage === undefined || changedPage !== false || !documentUid) return { complete: false };
+    const read = await this.call("evaluate_script", {
+      args: [documentUid],
+      function: `doc => { if (doc !== document || window !== window.top) return {};
+        const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}]; return {stayed}; }`,
+    }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown } | undefined, () => undefined);
+    if (read?.stayed !== false) return { complete: false };
+    this.linkArrivalDocument = documentUid;
+    return { complete: true, value: href };
+  }
+
+  /** Read the URL at the after-step boundary, using the document that supplied the marker read. */
+  async readLinkArrival(): Promise<ResourceKeyObservation> {
+    if (!this.linkArrivalDocument) return { complete: false };
+    const raw = await this.call("evaluate_script", {
+      args: [this.linkArrivalDocument],
+      function: `doc => { if (doc !== document || window !== window.top) return {};
+        const url = new URL(doc.URL); url.hash = '';
+        return url.protocol === 'http:' || url.protocol === 'https:' ? {value: url.href} : {}; }`,
+    }, "observation").catch(() => "");
+    const url = (extractFirstJsonObject(raw) as { value?: unknown } | undefined)?.value;
+    return typeof url === "string" && url.length > 0 && url.length <= 256 ? { complete: true, value: url } : { complete: false };
   }
 
   async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
@@ -642,14 +694,15 @@ export class ChromeDevToolsDriver implements Driver {
    * is handled the same way — no per-verb special-casing.
    */
   private async callAccepting(name: string, args: Record<string, unknown>, guard?: Pick<ChromeCollectionObservation, "validate">,
-    beforeFollow?: () => Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
+    beforeFollow?: (reply?: string) => void | Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
     const outcome = this.beforeOutcomeInput;
     if (typeof args.uid === "string") await this.checkInputTarget(args.uid, guard);
+    let reply: string | undefined;
     try {
       // Selected-item's retry marker is conservative from here; the optional
       // outcome hook in call() separately checks the actual MCP send boundary.
       onDispatch?.();
-      const reply = await this.call(name, args, outcome ? "scoped-input" : undefined);
+      reply = await this.call(name, args, outcome ? "scoped-input" : undefined);
       if (outcome && reply.startsWith("Successfully ") && dialogTrailer.test(reply))
         await this.call("handle_dialog", { action: "accept" }, "scoped-input");
     } catch (err) {
@@ -657,7 +710,7 @@ export class ChromeDevToolsDriver implements Driver {
       await this.call("handle_dialog", { action: "accept" });
     } finally {
       // Evidence cleanup never dispatches another action and precedes any tab switch.
-      await beforeFollow?.();
+      await beforeFollow?.(reply);
     }
     // Any interactive verb can open a tab (Enter submit, select onchange) — not just click (#89).
     return this.followNewTab();
@@ -1008,8 +1061,19 @@ export class ChromeDevToolsDriver implements Driver {
   }
 
   /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
-  async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+  observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  observeLinkCollection(selection: LinkCollectionScope): Promise<CollectionObservation> {
+    return this.observeDeclaration(selection);
+  }
+
+  private async observeDeclaration(selection: CollectionDeclaration): Promise<CollectionObservation> {
     const declaration = validateCollectionTarget({ collection: selection });
+    // No reader registry: serving a declared ID with the built-in reader would be a silent default.
+    if (declaration.readerId !== undefined)
+      throw new CollectionSelectionError("unsupported", "the built-in Chrome reader does not serve a declared readerId");
     const elements = await this.snapshot({ perception: true });
     const version = this.observationVersion, page = this.observedPage, stamp = this.observedHostStamp;
     if (!this.observedRaw || page === undefined) throw new CollectionSelectionError("incomplete", "guarded collection capture is unavailable");
@@ -1978,6 +2042,19 @@ export function parsePageEntries(text: string): PageEntry[] {
 export function followableTab(entries: PageEntry[], seen: ReadonlySet<number>): number | undefined {
   const real = entries.filter((e) => !seen.has(e.id) && e.url && e.url !== "about:blank");
   return real.length ? Math.max(...real.map((e) => e.id)) : undefined;
+}
+
+/** Only the root of the snapshot attached to this click can identify its document. Do not
+ * search AX names or descend into frames if the MCP reply lacks an unambiguous root. */
+function clickedDocumentUid(reply: string | undefined): string | undefined {
+  const sections = reply?.split(/^## Latest page snapshot\r?\n/m);
+  return sections?.length === 2 ? /^uid=(\d+_\d+) RootWebArea\b/.exec(sections[1]!)?.[1] : undefined;
+}
+
+/** `2: Example Domain (https://example.com/) [selected]` → 2. */
+function selectedPageId(text: string): number | undefined {
+  const id = text.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
+  return id === undefined ? undefined : Number(id);
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

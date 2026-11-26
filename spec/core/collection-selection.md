@@ -11,6 +11,8 @@ The positional rules below remain unchanged; predicates never become implicit ne
 Use `runScenario`, the CLI replay of a saved Scenario, or browser `runHarness` with a
 `StaticPlanner`. This is not a new interaction verb or a new discovery loop. A host can also
 approve a declaration for one discovery action; see [declared selections](discovery-selection.md).
+Plain links with no accessible root use a separate host-declared membership form,
+[`collection.links`](link-selection.md). Everything below describes the role form.
 
 ```ts
 const target = {
@@ -105,6 +107,49 @@ For a collection-targeted `select` step, Chrome supports native select controls 
 popup needs a separate continuation contract tying its eventual option to the original member
 and prerequisites. Until that is available, the adapter refuses before opening the popup;
 it never commits an unchecked second click. Ordinary non-collection selects are unchanged.
+
+## Reader ID (#370)
+
+Either collection form accepts an optional `readerId`, a bounded ID (letters, digits, `_ . : -`,
+at most 100 characters, the same shape as a selection ID). A host that reads different kinds of
+collections with different code declares which reader a collection needs, instead of inferring it
+from `root.name`, which then keeps one meaning: locating the list.
+
+```ts
+const target = {
+  collection: {
+    root: { role: "list", name: "Search results" },
+    readerId: "catalog.v2",
+    itemRole: "listitem", target: { role: "link" }, order: "dom", index: 0,
+  },
+};
+```
+
+Cairn only carries the ID. It is validated with the rest of the declaration, kept by
+`persistentTarget`, discovery freeze and save/load, and handed to the driver unchanged on every
+replay. It is not a DOM node identity, it is not a selection ID, and it never changes which
+members are eligible or which one is selected. Two declarations with the same `root.name` and
+different reader IDs reach the driver as different declarations.
+
+A driver must declare the reader IDs it serves with the optional `Driver.readerIds` list. It
+applies to both forms, so `observeCollection` and `observeLinkCollection` share one list. Core
+checks it before it calls either port. When a target declares a `readerId`, the driver must list
+that exact ID. An unlisted ID, a driver with no `readerIds`, and a driver written before this
+feature all fail the step with `CollectionSelectionError("unsupported")` as a `handler` failure.
+The driver is never asked to observe and nothing is clicked, so an older driver cannot read or
+click its default list for a declaration that named a reader. Discovery applies the same check when
+it accepts a selection. A target without a `readerId` is unaffected, and the new member is optional,
+so existing drivers still compile.
+
+A driver that lists an ID must still read with that reader and may throw `unsupported` itself.
+It must not fall back to its default reader. The built-in Chrome adapter has no reader registry and
+lists no IDs, so it refuses any declaration with a `readerId`. A host that subclasses or wraps it,
+lists the IDs it serves in `readerIds`, and removes the field before delegating to the built-in
+reader. `SelfHealingDriver` forwards `readerIds` from the driver it wraps.
+
+A recognized ID relaxes nothing. Core still checks complete ordered membership, the declared total,
+conditions, the selected action and its eligibility on whatever the reader returns, and the
+dispatch guard is unchanged. A declaration without an ID replays exactly as before.
 
 ## Replay, repair and evidence
 

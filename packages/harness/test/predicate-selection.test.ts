@@ -181,7 +181,7 @@ describe("predicate selection bound to this run", () => {
   it.each(["unpersisted", "wrong-prefix", "future-reference", "expired-reference", "non-click"])("rejects %s authoring before dispatch", async invalid => {
     const driver = new ChoiceDriver(), f = fixture();
     if (invalid === "unpersisted") f.scenario.assertions = [{ kind: "navigated" }];
-    if (invalid === "wrong-prefix") (f.scenario.steps[0] as Step & { kind: "click" }).target.collection!.root.name = "Another catalog";
+    if (invalid === "wrong-prefix") ((f.scenario.steps[0] as Step & { kind: "click" }).target.collection as CollectionTarget).root.name = "Another catalog";
     if (invalid === "future-reference") f.scenario.steps = [f.scenario.steps[1]!, f.scenario.steps[0]!];
     if (invalid === "expired-reference") f.binding.destination.after = [f.scenario.steps[0]!];
     if (invalid === "non-click") f.scenario.steps[1] = { kind: "hover", target: choice("Cart", true).target };

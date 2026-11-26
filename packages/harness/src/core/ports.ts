@@ -9,6 +9,7 @@ import type {
   CollectionTarget,
   CollectionObservation,
   Evidence,
+  LinkCollectionScope,
   LlmUsage,
   PageElement,
   SnapshotOptions,
@@ -96,11 +97,18 @@ export interface Driver {
   /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
    * Implementations accepting refs must honor them in every target-bearing interaction. */
   locateRef?(ref: string): Promise<Target>;
+  /** Reader IDs (#370) this driver serves, for both `observeCollection` and `observeLinkCollection`.
+   * A collection that declares a `readerId` is observed only when the ID is listed here. A driver that
+   * omits this, or an unlisted ID, is refused with `unsupported` and zero clicks, because a driver that
+   * predates readerId would silently read its default list. Targets without a `readerId` are unaffected. */
+  readonly readerIds?: readonly string[];
   /** Observe a complete declared collection independently of model selection/truncation.
    * Each returned ref must reject changed membership/order, control conditions or selected-node
    * state before targeted dispatch. Choice declarations additionally require complete identity
    * and predicate facts for every member; ignoring them cannot authorize dispatch. Never reselect
    * by name or silently substitute a neighbor.
+   * A declared `readerId` selects the host's reader. Core hands it to the driver only when the
+   * driver lists it in `readerIds`; otherwise it refuses with `unsupported` before any observation.
    * Optional: unsupported drivers are refused by the built-in handler before any action. */
   observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
   /** Perform exactly one collection click, retaining an explicit pre-action resource key only
@@ -113,6 +121,19 @@ export interface Driver {
     source: import("./selected-item-evidence.js").SelectedItemKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Independently read one explicitly configured destination key, not an expected value. */
   readResourceKey?(destination: import("./selected-item-evidence.js").DestinationResourceKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Observe a declared plain-link collection (#343) under the observeCollection contract. A member's
+   * action is its declared link, bound to that link's exact node, and a changed href expires the ref.
+   * Optional: without it, link collections are refused before any action. */
+  observeLinkCollection?(selection: LinkCollectionScope): Promise<CollectionObservation>;
+  /** Click a link collection's selected link once. Return its href as the final guard reads it,
+   * immediately before dispatch, complete only when the click left that document for a new one in
+   * the same tab. Refuse, before dispatch, a link whose arrival cannot be observed (new tab,
+   * download, same document, non-http). Optional: without it, a link destination check is refused
+   * in discovery and left unconfirmed on replay, never passed. */
+  clickLinkWithDestination?(target: Target, ref: string): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Read the top-level URL, without its fragment, of the tab the last clickLinkWithDestination
+   * dispatched in, by that tab's identity rather than whichever tab is selected. */
+  readLinkArrival?(): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string, ref?: string): Promise<void>;

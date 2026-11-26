@@ -53,7 +53,7 @@ export interface WaitUntil {
 export interface Target {
   /** Explicit run-relative selection (#306), exclusive with all legacy locator fields.
    * The selected resource may differ on each replay. Never a fixed-resource identity. */
-  collection?: CollectionTarget;
+  collection?: CollectionDeclaration;
   text?: string;
   role?: string;
   index?: number;
@@ -108,8 +108,13 @@ export interface CollectionChoice {
   maxReselections: 0 | 1;
 }
 
+/** Host-chosen ID of the code that reads a collection (#370). Cairn carries it and never
+ * interprets it: it is neither a DOM identity nor a selection ID, and it cannot change membership. */
+export type CollectionReaderId = string;
+
 interface CollectionScope {
   root: CollectionLocator;
+  readerId?: CollectionReaderId;
   itemRole: "listitem" | "option";
   /** Exactly one matching action inside the selected member, excluding nested collections. */
   target: CollectionLocator;
@@ -120,12 +125,37 @@ interface CollectionScope {
   conditions?: CollectionCondition[];
 }
 
-/** A position and an eligible choice are separate persisted contracts. */
-export type CollectionTarget = CollectionScope & (
+/** Host-declared plain links with no accessible collection root (#343). Membership is the
+ * host's CSS, never inferred from names, siblings or layout. */
+export interface LinkMembership {
+  /** Must match exactly one element, which bounds the collection. */
+  scope: string;
+  /** Run as `scope.querySelectorAll(member)`, so it starts with `:scope`. Every match is a member. */
+  member: string;
+  /** Selector inside the member for its link. Without it, the member itself is the link. */
+  action?: string;
+  /** With `action`: the member's links must all share one href. It counts once; the first link is clicked. */
+  group?: "destination";
+}
+export interface LinkCollectionScope {
+  links: LinkMembership;
+  readerId?: CollectionReaderId;
+  order: "dom";
+  /** Required: plain links expose no total, so the host's count is the only completeness proof. */
+  expectedCount: number;
+  index: number;
+  root?: never; itemRole?: never; target?: never; conditions?: never; choice?: never;
+}
+
+/** A position and an eligible choice are separate persisted contracts. This is the role form, the
+ * type `Driver.observeCollection` receives; link declarations reach `Driver.observeLinkCollection`. */
+export type CollectionTarget = CollectionScope & { links?: never } & (
   | { /** Zero-based position among ALL members, not only enabled/matching action candidates. */
       index: number; choice?: never }
   | { choice: CollectionChoice; index?: never }
 );
+/** Either collection form, as a `Target.collection` declares it. */
+export type CollectionDeclaration = CollectionTarget | LinkCollectionScope;
 
 /** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
  * Missing or ambiguous actions retain their member's position with no target. */

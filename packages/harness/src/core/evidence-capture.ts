@@ -160,8 +160,13 @@ export class EvidenceCaptureSession {
         if (step.target.role !== undefined) safe.target.role = step.target.role;
         const original = step.target.collection;
         const collection = safe.target.collection;
-        if (original && collection) {
+        if (original?.links && collection?.links) {
+          collection.order = original.order;
+          if (original.readerId !== undefined) collection.readerId = original.readerId;
+          if (original.links.group) collection.links.group = original.links.group;
+        } else if (original && collection && !original.links && !collection.links) {
           collection.itemRole = original.itemRole;
+          if (original.readerId !== undefined) collection.readerId = original.readerId;
           collection.order = original.order;
           collection.root.role = original.root.role;
           collection.target.role = original.target.role;

@@ -2,7 +2,7 @@ import type { Driver } from "./ports.js";
 import type { CollectionTarget, Evidence, ExecutedAction, Scenario, Step } from "./types.js";
 import { copyCapturePath, copyEvidenceData, sameCapturePath } from "./evidence-capture.js";
 import { hashContractValue } from "./contract.js";
-import { CollectionSelectionError, resolveChoiceValues, resolveCollectionTarget, SelectionNotDispatchedError, validateCollectionTarget } from "./collection.js";
+import { CollectionSelectionError, isLinkCollection, resolveChoiceValues, resolveCollectionTarget, SelectionNotDispatchedError, validateCollectionTarget } from "./collection.js";
 import { rethrowBudget } from "./budget.js";
 
 /** Explicit application-owned resource key. Never inferred from a label or URL. */
@@ -16,6 +16,10 @@ export interface DestinationResourceKey {
   selector: string;
   attribute: string;
 }
+/** The exact selected link's own href (#343). It pairs only with `location`. */
+export interface LinkSourceKey { kind: "href" }
+/** The top-level URL of the tab the link was clicked in, after the selection step. */
+export interface LinkDestinationKey { kind: "location" }
 /** A Driver must return complete only for one independently observed, bounded resource key. */
 export interface ResourceKeyObservation { complete: boolean; value?: string }
 
@@ -28,8 +32,14 @@ export interface SelectedItemBinding {
   source: { after: readonly Step[]; key: SelectedItemKey };
   destination: { after: readonly Step[]; key: DestinationResourceKey };
 }
+/** A link collection's selection compared with where its click arrived (#343). */
+export interface LinkSelectedItemBinding extends Omit<SelectedItemBinding, "source" | "destination"> {
+  source: { after: readonly Step[]; key: LinkSourceKey };
+  destination: { after: readonly Step[]; key: LinkDestinationKey };
+}
+export type ResourceKeyBinding = SelectedItemBinding | LinkSelectedItemBinding;
 export interface SelectedItemEvidenceOptions {
-  bindings: readonly SelectedItemBinding[];
+  bindings: readonly ResourceKeyBinding[];
   /** Acceptance deadline per source dispatch / destination read; in-flight calls always drain. */
   timeoutMs?: number;
 }
@@ -62,7 +72,7 @@ function attribute(value: unknown): void {
   if (typeof value !== "string" || value.length > 128 || !/^data-[a-z][a-z0-9-]*$/.test(value))
     throw new Error("selected-item keys require an explicit data-* attribute");
 }
-export function validateSelectedItemBinding(value: unknown): SelectedItemBinding {
+export function validateSelectedItemBinding(value: unknown): ResourceKeyBinding {
   const row = copyEvidenceData(value);
   fields(row, ["version", "id", "relation", "phase", "source", "destination"]);
   if (row.version !== 1 || row.relation !== "resource-key-equals" || row.phase !== "replay"
@@ -80,9 +90,18 @@ export function validateSelectedItemBinding(value: unknown): SelectedItemBinding
   const click = before.at(-1)!;
   if (click.kind !== "click" || !click.target?.collection)
     throw new Error("selected-item evidence supports collection click sources only");
-  validateCollectionTarget(click.target);
+  const selection = validateCollectionTarget(click.target);
   if (after.length < before.length || !sameCapturePath(before, after.slice(0, before.length)))
     throw new Error("selected-item destination must extend its source action prefix");
+  if (isLinkCollection(selection)) {
+    fields(source.key, ["kind"]);
+    fields(destination.key, ["kind"]);
+    if (source.key.kind !== "href" || destination.key.kind !== "location")
+      throw new Error("a link collection binding compares its href with the arrival location");
+    // A later step could reach the selected href itself and hide a wrong arrival.
+    if (after.length !== before.length) throw new Error("a link destination is read at its selection step");
+    return row as unknown as LinkSelectedItemBinding;
+  }
   fields(source.key, ["kind", "scope", "attribute"]);
   fields(destination.key, ["kind", "selector", "attribute"]);
   if (source.key.kind !== "attribute" || !["item", "action"].includes(source.key.scope as string)
@@ -107,7 +126,7 @@ function keyOf(value: ResourceKeyObservation): string | undefined {
       && row.value.length <= 256 ? row.value : undefined;
   } catch { return undefined; }
 }
-async function fingerprint(binding: SelectedItemBinding): Promise<string> {
+async function fingerprint(binding: ResourceKeyBinding): Promise<string> {
   return hashContractValue(binding);
 }
 
@@ -141,7 +160,7 @@ export async function selectedItemEquals(params: Record<string, unknown>, eviden
 }
 
 interface Pending {
-  binding: SelectedItemBinding;
+  binding: ResourceKeyBinding;
   record: SelectedItemEvidenceRecord;
   key?: string;
   provisional?: string;
@@ -218,8 +237,8 @@ export class SelectedItemEvidenceSession {
         throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
       const references = choice.where.flatMap(predicate => typeof predicate.value === "string" ? [] : [predicate.value.bindingId]);
       if (!references.length) {
-        if (!point || point.binding.source.key.scope !== choice.identity.scope
-          || point.binding.source.key.attribute !== choice.identity.attribute)
+        const key = point?.binding.source.key;
+        if (key?.kind !== "attribute" || key.scope !== choice.identity.scope || key.attribute !== choice.identity.attribute)
           throw new CollectionSelectionError("invalid", "choice requires its matching source binding");
       } else {
         dependency = this.pending.find(p => p.binding.id === references[0]);
@@ -240,7 +259,9 @@ export class SelectedItemEvidenceSession {
         if (++calls > 1) throw new Error("selected-item evidence does not allow a repeated dispatch");
         if (choice) resolveValues(selection!);
         if (point) point.dispatched = true;
-        if (!ref || typeof inner.clickWithSelectedItemEvidence !== "function") {
+        const source = choice ? undefined : point!.binding.source.key;
+        const guarded = source?.kind === "href" ? inner.clickLinkWithDestination : inner.clickWithSelectedItemEvidence;
+        if (!ref || typeof guarded !== "function") {
           if (choice) throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
           point!.sourceStatus = "unavailable";
           return inner.click(target, ref);
@@ -261,7 +282,8 @@ export class SelectedItemEvidenceSession {
           } : undefined;
           if (attempt) (owner.record.selectionAttempts ??= []).push(attempt);
           try {
-            const observed = await inner.clickWithSelectedItemEvidence(target, ref, copyEvidenceData(choice?.identity ?? point!.binding.source.key));
+            const observed = source?.kind === "href" ? await inner.clickLinkWithDestination!(target, ref)
+              : await inner.clickWithSelectedItemEvidence!(target, ref, copyEvidenceData(choice?.identity ?? source as SelectedItemKey));
             if (attempt) attempt.dispatch = "dispatched";
             const status = signal?.aborted ? "cancelled" : performance.now() - started >= this.timeoutMs ? "timed-out" : "captured";
             if (status !== "captured") interruptCapture(status);
@@ -334,8 +356,11 @@ export class SelectedItemEvidenceSession {
       const started = performance.now();
       try {
         if (signal?.aborted) { record.status = "cancelled"; continue; }
-        if (typeof driver.readResourceKey !== "function") { record.status = "unavailable"; continue; }
-        const observed = await driver.readResourceKey(copyEvidenceData(binding.destination.key));
+        const key = binding.destination.key;
+        const read = key.kind === "location" ? driver.readLinkArrival?.bind(driver)
+          : driver.readResourceKey && (() => driver.readResourceKey!(copyEvidenceData(key)));
+        if (typeof read !== "function") { record.status = "unavailable"; continue; }
+        const observed = await read();
         const actual = keyOf(observed);
         record.status = signal?.aborted ? "cancelled" : performance.now() - started >= this.timeoutMs ? "timed-out"
           : actual === undefined ? "unavailable" : "captured";

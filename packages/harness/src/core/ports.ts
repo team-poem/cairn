@@ -101,6 +101,8 @@ export interface Driver {
    * state before targeted dispatch. Choice declarations additionally require complete identity
    * and predicate facts for every member; ignoring them cannot authorize dispatch. Never reselect
    * by name or silently substitute a neighbor.
+   * A declared `readerId` selects the host's reader. A driver that cannot serve it must throw
+   * `CollectionSelectionError("unsupported")`, never read with a default reader.
    * Optional: unsupported drivers are refused by the built-in handler before any action. */
   observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
   /** Perform exactly one collection click, retaining an explicit pre-action resource key only

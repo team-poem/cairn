@@ -1006,6 +1006,9 @@ export class ChromeDevToolsDriver implements Driver {
   /** Collection position is explicit frozen intent, never an inferred global duplicate ordinal. */
   async observeCollection(selection: CollectionTarget): Promise<CollectionObservation> {
     const declaration = validateCollectionTarget({ collection: selection });
+    // No reader registry: serving a declared ID with the built-in reader would be a silent default.
+    if (declaration.readerId !== undefined)
+      throw new CollectionSelectionError("unsupported", "the built-in Chrome reader does not serve a declared readerId");
     const elements = await this.snapshot({ perception: true });
     const version = this.observationVersion, page = this.observedPage, stamp = this.observedHostStamp;
     if (!this.observedRaw || page === undefined) throw new CollectionSelectionError("incomplete", "guarded collection capture is unavailable");

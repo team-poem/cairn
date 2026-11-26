@@ -103,21 +103,12 @@ role form.
   same evaluation that confirms the exact node and plants the departure marker immediately before
   dispatch. A `<base href>` or `href` that differed at an earlier read cannot become the expected
   value.
-- The arrival is the top-level URL of the tab the click was dispatched in, at the selection step's
-  after-step boundary, read independently of the link. Chrome reads it from the MCP tab listing by
-  that tab's page ID, not from whichever tab is selected, so another tab that shows the expected
-  post cannot stand in for it, even when it is selected only for the read. The URL is the last
-  parenthesized value on the tab's line, because the title before it is page-controlled. If the
-  dispatch tab is gone, for example because it closed itself, the relation is unconfirmed.
-- The departure marker is read with `evaluate_script`, which runs in the selected tab, and MCP
-  1.8.0 under `--no-page-id-routing` takes no page ID for it. The same evaluation sets the document
-  title to a fresh random token, and the read counts only when the tab listing shows that token as
-  the title of the dispatch tab's page ID. Another tab, even one at the same URL with no marker,
-  cannot answer for the dispatch tab, so a `pushState` there stays unconfirmed. The title is
-  restored, or the created `<title>` removed, by the next call. A page that rewrites its title
-  between the read and the listing leaves the relation unconfirmed. Pages that copy each other's
-  titles across tabs on purpose could forge the token; the app under test is not treated as an
-  adversary of its harness.
+- The guarded click requests an accessibility snapshot in its own MCP response. Its top-level
+  `RootWebArea` UID identifies the document in the tab that received the click. Chrome passes
+  that UID to `evaluate_script` when reading the departure marker, and again at the after-step
+  boundary to read the document's URL independently of the link. A different tab cannot resolve
+  the UID, even if it has the same URL. A missing or replaced document leaves the relation
+  unconfirmed. The driver never retries the click or uses an unbound read. No tab title is changed.
 - The binding's destination prefix must equal its source prefix: a later step, such as a `goto` or
   a breadcrumb, could reach the selected href itself and hide a wrong arrival.
 - Both sides drop the fragment. The query is compared exactly. Redirects are compared on where the
@@ -171,4 +162,5 @@ that stays inconclusive, a click that closes the original tab so another tab sho
 post is selected, which stays inconclusive, a temporary switch that sends every read after the click
 to another tab showing the expected post while the run's tab redirects elsewhere, which fails, a discovery that refuses a `target="_blank"` link
 without opening it, grouped image and title links, and a click that only pushes the selected href
-while every read is sent to another tab at that URL, which stays inconclusive.
+while every read is sent to another tab at that URL, which stays inconclusive. Switching tabs only
+for the departure-marker read also leaves the check inconclusive and both original titles intact.

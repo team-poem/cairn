@@ -23,6 +23,7 @@ interface Hook {
   before?: (name: string, args: Record<string, unknown>) => Promise<void>;
   snapshot?: (raw: string) => string;
   click?: (id: string) => Promise<void>;
+  clickRoot?: "missing" | "stale" | "element";
 }
 
 async function withPage(run: (ctx: {
@@ -64,7 +65,11 @@ async function withPage(run: (ctx: {
       })()`);
         return hook.snapshot?.(raw) ?? raw;
       }
-      if (name === "evaluate_script") return JSON.stringify(await page.evaluate(`(${String(args.function)})(...${JSON.stringify(args.args ?? [])}.map(uid => globalThis.nodes.get(uid)))`));
+      if (name === "evaluate_script") return JSON.stringify(await page.evaluate(`(${String(args.function)})(...${JSON.stringify(args.args ?? [])}.map(uid => {
+        const node = globalThis.nodes?.get(uid);
+        if (!node) throw new Error('Element uid not found on page');
+        return node;
+      }))`));
       if (name === "list_pages") {
         // The MCP listing format: a page-controlled title, then the tab's own URL.
         const title = await page.title();
@@ -79,6 +84,16 @@ async function withPage(run: (ctx: {
         })()`);
         actions.push(`${name}:${id}`);
         if (name === "click") await hook.click?.(id);
+        if (name === "click" && args.includeSnapshot === true) {
+          const success = "Successfully clicked on the element";
+          if (hook.clickRoot === "missing") return success;
+          const root = `${actions.length}_0`;
+          // The click's own snapshot indexes its document, including after a full navigation.
+          // A later evaluation cannot resolve this UID in a different document's node map.
+          if (hook.clickRoot !== "stale") await page.evaluate(`(globalThis.nodes ??= new Map())
+            .set(${JSON.stringify(root)}, ${hook.clickRoot === "element" ? "document.documentElement" : "document"})`);
+          return `${success}\n## Latest page snapshot\nuid=${root} RootWebArea url=${JSON.stringify(page.url())}\n`;
+        }
         return "";
       }
       throw new Error(`unexpected MCP action: ${name}`);
@@ -207,6 +222,30 @@ test("a link destination check confirms a same-tab navigation to the selected li
   });
 });
 
+test.each(["missing", "stale", "element"] as const)("a %s click snapshot root cannot confirm the arrival or retry the click", async clickRoot => {
+  await withPage(async ({ driver, page, actions, hook }) => {
+    hook.click = navigate(page);
+    hook.clickRoot = clickRoot;
+    const bound = await resolveCollectionTarget(driver, grid());
+    await expect(driver.clickLinkWithDestination(bound.target, bound.ref)).resolves.toEqual({ complete: false });
+    expect(page.url()).toBe("https://example.test/posts/bravo");
+    await expect(driver.readLinkArrival()).resolves.toEqual({ complete: false });
+    expect(actions).toEqual(["click:bravo"]);
+  });
+});
+
+test("a replacement document at the same URL cannot supply the arrival", async () => {
+  await withPage(async ({ driver, page, actions, hook }) => {
+    hook.click = navigate(page);
+    const bound = await resolveCollectionTarget(driver, grid());
+    expect((await driver.clickLinkWithDestination(bound.target, bound.ref)).complete).toBe(true);
+    await page.reload();
+    expect(page.url()).toBe("https://example.test/posts/bravo");
+    await expect(driver.readLinkArrival()).resolves.toEqual({ complete: false });
+    expect(actions).toEqual(["click:bravo"]);
+  });
+});
+
 test("a <base href> that differs between the destination read and the final guard cannot confirm the arrival", async () => {
   await withPage(async ({ driver, page, hook }) => {
     await page.evaluate(`document.head.insertAdjacentHTML('beforeend', '<base href="https://example.test/">')`);
@@ -253,16 +292,25 @@ test.each([
   ["a page title, whitespace kept", "<title>  Bravo   post </title>", "", ["xhtml:  Bravo   post "]],
   ["no title", "", "", []],
   ["only an inline SVG title", "", "<svg><title>icon</title></svg>", ["svg:icon"]],
-])("the marker read leaves the arrival's title as it was: %s", async (_, head, body, expected) => {
+])("the marker read never writes the arrival's title: %s", async (_, head, body, expected) => {
   await withPage(async ({ driver, page, hook }) => {
     hook.click = async () => {
       await page.goto("https://example.test/posts/bravo");
       await page.evaluate(`document.head.insertAdjacentHTML('beforeend', ${JSON.stringify(head)});
-        document.body.insertAdjacentHTML('afterbegin', ${JSON.stringify(body)})`);
+        document.body.insertAdjacentHTML('afterbegin', ${JSON.stringify(body)});
+        globalThis.titleWrites = 0;
+        new MutationObserver(records => {
+          for (const record of records) {
+            const el = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+            if (el?.closest('title') || [...record.addedNodes, ...record.removedNodes].some(n => n.localName === 'title'))
+              globalThis.titleWrites++;
+          }
+        }).observe(document, { subtree: true, childList: true, characterData: true });`);
     };
     const bound = await resolveCollectionTarget(driver, grid());
     const source = await driver.clickLinkWithDestination(bound.target, bound.ref);
     expect(source).toEqual({ complete: true, value: "https://example.test/posts/bravo" });
+    expect(await page.evaluate("globalThis.titleWrites")).toBe(0);
     expect(await page.evaluate(`[...document.querySelectorAll('title')].map(el => el.namespaceURI.split('/').pop() + ':' + el.textContent)`))
       .toEqual(expected);
   });

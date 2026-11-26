@@ -33,7 +33,7 @@ const server = createServer((req, res) => {
         <a href="/posts/${id}"><img alt="${id} cover" width="40" height="40"></a><a href="/posts/${id}">${id}</a></article>`).join('')}</section>`
     : `<div class="grid">${ids.map(id => `<a href="/posts/${id}"${newTab.has(id) ? ' target="_blank"' : ''}${stay ? ' onclick="event.preventDefault()"'
       : closeOnClick ? ' onclick="event.preventDefault(); window.close()"'
-      : pushOnClick ? ' onclick="event.preventDefault(); history.pushState(null, \'\', this.href)"' : ''}>${id}</a>`).join('')}</div>`;
+      : pushOnClick ? ' onclick="event.preventDefault(); history.pushState({ clicks: (history.state?.clicks ?? 0) + 1 }, \'\', this.href)"' : ''}>${id}</a>`).join('')}</div>`;
   res.end(`<!doctype html><title>Posts</title><nav><a href="/about">About</a></nav>${grid}`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -64,17 +64,17 @@ const replay = loaded => runScenario(loaded, { driver, llm: noModel, reporter: {
 const here = () => driver.call('evaluate_script', { function: '() => location.pathname' });
 const selectedTab = async () => Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
 
-/** After the click, every page-scoped read is sent while the decoy tab is selected, and the run's
+/** After the click, each matching page-scoped read is sent while the decoy tab is selected, and the run's
  * tab is selected again before the next call. Network reads stay in the run's tab, because the
  * driver files their rows under the listed selected tab. Calls run one at a time, so a concurrent
  * call never lands in the decoy by accident; a call the driver makes inside another runs within it. */
-async function replayReadingDecoy(loaded, decoy, run) {
+async function replayReadingDecoy(loaded, decoy, run, matchesRead = () => true) {
   const call = driver.call;
   const nested = new AsyncLocalStorage();
   let queue = Promise.resolve();
   let clicked = false, decoyReads = 0;
   const send = async function (name, ...rest) {
-    if (!clicked || ['list_pages', 'select_page', 'list_network_requests'].includes(name)) {
+    if (!clicked || ['list_pages', 'select_page', 'list_network_requests'].includes(name) || !matchesRead(name, rest[0])) {
       const reply = await call.call(this, name, ...rest);
       if (name === 'click') clicked = true;
       return reply;
@@ -200,16 +200,33 @@ try {
   const pushDecoy = await selectedTab();
   await driver.call('select_page', { pageId: pushRun });
   opened.length = 0;
-  const pushed = await replayReadingDecoy(loaded, pushDecoy, pushRun).finally(() => { pushOnClick = false; });
+  const pushed = await replayReadingDecoy(loaded, pushDecoy, pushRun);
   assert.deepEqual(opened, [], 'pushState loads no document');
   assert.match(await here(), /\/posts\/alpha/, 'the run tab shows the pushed URL');
   assert.equal(pushed.result.verdict.passed, false, 'a pushState must not pass because another tab at its URL answered the marker read');
   assert.equal(pushed.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
   assert.doesNotMatch(await driver.call('list_pages'), /cairn-[0-9a-f-]{36}/, 'no tab keeps the marker read title token');
 
+  // Switch back immediately after the departure-marker read. Any subsequent title cleanup
+  // runs in the source tab, not the decoy that answered that one read.
+  opened.length = 0;
+  const markerOnly = await replayReadingDecoy(loaded, pushDecoy, pushRun,
+    (name, args) => name === 'evaluate_script' && args.function.includes('cairn-link-departure:'))
+    .finally(() => { pushOnClick = false; });
+  assert.equal(markerOnly.result.verdict.passed, false);
+  assert.equal(markerOnly.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
+  assert.equal(markerOnly.result.usage.llmCalls, 0);
+  assert.deepEqual(opened, [], 'the click pushed the URL without requesting a post');
+  assert.equal(await selectedTab(), pushRun, 'the source tab is selected again');
+  assert.match(await driver.call('evaluate_script', { function: '() => [history.state?.clicks, location.pathname, document.title]' }),
+    /\[1,"\/posts\/alpha","Posts"\]/, 'the source received one click and kept its original title');
+  await driver.call('select_page', { pageId: pushDecoy });
+  assert.match(await driver.call('evaluate_script', { function: '() => [location.pathname, document.title]' }),
+    /\["\/posts\/alpha","alpha"\]/, 'the decoy kept its original title after selection returned to the source');
+
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], reorderedOpened: 'alpha', mismatchRejected: true, missingArrivalInconclusive: true,
     switchedTabInconclusive: true, temporarySwitchRejected: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha',
-    pushStateDecoyInconclusive: true, replayModelCalls: 0 }, null, 2));
+    pushStateDecoyInconclusive: true, markerReadPreservedTitles: true, replayModelCalls: 0 }, null, 2));
 } finally {
   await driver.close();
   server.close();

@@ -240,8 +240,8 @@ export class ChromeDevToolsDriver implements Driver {
   private readonly hostRoots?: ChromeHostRoots;
   private observedHostStamp?: string;
   private readonly collectionObservations = new Map<string, ChromeCollectionObservation>();
-  /** The tab a link destination check dispatched in. Its arrival is read only there. */
-  private linkDeparturePage?: number;
+  /** The top-level document returned by the guarded click, never a ref taken in a later tab. */
+  private linkArrivalDocument?: string;
 
   constructor(private readonly opts: ChromeDriverOptions = {}) {
     if (opts.hostOwnedRoots) this.hostRoots = new ChromeHostRoots(
@@ -575,11 +575,10 @@ export class ChromeDevToolsDriver implements Driver {
 
   /** The source key is the selected link's href, read by the final guard immediately before the
    * click. The receipt is a document nonce planted by that same guard: if it survives the click, no
-   * new document committed and nothing is confirmed. evaluate_script runs in whichever tab is
-   * selected, so the nonce read also sets the document title to a fresh token, and counts only when
-   * the tab listing shows that token as the dispatch tab's title. The title is restored right after. */
+   * new document committed and nothing is confirmed. Request the resulting document's exact ref
+   * from the click itself: a later evaluate_script in a different tab cannot resolve that ref. */
   async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
-    this.linkDeparturePage = undefined;
+    this.linkArrivalDocument = undefined;
     const uid = await this.actionUid(target, ref);
     const collection = this.collectionObservations.get(ref);
     if (!collection?.links) throw new CollectionSelectionError("unsupported", "a link destination requires a link collection reference");
@@ -588,41 +587,32 @@ export class ChromeDevToolsDriver implements Driver {
     const nonce = `Symbol.for(${JSON.stringify(departure)})`;
     let href: string | undefined;
     this.invalidateObservation();
-    const changedPage = await this.callAccepting("click", { uid },
-      { validate: async (uid: string) => (href = await collection.validate(uid, departure)) });
-    if (href === undefined || sourcePage === undefined || changedPage !== false) return { complete: false };
-    const token = `cairn-${globalThis.crypto.randomUUID()}`;
-    const saved = `Symbol.for(${JSON.stringify(token)})`;
-    // The element document.title writes: an inline SVG <title> is not it, though querySelector('title') may find it first.
-    const titleElement = `() => document.documentElement instanceof SVGSVGElement
-      ? [...document.documentElement.children].find(el => el instanceof SVGTitleElement)
-      : document.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'title')[0]`;
+    let documentUid: string | undefined;
+    const changedPage = await this.callAccepting("click", { uid, includeSnapshot: true },
+      { validate: async (uid: string) => (href = await collection.validate(uid, departure)) },
+      reply => { documentUid = clickedDocumentUid(reply); });
+    if (href === undefined || sourcePage === undefined || changedPage !== false || !documentUid) return { complete: false };
     const read = await this.call("evaluate_script", {
-      function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}];
-        const element = (${titleElement})() ?? null;
-        globalThis[${saved}] = { element, text: element?.textContent ?? null };
-        document.title = ${JSON.stringify(token)}; return {stayed}; }`,
+      args: [documentUid],
+      function: `doc => { if (doc !== document || window !== window.top) return {};
+        const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}]; return {stayed}; }`,
     }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown } | undefined, () => undefined);
-    const pages = await this.call("list_pages").catch(() => "");
-    await this.call("evaluate_script", {
-      function: `() => { const saved = globalThis[${saved}]; if (!saved) return {}; delete globalThis[${saved}];
-        const now = (${titleElement})();
-        if (now?.textContent === ${JSON.stringify(token)}) {
-          if (saved.element === null) now.remove(); else if (saved.element === now) now.textContent = saved.text;
-        }
-        return {}; }`,
-    }, "observation").catch(() => {});
-    const readInSource = pages.split("\n").some(line => line.trimStart().startsWith(`${sourcePage}: ${token} (`));
-    if (read?.stayed !== false || !readInSource) return { complete: false };
-    this.linkDeparturePage = sourcePage;
+    if (read?.stayed !== false) return { complete: false };
+    this.linkArrivalDocument = documentUid;
     return { complete: true, value: href };
   }
 
-  /** The listing reports each tab's own top-level URL by page ID, whichever tab is selected. */
+  /** Read the URL at the after-step boundary, using the document that supplied the marker read. */
   async readLinkArrival(): Promise<ResourceKeyObservation> {
-    const page = this.linkDeparturePage;
-    const url = page === undefined ? undefined : listedPageUrl(await this.call("list_pages").catch(() => ""), page);
-    return url !== undefined && url.length <= 256 ? { complete: true, value: url } : { complete: false };
+    if (!this.linkArrivalDocument) return { complete: false };
+    const raw = await this.call("evaluate_script", {
+      args: [this.linkArrivalDocument],
+      function: `doc => { if (doc !== document || window !== window.top) return {};
+        const url = new URL(doc.URL); url.hash = '';
+        return url.protocol === 'http:' || url.protocol === 'https:' ? {value: url.href} : {}; }`,
+    }, "observation").catch(() => "");
+    const url = (extractFirstJsonObject(raw) as { value?: unknown } | undefined)?.value;
+    return typeof url === "string" && url.length > 0 && url.length <= 256 ? { complete: true, value: url } : { complete: false };
   }
 
   async readResourceKey(destination: DestinationResourceKey): Promise<ResourceKeyObservation> {
@@ -648,14 +638,15 @@ export class ChromeDevToolsDriver implements Driver {
    * is handled the same way — no per-verb special-casing.
    */
   private async callAccepting(name: string, args: Record<string, unknown>, guard?: Pick<ChromeCollectionObservation, "validate">,
-    beforeFollow?: () => Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
+    beforeFollow?: (reply?: string) => void | Promise<void>, onDispatch?: () => void): Promise<boolean | undefined> {
     const outcome = this.beforeOutcomeInput;
     if (typeof args.uid === "string") await this.checkInputTarget(args.uid, guard);
+    let reply: string | undefined;
     try {
       // Selected-item's retry marker is conservative from here; the optional
       // outcome hook in call() separately checks the actual MCP send boundary.
       onDispatch?.();
-      const reply = await this.call(name, args, outcome ? "scoped-input" : undefined);
+      reply = await this.call(name, args, outcome ? "scoped-input" : undefined);
       if (outcome && reply.startsWith("Successfully ") && dialogTrailer.test(reply))
         await this.call("handle_dialog", { action: "accept" }, "scoped-input");
     } catch (err) {
@@ -663,7 +654,7 @@ export class ChromeDevToolsDriver implements Driver {
       await this.call("handle_dialog", { action: "accept" });
     } finally {
       // Evidence cleanup never dispatches another action and precedes any tab switch.
-      await beforeFollow?.();
+      await beforeFollow?.(reply);
     }
     // Any interactive verb can open a tab (Enter submit, select onchange) — not just click (#89).
     return this.followNewTab();
@@ -1995,23 +1986,17 @@ export function followableTab(entries: PageEntry[], seen: ReadonlySet<number>): 
   return real.length ? Math.max(...real.map((e) => e.id)) : undefined;
 }
 
+/** Only the root of the snapshot attached to this click can identify its document. Do not
+ * search AX names or descend into frames if the MCP reply lacks an unambiguous root. */
+function clickedDocumentUid(reply: string | undefined): string | undefined {
+  const sections = reply?.split(/^## Latest page snapshot\r?\n/m);
+  return sections?.length === 2 ? /^uid=(\d+_\d+) RootWebArea\b/.exec(sections[1]!)?.[1] : undefined;
+}
+
 /** `2: Example Domain (https://example.com/) [selected]` → 2. */
 function selectedPageId(text: string): number | undefined {
   const id = text.match(/^\s*(\d+):[^\n]*\[selected\]\s*$/m)?.[1];
   return id === undefined ? undefined : Number(id);
-}
-
-/** The listed top-level URL of one page, without its fragment. The title before it is page-controlled,
- * so the URL is the last parenthesized group, or the whole label when the title is empty. */
-function listedPageUrl(text: string, id: number): string | undefined {
-  for (const line of text.split("\n")) {
-    const entry = line.match(/^\s*(\d+): (.*?)(?: \[selected\])?(?: isolatedContext=\S+)?\s*$/);
-    if (!entry || Number(entry[1]) !== id) continue;
-    const raw = entry[2]!.match(/\((https?:\/\/\S+)\)$/)?.[1] ?? entry[2]!.match(/^(https?:\/\/\S+)$/)?.[1];
-    if (raw === undefined) return undefined;
-    try { const url = new URL(raw); url.hash = ""; return url.href; } catch { return undefined; }
-  }
-  return undefined;
 }
 
 /** `2: Example Domain (https://example.com/) [selected]` → the selected page's url. */

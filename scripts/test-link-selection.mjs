@@ -10,6 +10,8 @@ import { ChromeDevToolsDriver, discover, loadSkillFile, runScenario, saveSkillFi
 let ids = ['alpha', 'bravo', 'charlie'];
 let cards = false;
 let stay = false;
+let closeOnClick = false;
+const newTab = new Set();
 const redirects = new Map();
 const opened = [];
 const server = createServer((req, res) => {
@@ -27,7 +29,8 @@ const server = createServer((req, res) => {
   const grid = cards
     ? `<section id="feed">${ids.map(id => `<article class="card">${id === ids[0] ? '<span>Official</span>' : ''}
         <a href="/posts/${id}"><img alt="${id} cover" width="40" height="40"></a><a href="/posts/${id}">${id}</a></article>`).join('')}</section>`
-    : `<div class="grid">${ids.map(id => `<a href="/posts/${id}"${stay ? ' onclick="event.preventDefault()"' : ''}>${id}</a>`).join('')}</div>`;
+    : `<div class="grid">${ids.map(id => `<a href="/posts/${id}"${newTab.has(id) ? ' target="_blank"' : ''}${stay ? ' onclick="event.preventDefault()"'
+      : closeOnClick ? ' onclick="event.preventDefault(); window.close()"' : ''}>${id}</a>`).join('')}</div>`;
   res.end(`<!doctype html><title>Posts</title><nav><a href="/about">About</a></nav>${grid}`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -89,6 +92,31 @@ try {
   assert.equal(stayed.result.verdict.passed, false, 'a click that never leaves the list must not pass');
   assert.equal(stayed.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
   stay = false;
+
+  // The run's tab closes on the click, so Chrome selects the other tab, which already shows the expected post.
+  await driver.call('navigate_page', { type: 'url', url: `${origin}/posts/alpha` });
+  await driver.call('evaluate_script', { function: `() => { window.open(${JSON.stringify(`${origin}/posts`)}); return {}; }` });
+  const runTab = [...(await driver.call('list_pages')).matchAll(/^\s*(\d+):/gm)].map(match => Number(match[1])).at(-1);
+  await driver.call('select_page', { pageId: runTab });
+  closeOnClick = true;
+  opened.length = 0;
+  const switched = await replay(loaded);
+  assert.match(await here(), /\/posts\/alpha/, 'the selected tab is now the other one');
+  assert.equal(switched.result.verdict.passed, false, 'an arrival read in another tab must not pass');
+  assert.equal(switched.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
+  closeOnClick = false;
+
+  // Discovery refuses a new-tab link before clicking it, as replay does.
+  ids = ['alpha', 'bravo', 'charlie'];
+  newTab.add('bravo');
+  opened.length = 0;
+  await assert.rejects(discoverAndLoad({
+    version: 1, id: 'new-tab-post',
+    target: { collection: { links: { scope: '.grid', member: ':scope > a' }, order: 'dom', index: 1, expectedCount: 3 } },
+    verify: { source: { kind: 'href' }, destination: { kind: 'location' } },
+  }));
+  assert.deepEqual(opened, [], 'discovery must not open a new-tab link');
+  newTab.clear();
 
   cards = true;
   ids = ['alpha', 'bravo', 'charlie'];

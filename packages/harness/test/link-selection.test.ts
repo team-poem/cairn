@@ -25,6 +25,8 @@ class GridDriver extends StubDriver {
   readonly dispatched: string[] = [];
   readonly observed: CollectionTarget[] = [];
   readonly redirects: Record<string, string> = {};
+  /** Posts whose link opens a new tab: the destination check refuses them before dispatch. */
+  readonly newTab = new Set<string>();
   private readonly refs = new Map<string, string>();
   constructor(public posts: string[]) { super("https://app/posts"); }
   private href(post: string): string { return `https://app/posts/${post.toLowerCase()}`; }
@@ -49,6 +51,7 @@ class GridDriver extends StubDriver {
   }
   async clickWithSelectedItemEvidence(_target: Target, ref: string, source: SelectedItemKey): Promise<ResourceKeyObservation> {
     if (source.kind !== "href") throw new Error("link collections bind their href");
+    if (this.newTab.has(this.refs.get(ref)!)) throw new CollectionSelectionError("unsupported", "the selected link has no same-tab document destination");
     return { complete: true, value: this.href(this.dispatch(ref)) };
   }
   async readResourceKey(): Promise<ResourceKeyObservation> { return { complete: true, value: this.url }; }
@@ -68,9 +71,8 @@ async function roundTrip(scenario: Scenario): Promise<{ loaded: Scenario; raw: s
 const bindingsOf = (scenario: Scenario) =>
   scenario.assertions.flatMap(a => a.kind === "custom" ? [a.params as unknown as SelectedItemBinding] : []);
 
-async function discoverSecond(selection: DiscoverySelection) {
+async function discoverSecond(selection: DiscoverySelection, driver = new GridDriver(["Alpha", "Bravo", "Charlie"])) {
   const llm = new Llm([JSON.stringify({ action: "click", selection: selection.id, reason: "open Bravo" }), JSON.stringify({ action: "done" })]);
-  const driver = new GridDriver(["Alpha", "Bravo", "Charlie"]);
   const scenario = await discover("Open the second post", { driver, llm, baseUrl: "https://app/posts", selections: [selection] });
   return { scenario, driver };
 }
@@ -94,6 +96,15 @@ describe("declared positional selection over plain links (#343)", () => {
     expect(replayDriver.observed).toEqual([grid()]);
     expect(result.verdict.passed).toBe(true);
     expect(result.usage?.llmCalls).toBe(0);
+  });
+
+  it("refuses in discovery, before dispatch, a link the destination check cannot observe", async () => {
+    const selection: DiscoverySelection = { version: 1, id: "second-post", target: { collection: grid() }, verify: linkVerify };
+    const driver = new GridDriver(["Alpha", "Bravo", "Charlie"]);
+    driver.newTab.add("Bravo");
+    const outcome = await discoverSecond(selection, driver).then(({ scenario }) => scenario, (error: unknown) => error);
+    expect(driver.dispatched).toEqual([]);
+    expect(JSON.stringify(outcome)).not.toContain('"collection"');
   });
 
   it("fails replay when the selected link arrives somewhere else", async () => {

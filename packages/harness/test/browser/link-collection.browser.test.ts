@@ -18,21 +18,27 @@ function grid(overrides: Partial<LinkCollectionScope> = {}, links: Partial<LinkM
   return { collection: { links: { scope: ".grid", member: ":scope > a", ...links }, order: "dom", index: 1, expectedCount: 3, ...overrides } };
 }
 
+/** `click` replaces the double's no-op click, for example with a real navigation. */
+interface Hook {
+  before?: (name: string, args: Record<string, unknown>) => Promise<void>;
+  snapshot?: (raw: string) => string;
+  click?: (id: string) => Promise<void>;
+}
+
 async function withPage(run: (ctx: {
-  page: Page; driver: ChromeDevToolsDriver; actions: string[];
-  hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void>; snapshot?: (raw: string) => string };
+  page: Page; driver: ChromeDevToolsDriver; actions: string[]; hook: Hook;
   scope: ReturnType<typeof createHostOwnedRootScope>;
 }) => Promise<void>) {
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   try {
     // An http origin, so link destinations resolve as they do on a served page.
-    await page.route("https://example.test/**", route => route.fulfill({ contentType: "text/html", body: `<!doctype html>${html}` }));
+    await page.route(/^https:\/\/(mirror\.)?example\.test\//, route => route.fulfill({ contentType: "text/html", body: `<!doctype html>${html}` }));
     await page.goto("https://example.test/posts");
     await page.evaluate(`(() => { globalThis.nodes = new Map(); globalThis.uids = new WeakMap(); globalThis.nextUid = 0; })()`);
     const scope = createHostOwnedRootScope();
     const driver = new ChromeDevToolsDriver({ promoteClickables: false, hostOwnedRoots: scope });
     const actions: string[] = [];
-    const hook: { before?: (name: string, args: Record<string, unknown>) => Promise<void>; snapshot?: (raw: string) => string } = {};
+    const hook: Hook = {};
     // Replace transport only. Production DOM probes, ownership filtering and exact guards run
     // in real Chrome. scripts/test-collection-selection.mjs covers real MCP accessibility output.
     (driver as unknown as { call: unknown }).call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -68,6 +74,7 @@ async function withPage(run: (ctx: {
           return el.id;
         })()`);
         actions.push(`${name}:${id}`);
+        if (name === "click") await hook.click?.(id);
         return "";
       }
       throw new Error(`unexpected MCP action: ${name}`);
@@ -172,5 +179,49 @@ test("a link destination check dispatches a same-tab link once and refuses other
     const bound = await resolveCollectionTarget(driver, grid());
     await expect(driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" })).rejects.toMatchObject({ code: "unsupported" });
     expect(actions).toEqual([]);
+  });
+});
+
+/** The browser follows the link as it resolves when the click lands. */
+const navigate = (page: Page) => async (id: string) => {
+  await Promise.all([page.waitForEvent("framenavigated"), page.click(`#${id}`)]);
+};
+
+test("a link destination check confirms a same-tab navigation to the selected link", async () => {
+  await withPage(async ({ driver, page, hook }) => {
+    hook.click = navigate(page);
+    const bound = await resolveCollectionTarget(driver, grid());
+    const source = await driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" });
+    const arrival = await driver.readResourceKey({ kind: "location" });
+    expect(source).toEqual({ complete: true, value: "https://example.test/posts/bravo" });
+    expect(arrival).toEqual(source);
+  });
+});
+
+test("a <base href> that differs between the destination read and the final guard cannot confirm the arrival", async () => {
+  await withPage(async ({ driver, page, hook }) => {
+    await page.evaluate(`document.head.insertAdjacentHTML('beforeend', '<base href="https://example.test/">')`);
+    hook.click = navigate(page);
+    const bound = await resolveCollectionTarget(driver, grid());
+    // A page script swaps the base. Each guard window, from a revision read through its measurement, sees the
+    // original base. Every other read and the click itself see the mirror.
+    const base = (href: string) => page.evaluate(`(() => { const base = document.querySelector('base');
+      if (base && base.getAttribute('href') !== ${JSON.stringify(href)}) base.setAttribute('href', ${JSON.stringify(href)}); })()`);
+    let guarding = true, leaving = false;
+    hook.before = async (name, args) => {
+      if (leaving) { guarding = false; leaving = false; }
+      if (name === "click") return base("https://mirror.example.test/");
+      if (name !== "evaluate_script") return;
+      const script = String(args.function);
+      if (script.includes("revision:state.records.length")) guarding = true;
+      if (script.includes("const spec =")) leaving = true;
+      await base(guarding ? "https://example.test/" : "https://mirror.example.test/");
+    };
+    const source = await driver.clickWithSelectedItemEvidence(bound.target, bound.ref, { kind: "href" });
+    hook.before = undefined;
+    const arrival = await driver.readResourceKey({ kind: "location" });
+    expect(arrival).toEqual({ complete: true, value: "https://mirror.example.test/posts/bravo" });
+    // The guarded link pointed at example.test, so arriving at the mirror must not confirm it.
+    expect(source.complete && source.value === arrival.value).toBe(false);
   });
 });

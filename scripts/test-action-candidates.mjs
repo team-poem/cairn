@@ -1,6 +1,9 @@
 // Real Chrome/MCP. A heading and a roleless widget have working click handlers but carry no
 // `clickable` hint, so their eligibility is unknown and they stay usable. A host that measured the
-// heading as click-disallowed gets it rejected before dispatch. Scripted decisions, no model account.
+// heading as click-disallowed gets it rejected before dispatch. A control under computed
+// `pointer-events: none` is measured disallowed by the Chrome driver itself and rejected the same
+// way, with no host hint. It sits below the fold because an on-screen one already fails the
+// foreground hit test and is dropped from the listing as occluded. Scripted decisions, no model account.
 // Build first. CAIRN_MCP_ENTRY may select an installed chrome-devtools-mcp 1.8.0.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -14,11 +17,14 @@ const server = createServer((req, res) => {
     <h1 id="heading">Alpha</h1>
     <a href="#" id="link">Alpha Curated goods from the Alpha store</a>
     <div id="widget">Open drawer</div>
+    <div style="height:3000px"></div>
+    <button id="blocked" style="pointer-events:none">Save draft</button>
     <script>
       window.clicks = [];
       document.querySelector('#heading').addEventListener('click', () => clicks.push('heading'));
       document.querySelector('#link').addEventListener('click', e => { e.preventDefault(); clicks.push('link'); });
       document.addEventListener('click', e => { if (e.target.id === 'widget') clicks.push('widget'); });
+      document.querySelector('#blocked').addEventListener('click', () => clicks.push('blocked'));
     </script>`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -30,7 +36,7 @@ const options = process.env.CAIRN_MCP_ENTRY
 
 const refOf = (prompt, marker) => {
   const ref = prompt.split('\n').find(row => row.includes('ref=') && row.includes(marker))?.match(/ref="([^"]+)"/)?.[1];
-  assert.ok(ref, `the listing must carry an exact reference for ${marker}`);
+  assert.ok(ref, `the listing must carry an exact reference for ${marker}\n${prompt}`);
   return ref;
 };
 const pageClicks = async driver => {
@@ -93,6 +99,32 @@ try {
       assert.match(prompts[1], /not run: the observed target is measured as not accepting "click"/);
       assert.deepEqual(gates, [{ gate: 'action-eligibility', action: 'click', reason: 'measured-disallowed' }]);
       report.push({ case: `disallowed-${mode}`, pageClicks: ['link'] });
+    } finally { await driver.close(); }
+  }
+  // A measurement from the Driver itself: no `perceive` hint. The same click on a pointer-events:none
+  // button reports success but never reaches its handler, which is why the engine must not dispatch it.
+  for (const mode of ['discover', 'explore']) {
+    driver = new ChromeDevToolsDriver(options);
+    const gates = [];
+    const trace = startTrace({ emit: e => { if (e.kind === 'gate') gates.push(e.payload); } }, 'measured').scope('measured');
+    try {
+      await driver.goto(baseUrl);
+      const rows = await driver.snapshot({ perception: true });
+      const blocked = rows.filter(r => r.name === 'Save draft');
+      assert.ok(blocked.length > 0, 'the blocked button must be observed');
+      for (const row of blocked) assert.deepEqual(row.actions, { click: 'disallowed', doubleClick: 'disallowed', hover: 'disallowed' });
+      for (const name of ['Alpha', 'Open drawer']) assert.equal(rows.find(r => r.name === name).actions, undefined);
+      if (mode === 'discover') {
+        await driver.click({ text: 'Save draft' });
+        assert.deepEqual(await pageClicks(driver), [], 'a direct driver click reaches no handler');
+      }
+      const { llm, prompts } = scripted(['[button] Save draft', '[link] Alpha Curated']);
+      const opts = { driver, llm, baseUrl, maxSteps: 4, trace };
+      if (mode === 'discover') await discover('open Alpha', opts); else await explore('survey Alpha', opts);
+      assert.deepEqual(await pageClicks(driver), ['link']);
+      assert.match(prompts[1], /not run: the observed target is measured as not accepting "click"/);
+      assert.deepEqual(gates, [{ gate: 'action-eligibility', action: 'click', reason: 'measured-disallowed' }]);
+      report.push({ case: `measured-${mode}`, pageClicks: ['link'] });
     } finally { await driver.close(); }
   }
   console.log(JSON.stringify(report, null, 2));

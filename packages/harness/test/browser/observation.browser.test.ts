@@ -17,7 +17,7 @@ async function withPage(run: (page: Page) => Promise<void>) {
   } finally { await page.close(); }
 }
 
-type Facts = Record<string, { inActivePopup?: boolean; occluded?: boolean; clickable?: boolean; clickableRegion?: string }>;
+type Facts = Record<string, { inActivePopup?: boolean; occluded?: boolean; clickable?: boolean; clickableRegion?: string; actions?: Record<string, string> }>;
 async function probe(page: Page, ids: string[], clickables = true, outcomes = false): Promise<Facts> {
   return page.evaluate(`(${perceptionProbeScript(ids, clickables, undefined, undefined, outcomes)})(...${JSON.stringify(ids)}.map(id => document.getElementById(id)))`);
 }
@@ -207,5 +207,24 @@ test("observationDocumentCoverage: a captured RootWebArea does not disable guard
     const rows = await driver.snapshot({ perception: true });
     expect(rows[1]!.ref).toBeTypeOf("string");
     expect(await driver.locateRef(rows[1]!.ref!)).toMatchObject({ text: "Account", role: "button" });
+  });
+});
+
+test("observationActionEligibility: computed pointer-events none measures pointer actions disallowed, everything else stays unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<h1 id="plain">Alpha</h1><button id="none" style="pointer-events:none">Save</button>' +
+      '<div id="none-parent" style="pointer-events:none"><button id="reenabled" style="pointer-events:auto">Open</button><span id="inherited">Label</span></div>' +
+      '<div id="none-with-child" style="pointer-events:none"><a id="child-link" href="#" style="pointer-events:auto">Go</a></div>' +
+      '<div id="none-wide" style="pointer-events:none">' + "<i></i>".repeat(70) + '</div>' +
+      '<button id="cursor-hint" style="pointer-events:none;cursor:pointer" onclick="0">Hint</button>');
+    const ids = ["plain", "none", "reenabled", "inherited", "none-with-child", "none-wide", "cursor-hint"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    expect(facts.none?.actions).toEqual(pointer);
+    expect(facts.inherited?.actions).toEqual(pointer);
+    expect(facts["cursor-hint"]?.actions).toEqual(pointer);
+    for (const id of ["plain", "reenabled", "none-with-child", "none-wide"]) expect(facts[id]).not.toHaveProperty("actions");
+    expect(await probe(page, ["none"], false)).toMatchObject({ none: { actions: pointer } });
   });
 });

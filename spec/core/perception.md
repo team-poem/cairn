@@ -372,7 +372,13 @@ role. A Driver or the consumer's `perceive` callback may additionally attach
 - The trace carries `gate: action-eligibility` with the verb and a fixed reason, and no names,
   refs, values or URLs. The model feedback names the action it chose and nothing else from the page.
 
-The reference Chrome driver supplies no `actions` today. Its measured facts are `inActivePopup`,
-`occluded` and positive `clickable`, none of which is a per-action refusal. Computed
-`pointer-events: none` or `inert` would be the first measurable source; until a Driver measures
-it, a host supplies the facts through `perceive`.
+The reference Chrome driver measures one source. A row whose computed `pointer-events` is `none`
+reports `click`, `doubleClick` and `hover` as `disallowed`: the pointer lands on whatever lies
+beneath, and the driver still reports success without firing the row's handler. It reads nothing
+for `type` or `select`, which need no pointer. A descendant that opts back in with another
+`pointer-events` value can receive the pointer and bubble to the row, and a subtree of more than 64
+elements is too large to scan, so both leave the row unknown. An on-screen `pointer-events: none`
+control already fails the foreground hit test and leaves the listing as occluded; the measurement
+covers the rows that test cannot reach, such as offscreen or clipped ones. Chrome drops an inert
+subtree from the accessibility tree, so `inert` never becomes a row and is not measured. Any other
+refusal comes from a host through `perceive`.

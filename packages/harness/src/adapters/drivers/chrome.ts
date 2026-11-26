@@ -128,15 +128,19 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       // fall through to whatever lies beneath while the driver still reports success. A descendant
       // that opts back in can receive it and bubble to this node, and a subtree too large to scan
       // stays unknown rather than refused. The scan covers generated ::before and ::after content and
-      // open shadow trees, whose nodes count toward that limit; a closed shadow root cannot be read
-      // from page script. A label that still takes the pointer activates its control, so Chrome
-      // checks the box on the same click. Chrome drops an inert subtree from the
-      // AX tree, so it never becomes a row.
+      // open shadow trees, whose nodes count toward that limit. A closed shadow root cannot be read
+      // from page script and no read-only probe detects one, so a defined custom element without a
+      // readable root may hide a pointer target and leaves the row unknown. A label that still
+      // takes the pointer activates its control, so Chrome checks the box on the same click.
+      // Chrome drops an inert subtree from the AX tree, so it never becomes a row.
       const pseudoTakesPointer = node => ['::before', '::after'].some(which => {
         const style = getComputedStyle(node, which);
         return style.content !== 'none' && style.content !== 'normal' && style.pointerEvents !== 'none';
       });
+      const mayHideClosedRoot = node => !node.shadowRoot &&
+        !!customElements.get(node.getAttribute('is') || node.localName);
       const reachableByPointer = () => {
+        if (mayHideClosedRoot(el)) return true;
         for (const label of el.labels ?? []) if (getComputedStyle(label).pointerEvents !== 'none') return true;
         if (pseudoTakesPointer(el)) return true;
         const scopes = [el];
@@ -146,6 +150,7 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
           for (const node of scopes.pop().querySelectorAll('*')) {
             if (++scanned > ${POINTER_SCAN_LIMIT}) return true;
             if (getComputedStyle(node).pointerEvents !== 'none' || pseudoTakesPointer(node)) return true;
+            if (mayHideClosedRoot(node)) return true;
             if (node.shadowRoot) scopes.push(node.shadowRoot);
           }
         }

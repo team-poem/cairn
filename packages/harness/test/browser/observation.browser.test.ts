@@ -278,3 +278,33 @@ test("observationActionEligibility: a pointer-events none control whose pseudo-e
     expect(await page.evaluate("window.hit")).toBe("shadow");
   });
 });
+
+test("observationActionEligibility: a custom element that may hide a closed shadow root keeps a pointer-events none row unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<closed-host id="closed-host" style="display:block;pointer-events:none"></closed-host>' +
+      '<div id="closed-child" style="pointer-events:none"><closed-host></closed-host></div>' +
+      '<div id="open-then-closed" style="pointer-events:none"></div>' +
+      '<light-host id="light-host" style="pointer-events:none"></light-host>' +
+      '<undefined-host id="undefined-host" style="pointer-events:none"></undefined-host>' +
+      '<div id="plain" style="pointer-events:none"><span>text</span></div>');
+    await page.evaluate(`(() => {
+      customElements.define("closed-host", class extends HTMLElement {
+        connectedCallback() {
+          this.attachShadow({ mode: "closed" }).innerHTML = '<button style="display:block;width:40px;height:20px;pointer-events:auto">Go</button>';
+        }
+      });
+      customElements.define("light-host", class extends HTMLElement {});
+      const open = document.getElementById("open-then-closed").attachShadow({ mode: "open" });
+      open.innerHTML = "<closed-host></closed-host>";
+      document.getElementById("closed-host").addEventListener("click", () => { window.hit = "closed"; });
+    })()`);
+    const ids = ["closed-host", "closed-child", "open-then-closed", "light-host", "undefined-host", "plain"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    for (const id of ["closed-host", "closed-child", "open-then-closed", "light-host"]) expect(facts[id]).not.toHaveProperty("actions");
+    for (const id of ["undefined-host", "plain"]) expect(facts[id]?.actions).toEqual(pointer);
+    await page.locator("#closed-host").click({ position: { x: 10, y: 10 }, force: true });
+    expect(await page.evaluate("window.hit")).toBe("closed");
+  });
+});

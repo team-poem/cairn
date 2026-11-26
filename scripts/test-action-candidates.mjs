@@ -4,7 +4,7 @@
 // `pointer-events: none` is measured disallowed by the Chrome driver itself and rejected the same
 // way, with no host hint. It sits below the fold because an on-screen one already fails the
 // foreground hit test and is dropped from the listing as occluded. A pointer-events:none checkbox
-// whose label still takes the pointer is checked through that label, and a control whose ::before or open shadow child takes the pointer is clicked through it, so each stays unknown. Scripted decisions, no model account.
+// whose label still takes the pointer is checked through that label, and a control whose ::before, open shadow child or closed shadow child takes the pointer is clicked through it, so each stays unknown. Scripted decisions, no model account.
 // Build first. CAIRN_MCP_ENTRY may select an installed chrome-devtools-mcp 1.8.0.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -19,10 +19,17 @@ const server = createServer((req, res) => {
     <style>#pseudo::before { content: ''; display: block; width: 120px; height: 24px; pointer-events: auto; }</style>
     <button id="pseudo" aria-label="Pseudo go" style="pointer-events:none"></button>
     <div id="host" role="button" tabindex="0" aria-label="Shadow go" style="display:inline-block;pointer-events:none"></div>
+    <closed-host id="closed" role="button" tabindex="0" aria-label="Closed go" style="display:inline-block;pointer-events:none"></closed-host>
+    <div id="plain" role="button" tabindex="0" aria-label="Plain go" style="display:inline-block;pointer-events:none">Plain</div>
     <script>
       window.clicks = [];
+      customElements.define('closed-host', class extends HTMLElement {
+        connectedCallback() {
+          this.attachShadow({ mode: 'closed' }).innerHTML = '<span style="display:block;width:120px;height:24px;pointer-events:auto">Go</span>';
+        }
+      });
       document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML = '<span style="display:block;width:120px;height:24px;pointer-events:auto">Go</span>';
-      for (const id of ['pseudo', 'host']) document.querySelector('#' + id).addEventListener('click', () => clicks.push(id));
+      for (const id of ['pseudo', 'host', 'closed']) document.querySelector('#' + id).addEventListener('click', () => clicks.push(id));
     </script>`);
     return;
   }
@@ -156,7 +163,7 @@ try {
   } finally { await driver.close(); }
   // A pseudo-element or an open shadow child that opts back in receives the click and
   // dispatches it to the row, so measuring the row disallowed would refuse a click that works.
-  for (const [name, id] of [['Pseudo go', 'pseudo'], ['Shadow go', 'host']]) {
+  for (const [name, id] of [['Pseudo go', 'pseudo'], ['Shadow go', 'host'], ['Closed go', 'closed']]) {
     driver = new ChromeDevToolsDriver(options);
     try {
       await driver.goto(`${baseUrl}/pointer`);
@@ -168,6 +175,16 @@ try {
       report.push({ case: `pointer-through-${id}`, pageClicks: [id] });
     } finally { await driver.close(); }
   }
+  // The control: a plain element with no pointer-taking content is still measured disallowed
+  // and rejected before dispatch.
+  driver = new ChromeDevToolsDriver(options);
+  try {
+    await driver.goto(`${baseUrl}/pointer`);
+    const row = (await driver.snapshot({ perception: true })).find(r => r.name === 'Plain go');
+    assert.ok(row, 'Plain go must be observed');
+    assert.deepEqual(row.actions, { click: 'disallowed', doubleClick: 'disallowed', hover: 'disallowed' });
+    report.push({ case: 'pointer-plain-disallowed' });
+  } finally { await driver.close(); }
   console.log(JSON.stringify(report, null, 2));
 } finally {
   server.closeAllConnections();

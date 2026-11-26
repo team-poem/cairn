@@ -380,8 +380,12 @@ for `type` or `select`, which need no pointer. A descendant that opts back in wi
 descendant's generated `::before` or `::after` content, and a child inside an open shadow tree,
 which retargets to its host. A subtree of more than 64 elements, shadow descendants included, is too
 large to scan. Each of these leaves the row unknown. A closed shadow root cannot be read from page
-script, so its children are not measured and a row whose only pointer target lives there is still
-reported disallowed. A labelable control with an associated
+script, and no read-only probe detects one: `attachShadow` throws on a host that has a root but
+attaches one otherwise, and `attachInternals` can be taken only once. So the row, or any scanned
+element, that is a defined custom element (by tag name or `is`) with no readable `shadowRoot` leaves
+the row unknown, even if it hosts no root. A built-in element such as a `div` can also host a closed
+root and is not flagged, because that would leave nearly every row unknown; a row whose only pointer
+target lives in a closed root on a built-in host is still reported disallowed. A labelable control with an associated
 label (wrapping or `for=`) whose own `pointer-events` is not `none` also stays unknown: the click
 can land on that label, which activates the control, and Chrome checks the box on the same ref. An on-screen `pointer-events: none`
 control already fails the foreground hit test and leaves the listing as occluded; the measurement

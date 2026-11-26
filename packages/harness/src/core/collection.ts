@@ -159,7 +159,11 @@ export function isLinkCollection(selection: CollectionDeclaration): selection is
   return "links" in selection && selection.links !== undefined;
 }
 
-/** Validate frozen input at runtime, returning a private copy before awaited browser work. */
+/** Validate frozen input at runtime, returning a private copy before awaited browser work. A declaration
+ * typed as one form returns that form, so role-form callers from 2.9.8 still read `root` without a cast. */
+export function validateCollectionTarget(target: Target & { collection: CollectionTarget }): CollectionTarget;
+export function validateCollectionTarget(target: Target & { collection: LinkCollectionScope }): LinkCollectionScope;
+export function validateCollectionTarget(target: Target): CollectionDeclaration;
 export function validateCollectionTarget(target: Target): CollectionDeclaration {
   const outer = record(target, ["collection"], "target");
   const raw = outer.collection;

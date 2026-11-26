@@ -75,8 +75,10 @@ member. Core checks completeness, the declared count, positions and the selected
 be a `link` (its name is not checked, because an image link may have none).
 `Driver.observeCollection` receives only the role form (`CollectionTarget`), and
 `clickWithSelectedItemEvidence` and `readResourceKey` receive only attribute keys.
-`Target.collection` holds either form (`CollectionDeclaration`). A missing port never becomes a
-pass.
+`Target.collection` holds either form (`CollectionDeclaration`). `validateCollectionTarget` returns
+the form its argument is typed as: `CollectionTarget` for a role-form target, as in 2.9.8,
+`LinkCollectionScope` for a link-form target, and `CollectionDeclaration` for a plain `Target`. A
+missing port never becomes a pass.
 
 The Chrome adapter passes every accessibility `link` row (at most 4,096) to one guarded DOM
 measurement. In the page it resolves `scope`, `member` and `action`, and binds each member's link to

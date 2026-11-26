@@ -10,7 +10,7 @@ const selection: CollectionTarget = {
   order: "dom", index: 0, expectedCount: 2,
   conditions: [{ control: { role: "textbox", name: "Search" }, value: "books" }],
 };
-const target = (): Target => ({ collection: structuredClone(selection) });
+const target = (): Target & { collection: CollectionTarget } => ({ collection: structuredClone(selection) });
 const observation = (): CollectionObservation => ({ order: "dom", complete: true,
   items: [0, 1].map(position => ({ position, target: { role: "button", name: "Open", ref: `ref-${position}` } })),
   conditions: [{ value: "books" }],
@@ -22,7 +22,7 @@ function driver(facts = observation()): Driver & { observeCollection: ReturnType
 describe("collection declaration validation", () => {
   it("copies nested declaration data without modifying the caller", () => {
     const authored = target();
-    const copy = validateCollectionTarget(authored) as CollectionTarget;
+    const copy = validateCollectionTarget(authored);
     copy.root.name = "Other";
     copy.conditions![0]!.value = "other";
     expect(authored.collection).toEqual(selection);

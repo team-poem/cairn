@@ -15,6 +15,7 @@ const issue231Wire = vi.hoisted(() => ({
   factError: undefined as unknown,
   factEnvelope: undefined as string | undefined,
   badUid: undefined as string | undefined,
+  extraFacts: {} as Record<string, unknown>,
 }));
 vi.mock("@modelcontextprotocol/sdk/client/stdio.js", () => ({
   StdioClientTransport: class {
@@ -49,7 +50,7 @@ vi.mock("@modelcontextprotocol/sdk/client/index.js", () => ({
           if (issue231Wire.factError) throw issue231Wire.factError;
           if (issue231Wire.factEnvelope) return { isError: true, content: [{ type: "text", text: issue231Wire.factEnvelope }] };
           if (issue231Wire.badUid && ids.includes(issue231Wire.badUid)) throw new Error("Elements from different frames can't be evaluated together.");
-          text = JSON.stringify(Object.fromEntries(ids.map(uid => [uid, { referenceReady: true, inActivePopup: true, clickable: true, clickableRegion: "region" }])));
+          text = JSON.stringify(Object.fromEntries(ids.map(uid => [uid, { referenceReady: true, inActivePopup: true, clickable: true, clickableRegion: "region", ...(issue231Wire.extraFacts[uid] !== undefined ? { actions: issue231Wire.extraFacts[uid] } : {}) }])));
         } else text = "{}";
       }
       return { content: [{ type: "text", text }] };
@@ -63,6 +64,7 @@ beforeEach(() => {
   issue231Wire.connectGate = issue231Wire.listGate = undefined;
   issue231Wire.connectError = issue231Wire.listError = issue231Wire.factError = undefined;
   issue231Wire.factEnvelope = issue231Wire.badUid = undefined;
+  issue231Wire.extraFacts = {};
 });
 function issue231Deferred() {
   let resolve!: () => void;
@@ -214,4 +216,21 @@ test("realMcpNodeErrorEnvelopesPreserveOtherFacts: MCP Error prefixes still isol
       });
     } finally { spy.mockRestore(); }
   }
+});
+
+test("measuredActionRefusalsAreParsedStrictly: only the probe's own disallowed pointer verbs reach a row", async () => {
+  issue231Wire.extraFacts = {
+    "1_1": { click: "disallowed", hover: "maybe", type: "disallowed", other: "disallowed" },
+    "1_2": "disallowed",
+    "1_3": { click: "supported" },
+    "1_4": { doubleClick: "disallowed", hover: "disallowed" },
+  };
+  await issue231Driver(async driver => {
+    const rows = await driver.snapshot({ perception: true });
+    expect(rows[0]!.actions).toEqual({ click: "disallowed" });
+    expect(rows[1]!.actions).toBeUndefined();
+    expect(rows[2]!.actions).toBeUndefined();
+    expect(rows[3]!.actions).toEqual({ doubleClick: "disallowed", hover: "disallowed" });
+    expect(rows[4]!.actions).toBeUndefined();
+  });
 });

@@ -28,6 +28,7 @@ import { promotedClickableNames } from "../../core/perception.js";
 import { CollectionSelectionError, SelectionNotDispatchedError, validateCollectionTarget } from "../../core/collection.js";
 import type { Driver } from "../../core/ports.js";
 import type {
+  ActionEligibility,
   ConsoleMessage,
   CollectionObservation,
   CollectionTarget,
@@ -70,6 +71,7 @@ let nextDriverId = 0;
 // React delegates onClick at the root, invisible to the DOM — are app/framework knowledge, so a
 // consumer driver's job (invariant #1), not this reference driver's. Capped so a busy page can't flood.
 const CLICKABLE_HOPS = 6;
+const POINTER_SCAN_LIMIT = 64;
 /** For each passed element, the id of its nearest roleless `cursor:pointer` ancestor (a clickable
  * region), or -1 — so the driver keeps one label per region (de-nesting). Framework-agnostic. */
 const CLICKABLE_PROBE =
@@ -122,6 +124,49 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
           facts.checked = el.type === 'checkbox' && el.indeterminate ? 'mixed' : el.checked;
         if (el.tagName === 'OPTION') facts.selected = el.selected;
       }
+      // A click, double click or hover is a pointer event, and computed pointer-events:none lets it
+      // fall through to whatever lies beneath while the driver still reports success. A descendant
+      // that opts back in can receive it and bubble to this node, and a subtree too large to scan
+      // stays unknown rather than refused. The scan covers generated ::before and ::after content and
+      // open shadow trees, whose nodes count toward that limit. A label that still takes the pointer
+      // activates its control, so the subtree of each associated label is scanned the same way and
+      // shares the limit. A closed shadow root cannot be read from page script and no read-only probe
+      // detects one, so any element that may host a shadow root (a built-in host name or a valid
+      // custom element name) and has no readable root may hide a pointer target and leaves the row
+      // unknown. Chrome drops an inert subtree from the AX tree, so it never becomes a row.
+      const pseudoTakesPointer = node => ['::before', '::after'].some(which => {
+        const style = getComputedStyle(node, which);
+        return style.content !== 'none' && style.content !== 'normal' && style.pointerEvents !== 'none';
+      });
+      const shadowHostNames = /^(article|aside|blockquote|body|div|footer|h[1-6]|header|main|nav|p|section|span)$/;
+      const reservedNames = /^(annotation-xml|color-profile|font-face|font-face-src|font-face-uri|font-face-format|font-face-name|missing-glyph)$/;
+      const mayHideClosedRoot = node => !node.shadowRoot && node.namespaceURI === 'http://www.w3.org/1999/xhtml' &&
+        (shadowHostNames.test(node.localName) || node.localName.includes('-') && !reservedNames.test(node.localName));
+      const mayTakePointer = node => getComputedStyle(node).pointerEvents !== 'none' ||
+        pseudoTakesPointer(node) || mayHideClosedRoot(node);
+      const reachableByPointer = () => {
+        const seen = new Set();
+        const scopes = [];
+        for (const root of [el, ...(el.labels ?? [])]) {
+          if (mayTakePointer(root)) return true;
+          seen.add(root);
+          scopes.push(root);
+          if (root.shadowRoot) scopes.push(root.shadowRoot);
+        }
+        let scanned = 0;
+        while (scopes.length) {
+          for (const node of scopes.pop().querySelectorAll('*')) {
+            if (seen.has(node)) continue;
+            seen.add(node);
+            if (++scanned > ${POINTER_SCAN_LIMIT}) return true;
+            if (mayTakePointer(node)) return true;
+            if (node.shadowRoot) scopes.push(node.shadowRoot);
+          }
+        }
+        return false;
+      };
+      if (getComputedStyle(el).pointerEvents === 'none' && !reachableByPointer())
+        facts.actions = { click: 'disallowed', doubleClick: 'disallowed', hover: 'disallowed' };
       if (${clickables}) {
         let elAt = el;
         let region;
@@ -143,6 +188,17 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       return [ids[i], facts];
     }));
   }`;
+}
+
+const POINTER_ACTIONS = ["click", "doubleClick", "hover"] as const;
+
+/** Keep only the refusals the probe can measure; anything else the page-side script returned is dropped. */
+function measuredPointerRefusals(value: unknown): ActionEligibility | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  const refused: ActionEligibility = {};
+  for (const action of POINTER_ACTIONS)
+    if (Object.hasOwn(value, action) && (value as Record<string, unknown>)[action] === "disallowed") refused[action] = "disallowed";
+  return Object.keys(refused).length ? refused : undefined;
 }
 
 export interface ChromeDriverOptions {
@@ -1050,6 +1106,8 @@ export class ChromeDevToolsDriver implements Driver {
         const row: Partial<PageElement> & { readableTextValue?: true } = {};
         if (typeof raw.inActivePopup === "boolean") row.inActivePopup = raw.inActivePopup;
         if (typeof raw.occluded === "boolean") row.occluded = raw.occluded;
+        const actions = measuredPointerRefusals(raw.actions);
+        if (actions) row.actions = actions;
         if (actionOutcomes) {
           if (raw.readableTextValue === true) row.readableTextValue = true;
           for (const key of ["pressed", "checked"] as const)

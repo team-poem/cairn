@@ -377,7 +377,9 @@ reports `click`, `doubleClick` and `hover` as `disallowed`: the pointer lands on
 beneath, and the driver still reports success without firing the row's handler. It reads nothing
 for `type` or `select`, which need no pointer. A descendant that opts back in with another
 `pointer-events` value can receive the pointer and bubble to the row, and a subtree of more than 64
-elements is too large to scan, so both leave the row unknown. An on-screen `pointer-events: none`
+elements is too large to scan, so both leave the row unknown. A labelable control with an associated
+label (wrapping or `for=`) whose own `pointer-events` is not `none` also stays unknown: the click
+can land on that label, which activates the control, and Chrome checks the box on the same ref. An on-screen `pointer-events: none`
 control already fails the foreground hit test and leaves the listing as occluded; the measurement
 covers the rows that test cannot reach, such as offscreen or clipped ones. Chrome drops an inert
 subtree from the accessibility tree, so `inert` never becomes a row and is not measured. Any other

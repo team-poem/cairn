@@ -228,3 +228,21 @@ test("observationActionEligibility: computed pointer-events none measures pointe
     expect(await probe(page, ["none"], false)).toMatchObject({ none: { actions: pointer } });
   });
 });
+
+test("observationActionEligibility: a pointer-events none control a live label still activates stays unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<label><input id="wrapped" type="checkbox" style="pointer-events:none"> Wrapped</label>' +
+      '<input id="linked" type="checkbox" style="pointer-events:none"><label for="linked">Linked</label>' +
+      '<label style="pointer-events:none"><input id="dead-wrapper" type="checkbox" style="pointer-events:none"> Dead</label>' +
+      '<input id="dead-linked" type="radio" style="pointer-events:none"><label for="dead-linked" style="pointer-events:none">Dead linked</label>' +
+      '<label><button id="in-label" style="pointer-events:none">Go</button></label>');
+    const ids = ["wrapped", "linked", "dead-wrapper", "dead-linked", "in-label"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    for (const id of ["wrapped", "linked", "in-label"]) expect(facts[id]).not.toHaveProperty("actions");
+    for (const id of ["dead-wrapper", "dead-linked"]) expect(facts[id]?.actions).toEqual(pointer);
+    await page.locator("#wrapped").click({ position: { x: 4, y: 4 }, force: true });
+    expect(await page.locator("#wrapped").isChecked()).toBe(true);
+  });
+});

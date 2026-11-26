@@ -3,7 +3,8 @@
 // heading as click-disallowed gets it rejected before dispatch. A control under computed
 // `pointer-events: none` is measured disallowed by the Chrome driver itself and rejected the same
 // way, with no host hint. It sits below the fold because an on-screen one already fails the
-// foreground hit test and is dropped from the listing as occluded. Scripted decisions, no model account.
+// foreground hit test and is dropped from the listing as occluded. A pointer-events:none checkbox
+// whose label still takes the pointer is checked through that label, so it stays unknown. Scripted decisions, no model account.
 // Build first. CAIRN_MCP_ENTRY may select an installed chrome-devtools-mcp 1.8.0.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -19,6 +20,7 @@ const server = createServer((req, res) => {
     <div id="widget">Open drawer</div>
     <div style="height:3000px"></div>
     <button id="blocked" style="pointer-events:none">Save draft</button>
+    <label><input id="subscribe" type="checkbox" style="pointer-events:none"> Subscribe</label>
     <script>
       window.clicks = [];
       document.querySelector('#heading').addEventListener('click', () => clicks.push('heading'));
@@ -127,6 +129,19 @@ try {
       report.push({ case: `measured-${mode}`, pageClicks: ['link'] });
     } finally { await driver.close(); }
   }
+  // The click on a pointer-events:none checkbox lands on its wrapping label and checks it, so
+  // measuring it disallowed would refuse a click that works.
+  driver = new ChromeDevToolsDriver(options);
+  try {
+    await driver.goto(baseUrl);
+    const row = (await driver.snapshot({ perception: true })).find(r => r.role === 'checkbox');
+    assert.ok(row, 'the labelled checkbox must be observed');
+    assert.equal(row.actions, undefined, 'a label-activatable control stays unknown');
+    await driver.click({ text: row.name }, row.ref);
+    const reply = await driver.call('evaluate_script', { function: '() => document.querySelector("#subscribe").checked' }, 'observation');
+    assert.equal(JSON.parse(reply.match(/```json\s*([\s\S]*?)\s*```/)[1]), true, 'the click checks the box through its label');
+    report.push({ case: 'label-activated', checked: true });
+  } finally { await driver.close(); }
   console.log(JSON.stringify(report, null, 2));
 } finally {
   server.closeAllConnections();

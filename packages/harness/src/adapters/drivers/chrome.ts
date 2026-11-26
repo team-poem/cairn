@@ -127,9 +127,11 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       // A click, double click or hover is a pointer event, and computed pointer-events:none lets it
       // fall through to whatever lies beneath while the driver still reports success. A descendant
       // that opts back in can receive it and bubble to this node, and a subtree too large to scan
-      // stays unknown rather than refused. Chrome drops an inert subtree from the AX tree, so it
-      // never becomes a row.
+      // stays unknown rather than refused. A label that still takes the pointer activates its
+      // control, so Chrome checks the box on the same click. Chrome drops an inert subtree from the
+      // AX tree, so it never becomes a row.
       const reachableByPointer = () => {
+        for (const label of el.labels ?? []) if (getComputedStyle(label).pointerEvents !== 'none') return true;
         const below = el.querySelectorAll('*');
         if (below.length > ${POINTER_SCAN_LIMIT}) return true;
         for (const node of below) if (getComputedStyle(node).pointerEvents !== 'none') return true;

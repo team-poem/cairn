@@ -11,6 +11,8 @@
   - [judgment](core/judgment.md) — three-layer evidence judgment.
   - [targeting](core/targeting.md) — multi-locator + freeze stability.
   - [collection-selection](core/collection-selection.md) — explicit run-relative positions and collection continuity.
+  - [discovery-selection](core/discovery-selection.md) — host-approved selections bound to one discovery action and frozen as declarations (#343).
+  - [link-selection](core/link-selection.md) — declared positions over plain links with no accessible root, and their destination check (#343).
   - [perception](core/perception.md) — driver observations, shared selection, and temporary element references.
   - [surgical-heal](core/surgical-heal.md) — per-step outcome verification + surgical self-heal.
   - [trace](core/trace.md) — unified lifecycle event contract (draft, #138): envelope · header versioning · per-phase payloads.

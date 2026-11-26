@@ -33,7 +33,7 @@ export class PageGuidanceAttempts {
 }
 
 /** Guidance accepted for one observation, with the URL its provider was given. */
-export interface PageGuidance { text: string; url?: string }
+export interface PageGuidance { text: string; url?: string; declaredScope?: true }
 
 export interface PageGuidanceContext {
   purpose: PageGuidanceRequest["purpose"];
@@ -58,10 +58,11 @@ export function pageGuidanceState(elements: readonly PageElement[]): string {
  * invalidates Driver refs, so it must never run for a decision bound to an exact ref. */
 export async function pageGuidanceInvalidation(driver: Driver, guidance: PageGuidance,
   capturedState: string, hasReference: boolean, signal?: AbortSignal,
-  onUrl?: (url: string | undefined) => void): Promise<string | undefined> {
+  onUrl?: (url: string | undefined) => void, actionOutcomes = false): Promise<string | undefined> {
   const urlInvalidation = await pageGuidanceUrlInvalidation(driver, guidance, signal, onUrl);
   if (urlInvalidation) return urlInvalidation;
-  if (!hasReference && pageGuidanceState(await readCurrent(() => driver.snapshot({ perception: true }), signal)) !== capturedState) {
+  const options = actionOutcomes ? { perception: true, actionOutcomes: true } : { perception: true };
+  if (!hasReference && pageGuidanceState(await readCurrent(() => driver.snapshot(options), signal)) !== capturedState) {
     return "page guidance expired: the page elements changed after the guided observation";
   }
   // Capture and URL reads are separate. Detect navigation during this fresh capture too.
@@ -149,6 +150,19 @@ export async function requestPageGuidance(provider: PageGuidanceProvider, ctx: P
     return undefined;
   }
   if (value === undefined || value === null) return undefined;
+  // Only this reply can opt its decision into the host's declaration. Do not invoke
+  // getters or let an unrecognized object change the legacy invalid-output behavior.
+  let declaredScope: true | undefined;
+  if (typeof value === "object") {
+    try {
+      const freshness = Object.getOwnPropertyDescriptor(value, "freshness")?.value;
+      const advice = Object.getOwnPropertyDescriptor(value, "text")?.value;
+      if (freshness === "declared-scope" && typeof advice === "string") {
+        value = advice;
+        declaredScope = true;
+      }
+    } catch { /* unrecognized provider output */ }
+  }
   if (typeof value !== "string") {
     ctx.gate("page guidance rejected: provider output is not a string");
     return undefined;
@@ -160,5 +174,5 @@ export async function requestPageGuidance(provider: PageGuidanceProvider, ctx: P
     return undefined;
   }
   const text = slotted.trim();
-  return text ? { text, url: ctx.url } : undefined;
+  return text ? { text, url: ctx.url, ...(declaredScope && { declaredScope }) } : undefined;
 }

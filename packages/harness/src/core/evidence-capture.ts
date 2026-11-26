@@ -131,6 +131,8 @@ export class EvidenceCaptureSession {
   private readonly pending: EvidenceCheckpoint[];
   private invalidPrefix?: "step-skipped" | "step-failed";
 
+  get protectedPrefixLength(): number { return Math.max(0, ...this.pending.map(p => p.after.length)); }
+
   constructor(options: EvidenceCaptureOptions, private readonly phase: CapturePhase, private readonly secrets?: Secrets) {
     const timeoutMs = options.timeoutMs ?? 2_000;
     if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw new Error("evidence capture timeoutMs must be positive and finite");
@@ -158,8 +160,13 @@ export class EvidenceCaptureSession {
         if (step.target.role !== undefined) safe.target.role = step.target.role;
         const original = step.target.collection;
         const collection = safe.target.collection;
-        if (original && collection) {
+        if (original?.links && collection?.links) {
+          collection.order = original.order;
+          if (original.readerId !== undefined) collection.readerId = original.readerId;
+          if (original.links.group) collection.links.group = original.links.group;
+        } else if (original && collection && !original.links && !collection.links) {
           collection.itemRole = original.itemRole;
+          if (original.readerId !== undefined) collection.readerId = original.readerId;
           collection.order = original.order;
           collection.root.role = original.root.role;
           collection.target.role = original.target.role;

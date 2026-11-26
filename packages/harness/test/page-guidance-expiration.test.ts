@@ -426,7 +426,7 @@ describe.each(modes)("bounded page-guidance expiration in %s", mode => {
       });
       expect(result.truncated).not.toBe(true);
       expect(result.truncationReason).toBeUndefined();
-      expect(llm.decisions).toHaveLength(3);
+      expect(llm.decisions).toHaveLength(during === "provider" ? 0 : 3);
       expect(driver.clicked).toEqual([]);
       expect(seenUrls.at(-1)).toBe(goal);
       expect(terminalGates(events)).toEqual([]);
@@ -776,9 +776,9 @@ it.each(validationUrlCases)(
     expect(driver.clicked).toEqual([]);
     expect(providerUrls).toEqual([START, START, START]);
     expect(urls).toEqual([START, START, START, next]);
-    // Existing reads only: baseline, three entries, validation, final goal and final evidence.
+    // The pre-admission check adds one observe per guided turn, without a final metadata read.
     const scrollReads = needsScrollState ? (maxSteps === 3 ? 3 : 4) : 0;
-    expect(driver.observations).toBe(8 + validationRead + scrollReads);
+    expect(driver.observations).toBe(8 + providerUrls.length + validationRead + scrollReads);
     expect(guidanceGates(events).filter(event => event.reason.includes("URL changed"))).toHaveLength(1);
     if (goalIsLatest) {
       expect(result.truncated).not.toBe(true);
@@ -857,5 +857,5 @@ it.each(["initial", "late"] as const)("retains the latest URL and visit when the
     finalUrl: destination(3), visited: ["private.example/start", "private.example/page-1", "private.example/page-2", "private.example/page-3"] });
   expect(driver.clicked).toEqual([]);
   // The metadata comes from reads already made by the gates, not a new terminal browser read.
-  expect(driver.observations).toBe(gate === "initial" ? 6 : 12);
+  expect(driver.observations).toBe(gate === "initial" ? 9 : 15);
 });

@@ -220,10 +220,47 @@ To check that the destination represents the resource actually selected on this 
 [selected-item resource-key evidence](selected-item-evidence.md). This explicit relation is
 separate from selecting a position and does not replace fixed-resource assertions.
 
+A grid of plain links with no accessible list root uses a host-declared membership instead:
+`collection: { links: { scope: ".grid", member: ":scope > a" }, order: "dom", index: 1, expectedCount: 3 }`.
+The host's selectors decide what counts, DOM order decides position, and `expectedCount` is required.
+Bind it with `{ source: { kind: "href" }, destination: { kind: "location" } }` to check that the
+browser arrived where the selected link points. See [plain-link selection](../spec/core/link-selection.md).
+
+A host with several readers for different collections can add `readerId: "catalog.v2"` to either
+form. Cairn saves it and hands it to the driver on every replay. It only selects how the host
+reads the list, never which member is chosen. The driver must list each ID it serves in the
+optional `Driver.readerIds`, for example `readonly readerIds = ["catalog.v2"]`. Without that, an
+unlisted ID, an older driver or the built-in Chrome adapter is refused as `unsupported` before any
+read or click. See the [reader ID contract](../spec/core/collection-selection.md#reader-id-370).
+
 When any resource satisfying explicit conditions is acceptable, use
 [predicate selection](predicate-selection.md). It chooses one eligible member deterministically,
 can reference that run's bound resource in later actions, and permits reselection only before
 dispatch under an explicit limit. Fixed targets and positional collections do not gain fallback.
+
+### Which criteria a request check was proposed for
+
+Pass the criteria your host approved next to the intent. The model may say which of them it proposed
+each derived `request-status` check for:
+
+```ts
+const criteria = [
+  { id: "C1", text: "add the item to the basket" },
+  { id: "C2", text: "show a confirmation" },
+];
+const scenario = await discover("Add the item", { driver, llm, criteria });
+// scenario.assertions: { kind: "request-status", …, criterionIds: ["C1"] }
+// scenario.unattributedCriteria: ["C2"]
+```
+
+`criterionIds` survives save/load and appears on each assertion result at replay. It records why the
+check was proposed, not that it proves the criterion: a successful basket request does not show a
+confirmation. `unattributedCriteria` lists criteria with no surviving attributed request check,
+whether nothing was proposed or the proposal failed grounding. It is not a failure. Unknown ids are
+dropped without losing the check. Grading, verdicts and the contract are unchanged, replay makes no
+model call, and `runSuite` accepts `criteria` per case. Only model-proposed checks carry
+`criterionIds`: the freeze drops them from checks you write in a case's `assertions`, so those never
+count as attribution. Without `criteria` nothing else changes.
 
 ### Optional app knowledge
 

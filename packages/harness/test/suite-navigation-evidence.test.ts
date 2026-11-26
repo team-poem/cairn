@@ -3,7 +3,7 @@ import { hashCase, runSuite } from "../src/suite.js";
 import type { SuiteCase, SuiteVerdict } from "../src/suite.js";
 import type { Evidence, NetworkRequest, Scenario, Target } from "../src/core/types.js";
 import type { SkillStore } from "../src/core/ports.js";
-import type { TraceEvent } from "../src/core/trace.js";
+import { TRACE_VERSION, type TraceEvent } from "../src/core/trace.js";
 import { renderSuiteReport } from "../src/adapters/reporters/suite.js";
 import { ScriptedLlm, StubDriver } from "./support/doubles.js";
 import { useClockDigest } from "./support/clock-digest.js";
@@ -63,7 +63,7 @@ describe("suite navigation evidence summaries (#203)", () => {
       observedBeforeLastMutation: ["shop/form"], discovered: true, verdict: { passed: true },
     });
     expect(events.find((e) => e.kind === "freeze")?.payload).toMatchObject({ observedBeforeLastMutation: ["shop/form"] });
-    expect(events[0]?.payload).toMatchObject({ version: "1.15" });
+    expect(events[0]?.payload).toMatchObject({ version: TRACE_VERSION });
     expect(cases).toEqual(fresh.verdicts);
     expect(renderSuiteReport(fresh)).toContain("destination observed before last mutation: shop/form");
     expect(store.scenario).not.toHaveProperty("observedBeforeLastMutation");

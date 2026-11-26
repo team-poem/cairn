@@ -53,7 +53,7 @@ export interface WaitUntil {
 export interface Target {
   /** Explicit run-relative selection (#306), exclusive with all legacy locator fields.
    * The selected resource may differ on each replay. Never a fixed-resource identity. */
-  collection?: CollectionTarget;
+  collection?: CollectionDeclaration;
   text?: string;
   role?: string;
   index?: number;
@@ -108,8 +108,13 @@ export interface CollectionChoice {
   maxReselections: 0 | 1;
 }
 
+/** Host-chosen ID of the code that reads a collection (#370). Cairn carries it and never
+ * interprets it: it is neither a DOM identity nor a selection ID, and it cannot change membership. */
+export type CollectionReaderId = string;
+
 interface CollectionScope {
   root: CollectionLocator;
+  readerId?: CollectionReaderId;
   itemRole: "listitem" | "option";
   /** Exactly one matching action inside the selected member, excluding nested collections. */
   target: CollectionLocator;
@@ -120,12 +125,37 @@ interface CollectionScope {
   conditions?: CollectionCondition[];
 }
 
-/** A position and an eligible choice are separate persisted contracts. */
-export type CollectionTarget = CollectionScope & (
+/** Host-declared plain links with no accessible collection root (#343). Membership is the
+ * host's CSS, never inferred from names, siblings or layout. */
+export interface LinkMembership {
+  /** Must match exactly one element, which bounds the collection. */
+  scope: string;
+  /** Run as `scope.querySelectorAll(member)`, so it starts with `:scope`. Every match is a member. */
+  member: string;
+  /** Selector inside the member for its link. Without it, the member itself is the link. */
+  action?: string;
+  /** With `action`: the member's links must all share one href. It counts once; the first link is clicked. */
+  group?: "destination";
+}
+export interface LinkCollectionScope {
+  links: LinkMembership;
+  readerId?: CollectionReaderId;
+  order: "dom";
+  /** Required: plain links expose no total, so the host's count is the only completeness proof. */
+  expectedCount: number;
+  index: number;
+  root?: never; itemRole?: never; target?: never; conditions?: never; choice?: never;
+}
+
+/** A position and an eligible choice are separate persisted contracts. This is the role form, the
+ * type `Driver.observeCollection` receives; link declarations reach `Driver.observeLinkCollection`. */
+export type CollectionTarget = CollectionScope & { links?: never } & (
   | { /** Zero-based position among ALL members, not only enabled/matching action candidates. */
       index: number; choice?: never }
   | { choice: CollectionChoice; index?: never }
 );
+/** Either collection form, as a `Target.collection` declares it. */
+export type CollectionDeclaration = CollectionTarget | LinkCollectionScope;
 
 /** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
  * Missing or ambiguous actions retain their member's position with no target. */
@@ -177,11 +207,28 @@ export type Assertion = AssertionMeta &
   /** `urlIncludes` matches the same way as `WaitUntil.requestStatus` (`urlMatchesFrozen`): substring
    * before `?`, parsed-query subset after. `method` (optional) scopes the match, so a same-prefix
    * GET can't satisfy a POST check — parity with the step-level `expect.requestStatus`. */
-  | { kind: "request-status"; urlIncludes: string; status: number; method?: string }
+  | {
+      kind: "request-status";
+      urlIncludes: string;
+      status: number;
+      method?: string;
+      /** Host criteria (`DiscoverOptions.criteria`) this check was PROPOSED for. Records why the
+       * model proposed it, never that it suffices to prove the criterion, and it takes no part in
+       * judgment, grading or the contract fingerprint. Set only on a model-proposed check, only
+       * with ids the host supplied; absent otherwise. A `SuiteCase.assertions` check's ids are
+       * dropped at the freeze. */
+      criterionIds?: string[];
+    }
   | { kind: "expect"; criterion: string }
   /** A product-defined success criterion: the host registers a handler for `name`. */
   | { kind: "custom"; name: string; params?: Record<string, unknown> }
   );
+
+/** A success criterion the host approved for a discovery. `id` is the host's own handle. */
+export interface HostCriterion {
+  id: string;
+  text: string;
+}
 
 /** Declared judgment inputs, not a content hash of the steps or a guarantee of equal outcomes. */
 export interface ContractIdentity {
@@ -198,7 +245,8 @@ export interface ScenarioProvenance {
 }
 
 /** Why authoring stopped incomplete; not evidence of an application defect. */
-export type TruncationReason = "no-progress" | "page-guidance-expired";
+export type TruncationReason = "no-progress" | "action-no-progress" | "page-guidance-expired" | "click-dispatch-uncertain"
+  | "action-dispatch-uncertain" | "selection-unbound" | "selection-failed" | "selection-unproven";
 
 export interface Scenario {
   name: string;
@@ -207,9 +255,8 @@ export interface Scenario {
   provenance?: ScenarioProvenance;
   steps: Step[];
   assertions: Assertion[];
-  /** Set by discover when it stopped without reaching "done" — at the step cap, or after repeated
-   * policy blocks or guidance expirations — so a host can warn before trusting the freeze.
-   * Absent on a normal finish. */
+  /** Set when discovery stops incomplete, including an unconfirmed guided click. That click
+   * is not in the confirmed steps, and its possible effects are not assertion evidence. */
   truncated?: boolean;
   /** Advisory authoring failure, not evidence of a product defect. */
   truncationReason?: TruncationReason;
@@ -225,11 +272,17 @@ export interface Scenario {
    * ever firing, and the CLI says so at freeze time; replay does not fail on it yet. Absent whenever
    * a proof was frozen. */
   unprovenAction?: string;
+  /** Host criteria (`DiscoverOptions.criteria`) with no surviving request check attributed to them:
+   * never proposed for, or proposed for and dropped by grounding. Not a verdict on the criterion.
+   * Absent when no criteria were supplied or every one is attributed. */
+  unattributedCriteria?: string[];
 }
 
 /** Opt into measured facts and exact-node references; omitted keeps legacy snapshots. */
 export interface SnapshotOptions {
   perception?: boolean;
+  /** Include extra measured state for comparing actions. Omit for ordinary perception. */
+  actionOutcomes?: boolean;
 }
 
 /** Measured state of the region affected by Driver.scroll. Omission means unknown.
@@ -246,6 +299,14 @@ export interface ScrollState {
   scrollHeight: number;
 }
 
+/** The target-bearing actions a decision can aim at one observed element. */
+export type TargetAction = "click" | "doubleClick" | "hover" | "type" | "select";
+
+/** Measured per-action eligibility of one observed element, supplied by a Driver or host and valid
+ * only for the snapshot that carries it. A missing action is unknown, never a negative fact. Only
+ * "disallowed" changes behavior: the engine rejects that action on that exact target before dispatch. */
+export type ActionEligibility = Partial<Record<TargetAction, "supported" | "disallowed">>;
+
 /** An observed candidate; accessible semantics remain separate from measured interaction facts. */
 export interface PageElement {
   /** Opaque driver token. Never persisted or sent directly to the model. */
@@ -257,9 +318,15 @@ export interface PageElement {
   clickable?: boolean;
   /** Driver-local measured clickable region identity, meaningful within this snapshot. */
   clickableRegion?: string;
+  /** Optional measured action eligibility. Not derived from `clickable`, `role` or `disabled`. */
+  actions?: ActionEligibility;
   role: string;
   name: string;
   checked?: boolean | "mixed";
+  /** Observed toggle, selection and disclosure states. Missing does not mean false. */
+  pressed?: boolean | "mixed";
+  selected?: boolean;
+  expanded?: boolean;
   disabled?: boolean;
   value?: string;
 }
@@ -436,6 +503,8 @@ export interface RunUsage {
 }
 
 export interface Result {
+  /** Present only when replay was asked to use a cleanup approval. */
+  replayCleanup?: import("./replay-cleanup.js").ReplayCleanupDecision;
   scenario: string;
   context: Context;
   evidence: Evidence;

@@ -9,15 +9,16 @@ import type { AssertionResult, Evidence, ExecutedAction, Result, RunUsage, Step,
 import { errorKindOf, stepError } from "./errors.js";
 import { validateSecrets, type Secrets } from "./secrets.js";
 import { isCollectionStep, validateCollectionTarget } from "./collection.js";
-import { conditionMet, defaultStepHandlers, pollCondition } from "./steps.js";
+import { conditionMet, defaultStepHandlers, DEFAULT_LOCALE_PREFIXES, pollCondition } from "./steps.js";
 import type { RequestMatchOptions } from "./requests.js";
 import type { ConditionMatchOptions } from "./steps.js";
 import { assertionPayload } from "./trace.js";
 import type { TraceScope } from "./trace.js";
-import { scenarioContract, copyProvenance } from "./contract.js";
+import { compareContracts, scenarioContract, copyProvenance } from "./contract.js";
 import type { JudgmentOptions } from "./contract.js";
 import { EvidenceCaptureSession, type EvidenceCaptureOptions } from "./evidence-capture.js";
 import { SelectedItemEvidenceSession, type SelectedItemEvidenceOptions } from "./selected-item-evidence.js";
+import { applyReplayCleanup, type ReplayCleanupOptions, type ReplayCleanupDecision } from "./replay-cleanup.js";
 
 /** Default per-step post-condition readiness window: after a step runs, its `expect` is *waited for*
  * (polled) up to this long before it counts as diverged — so an async effect (a submit's request
@@ -40,6 +41,8 @@ export interface RunHarnessOptions extends BudgetOptions {
   captureScreenshots?: boolean;
   evidenceCapture?: EvidenceCaptureOptions;
   selectedItemEvidence?: SelectedItemEvidenceOptions;
+  /** Use an approved replay plan only under the host's current removal contract. */
+  replayCleanup?: ReplayCleanupOptions;
   /** Product-defined interactions for `{ kind: "custom", name }` steps, registered by name. */
   actions?: Record<string, CustomAction>;
   /** Replace the Execute-stage dispatch chain entirely (advanced); defaults to built-ins + `actions`.
@@ -377,6 +380,10 @@ async function runHarnessEntry(harness: Harness, task: string, opts: RunHarnessO
 }
 
 async function runHarnessWithinBudget(harness: Harness, task: string, opts: RunHarnessOptions): Promise<Result> {
+  // Execute uses the step rules captured on entry. The supplied critic may still hold
+  // the host's judgment options, so keep those live for the contract checks before and after Judge.
+  if (opts.replayCleanup) opts = { ...opts, requestMatch: structuredClone(opts.requestMatch), localePrefixes: opts.localePrefixes?.slice(),
+    stepHandlers: opts.stepHandlers?.slice() };
   validateSecrets(opts.secrets);
   const capture = opts.evidenceCapture ? new EvidenceCaptureSession(opts.evidenceCapture, "replay", opts.secrets) : undefined;
   const selected = opts.selectedItemEvidence ? new SelectedItemEvidenceSession(opts.selectedItemEvidence) : undefined;
@@ -397,18 +404,42 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
   const { context, planner, driver, critic, reporter } = harness;
   const expectTimeoutMs = opts.expectTimeoutMs ?? DEFAULT_EXPECT_TIMEOUT_MS;
   const ctx = await context.provide(task);
-  const planned = await planner.plan(ctx);
+  const original = await planner.plan(ctx);
+  let planned = original;
+  const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
+  let cleanup: ReplayCleanupDecision | undefined;
+  const notifyCleanup = opts.replayCleanup?.onDecision;
+  if (opts.replayCleanup) {
+    // A low-level embedder may configure the step verifier independently of its critic.
+    const equal = (a?: readonly string[], b?: readonly string[]) =>
+      a === b || (a !== undefined && b !== undefined && a.length === b.length && a.every((v, i) => v === b[i]));
+    const differentStepMatchRules = !equal(opts.localePrefixes ?? DEFAULT_LOCALE_PREFIXES, opts.judgment?.localePrefixes ?? DEFAULT_LOCALE_PREFIXES)
+      || !equal(opts.requestMatch?.allowedHosts, opts.judgment?.requestMatch?.allowedHosts);
+    planned = await applyReplayCleanup(planned, { ...opts.replayCleanup, onDecision: decision => { cleanup = decision; } },
+      { signal: opts.signal, stepHandlers: opts.stepHandlers, stepHealer: opts.stepHealer, differentStepMatchRules,
+        judgment: judgment(), screenshots: opts.captureScreenshots,
+        protectedPrefixLength: Math.max(capture?.protectedPrefixLength ?? 0, selected?.protectedPrefixLength ?? 0) });
+    opts.signal?.throwIfAborted();
+    opts[budgetScope]?.check();
+  }
   // Snapshot judgment/collection declarations before browser work. Legacy target identities
   // still flow unchanged through the healer seams; collection declarations cannot be healed.
-  const scenario = { ...planned, assertions: planned.assertions.map(a => ({ ...a })),
-    steps: planned.steps.map(step => isCollectionStep(step) && "target" in step
-      ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) };
+  const executionScenario = (source: Scenario) => ({ ...source, assertions: source.assertions.map(a => ({ ...a })),
+    steps: source.steps.map(step => isCollectionStep(step) && "target" in step
+      ? { ...step, target: { collection: validateCollectionTarget(step.target) } } : step) });
+  let scenario = executionScenario(planned);
+  let contract = await scenarioContract(scenario, judgment());
+  if (cleanup?.status === "approved" && compareContracts(scenario.contract, contract) !== "same") {
+    // The injected critic's declared settings changed while the approval was being checked.
+    // No action has run: the full path is still available without retrying a mutation.
+    cleanup = { status: "declined", reason: "stale-approval" };
+    scenario = executionScenario(original);
+    contract = await scenarioContract(scenario, judgment());
+  }
   if (scenario.steps.some(step => "target" in step && step.target.collection?.choice)
     && (!selected || opts.stepHandlers || opts.stepHealer))
     throw new Error("predicate selection requires selected-item bindings and the unmodified replay handlers");
   selected?.validateScenario(scenario);
-  const judgment = () => ({ ...opts.judgment, opaque: opts.judgment?.opaque ?? true, judgmentIntent: ctx.intent ?? null });
-  const contract = await scenarioContract(scenario, judgment());
   const provenance = copyProvenance(scenario.provenance);
   // `wildcards` rides with the scenario, not the run options: whether `*` means "one run-minted
   // segment" is a property of the file being replayed, and an older file predates the notation.
@@ -493,7 +524,10 @@ async function runHarnessWithCapture(harness: Harness, task: string, opts: RunHa
   const verdict = { ...finalizeVerdict(judged, blockedReason(actions, scenario.steps.length), actions, scenario),
     contract: after.complete && after.fingerprint === contract.fingerprint ? contract : { ...contract, complete: false },
     ...(provenance ? { provenance } : {}) };
-  const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict };
+  const out: Result = { scenario: scenario.name, context: ctx, evidence, verdict, ...(cleanup ? { replayCleanup: cleanup } : {}) };
+  if (cleanup && notifyCleanup) {
+    try { notifyCleanup(structuredClone(cleanup)); } catch { /* A diagnostic observer cannot change the verdict. */ }
+  }
   if (opts.usage) out.usage = opts.usage();
   await reporter.emit(out);
   return out;

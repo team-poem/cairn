@@ -1,6 +1,6 @@
 /** Explicit collection selection. Drivers measure; core validates; no model or fallback. */
 import type { Driver } from "./ports.js";
-import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionResourceKey, CollectionTarget, Step, Target } from "./types.js";
+import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionDeclaration, CollectionLocator, CollectionReaderId, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
 
 export type CollectionSelectionCode = "invalid" | "unsupported" | "incomplete" | "condition" | "missing" | "disabled" | "stale" | "ambiguous";
 
@@ -133,10 +133,49 @@ function choice(value: unknown): CollectionChoice {
   return { version: 1, cardinality: 1, policy: "first-dom", identity: key, where, maxReselections: row.maxReselections };
 }
 
-/** Validate frozen input at runtime, returning a private copy before awaited browser work. */
-export function validateCollectionTarget(target: Target): CollectionTarget {
+function selector(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 512) invalid(`${label} must be a nonblank selector of at most 512 characters`);
+  return value;
+}
+
+function readerId(value: unknown): CollectionReaderId {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/.test(value))
+    invalid("readerId must be a bounded ID of letters, digits and _ . : -");
+  return value;
+}
+
+function linkCollection(raw: unknown): LinkCollectionScope {
+  const value = record(raw, ["links", "readerId", "order", "index", "expectedCount"], "collection");
+  if (value.order !== "dom") invalid("only DOM order is supported");
+  const links = record(value.links, ["scope", "member", "action", "group"], "links");
+  const member = selector(links.member, "links.member");
+  if (!member.startsWith(":scope")) invalid("links.member must start with :scope");
+  if (links.group !== undefined && (links.group !== "destination" || links.action === undefined))
+    invalid("links.group must be destination and requires links.action");
+  if (value.expectedCount === undefined) invalid("link collections require expectedCount");
+  const index = position(value.index, "index"), expectedCount = position(value.expectedCount, "expectedCount");
+  if (index >= expectedCount) invalid("index must be below expectedCount");
+  return { links: { scope: selector(links.scope, "links.scope"), member,
+    ...(links.action !== undefined ? { action: selector(links.action, "links.action") } : {}),
+    ...(links.group !== undefined ? { group: "destination" as const } : {}) },
+    ...(value.readerId !== undefined ? { readerId: readerId(value.readerId) } : {}),
+    order: "dom", index, expectedCount };
+}
+
+export function isLinkCollection(selection: CollectionDeclaration): selection is LinkCollectionScope {
+  return "links" in selection && selection.links !== undefined;
+}
+
+/** Validate frozen input at runtime, returning a private copy before awaited browser work. A declaration
+ * typed as one form returns that form, so role-form callers from 2.9.8 still read `root` without a cast. */
+export function validateCollectionTarget(target: Target & { collection: CollectionTarget }): CollectionTarget;
+export function validateCollectionTarget(target: Target & { collection: LinkCollectionScope }): LinkCollectionScope;
+export function validateCollectionTarget(target: Target): CollectionDeclaration;
+export function validateCollectionTarget(target: Target): CollectionDeclaration {
   const outer = record(target, ["collection"], "target");
-  const value = record(outer.collection, ["root", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
+  const raw = outer.collection;
+  if (raw && typeof raw === "object" && "links" in raw) return linkCollection(raw);
+  const value = record(raw, ["root", "readerId", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
   if (value.order !== "dom") invalid("only DOM order is supported");
   if (value.itemRole !== "listitem" && value.itemRole !== "option") invalid("itemRole must be listitem or option");
   const root = locator(value.root, "root");
@@ -146,6 +185,7 @@ export function validateCollectionTarget(target: Target): CollectionTarget {
   if (("index" in value) === ("choice" in value)) invalid("collection requires exactly one of index or choice");
   const out: CollectionTarget = { root, itemRole: value.itemRole, target: locator(value.target, "target"),
     order: "dom", ...("choice" in value ? { choice: choice(value.choice) } : { index: position(value.index, "index") }) };
+  if (value.readerId !== undefined) out.readerId = readerId(value.readerId);
   if (value.expectedCount !== undefined) out.expectedCount = position(value.expectedCount, "expectedCount");
   if (value.conditions !== undefined) {
     out.conditions = denseArray(value.conditions, "conditions", invalid, 32).map((raw): CollectionCondition => {
@@ -164,11 +204,20 @@ export function validateCollectionTarget(target: Target): CollectionTarget {
   return out;
 }
 
+/** A declared readerId needs the driver's explicit say-so (#370): a driver that predates it would
+ * silently read its default list. Refused before any observation or click. */
+export function requireReaderSupport(driver: Driver, selection: CollectionDeclaration): void {
+  if (selection.readerId !== undefined && !(Array.isArray(driver.readerIds) && driver.readerIds.includes(selection.readerId)))
+    throw new CollectionSelectionError("unsupported", `driver does not declare support for readerId "${selection.readerId}"`);
+}
+
 /** The resolved target is transient. Persist the declaration, never these observed names/refs. */
 export async function resolveCollectionTarget(driver: Driver, target: Target): Promise<{ target: Target; ref: string }> {
   const selection = validateCollectionTarget(target);
-  const observeCollection = driver.observeCollection;
+  // Each form has its own port, so a Driver that predates links never receives one.
+  const observeCollection = isLinkCollection(selection) ? driver.observeLinkCollection : driver.observeCollection;
   if (typeof observeCollection !== "function") throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
+  requireReaderSupport(driver, selection);
   // Resolve run-local references privately. Even constant choices require the session to
   // authorize their source binding before the driver can observe or dispatch them.
   let expected: string[] | undefined;
@@ -187,7 +236,7 @@ export async function resolveCollectionTarget(driver: Driver, target: Target): P
     }
   }
   // Adapter input is separate too: a consumer cannot mutate the expectation while capturing.
-  const observed = observedRecord(await observeCollection.call(driver, request),
+  const observed = observedRecord(await (observeCollection as (this: Driver, request: CollectionDeclaration) => Promise<unknown>).call(driver, request),
     ["complete", "order", "items", "conditions"], "collection observation");
   if (observed.complete !== true || observed.order !== selection.order)
     throw new CollectionSelectionError("incomplete", "complete ordered membership was not established");
@@ -264,13 +313,15 @@ export async function resolveCollectionTarget(driver: Driver, target: Target): P
   const item = selectedIndex === undefined ? undefined : items[selectedIndex];
   if (!item) throw new CollectionSelectionError("missing", "requested position is absent");
   const chosen = item.target;
+  // An image-only link may have no accessible name, so a link collection checks the role only.
+  const action: CollectionLocator = isLinkCollection(selection) ? { role: "link" } : selection.target!;
   if (!chosen || typeof chosen.ref !== "string" || !chosen.ref || typeof chosen.name !== "string" ||
-      chosen.role !== selection.target.role || (selection.target.name !== undefined && chosen.name !== selection.target.name))
+      chosen.role !== action.role || (action.name !== undefined && chosen.name !== action.name))
     throw new CollectionSelectionError("incomplete", "selected member has no uniquely bound matching action");
   if ((chosen.disabled !== undefined && typeof chosen.disabled !== "boolean") ||
       (chosen.occluded !== undefined && typeof chosen.occluded !== "boolean"))
     throw new CollectionSelectionError("incomplete", "selected action eligibility is invalid");
   if (item.disabled === true || chosen.disabled === true) throw new CollectionSelectionError("disabled", "requested member or action is disabled");
   if (chosen.occluded === true) throw new CollectionSelectionError("missing", "requested action is obstructed");
-  return { target: { text: chosen.name, role: selection.target.role }, ref: chosen.ref };
+  return { target: { text: chosen.name, role: action.role }, ref: chosen.ref };
 }

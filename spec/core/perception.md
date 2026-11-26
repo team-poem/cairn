@@ -15,6 +15,7 @@ protocol. Legacy Drivers remain supported. Related: [#198](https://github.com/te
 | `occluded` | Positive hit-test evidence of coverage when true. Missing measurement is unknown. |
 | `clickable` | A measured interaction candidate. It does not prove that clicking produces an effect. |
 | `clickableRegion` | Observation-local identity of the measured click region, for de-nesting labels. |
+| `actions` | Optional measured eligibility per action, `supported` or `disallowed`; see below. |
 | `ref` | An opaque Driver token for one observed node. Never a durable locator. |
 
 Drivers supply candidates in source order before model ranking or truncation. Collection limits
@@ -84,8 +85,9 @@ replacements are reflected in final role counts; retained evidence is never coun
 
 The engine builds a separate reference table for each decision. Model tokens map to captured
 Driver refs and canonical candidate descriptions. Raw Driver tokens are not sent to the model.
-The semantic page render contains no refs, so rotating handles do not defeat explore's
-dead-action comparison. Model prompts use a separate listing that describes each selected element
+The [action-outcome comparison](action-outcomes.md) uses bounded raw rows plus host-corrected
+state on matched controls before prompt selection; rotating handles do not count as a change.
+Model prompts use a listing that describes each selected element
 once, with its ref inline when the reference table binds it (#342). Elements without a ref keep
 their ordinary row and stay addressable by name, role and ordinal. Each independent model request
 includes the complete current listing and fresh refs, even when the semantic page is unchanged.
@@ -346,3 +348,52 @@ a two-action flow with scripted replies, and replays it with zero model calls. T
 browser check, not a live-model benchmark or a claim of general discovery success improvement.
 The fixture only saves the expected input value; empty and incorrect values are checked not to
 navigate, and discovery/replay must type the correct value before reaching the saved destination.
+
+## Measured action eligibility (#352)
+
+Context rows (headings, static text) stay in the listing as state evidence, and a row with no
+role or `clickable` hint can still be a working widget. So the model's choice is not filtered by
+role. A Driver or the consumer's `perceive` callback may additionally attach
+`actions: { click?, doubleClick?, hover?, type?, select? }` to a row, each `supported` or
+`disallowed`. Three states exist and a missing key is the third, unknown.
+
+- Only `disallowed` changes behavior. The engine rejects that action on that exact row before
+  dispatch, in discovery, exploration, step repair and locator repair alike, and the next decision
+  is the model's own. It never redirects to a similarly named row.
+- The fact belongs to the observation that carried it. The observation copies each row's
+  well-formed facts when it is built, so a host that later changes its own `actions` object
+  cannot lift or add a restriction while the model decides. It is read from the row bound to the
+  decision's ref when the decision binds, so duplicate names, rotating refs and locator
+  enrichment after the check cannot attach or reuse eligibility from another row or snapshot.
+  A decision with no ref, a legacy Driver, a partial measurement and any other action on the same
+  row are unknown. `clickable: false` and `disabled` keep their existing meaning.
+- A rejection counts toward the consecutive-block limit with policy rejections, never executes,
+  and runs before policy and budget-consuming dispatch. Ordinary frozen replay does not consult it.
+- The trace carries `gate: action-eligibility` with the verb and a fixed reason, and no names,
+  refs, values or URLs. The model feedback names the action it chose and nothing else from the page.
+
+The reference Chrome driver measures one source. A row whose computed `pointer-events` is `none`
+reports `click`, `doubleClick` and `hover` as `disallowed`: the pointer lands on whatever lies
+beneath, and the driver still reports success without firing the row's handler. It reads nothing
+for `type` or `select`, which need no pointer. A descendant that opts back in with another
+`pointer-events` value can receive the pointer and bubble to the row, and so can the row's or a
+descendant's generated `::before` or `::after` content, and a child inside an open shadow tree,
+which retargets to its host. A subtree of more than 64 elements, shadow descendants included, is too
+large to scan. Each of these leaves the row unknown. A labelable control with an associated
+label (wrapping or `for=`) whose own `pointer-events` is not `none` also stays unknown: the click
+can land on that label, which activates the control, and Chrome checks the box on the same ref. A
+label that is itself `none` is scanned like the row, descendants, generated content and open shadow
+trees included, and shares the 64-element limit. A closed shadow root cannot be read from page
+script, and no read-only probe detects one: `attachShadow` throws on a host that has a root but
+attaches one otherwise, and `attachInternals` can be taken only once. So the row, a label, or any
+scanned element that may host a shadow root and has no readable `shadowRoot` leaves the row
+unknown, even if it hosts no root. The elements that may host one are the DOM spec's list
+(`article`, `aside`, `blockquote`, `body`, `div`, `footer`, `h1` to `h6`, `header`, `main`, `nav`,
+`p`, `section`, `span`) and any valid custom element name, defined or not. A bare `button`, `input`
+or `a` with only text, `b`, `em` or `i` children is not a possible host and is still measured
+disallowed. The cost is that a row holding a `span` or `div` stays unknown even when nothing
+in it takes the pointer. The safe direction is unknown.
+An on-screen `pointer-events: none` control already fails the foreground hit test and leaves the listing as occluded; the measurement
+covers the rows that test cannot reach, such as offscreen or clipped ones. Chrome drops an inert
+subtree from the accessibility tree, so `inert` never becomes a row and is not measured. Any other
+refusal comes from a host through `perceive`.

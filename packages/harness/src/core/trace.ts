@@ -7,6 +7,7 @@
 import type { TraceSink } from "./ports.js";
 import type { TargetChoiceAudit } from "./target-choice.js";
 import type { SelectionDiagnostic } from "./selection-diagnostics.js";
+import type { GuidanceScopeDiagnostic } from "./guidance-scope.js";
 import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepErrorKind, ContractIdentity, ScenarioProvenance, TruncationReason } from "./types.js";
 
 /** Header `major.minor` (spec/core/trace.md §Versioning): minor = additive, major = envelope change.
@@ -24,8 +25,13 @@ import type { Assertion, AssertionResult, RunUsage, Step, Target, Verdict, StepE
  * 1.12 — opt-in no-progress gates and content-free cycle counters (#309).
  * 1.13 — `gate: page-guidance`, fixed diagnostics for host page guidance (#304).
  * 1.14 — required inconclusive custom checks (#314).
- * 1.15 — bounded page-guidance expiration and its incomplete reason (#340). */
-export const TRACE_VERSION = "1.15";
+ * 1.15 — bounded page-guidance expiration and its incomplete reason (#340).
+ * 1.16 — scoped-click diagnostics and unconfirmed dispatch on page-guidance gates (#356).
+ * 1.17 — `gate: action-eligibility`, a measured-disallowed action rejected before dispatch (#352).
+ * 1.18 — action-no-progress gate and incomplete reason (#353).
+ * 1.19 — `freeze.payload.unattributedCriteria` (#355), host criteria with no attributed request check.
+ * 1.20 — `gate: declared-selection` and its truncation reasons (#343). */
+export const TRACE_VERSION = "1.20";
 
 export type TracePhase = "discover" | "explore" | "replay" | "heal";
 
@@ -59,9 +65,9 @@ export type TraceEvent = Envelope &
     /** A gate firing — the engine did something different than asked, and says so (trust: no silence). */
     | {
         kind: "gate";
-        payload: { gate: "policy" | "no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance"; action?: string; reason: string;
+        payload: { gate: "policy" | "no-progress" | "action-no-progress" | "ambiguity" | "grounding" | "parse-retry" | "perception-binding" | "reference-binding" | "unproven-action" | "idle-scroll" | "page-guidance" | "action-eligibility" | "declared-selection"; action?: string; reason: string;
           code?: TruncationReason; repeatedTransitions?: number; recoveryTurns?: number; lastDirection?: "up" | "down";
-          expirations?: number; limit?: number };
+          expirations?: number; limit?: number } & Partial<GuidanceScopeDiagnostic>;
       }
     /** Emitted by the freeze CALLER (the suite owns `caseHash` — pattern ≠ data, core never reads it). */
     | {
@@ -77,6 +83,8 @@ export type TraceEvent = Envelope &
           unprovenAction?: string;
           /** Destinations observed before the last qualifying mutation (#203); advisory, not failure. */
           observedBeforeLastMutation?: string[];
+          /** Host criteria no surviving request check was proposed for (#355); advisory, not failure. */
+          unattributedCriteria?: string[];
         };
       }
     /** `attachment` is a ref, never bytes (§Attachments) — stamped by the Tracer from this event's

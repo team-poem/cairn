@@ -8,6 +8,8 @@ and should keep its fixed expected value.
 This opt-in library API supports replay of collection `click` steps. The initial Chrome adapter
 requires a same-document flow, such as a detail panel or SPA route. Full-document navigation,
 discovery, explore and healing do not provide a supported binding in this version.
+A host can declare the selection and its binding before discovery, and discovery then freezes the
+binding for replay. See [declared selections in discovery](../spec/core/discovery-selection.md).
 
 For explicitly choosing any eligible resource and referring to it in later actions, see
 [predicate selection and safe reselection](predicate-selection.md). It reuses this binding and

@@ -5,6 +5,7 @@ import { AssertionCritic } from "../src/adapters/critics/assertion.js";
 import { InlineContextProvider } from "../src/adapters/context/inline.js";
 import { StaticPlanner } from "../src/adapters/planners/static.js";
 import { identifyScenario, compareContracts } from "../src/core/contract.js";
+import { prepareReplayCleanup, recordReplayCleanup } from "../src/core/replay-cleanup.js";
 import { selectedItemEquals } from "../src/core/selected-item-evidence.js";
 import type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, ResourceKeyObservation } from "../src/core/selected-item-evidence.js";
 import type { CollectionObservation, CollectionTarget, Evidence, Scenario, Step, Target } from "../src/core/types.js";
@@ -92,6 +93,31 @@ function deferred<T>() {
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe("run-local selected-item resource equality", () => {
+  it("reads the destination key after the original terminal click when cleanup would remove that boundary", async () => {
+    const target = { role: "button", text: "Show summary" };
+    const steps: Step[] = [click, { kind: "click", target }, { kind: "click", target }];
+    const point = binding([click], steps), judgmentKey = "selected-resource-v1";
+    const source = await identifyScenario(scenario([point], steps), { intent: "review current resource", judgmentKey });
+    const declaration = { scope: "resource", revision: "v1", semantics: "idempotent-click" as const, target, repeatIndex: 2 };
+    const approval = await prepareReplayCleanup(source, await recordReplayCleanup(source), declaration);
+    if (approval.status !== "approved") throw new Error(approval.reason);
+    for (const wrongKey of [false, true]) {
+      const driver = new ResourceDriver();
+      if (wrongKey) driver.destinationOverride = "unrelated-resource";
+      const read = vi.spyOn(driver, "readResourceKey");
+      const { result } = await runScenario(source, { driver, reporter, custom, judgmentKey,
+        replayCleanup: { approval, declaration }, selectedItemEvidence: { bindings: [point] } });
+      expect(driver.clicked).toEqual(["Open", "Show summary", "Show summary"]);
+      expect(driver.boundCalls).toBe(1);
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(result.replayCleanup).toEqual({ status: "declined", reason: "protected-occurrence" });
+      expect(result.evidence.selectedItems?.[0]).toMatchObject({ status: "captured", complete: true, equal: !wrongKey,
+        destinationActionId: `${result.evidence.selectedItemRunId}:2` });
+      expect(result.verdict.passed).toBe(!wrongKey);
+      expect(result.usage?.llmCalls).toBe(0);
+    }
+  });
+
   it("binds each replay to its current first resource with zero model calls", async () => {
     const firstDriver = new ResourceDriver();
     const first = (await replay(firstDriver)).result;

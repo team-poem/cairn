@@ -161,7 +161,8 @@ export class BuiltinStepHandler implements StepHandler {
     return step.kind !== "custom";
   }
 
-  async execute(step: Step, driver: Driver, ref?: string, validateReference?: () => void): Promise<void> {
+  async execute(step: Step, driver: Driver, ref?: string, validateReference?: () => void,
+    checkBeforeClick?: () => void, afterSecretOrigin?: (url: string | undefined) => Promise<void>): Promise<void> {
     this.signal?.throwIfAborted();
     if (isCollectionStep(step) && "target" in step) {
       if (ref !== undefined) throw new CollectionSelectionError("invalid", "collection declaration cannot borrow an unrelated observation reference");
@@ -178,7 +179,7 @@ export class BuiltinStepHandler implements StepHandler {
         return driver.goto(step.url);
       case "click":
         validateReference?.();
-        return driver.click(step.target, ref);
+        return checkBeforeClick ? driver.click(step.target, ref, checkBeforeClick) : driver.click(step.target, ref);
       case "doubleClick":
         validateReference?.();
         return driver.doubleClick(step.target, ref);
@@ -201,6 +202,7 @@ export class BuiltinStepHandler implements StepHandler {
         this.signal?.throwIfAborted();
         const output = fillSecrets(step.text, this.secrets, pageUrl);
         assertSecretScope(output, this.secrets, pageUrl); // covers a scoped value reached via {{escape}} or a literal
+        if (afterSecretOrigin) await afterSecretOrigin(pageUrl);
         validateReference?.();
         return driver.type(step.target, output, ref);
       }

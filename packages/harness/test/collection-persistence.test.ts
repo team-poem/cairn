@@ -99,8 +99,9 @@ describe("collection persistence and public API compatibility", () => {
     expect(persisted.collection!.conditions![0]).not.toBe(target.collection!.conditions![0]);
     expect(persisted.collection!.conditions![0]!.control).not.toBe(target.collection!.conditions![0]!.control);
 
-    target.collection!.root.name = "Changed root";
-    target.collection!.target.name = "Old resource";
+    const authored = target.collection as CollectionTarget;
+    authored.root.name = "Changed root";
+    authored.target.name = "Old resource";
     target.collection!.conditions![0]!.control.name = "Changed query";
     target.collection!.conditions![0]!.value = "different";
     expect(persisted).toEqual({ collection: selection() });

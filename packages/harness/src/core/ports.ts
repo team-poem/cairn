@@ -9,6 +9,7 @@ import type {
   CollectionTarget,
   CollectionObservation,
   Evidence,
+  LinkCollectionScope,
   LlmUsage,
   PageElement,
   SnapshotOptions,
@@ -21,6 +22,9 @@ import type {
   Verdict,
 } from "./types.js";
 import type { TraceEvent } from "./trace.js";
+import type { PageGuidanceScope, PageGuidanceScopeFacts } from "./guidance-scope.js";
+export type { PageGuidanceLocator, PageGuidanceSet, PageGuidanceScope, PageGuidanceScopeNode, PageGuidanceScopeFacts, GuidanceScopeDiagnostic } from "./guidance-scope.js";
+export { ScopedGuidanceExpired } from "./guidance-scope.js";
 
 /** Grounding from any source (NL, git diff, ticket, RAG). */
 export interface ContextProvider {
@@ -68,7 +72,23 @@ export interface Planner {
  * untyped throw counts as the script's, the loud side. */
 export interface Driver {
   goto(url: string): Promise<void>;
-  click(target: Target, ref?: string): Promise<void>;
+  /** A guidance receipt requires full scope validation (see snapshotWithGuidanceScope), then
+   * checkBeforeDispatch immediately before submitting input. Propagate a thrown check. */
+  click(target: Target, ref?: string, checkBeforeDispatch?: () => void): Promise<void>;
+  /** Observe one action, including multi-input actions such as opening a custom select and
+   * choosing an option. Call beforeSend immediately before each input, never on a lookup.
+   * Propagate a thrown check without sending that input. An acknowledged first input cannot
+   * be undone by failure to resolve the second target. Synchronous; implement both hooks. */
+  armActionOutcomeDispatch?(beforeSend: () => void): void;
+  clearActionOutcomeDispatch?(): void;
+  /** Opt in for one click only. Immediately before sending input, call beforeClick with the
+   * document/node identity of the resolved target, or undefined if it could not be measured.
+   * A thrown callback vetoes dispatch. Never infer an identity from a locator, role or name.
+   * Check checkActive again before any follow-up input (e.g. accepting a native dialog). */
+  armActionOutcomeIdentity?(beforeClick?: (identity: string | undefined) => void, checkActive?: () => void): void;
+  /** Consume the identity after a confirmed click on that node, clearing the arm even if
+   * dispatch failed. Tokens are transient, not locators, trace data or replay evidence. */
+  takeActionOutcomeIdentity?(): string | undefined;
   doubleClick(target: Target, ref?: string): Promise<void>;
   hover(target: Target, ref?: string): Promise<void>;
   type(target: Target, text: string, ref?: string): Promise<void>;
@@ -77,11 +97,18 @@ export interface Driver {
   /** Exact-node capability: enrich and dispatch the SAME observed node, or reject stale refs.
    * Implementations accepting refs must honor them in every target-bearing interaction. */
   locateRef?(ref: string): Promise<Target>;
+  /** Reader IDs (#370) this driver serves, for both `observeCollection` and `observeLinkCollection`.
+   * A collection that declares a `readerId` is observed only when the ID is listed here. A driver that
+   * omits this, or an unlisted ID, is refused with `unsupported` and zero clicks, because a driver that
+   * predates readerId would silently read its default list. Targets without a `readerId` are unaffected. */
+  readonly readerIds?: readonly string[];
   /** Observe a complete declared collection independently of model selection/truncation.
    * Each returned ref must reject changed membership/order, control conditions or selected-node
    * state before targeted dispatch. Choice declarations additionally require complete identity
    * and predicate facts for every member; ignoring them cannot authorize dispatch. Never reselect
    * by name or silently substitute a neighbor.
+   * A declared `readerId` selects the host's reader. Core hands it to the driver only when the
+   * driver lists it in `readerIds`; otherwise it refuses with `unsupported` before any observation.
    * Optional: unsupported drivers are refused by the built-in handler before any action. */
   observeCollection?(selection: CollectionTarget): Promise<CollectionObservation>;
   /** Perform exactly one collection click, retaining an explicit pre-action resource key only
@@ -94,6 +121,19 @@ export interface Driver {
     source: import("./selected-item-evidence.js").SelectedItemKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Independently read one explicitly configured destination key, not an expected value. */
   readResourceKey?(destination: import("./selected-item-evidence.js").DestinationResourceKey): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Observe a declared plain-link collection (#343) under the observeCollection contract. A member's
+   * action is its declared link, bound to that link's exact node, and a changed href expires the ref.
+   * Optional: without it, link collections are refused before any action. */
+  observeLinkCollection?(selection: LinkCollectionScope): Promise<CollectionObservation>;
+  /** Click a link collection's selected link once. Return its href as the final guard reads it,
+   * immediately before dispatch, complete only when the click left that document for a new one in
+   * the same tab. Refuse, before dispatch, a link whose arrival cannot be observed (new tab,
+   * download, same document, non-http). Optional: without it, a link destination check is refused
+   * in discovery and left unconfirmed on replay, never passed. */
+  clickLinkWithDestination?(target: Target, ref: string): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
+  /** Read the top-level URL, without its fragment, of the tab the last clickLinkWithDestination
+   * dispatched in, by that tab's identity rather than whichever tab is selected. */
+  readLinkArrival?(): Promise<import("./selected-item-evidence.js").ResourceKeyObservation>;
   /** Choose an option in a dropdown by its value — native `<select>` or a custom ARIA
    * combobox/listbox/option, resolved by the driver. */
   select(target: Target, value: string, ref?: string): Promise<void>;
@@ -104,6 +144,23 @@ export interface Driver {
   /** Capture the current page as a data URL (for visual replay); undefined if unavailable. */
   screenshot(): Promise<string | undefined>;
   snapshot(options?: SnapshotOptions): Promise<PageElement[]>;
+  /** Fresh perception rows for a pending task, without replacing the existing exact-node
+   * guard. Emit an existing ref only for its original node. Adapters implementing this
+   * capability require an exact ref (or a validated guidance receipt) for task inputs;
+   * their ordinary name lookup may use fuzzy fallbacks. */
+  snapshotForTask?(options: SnapshotOptions): Promise<PageElement[]>;
+  /** Capture the ordinary perception snapshot and optional scope facts at the same observation.
+   * Only attest complete facts for exhaustive, disjoint matches and stable node identities.
+   * Dispatch requires a nonempty, temporary targetRef bound to these facts and this unique node.
+   * click(target, targetRef, checkBeforeDispatch) must recheck the document and URL, the unique actionable
+   * target, and all declared prerequisite identities, states, membership and order immediately
+   * before input. Never choose a fallback target. If this cannot be established, do not click.
+   * Reject expired receipts before calling checkBeforeDispatch. Once that callback returns,
+   * an ordinary failure is an unconfirmed click, not a reason to retry. Propagate transport
+   * errors and cancellation as such; never retry an input that may have been submitted.
+   * Receipts are private to discovery/exploration; they are not model refs or replay locators.
+   * When scope coverage cannot be established, still provide the listing but omit facts. */
+  snapshotWithGuidanceScope?(scope: PageGuidanceScope, options?: SnapshotOptions): Promise<{elements: PageElement[]; facts?: PageGuidanceScopeFacts; targetRef?: string}>;
   /** Optional positive coverage of the region scroll() actually affects. Unknown/unsupported
    * topology returns undefined. Called only by an opted-in discovery policy, around its snapshot. */
   scrollState?(): Promise<ScrollState | undefined>;
@@ -153,7 +210,8 @@ export interface PageGuidanceRequest {
 
 /** Host-authored advice for the current observation only. Never evidence, permission or a check.
  * Must not drive the browser or call a model on the engine's behalf. */
-export type PageGuidanceProvider = (request: PageGuidanceRequest) => string | undefined | Promise<string | undefined>;
+export type PageGuidanceReply = string | { text: string; freshness: "declared-scope" } | undefined;
+export type PageGuidanceProvider = (request: PageGuidanceRequest) => PageGuidanceReply | Promise<PageGuidanceReply>;
 
 /**
  * One link in the Execute stage's dispatch chain (invariant #2): the pipeline routes each Step

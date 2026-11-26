@@ -3,7 +3,7 @@ export * from "./core/types.js";
 export type { EvidenceCaptureOptions, EvidenceCheckpoint, EvidenceCheckpointRecord, CapturePhase, CaptureStatus } from "./core/evidence-capture.js";
 export { sameCapturePath, checkpointEvidence } from "./core/evidence-capture.js";
 export { selectedItemEquals } from "./core/selected-item-evidence.js";
-export type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, ResourceKeyObservation, SelectedItemEvidenceOptions, SelectedItemEvidenceRecord, SelectedItemSelectionAttempt } from "./core/selected-item-evidence.js";
+export type { SelectedItemBinding, SelectedItemKey, DestinationResourceKey, LinkSelectedItemBinding, LinkSourceKey, LinkDestinationKey, ResourceKeyBinding, ResourceKeyObservation, SelectedItemEvidenceOptions, SelectedItemEvidenceRecord, SelectedItemSelectionAttempt } from "./core/selected-item-evidence.js";
 export { CollectionSelectionError, SelectionNotDispatchedError, validateCollectionTarget } from "./core/collection.js";
 export type { CollectionSelectionCode } from "./core/collection.js";
 export * from "./core/ports.js";
@@ -78,8 +78,12 @@ export { FileSkillStore, loadSkillFile, saveSkillFile } from "./adapters/skills/
 
 export { JsonlTraceSink } from "./adapters/sinks/jsonl.js";
 
-export { discover, parseDecision } from "./core/discover/index.js";
-export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict } from "./core/discover/index.js";
+export { discover, discoverWithTasks, discoverForReplayCleanup, parseDecision } from "./core/discover/index.js";
+export { prepareReplayCleanup } from "./core/replay-cleanup.js";
+export type { ReplayCleanupDeclaration, ReplayCleanupRecording, ReplayCleanupApproval, ReplayCleanupDecision, ReplayCleanupOptions } from "./core/replay-cleanup.js";
+export type { DiscoveryTaskPlan, DiscoveryTaskAssessment, DiscoveryTaskReport, DiscoveryTaskStopReason } from "./core/discover/tasks.js";
+export type { DiscoverOptions, Decision, ActionPolicy, PolicyVerdict, DiscoverySelection } from "./core/discover/index.js";
+export type { ActionOutcomeOptions, ActionOutcomeStatus } from "./core/action-outcomes.js";
 export { explore } from "./core/explore/index.js";
 export type { ExploreOptions, ExploreReport } from "./core/explore/index.js";
 export { deriveActionFindings, dedupeFindings } from "./core/explore/findings.js";

@@ -42,6 +42,9 @@ refused, and so is any unexpected field. All selectors are nonblank strings of a
 
 Predicate `choice` and `conditions` are not supported for links.
 
+An optional `readerId` has the same meaning as in the role form. See
+[reader ID](collection-selection.md#reader-id-370).
+
 ## Membership, order and visibility
 
 The member list is the declared selector's DOM order. CSS visual order (`order`, `row-reverse`,

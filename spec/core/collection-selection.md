@@ -108,6 +108,40 @@ popup needs a separate continuation contract tying its eventual option to the or
 and prerequisites. Until that is available, the adapter refuses before opening the popup;
 it never commits an unchecked second click. Ordinary non-collection selects are unchanged.
 
+## Reader ID (#370)
+
+Either collection form accepts an optional `readerId`, a bounded ID (letters, digits, `_ . : -`,
+at most 100 characters, the same shape as a selection ID). A host that reads different kinds of
+collections with different code declares which reader a collection needs, instead of inferring it
+from `root.name`, which then keeps one meaning: locating the list.
+
+```ts
+const target = {
+  collection: {
+    root: { role: "list", name: "Search results" },
+    readerId: "catalog.v2",
+    itemRole: "listitem", target: { role: "link" }, order: "dom", index: 0,
+  },
+};
+```
+
+Cairn only carries the ID. It is validated with the rest of the declaration, kept by
+`persistentTarget`, discovery freeze and save/load, and handed to `Driver.observeCollection`
+unchanged on every replay. It is not a DOM node identity, it is not a selection ID, and it never
+changes which members are eligible or which one is selected. Two declarations with the same
+`root.name` and different reader IDs reach the driver as different declarations.
+
+Core does not know which readers a driver has. A driver that cannot serve the declared ID must
+throw `CollectionSelectionError("unsupported", ...)` from `observeCollection`, which fails the
+step as a `handler` failure before any ref exists, so nothing is clicked. It must not fall back to
+its default reader. The built-in Chrome adapter has no reader registry, so it refuses any
+declaration with a `readerId`. A host that subclasses or wraps it and serves the ID itself removes
+the field before delegating to the built-in reader.
+
+A recognized ID relaxes nothing. Core still checks complete ordered membership, the declared total,
+conditions, the selected action and its eligibility on whatever the reader returns, and the
+dispatch guard is unchanged. A declaration without an ID replays exactly as before.
+
 ## Replay, repair and evidence
 
 Replay resolves the current position anew. If a different resource becomes first, it is selected;

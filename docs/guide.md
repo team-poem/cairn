@@ -226,6 +226,12 @@ The host's selectors decide what counts, DOM order decides position, and `expect
 Bind it with `{ source: { kind: "href" }, destination: { kind: "location" } }` to check that the
 browser arrived where the selected link points. See [plain-link selection](../spec/core/link-selection.md).
 
+A host with several readers for different collections can add `readerId: "catalog.v2"` to either
+form. Cairn saves it and hands it to `Driver.observeCollection` on every replay. It only selects
+how the host reads the list, never which member is chosen. A driver that has no such reader must
+throw an `unsupported` `CollectionSelectionError`, so nothing is clicked. The built-in Chrome
+adapter has none and refuses it. See the [reader ID contract](../spec/core/collection-selection.md#reader-id-370).
+
 When any resource satisfying explicit conditions is acceptable, use
 [predicate selection](predicate-selection.md). It chooses one eligible member deterministically,
 can reference that run's bound resource in later actions, and permits reselection only before

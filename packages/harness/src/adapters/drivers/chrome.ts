@@ -593,16 +593,23 @@ export class ChromeDevToolsDriver implements Driver {
     if (href === undefined || sourcePage === undefined || changedPage !== false) return { complete: false };
     const token = `cairn-${globalThis.crypto.randomUUID()}`;
     const saved = `Symbol.for(${JSON.stringify(token)})`;
+    // The element document.title writes: an inline SVG <title> is not it, though querySelector('title') may find it first.
+    const titleElement = `() => document.documentElement instanceof SVGSVGElement
+      ? [...document.documentElement.children].find(el => el instanceof SVGTitleElement)
+      : document.getElementsByTagNameNS('http://www.w3.org/1999/xhtml', 'title')[0]`;
     const read = await this.call("evaluate_script", {
       function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}];
-        globalThis[${saved}] = document.querySelector('title')?.textContent ?? null;
+        const element = (${titleElement})() ?? null;
+        globalThis[${saved}] = { element, text: element?.textContent ?? null };
         document.title = ${JSON.stringify(token)}; return {stayed}; }`,
     }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown } | undefined, () => undefined);
     const pages = await this.call("list_pages").catch(() => "");
     await this.call("evaluate_script", {
-      function: `() => { if (!(${saved} in globalThis)) return {}; const saved = globalThis[${saved}]; delete globalThis[${saved}];
-        const title = document.querySelector('title');
-        if (title?.textContent === ${JSON.stringify(token)}) { if (saved === null) title.remove(); else title.textContent = saved; }
+      function: `() => { const saved = globalThis[${saved}]; if (!saved) return {}; delete globalThis[${saved}];
+        const now = (${titleElement})();
+        if (now?.textContent === ${JSON.stringify(token)}) {
+          if (saved.element === null) now.remove(); else if (saved.element === now) now.textContent = saved.text;
+        }
         return {}; }`,
     }, "observation").catch(() => {});
     const readInSource = pages.split("\n").some(line => line.trimStart().startsWith(`${sourcePage}: ${token} (`));

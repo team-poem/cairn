@@ -248,3 +248,22 @@ test("a page title that names the selected link cannot stand in for the arrival"
     expect(arrival).toEqual({ complete: true, value: "https://example.test/posts/charlie" });
   });
 });
+
+test.each([
+  ["a page title, whitespace kept", "<title>  Bravo   post </title>", "", ["xhtml:  Bravo   post "]],
+  ["no title", "", "", []],
+  ["only an inline SVG title", "", "<svg><title>icon</title></svg>", ["svg:icon"]],
+])("the marker read leaves the arrival's title as it was: %s", async (_, head, body, expected) => {
+  await withPage(async ({ driver, page, hook }) => {
+    hook.click = async () => {
+      await page.goto("https://example.test/posts/bravo");
+      await page.evaluate(`document.head.insertAdjacentHTML('beforeend', ${JSON.stringify(head)});
+        document.body.insertAdjacentHTML('afterbegin', ${JSON.stringify(body)})`);
+    };
+    const bound = await resolveCollectionTarget(driver, grid());
+    const source = await driver.clickLinkWithDestination(bound.target, bound.ref);
+    expect(source).toEqual({ complete: true, value: "https://example.test/posts/bravo" });
+    expect(await page.evaluate(`[...document.querySelectorAll('title')].map(el => el.namespaceURI.split('/').pop() + ':' + el.textContent)`))
+      .toEqual(expected);
+  });
+});

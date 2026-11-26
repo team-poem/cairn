@@ -205,6 +205,7 @@ try {
   assert.match(await here(), /\/posts\/alpha/, 'the run tab shows the pushed URL');
   assert.equal(pushed.result.verdict.passed, false, 'a pushState must not pass because another tab at its URL answered the marker read');
   assert.equal(pushed.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
+  assert.doesNotMatch(await driver.call('list_pages'), /cairn-[0-9a-f-]{36}/, 'no tab keeps the marker read title token');
 
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], reorderedOpened: 'alpha', mismatchRejected: true, missingArrivalInconclusive: true,
     switchedTabInconclusive: true, temporarySwitchRejected: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha',

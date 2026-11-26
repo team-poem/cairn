@@ -246,3 +246,35 @@ test("observationActionEligibility: a pointer-events none control a live label s
     expect(await page.locator("#wrapped").isChecked()).toBe(true);
   });
 });
+
+test("observationActionEligibility: a pointer-events none control whose pseudo-element or open shadow child takes the pointer stays unknown", async () => {
+  await withPage(async page => {
+    await page.setContent(
+      '<style>#pseudo::before{content:"";display:block;width:40px;height:20px;pointer-events:auto}' +
+      '#pseudo-dead::before{content:"";display:block;width:40px;height:20px}' +
+      '#pseudo-nocontent::before{pointer-events:auto}</style>' +
+      '<button id="pseudo" style="pointer-events:none" onclick="window.hit=\'pseudo\'"></button>' +
+      '<button id="pseudo-dead" style="pointer-events:none"></button>' +
+      '<button id="pseudo-nocontent" style="pointer-events:none"></button>' +
+      '<div id="host" style="pointer-events:none"></div><div id="host-dead" style="pointer-events:none"></div>' +
+      '<div id="host-wide" style="pointer-events:none"></div>' +
+      '<div id="host-nested" style="pointer-events:none"></div>');
+    await page.evaluate(`(() => {
+      const open = (id, html) => { document.getElementById(id).attachShadow({ mode: "open" }).innerHTML = html; };
+      open("host", '<button style="pointer-events:auto" onclick="window.hit=\\'shadow\\'">Go</button>');
+      open("host-dead", '<button style="pointer-events:none">Go</button>');
+      open("host-wide", "<i></i>".repeat(70));
+      open("host-nested", '<div id="inner" style="pointer-events:none"></div>');
+      document.getElementById("host-nested").shadowRoot.getElementById("inner").attachShadow({ mode: "open" }).innerHTML = '<a href="#" style="pointer-events:auto">Go</a>';
+    })()`);
+    const ids = ["pseudo", "pseudo-dead", "pseudo-nocontent", "host", "host-dead", "host-wide", "host-nested"];
+    const facts = await probe(page, ids);
+    const pointer = { click: "disallowed", doubleClick: "disallowed", hover: "disallowed" };
+    for (const id of ["pseudo", "host", "host-wide", "host-nested"]) expect(facts[id]).not.toHaveProperty("actions");
+    for (const id of ["pseudo-dead", "pseudo-nocontent", "host-dead"]) expect(facts[id]?.actions).toEqual(pointer);
+    await page.locator("#pseudo").click({ position: { x: 14, y: 14 }, force: true });
+    expect(await page.evaluate("window.hit")).toBe("pseudo");
+    await page.locator("#host button").click({ force: true });
+    expect(await page.evaluate("window.hit")).toBe("shadow");
+  });
+});

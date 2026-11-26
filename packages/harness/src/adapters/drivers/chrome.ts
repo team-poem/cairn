@@ -127,14 +127,28 @@ export function perceptionProbeScript(uids: readonly string[], clickables = true
       // A click, double click or hover is a pointer event, and computed pointer-events:none lets it
       // fall through to whatever lies beneath while the driver still reports success. A descendant
       // that opts back in can receive it and bubble to this node, and a subtree too large to scan
-      // stays unknown rather than refused. A label that still takes the pointer activates its
-      // control, so Chrome checks the box on the same click. Chrome drops an inert subtree from the
+      // stays unknown rather than refused. The scan covers generated ::before and ::after content and
+      // open shadow trees, whose nodes count toward that limit; a closed shadow root cannot be read
+      // from page script. A label that still takes the pointer activates its control, so Chrome
+      // checks the box on the same click. Chrome drops an inert subtree from the
       // AX tree, so it never becomes a row.
+      const pseudoTakesPointer = node => ['::before', '::after'].some(which => {
+        const style = getComputedStyle(node, which);
+        return style.content !== 'none' && style.content !== 'normal' && style.pointerEvents !== 'none';
+      });
       const reachableByPointer = () => {
         for (const label of el.labels ?? []) if (getComputedStyle(label).pointerEvents !== 'none') return true;
-        const below = el.querySelectorAll('*');
-        if (below.length > ${POINTER_SCAN_LIMIT}) return true;
-        for (const node of below) if (getComputedStyle(node).pointerEvents !== 'none') return true;
+        if (pseudoTakesPointer(el)) return true;
+        const scopes = [el];
+        if (el.shadowRoot) scopes.push(el.shadowRoot);
+        let scanned = 0;
+        while (scopes.length) {
+          for (const node of scopes.pop().querySelectorAll('*')) {
+            if (++scanned > ${POINTER_SCAN_LIMIT}) return true;
+            if (getComputedStyle(node).pointerEvents !== 'none' || pseudoTakesPointer(node)) return true;
+            if (node.shadowRoot) scopes.push(node.shadowRoot);
+          }
+        }
         return false;
       };
       if (getComputedStyle(el).pointerEvents === 'none' && !reachableByPointer())

@@ -376,8 +376,12 @@ The reference Chrome driver measures one source. A row whose computed `pointer-e
 reports `click`, `doubleClick` and `hover` as `disallowed`: the pointer lands on whatever lies
 beneath, and the driver still reports success without firing the row's handler. It reads nothing
 for `type` or `select`, which need no pointer. A descendant that opts back in with another
-`pointer-events` value can receive the pointer and bubble to the row, and a subtree of more than 64
-elements is too large to scan, so both leave the row unknown. A labelable control with an associated
+`pointer-events` value can receive the pointer and bubble to the row, and so can the row's or a
+descendant's generated `::before` or `::after` content, and a child inside an open shadow tree,
+which retargets to its host. A subtree of more than 64 elements, shadow descendants included, is too
+large to scan. Each of these leaves the row unknown. A closed shadow root cannot be read from page
+script, so its children are not measured and a row whose only pointer target lives there is still
+reported disallowed. A labelable control with an associated
 label (wrapping or `for=`) whose own `pointer-events` is not `none` also stays unknown: the click
 can land on that label, which activates the control, and Chrome checks the box on the same ref. An on-screen `pointer-events: none`
 control already fails the foreground hit test and leaves the listing as occluded; the measurement

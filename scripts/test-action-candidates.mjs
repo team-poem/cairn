@@ -4,7 +4,7 @@
 // `pointer-events: none` is measured disallowed by the Chrome driver itself and rejected the same
 // way, with no host hint. It sits below the fold because an on-screen one already fails the
 // foreground hit test and is dropped from the listing as occluded. A pointer-events:none checkbox
-// whose label still takes the pointer is checked through that label, so it stays unknown. Scripted decisions, no model account.
+// whose label still takes the pointer is checked through that label, and a control whose ::before or open shadow child takes the pointer is clicked through it, so each stays unknown. Scripted decisions, no model account.
 // Build first. CAIRN_MCP_ENTRY may select an installed chrome-devtools-mcp 1.8.0.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
@@ -14,6 +14,18 @@ const server = createServer((req, res) => {
   if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.setHeader('Cache-Control', 'no-store');
+  if (req.url === '/pointer') {
+    res.end(`<!doctype html><title>Pointer through</title>
+    <style>#pseudo::before { content: ''; display: block; width: 120px; height: 24px; pointer-events: auto; }</style>
+    <button id="pseudo" aria-label="Pseudo go" style="pointer-events:none"></button>
+    <div id="host" role="button" tabindex="0" aria-label="Shadow go" style="display:inline-block;pointer-events:none"></div>
+    <script>
+      window.clicks = [];
+      document.querySelector('#host').attachShadow({ mode: 'open' }).innerHTML = '<span style="display:block;width:120px;height:24px;pointer-events:auto">Go</span>';
+      for (const id of ['pseudo', 'host']) document.querySelector('#' + id).addEventListener('click', () => clicks.push(id));
+    </script>`);
+    return;
+  }
   res.end(`<!doctype html><title>Action candidates</title>
     <h1 id="heading">Alpha</h1>
     <a href="#" id="link">Alpha Curated goods from the Alpha store</a>
@@ -142,6 +154,20 @@ try {
     assert.equal(JSON.parse(reply.match(/```json\s*([\s\S]*?)\s*```/)[1]), true, 'the click checks the box through its label');
     report.push({ case: 'label-activated', checked: true });
   } finally { await driver.close(); }
+  // A pseudo-element or an open shadow child that opts back in receives the click and
+  // dispatches it to the row, so measuring the row disallowed would refuse a click that works.
+  for (const [name, id] of [['Pseudo go', 'pseudo'], ['Shadow go', 'host']]) {
+    driver = new ChromeDevToolsDriver(options);
+    try {
+      await driver.goto(`${baseUrl}/pointer`);
+      const row = (await driver.snapshot({ perception: true })).find(r => r.name === name);
+      assert.ok(row, `${name} must be observed`);
+      assert.equal(row.actions, undefined, `${name} stays unknown`);
+      await driver.click({ text: row.name }, row.ref);
+      assert.deepEqual(await pageClicks(driver), [id], `the click reaches the ${id} handler`);
+      report.push({ case: `pointer-through-${id}`, pageClicks: [id] });
+    } finally { await driver.close(); }
+  }
   console.log(JSON.stringify(report, null, 2));
 } finally {
   server.closeAllConnections();

@@ -103,9 +103,9 @@ const scenario = await discover("Add two units to the cart", {
 
 ### Verify the resource selected in this run
 
-Host-authored tests can select [the current first result](https://github.com/team-poem/cairn/blob/main/docs/guide.md#run-relative-collection-positions) or [an item that meets explicit conditions](https://github.com/team-poem/cairn/blob/main/docs/predicate-selection.md). They can then [compare that resource's key with a key read independently from the destination](https://github.com/team-poem/cairn/blob/main/docs/selected-item-evidence.md). Selection and comparison run without a model.
+For a [grid of plain links](https://github.com/team-poem/cairn/blob/main/spec/core/link-selection.md), the host can declare “open the second post.” Discovery saves that rule. On replay, Cairn opens the current second link in DOM order, even if the posts have changed. With destination verification enabled, replay compares that link’s `href` with the URL of the document opened in the same tab. Another tab at the expected URL cannot confirm the click.
 
-Resource bindings and predicate choices are opt-in library APIs, initially for same-document collection clicks with explicit `data-*` keys. Fixed targets never gain permission to substitute another resource. Opt-in reselection requires proof that the previous click was not dispatched.
+In a role-based collection, a test can select [the current first result](https://github.com/team-poem/cairn/blob/main/docs/guide.md#run-relative-collection-positions) or [an item that meets explicit conditions](https://github.com/team-poem/cairn/blob/main/docs/predicate-selection.md). For same-document clicks, [compare explicit `data-*` keys](https://github.com/team-poem/cairn/blob/main/docs/selected-item-evidence.md) to verify the resource. These checks run without a model. Fixed targets never substitute a different resource; opt-in reselection requires proof that the previous click was not dispatched.
 
 ## Benchmarks
 

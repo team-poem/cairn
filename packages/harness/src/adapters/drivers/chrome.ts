@@ -576,21 +576,24 @@ export class ChromeDevToolsDriver implements Driver {
     return selectedPageId(await this.call("list_pages").catch(() => "")) === id;
   }
 
-  /** The source key is the selected link's href, read before the guarded click. The receipt is a
-   * document nonce: if it survives the click, no new document committed and nothing is confirmed.
-   * Both the nonce and the arrival are read in the tab the click was dispatched in. */
+  /** The source key is the selected link's href, read by the final guard immediately before the
+   * click. The receipt is a document nonce planted by that same guard: if it survives the click, no
+   * new document committed and nothing is confirmed. Both the nonce and the arrival are read in the
+   * tab the click was dispatched in. */
   private async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
     this.linkDeparturePage = undefined;
     const uid = await this.actionUid(target, ref);
     const collection = this.collectionObservations.get(ref);
     if (!collection?.links) throw new CollectionSelectionError("unsupported", "a link destination requires a link collection reference");
     const sourcePage = await this.knownSourcePage();
-    const href = await collection.linkDestination(uid);
-    const nonce = `Symbol.for(${JSON.stringify(`cairn-link-departure:${this.driverId}:${nextLinkDeparture++}`)})`;
-    await this.call("evaluate_script", { function: `() => { globalThis[${nonce}] = true; return {}; }` }, "observation");
+    const departure = `cairn-link-departure:${this.driverId}:${nextLinkDeparture++}`;
+    const nonce = `Symbol.for(${JSON.stringify(departure)})`;
+    let href: string | undefined;
     this.invalidateObservation();
-    const changedPage = await this.callAccepting("click", { uid }, collection);
-    if (sourcePage === undefined || changedPage !== false || !await this.selectedPageIs(sourcePage)) return { complete: false };
+    const changedPage = await this.callAccepting("click", { uid },
+      { validate: async (uid: string) => (href = await collection.validate(uid, departure)) });
+    if (href === undefined || sourcePage === undefined || changedPage !== false || !await this.selectedPageIs(sourcePage))
+      return { complete: false };
     this.linkDeparturePage = sourcePage;
     const stayed = await this.call("evaluate_script", {
       function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}]; return {stayed}; }`,

@@ -15,6 +15,7 @@ interface Measurement {
   reason?: unknown;
   items?: Array<{ action?: number; disabled?: boolean; occluded?: boolean; choice?: CollectionObservation["items"][number]["choice"] }>;
   conditions?: CollectionObservation["conditions"];
+  destination?: unknown;
 }
 type Call = (name: string, args?: Record<string, unknown>) => Promise<string>;
 
@@ -63,34 +64,6 @@ export class ChromeCollectionObservation {
   get choice() { return this.selection.choice; }
   get links() { return isLinkCollection(this.selection); }
 
-  /** The selected link's destination without its fragment, read from the exact saved node. A link
-   * that opens a tab, downloads, stays in this document or is not http(s) has no arrival this check
-   * can observe, so it is refused before dispatch rather than clicked and left unconfirmed. */
-  async linkDestination(uid: string): Promise<string> {
-    const result = extractFirstJsonObject(await this.call("evaluate_script", {
-      args: [uid],
-      function: `(action) => {
-        const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
-        const saved = state?.collections?.get(${JSON.stringify(this.key)});
-        const link = action?.nodeType === 3 ? action.parentElement : action;
-        if (window.top !== window || !state?.observer || state.overflow || !saved?.actions.includes(action) || link?.tagName !== 'A')
-          return {reason:'stale'};
-        const target = link.hasAttribute('target') ? link.target : document.querySelector('base[target]')?.target ?? '';
-        if (!['', '_self'].includes(target) || link.hasAttribute('download')) return {reason:'unsupported'};
-        let url;
-        try { url = new URL(link.href); } catch { return {reason:'unsupported'}; }
-        if (!/^https?:$/.test(url.protocol)) return {reason:'unsupported'};
-        const here = new URL(location.href);
-        url.hash = ''; here.hash = '';
-        return url.href === here.href ? {reason:'unsupported'} : {value:url.href};
-      }`,
-    })) as { value?: unknown; reason?: unknown } | undefined;
-    if (typeof result?.value === "string") return result.value;
-    throw result?.reason === "unsupported"
-      ? new CollectionSelectionError("unsupported", "the selected link has no same-tab document destination")
-      : new CollectionSelectionError("stale", "collection observation is unavailable");
-  }
-
   async start(raw: string, candidates: ReadonlyMap<string, PageElement>): Promise<CollectionObservation> {
     const plan = this.plan(raw);
     // The initial AX snapshot follows installation of a fresh guard. Any mutation before
@@ -117,7 +90,11 @@ export class ChromeCollectionObservation {
     };
   }
 
-  async validate(uid: string): Promise<void> {
+  /** The final guard before dispatch. With `departure`, the same evaluation also reads the selected
+   * link's destination without its fragment and plants the departure marker. A link that opens a tab,
+   * downloads, stays in this document or is not http(s) has no arrival the check can observe, so it
+   * is refused here, before dispatch, rather than clicked and left unconfirmed. */
+  async validate(uid: string, departure?: string): Promise<string | undefined> {
     if (!this.captured) throw new CollectionSelectionError("stale", "collection observation is unavailable");
     const before = extractFirstJsonObject(await this.call("evaluate_script", {
       function: `() => {
@@ -128,8 +105,13 @@ export class ChromeCollectionObservation {
       }`,
     })) as { revision?: unknown } | undefined;
     if (!Number.isSafeInteger(before?.revision)) throw new CollectionSelectionError("stale", "collection guard revision is unavailable");
-    const result = await this.measure(this.plan(await this.capture()), before!.revision as number, uid);
+    const result = await this.measure(this.plan(await this.capture()), before!.revision as number, uid, departure);
+    if (result.reason === "no same-tab destination")
+      throw new CollectionSelectionError("unsupported", "the selected link has no same-tab document destination");
     if (result.complete !== true) throw new CollectionSelectionError("stale", "collection membership, state or exact nodes changed");
+    if (departure === undefined) return undefined;
+    if (typeof result.destination !== "string") throw new CollectionSelectionError("stale", "collection observation is unavailable");
+    return result.destination;
   }
 
   prepareSelectedItemKey(uid: string, source: SelectedItemKey): Promise<SelectedItemReceipt> {
@@ -185,19 +167,20 @@ export class ChromeCollectionObservation {
     return { rows, root: index(roots[0]!), items: items.map(index), actions: actions.map(index), conditions: conditions.map(index) };
   }
 
-  private async measure(plan: Plan, revision: number, selected?: string): Promise<Measurement> {
+  private async measure(plan: Plan, revision: number, selected?: string, departure?: string): Promise<Measurement> {
     const result = extractFirstJsonObject(await this.call("evaluate_script", {
-      function: this.script(plan, revision, selected),
+      function: this.script(plan, revision, selected, departure),
       args: [...plan.rows.map(row => row.uid), ...(selected === undefined ? [] : [selected])],
     }));
     if (!result || typeof result !== "object") throw new CollectionSelectionError("incomplete", "collection DOM measurement failed");
     return result as Measurement;
   }
 
-  private script(plan: Plan, revision: number, selected?: string): string {
+  private script(plan: Plan, revision: number, selected?: string, departure?: string): string {
     return `(...args) => {
       const spec = ${JSON.stringify(this.selection)}, plan = ${JSON.stringify(plan)};
       const selected = ${JSON.stringify(selected ?? null)}, nodes = args.slice(0, plan.rows.length);
+      const departure = ${JSON.stringify(departure ?? null)};
       const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
       const fail = reason => ({complete:false, reason, items:[], conditions:[]});
       if (spec.choice?.where.some(predicate => typeof predicate.value !== 'string')) return fail('unresolved choice value');
@@ -404,6 +387,19 @@ export class ChromeCollectionObservation {
         if (choices[selectedItem]?.disabled || choices[selectedItem]?.occluded) return fail('ineligible action');
         if (spec.choice && (choices[selectedItem]?.choice?.complete !== true ||
             spec.choice.where.some((predicate, index) => choices[selectedItem].choice.values[index] !== predicate.value))) return fail('ineligible choice');
+        if (departure !== null) {
+          const link = element(args[args.length - 1]);
+          const target = link?.hasAttribute('target') ? link.target : document.querySelector('base[target]')?.target ?? '';
+          let url = null;
+          try { url = new URL(link.href); } catch {}
+          const here = new URL(location.href);
+          here.hash = '';
+          if (url) url.hash = '';
+          if (link?.tagName !== 'A' || !['', '_self'].includes(target) || link.hasAttribute('download') || !url ||
+              !/^https?:$/.test(url.protocol) || url.href === here.href) return fail('no same-tab destination');
+          globalThis[Symbol.for(departure)] = true;
+          return {complete, items:choices, conditions, destination:url.href};
+        }
       } else if (complete) {
         state.collections.set(key, {root, members, actions:actionNodes, conditions:conditionNodes, conditionFacts:conditions, signature,
           ...(spec.choice ? {choice:spec.choice, choiceFacts:choices.map(choice => choice.choice)} : {}),

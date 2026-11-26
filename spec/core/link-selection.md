@@ -82,8 +82,10 @@ selection with `source: { kind: "href" }` and `destination: { kind: "location" }
 key kinds pair only with each other and only with a link collection. Attribute keys stay with the
 role form.
 
-- The source key is the selected link's `href`, read from the exact guarded node before dispatch
-  and confirmed unchanged by the final continuity check.
+- The source key is the selected link's `href` as it resolves in the final continuity check, the
+  same evaluation that confirms the exact node and plants the departure marker immediately before
+  dispatch. A `<base href>` or `href` that differed at an earlier read cannot become the expected
+  value.
 - The arrival is the top-level `location` at the selection step's after-step boundary, read
   independently of the link and only in the tab the click was dispatched in. If another tab is
   selected when the departure marker or the arrival is read, for example because the original tab
@@ -95,9 +97,10 @@ role form.
   canonical URL declares the canonical `href` or uses an attribute binding on a role collection.
 - Values over 256 characters cannot be compared and leave the relation unconfirmed.
 
-Chrome refuses, before dispatch, a selected link that opens another tab (its own `target`, or a
-`<base target>` when it has none, other than `_self`), downloads, is not `http(s)`, or points at the current document apart from its fragment.
-It plants a document-local marker before the click. If the marker survives, no new document
+Chrome refuses, in that final check and so before dispatch, a selected link that opens another tab
+(its own `target`, or a `<base target>` when it has none, other than `_self`), downloads, is not
+`http(s)`, or points at the current document apart from its fragment. Otherwise the check plants a
+document-local marker. If the marker survives, no new document
 committed, and the relation is unconfirmed (required inconclusive). A pushState-only navigation is
 therefore unconfirmed too. A newly opened tab is unconfirmed. Selecting B and arriving at C fails;
 missing or stale arrival evidence cannot pass. A matching destination does not prove unrelated
@@ -106,9 +109,9 @@ business outcomes.
 A full navigation usually takes longer than the default 2,000 ms source deadline. Pass a larger
 `selectedItemEvidence.timeoutMs` on replay. A late result is unconfirmed, never retried.
 
-The arrival is sampled once. A script redirect that runs after that read is not seen, and a
-`<base href>` swapped and restored between the `href` read and the final guard can make a correct
-arrival fail. Neither can authorize another click.
+The arrival is sampled once. A script redirect that runs after that read is not seen. A `<base href>`
+changed after the final check makes the browser follow another URL than the expected one, so the
+relation fails. Neither can authorize another click.
 
 The frozen step keeps only the declaration. It never holds the discovery item's address, label or
 refs as a post-condition.
@@ -120,8 +123,9 @@ model calls, a B-to-C destination mismatch, and declaration validation.
 `test/browser/link-collection.browser.test.ts` measures real DOM in Chrome: DOM versus visual order,
 a badged first card, off-screen members, wrapped and grouped cards, hidden members, empty,
 ambiguous, nested, miscounted and invalid scopes, pre-dispatch changes, and the destination
-check's single dispatch and its refusals (new tab, `<base target>`, download, same document,
-non-http).
+check's single dispatch, a real same-tab navigation that confirms, a `<base href>` that differs
+between earlier reads and the final check, which cannot confirm, and its refusals (new tab,
+`<base target>`, download, same document, non-http).
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
 that stays inconclusive, a click that closes the original tab so another tab showing the expected

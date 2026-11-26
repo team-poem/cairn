@@ -99,8 +99,9 @@ role form.
 
 Chrome refuses, in that final check and so before dispatch, a selected link that opens another tab
 (its own `target`, or a `<base target>` when it has none, other than `_self`), downloads, is not
-`http(s)`, or points at the current document apart from its fragment. Otherwise the check plants a
-document-local marker. If the marker survives, no new document
+`http(s)`, or points at the current document apart from its fragment. Discovery with a link
+`verify` dispatches through the same check, so it refuses these links before clicking too.
+Otherwise the check plants a document-local marker. If the marker survives, no new document
 committed, and the relation is unconfirmed (required inconclusive). A pushState-only navigation is
 therefore unconfirmed too. A newly opened tab is unconfirmed. Selecting B and arriving at C fails;
 missing or stale arrival evidence cannot pass. A matching destination does not prove unrelated
@@ -119,7 +120,8 @@ refs as a post-condition.
 ## Verification
 
 `test/link-selection.test.ts` covers discovery, save/load and fresh replay after a reorder with zero
-model calls, a B-to-C destination mismatch, and declaration validation.
+model calls, a discovery that refuses a link the destination check cannot observe before dispatch,
+a B-to-C destination mismatch, and declaration validation.
 `test/browser/link-collection.browser.test.ts` measures real DOM in Chrome: DOM versus visual order,
 a badged first card, off-screen members, wrapped and grouped cards, hidden members, empty,
 ambiguous, nested, miscounted and invalid scopes, pre-dispatch changes, and the destination
@@ -129,4 +131,5 @@ between earlier reads and the final check, which cannot confirm, and its refusal
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
 that stays inconclusive, a click that closes the original tab so another tab showing the expected
-post is selected, which stays inconclusive, and grouped image and title links.
+post is selected, which stays inconclusive, a discovery that refuses a `target="_blank"` link
+without opening it, and grouped image and title links.

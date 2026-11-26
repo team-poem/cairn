@@ -114,7 +114,7 @@ try {
     version: 1, id: 'new-tab-post',
     target: { collection: { links: { scope: '.grid', member: ':scope > a' }, order: 'dom', index: 1, expectedCount: 3 } },
     verify: { source: { kind: 'href' }, destination: { kind: 'location' } },
-  }));
+  }), /selection-failed/);
   assert.deepEqual(opened, [], 'discovery must not open a new-tab link');
   newTab.clear();
 
@@ -135,7 +135,7 @@ try {
   assert.equal(cardReplay.result.usage.llmCalls, 0);
 
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], reorderedOpened: 'alpha', mismatchRejected: true, missingArrivalInconclusive: true,
-    groupedCardOpened: 'alpha', replayModelCalls: 0 }, null, 2));
+    switchedTabInconclusive: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha', replayModelCalls: 0 }, null, 2));
 } finally {
   await driver.close();
   server.close();

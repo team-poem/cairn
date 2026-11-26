@@ -84,6 +84,8 @@ export function copySelections(value: readonly DiscoverySelection[] | undefined,
       out.verify = { source: verify.source as SelectedItemKey, destination: verify.destination as DestinationResourceKey };
       // The real prefix exists only after discovery; check the key declarations now.
       bindingFor(out, [{ kind: "click", target }]);
+      if (out.verify.source.kind === "href" && typeof driver.clickWithSelectedItemEvidence !== "function")
+        throw new CollectionSelectionError("unsupported", "a link destination requires guarded dispatch");
     }
     return out;
   });
@@ -120,23 +122,27 @@ export function selectionRejection(decision: { action: string; selection?: unkno
 
 /**
  * Run the declaration through the replay step handler. A choice resolves its constant predicates
- * and dispatches through the guarded resource-key click; the observed key is discarded here.
+ * and dispatches through the guarded resource-key click; the observed key is discarded here. A link
+ * `verify` dispatches through the same guarded destination click as replay, so a link replay would
+ * refuse is refused here before dispatch; its observation is discarded too.
  */
 export async function executeSelection(driver: Driver, selection: DiscoverySelection, signal?: AbortSignal): Promise<Step> {
   const step: Step = { kind: "click", target: { collection: validateCollectionTarget(selection.target) } };
   const choice = step.target.collection!.choice;
+  const guarded: SelectedItemKey | undefined = choice ? choice.identity
+    : selection.verify?.source.kind === "href" ? { kind: "href" } : undefined;
   let dispatch = driver;
-  if (choice) {
-    const values = choice.where.map(predicate => predicate.value as string);
+  if (guarded) {
+    const values = choice?.where.map(predicate => predicate.value as string);
     let dispatched = false;
     dispatch = new Proxy({} as Driver, { get: (_target, property) => {
-      if (property === resolveChoiceValues) return () => values;
+      if (property === resolveChoiceValues && values) return () => values;
       if (property === "click") return async (target: Target, ref?: string) => {
         if (dispatched) throw new CollectionSelectionError("invalid", "a selection dispatches once");
         dispatched = true;
-        if (!ref) throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
-        const observed = await driver.clickWithSelectedItemEvidence!(target, ref, { ...choice.identity });
-        if (observed?.complete !== true || typeof observed.value !== "string" || !observed.value.trim())
+        if (!ref) throw new CollectionSelectionError("unsupported", "a declared selection requires guarded dispatch");
+        const observed = await driver.clickWithSelectedItemEvidence!(target, ref, { ...guarded });
+        if (choice && (observed?.complete !== true || typeof observed.value !== "string" || !observed.value.trim()))
           throw new CollectionSelectionError("incomplete", "selected resource continuity could not be confirmed after dispatch");
       };
       const value: unknown = Reflect.get(driver, property, driver);

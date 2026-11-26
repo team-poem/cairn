@@ -1,6 +1,7 @@
 // Real MCP discovery of a declared position over plain links, then zero-model replay with full
 // navigation after the grid changes. Build first. CAIRN_MCP_ENTRY may point to an installed MCP 1.8.0 entry.
 import assert from 'node:assert/strict';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { createServer } from 'node:http';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -11,6 +12,7 @@ let ids = ['alpha', 'bravo', 'charlie'];
 let cards = false;
 let stay = false;
 let closeOnClick = false;
+let pushOnClick = false;
 const newTab = new Set();
 const redirects = new Map();
 const opened = [];
@@ -30,7 +32,8 @@ const server = createServer((req, res) => {
     ? `<section id="feed">${ids.map(id => `<article class="card">${id === ids[0] ? '<span>Official</span>' : ''}
         <a href="/posts/${id}"><img alt="${id} cover" width="40" height="40"></a><a href="/posts/${id}">${id}</a></article>`).join('')}</section>`
     : `<div class="grid">${ids.map(id => `<a href="/posts/${id}"${newTab.has(id) ? ' target="_blank"' : ''}${stay ? ' onclick="event.preventDefault()"'
-      : closeOnClick ? ' onclick="event.preventDefault(); window.close()"' : ''}>${id}</a>`).join('')}</div>`;
+      : closeOnClick ? ' onclick="event.preventDefault(); window.close()"'
+      : pushOnClick ? ' onclick="event.preventDefault(); history.pushState(null, \'\', this.href)"' : ''}>${id}</a>`).join('')}</div>`;
   res.end(`<!doctype html><title>Posts</title><nav><a href="/about">About</a></nav>${grid}`);
 });
 await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
@@ -59,6 +62,38 @@ const replay = loaded => runScenario(loaded, { driver, llm: noModel, reporter: {
   selectedItemEvidence: { bindings: loaded.assertions.filter(a => a.kind === 'custom').map(a => a.params), timeoutMs: 15_000 },
   custom: { [loaded.assertions.find(a => a.kind === 'custom').name]: selectedItemEquals } });
 const here = () => driver.call('evaluate_script', { function: '() => location.pathname' });
+const selectedTab = async () => Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
+
+/** After the click, every page-scoped read is sent while the decoy tab is selected, and the run's
+ * tab is selected again before the next call. Network reads stay in the run's tab, because the
+ * driver files their rows under the listed selected tab. Calls run one at a time, so a concurrent
+ * call never lands in the decoy by accident; a call the driver makes inside another runs within it. */
+async function replayReadingDecoy(loaded, decoy, run) {
+  const call = driver.call;
+  const nested = new AsyncLocalStorage();
+  let queue = Promise.resolve();
+  let clicked = false, decoyReads = 0;
+  const send = async function (name, ...rest) {
+    if (!clicked || ['list_pages', 'select_page', 'list_network_requests'].includes(name)) {
+      const reply = await call.call(this, name, ...rest);
+      if (name === 'click') clicked = true;
+      return reply;
+    }
+    await call.call(this, 'select_page', { pageId: decoy });
+    decoyReads++;
+    try { return await call.call(this, name, ...rest); } finally { await call.call(this, 'select_page', { pageId: run }); }
+  };
+  driver.call = function (...args) {
+    if (nested.getStore()) return call.apply(this, args);
+    const next = () => nested.run(true, () => send.apply(this, args));
+    const reply = queue.then(next, next);
+    queue = reply.catch(() => {});
+    return reply;
+  };
+  const outcome = await replay(loaded).finally(() => { driver.call = call; });
+  assert.ok(decoyReads > 0, 'reads after the click were sent to the decoy tab');
+  return outcome;
+}
 
 try {
   const loaded = await discoverAndLoad({
@@ -74,6 +109,8 @@ try {
   assert.equal(reordered.result.verdict.passed, true, reordered.result.verdict.detail);
   assert.deepEqual(opened, ['alpha'], 'replay opens the current second link, not the discovered one');
   assert.match(await here(), /\/posts\/alpha/);
+  assert.match(await driver.call('evaluate_script', { function: "() => [...document.querySelectorAll('title')].map(t => t.textContent)" }),
+    /\["alpha"\]/, 'the arrival page keeps its own title');
   assert.equal(reordered.result.usage.llmCalls, 0);
 
   redirects.set('alpha', 'charlie');
@@ -106,30 +143,16 @@ try {
   assert.equal(switched.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
   closeOnClick = false;
 
-  // A decoy tab shows the expected post. After the click, every page-scoped read is sent while the
-  // decoy is selected, and the run's tab is selected again before the next call. The run's tab
+  // A decoy tab shows the expected post and answers every read after the click. The run's tab
   // follows alpha's redirect to charlie, so the relation must not pass.
   await driver.call('navigate_page', { type: 'url', url: `${origin}/posts/alpha` });
-  const decoy = Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
+  const decoy = await selectedTab();
   await driver.call('new_page', { url: `${origin}/posts` });
-  const run = Number((await driver.call('list_pages')).match(/^\s*(\d+):[^\n]*\[selected\]/m)[1]);
+  const run = await selectedTab();
   assert.notEqual(run, decoy);
   redirects.set('alpha', 'charlie');
-  const call = driver.call;
-  let clicked = false, decoyReads = 0;
-  driver.call = async function (name, ...rest) {
-    if (!clicked || name === 'list_pages' || name === 'select_page') {
-      const reply = await call.call(this, name, ...rest);
-      if (name === 'click') clicked = true;
-      return reply;
-    }
-    await call.call(this, 'select_page', { pageId: decoy });
-    decoyReads++;
-    try { return await call.call(this, name, ...rest); } finally { await call.call(this, 'select_page', { pageId: run }); }
-  };
   opened.length = 0;
-  const swapped = await replay(loaded).finally(() => { driver.call = call; redirects.clear(); });
-  assert.ok(decoyReads > 0, 'reads after the click were sent to the decoy tab');
+  const swapped = await replayReadingDecoy(loaded, decoy, run).finally(() => redirects.clear());
   assert.deepEqual(opened, ['alpha', 'charlie'], 'the run tab follows the redirect');
   assert.match(await here(), /\/posts\/charlie/, 'the run tab is selected and shows charlie');
   assert.equal(swapped.result.verdict.passed, false, 'charlie must not pass as alpha because another tab showed alpha');
@@ -164,8 +187,28 @@ try {
   assert.deepEqual(opened, ['alpha'], 'a badged first card still counts and the grouped second card opens once');
   assert.equal(cardReplay.result.usage.llmCalls, 0);
 
+  // The run's tab only pushes the selected href, so no document commits there. A decoy at that URL,
+  // which has no departure marker, answers the marker read.
+  cards = false;
+  ids = ['charlie', 'alpha', 'bravo'];
+  pushOnClick = true;
+  const pushedAlone = await replay(loaded);
+  assert.equal(pushedAlone.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive',
+    'without a decoy, the surviving marker leaves a pushState unconfirmed');
+  const pushRun = await selectedTab();
+  await driver.call('new_page', { url: `${origin}/posts/alpha` });
+  const pushDecoy = await selectedTab();
+  await driver.call('select_page', { pageId: pushRun });
+  opened.length = 0;
+  const pushed = await replayReadingDecoy(loaded, pushDecoy, pushRun).finally(() => { pushOnClick = false; });
+  assert.deepEqual(opened, [], 'pushState loads no document');
+  assert.match(await here(), /\/posts\/alpha/, 'the run tab shows the pushed URL');
+  assert.equal(pushed.result.verdict.passed, false, 'a pushState must not pass because another tab at its URL answered the marker read');
+  assert.equal(pushed.result.verdict.results.find(r => r.assertion.kind === 'custom')?.reason, 'inconclusive');
+
   console.log(JSON.stringify({ frozenStep: loaded.steps[1], reorderedOpened: 'alpha', mismatchRejected: true, missingArrivalInconclusive: true,
-    switchedTabInconclusive: true, temporarySwitchRejected: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha', replayModelCalls: 0 }, null, 2));
+    switchedTabInconclusive: true, temporarySwitchRejected: true, newTabRefusedInDiscovery: true, groupedCardOpened: 'alpha',
+    pushStateDecoyInconclusive: true, replayModelCalls: 0 }, null, 2));
 } finally {
   await driver.close();
   server.close();

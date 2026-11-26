@@ -576,8 +576,8 @@ export class ChromeDevToolsDriver implements Driver {
   /** The source key is the selected link's href, read by the final guard immediately before the
    * click. The receipt is a document nonce planted by that same guard: if it survives the click, no
    * new document committed and nothing is confirmed. evaluate_script runs in whichever tab is
-   * selected, so the nonce read also returns its document URL, and that URL must equal the one the
-   * tab listing reports for the dispatch tab. */
+   * selected, so the nonce read also sets the document title to a fresh token, and counts only when
+   * the tab listing shows that token as the dispatch tab's title. The title is restored right after. */
   async clickLinkWithDestination(target: Target, ref: string): Promise<ResourceKeyObservation> {
     this.linkDeparturePage = undefined;
     const uid = await this.actionUid(target, ref);
@@ -591,12 +591,22 @@ export class ChromeDevToolsDriver implements Driver {
     const changedPage = await this.callAccepting("click", { uid },
       { validate: async (uid: string) => (href = await collection.validate(uid, departure)) });
     if (href === undefined || sourcePage === undefined || changedPage !== false) return { complete: false };
+    const token = `cairn-${globalThis.crypto.randomUUID()}`;
+    const saved = `Symbol.for(${JSON.stringify(token)})`;
     const read = await this.call("evaluate_script", {
       function: `() => { const stayed = globalThis[${nonce}] === true; delete globalThis[${nonce}];
-        const url = new URL(location.href); url.hash = ''; return {stayed, url: url.href}; }`,
-    }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown; url?: unknown } | undefined, () => undefined);
-    const listed = listedPageUrl(await this.call("list_pages").catch(() => ""), sourcePage);
-    if (read?.stayed !== false || listed === undefined || read.url !== listed) return { complete: false };
+        globalThis[${saved}] = document.querySelector('title')?.textContent ?? null;
+        document.title = ${JSON.stringify(token)}; return {stayed}; }`,
+    }, "observation").then(raw => extractFirstJsonObject(raw) as { stayed?: unknown } | undefined, () => undefined);
+    const pages = await this.call("list_pages").catch(() => "");
+    await this.call("evaluate_script", {
+      function: `() => { if (!(${saved} in globalThis)) return {}; const saved = globalThis[${saved}]; delete globalThis[${saved}];
+        const title = document.querySelector('title');
+        if (title?.textContent === ${JSON.stringify(token)}) { if (saved === null) title.remove(); else title.textContent = saved; }
+        return {}; }`,
+    }, "observation").catch(() => {});
+    const readInSource = pages.split("\n").some(line => line.trimStart().startsWith(`${sourcePage}: ${token} (`));
+    if (read?.stayed !== false || !readInSource) return { complete: false };
     this.linkDeparturePage = sourcePage;
     return { complete: true, value: href };
   }

@@ -104,11 +104,15 @@ role form.
   post cannot stand in for it, even when it is selected only for the read. The URL is the last
   parenthesized value on the tab's line, because the title before it is page-controlled. If the
   dispatch tab is gone, for example because it closed itself, the relation is unconfirmed.
-- The departure marker is read with `evaluate_script`, which runs in the selected tab. That read
-  also returns its document URL, which must equal the dispatch tab's listed URL. Otherwise the
-  marker read cannot be attributed to the dispatch tab, and the relation is unconfirmed. Another tab
-  with exactly the same URL could still answer the marker read. That can only misreport whether a
-  new document committed in a tab already at that URL. It never changes the arrival.
+- The departure marker is read with `evaluate_script`, which runs in the selected tab, and MCP
+  1.8.0 under `--no-page-id-routing` takes no page ID for it. The same evaluation sets the document
+  title to a fresh random token, and the read counts only when the tab listing shows that token as
+  the title of the dispatch tab's page ID. Another tab, even one at the same URL with no marker,
+  cannot answer for the dispatch tab, so a `pushState` there stays unconfirmed. The title is
+  restored, or the created `<title>` removed, by the next call. A page that rewrites its title
+  between the read and the listing leaves the relation unconfirmed. Pages that copy each other's
+  titles across tabs on purpose could forge the token; the app under test is not treated as an
+  adversary of its harness.
 - The binding's destination prefix must equal its source prefix: a later step, such as a `goto` or
   a breadcrumb, could reach the selected href itself and hide a wrong arrival.
 - Both sides drop the fragment. The query is compared exactly. Redirects are compared on where the
@@ -161,4 +165,5 @@ with full-document navigation: a reorder, a redirect to another post that fails,
 that stays inconclusive, a click that closes the original tab so another tab showing the expected
 post is selected, which stays inconclusive, a temporary switch that sends every read after the click
 to another tab showing the expected post while the run's tab redirects elsewhere, which fails, a discovery that refuses a `target="_blank"` link
-without opening it, and grouped image and title links.
+without opening it, grouped image and title links, and a click that only pushes the selected href
+while every read is sent to another tab at that URL, which stays inconclusive.

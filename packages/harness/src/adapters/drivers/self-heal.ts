@@ -125,6 +125,7 @@ export class SelfHealingDriver implements Driver {
     }
     if (inner.locateRef) this.locateRef = ref => inner.locateRef!(ref);
     if (inner.snapshotForTask) this.snapshotForTask = options => inner.snapshotForTask!(options);
+    if (inner.readerIds) this.readerIds = inner.readerIds;
     if (typeof inner.observeCollection === "function") this.observeCollection = selection => inner.observeCollection!(selection);
     // Bound evidence dispatches never enter locator healing or retry a mutation.
     if (inner.clickWithSelectedItemEvidence) this.clickWithSelectedItemEvidence = (target, ref, source) => inner.clickWithSelectedItemEvidence!(target, ref, source);
@@ -141,6 +142,7 @@ export class SelfHealingDriver implements Driver {
 
   locateRef?: (ref: string) => Promise<Target>;
   snapshotForTask?: Driver["snapshotForTask"];
+  readerIds?: Driver["readerIds"];
   observeCollection?: Driver["observeCollection"];
   clickWithSelectedItemEvidence?: Driver["clickWithSelectedItemEvidence"];
   readResourceKey?: Driver["readResourceKey"];

@@ -8,7 +8,7 @@ import type { Driver } from "../ports.js";
 import type { Assertion, Evidence, NetworkRequest, Step, Target, WaitUntil } from "../types.js";
 import { BuiltinStepHandler } from "../steps.js";
 import { findRequestStatus } from "../requests.js";
-import { CollectionSelectionError, isLinkCollection, resolveChoiceValues, validateCollectionTarget } from "../collection.js";
+import { CollectionSelectionError, isLinkCollection, requireReaderSupport, resolveChoiceValues, validateCollectionTarget } from "../collection.js";
 import { copyCapturePath, copyEvidenceData } from "../evidence-capture.js";
 import { validateSelectedItemBinding, type DestinationResourceKey, type LinkDestinationKey, type LinkSourceKey, type ResourceKeyBinding,
   type SelectedItemKey } from "../selected-item-evidence.js";
@@ -69,6 +69,7 @@ export function copySelections(value: readonly DiscoverySelection[] | undefined,
     const target: Target = { collection };
     if (typeof (isLinkCollection(collection) ? driver.observeLinkCollection : driver.observeCollection) !== "function")
       throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
+    requireReaderSupport(driver, collection);
     if (collection.choice) {
       if (collection.choice.where.some(predicate => typeof predicate.value !== "string"))
         throw new CollectionSelectionError("unsupported", "discovery does not resolve binding references");

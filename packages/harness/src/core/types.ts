@@ -108,8 +108,13 @@ export interface CollectionChoice {
   maxReselections: 0 | 1;
 }
 
+/** Host-chosen ID of the code that reads a collection (#370). Cairn carries it and never
+ * interprets it: it is neither a DOM identity nor a selection ID, and it cannot change membership. */
+export type CollectionReaderId = string;
+
 interface CollectionScope {
   root: CollectionLocator;
+  readerId?: CollectionReaderId;
   itemRole: "listitem" | "option";
   /** Exactly one matching action inside the selected member, excluding nested collections. */
   target: CollectionLocator;
@@ -134,6 +139,7 @@ export interface LinkMembership {
 }
 export interface LinkCollectionScope {
   links: LinkMembership;
+  readerId?: CollectionReaderId;
   order: "dom";
   /** Required: plain links expose no total, so the host's count is the only completeness proof. */
   expectedCount: number;

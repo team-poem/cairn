@@ -29,7 +29,9 @@ const scenario = await discover("Open the first post and check its detail", {
 - `version: 1` and a bounded `id` (letters, digits, `_ . : -`, at most 100 characters).
   IDs are unique within one call. At most 16 declarations are accepted.
 - `target` is a complete `Target` with only `collection`, validated by `validateCollectionTarget`.
-  It is persisted verbatim. A `choice` must use constant predicates. Binding references
+  It is persisted verbatim, including an optional [`readerId`](collection-selection.md#reader-id-370),
+  which discovery never rewrites. A `readerId` the driver does not list in `Driver.readerIds` is
+  refused as `unsupported`. A `choice` must use constant predicates. Binding references
   (`{ bindingId }`) need a source from the same run and are refused in discovery.
 - `expect` is an optional host-approved post-condition (`url`, `text`, `role` or `requestStatus`)
   for the selection step. It must not depend on which member is selected.

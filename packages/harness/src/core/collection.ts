@@ -1,6 +1,6 @@
 /** Explicit collection selection. Drivers measure; core validates; no model or fallback. */
 import type { Driver } from "./ports.js";
-import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionDeclaration, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
+import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionDeclaration, CollectionLocator, CollectionReaderId, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
 
 export type CollectionSelectionCode = "invalid" | "unsupported" | "incomplete" | "condition" | "missing" | "disabled" | "stale" | "ambiguous";
 
@@ -138,8 +138,14 @@ function selector(value: unknown, label: string): string {
   return value;
 }
 
+function readerId(value: unknown): CollectionReaderId {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,99}$/.test(value))
+    invalid("readerId must be a bounded ID of letters, digits and _ . : -");
+  return value;
+}
+
 function linkCollection(raw: unknown): LinkCollectionScope {
-  const value = record(raw, ["links", "order", "index", "expectedCount"], "collection");
+  const value = record(raw, ["links", "readerId", "order", "index", "expectedCount"], "collection");
   if (value.order !== "dom") invalid("only DOM order is supported");
   const links = record(value.links, ["scope", "member", "action", "group"], "links");
   const member = selector(links.member, "links.member");
@@ -152,6 +158,7 @@ function linkCollection(raw: unknown): LinkCollectionScope {
   return { links: { scope: selector(links.scope, "links.scope"), member,
     ...(links.action !== undefined ? { action: selector(links.action, "links.action") } : {}),
     ...(links.group !== undefined ? { group: "destination" as const } : {}) },
+    ...(value.readerId !== undefined ? { readerId: readerId(value.readerId) } : {}),
     order: "dom", index, expectedCount };
 }
 
@@ -168,7 +175,7 @@ export function validateCollectionTarget(target: Target): CollectionDeclaration 
   const outer = record(target, ["collection"], "target");
   const raw = outer.collection;
   if (raw && typeof raw === "object" && "links" in raw) return linkCollection(raw);
-  const value = record(raw, ["root", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
+  const value = record(raw, ["root", "readerId", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
   if (value.order !== "dom") invalid("only DOM order is supported");
   if (value.itemRole !== "listitem" && value.itemRole !== "option") invalid("itemRole must be listitem or option");
   const root = locator(value.root, "root");
@@ -178,6 +185,7 @@ export function validateCollectionTarget(target: Target): CollectionDeclaration 
   if (("index" in value) === ("choice" in value)) invalid("collection requires exactly one of index or choice");
   const out: CollectionTarget = { root, itemRole: value.itemRole, target: locator(value.target, "target"),
     order: "dom", ...("choice" in value ? { choice: choice(value.choice) } : { index: position(value.index, "index") }) };
+  if (value.readerId !== undefined) out.readerId = readerId(value.readerId);
   if (value.expectedCount !== undefined) out.expectedCount = position(value.expectedCount, "expectedCount");
   if (value.conditions !== undefined) {
     out.conditions = denseArray(value.conditions, "conditions", invalid, 32).map((raw): CollectionCondition => {
@@ -196,12 +204,20 @@ export function validateCollectionTarget(target: Target): CollectionDeclaration 
   return out;
 }
 
+/** A declared readerId needs the driver's explicit say-so (#370): a driver that predates it would
+ * silently read its default list. Refused before any observation or click. */
+export function requireReaderSupport(driver: Driver, selection: CollectionDeclaration): void {
+  if (selection.readerId !== undefined && !(Array.isArray(driver.readerIds) && driver.readerIds.includes(selection.readerId)))
+    throw new CollectionSelectionError("unsupported", `driver does not declare support for readerId "${selection.readerId}"`);
+}
+
 /** The resolved target is transient. Persist the declaration, never these observed names/refs. */
 export async function resolveCollectionTarget(driver: Driver, target: Target): Promise<{ target: Target; ref: string }> {
   const selection = validateCollectionTarget(target);
   // Each form has its own port, so a Driver that predates links never receives one.
   const observeCollection = isLinkCollection(selection) ? driver.observeLinkCollection : driver.observeCollection;
   if (typeof observeCollection !== "function") throw new CollectionSelectionError("unsupported", "driver does not provide collection observations");
+  requireReaderSupport(driver, selection);
   // Resolve run-local references privately. Even constant choices require the session to
   // authorize their source binding before the driver can observe or dispatch them.
   let expected: string[] | undefined;

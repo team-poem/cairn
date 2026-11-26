@@ -86,12 +86,19 @@ role form.
   same evaluation that confirms the exact node and plants the departure marker immediately before
   dispatch. A `<base href>` or `href` that differed at an earlier read cannot become the expected
   value.
-- The arrival is the top-level `location` at the selection step's after-step boundary, read
-  independently of the link and only in the tab the click was dispatched in. If another tab is
-  selected when the departure marker or the arrival is read, for example because the original tab
-  closed and Chrome selected the next one, the relation is unconfirmed. The binding's destination
-  prefix must equal its source prefix: a later step, such as a `goto` or a breadcrumb, could reach
-  the selected href itself and hide a wrong arrival.
+- The arrival is the top-level URL of the tab the click was dispatched in, at the selection step's
+  after-step boundary, read independently of the link. Chrome reads it from the MCP tab listing by
+  that tab's page ID, not from whichever tab is selected, so another tab that shows the expected
+  post cannot stand in for it, even when it is selected only for the read. The URL is the last
+  parenthesized value on the tab's line, because the title before it is page-controlled. If the
+  dispatch tab is gone, for example because it closed itself, the relation is unconfirmed.
+- The departure marker is read with `evaluate_script`, which runs in the selected tab. That read
+  also returns its document URL, which must equal the dispatch tab's listed URL. Otherwise the
+  marker read cannot be attributed to the dispatch tab, and the relation is unconfirmed. Another tab
+  with exactly the same URL could still answer the marker read. That can only misreport whether a
+  new document committed in a tab already at that URL. It never changes the arrival.
+- The binding's destination prefix must equal its source prefix: a later step, such as a `goto` or
+  a breadcrumb, could reach the selected href itself and hide a wrong arrival.
 - Both sides drop the fragment. The query is compared exactly. Redirects are compared on where the
   browser landed, so a redirect that changes the URL fails. A host whose links redirect to a
   canonical URL declares the canonical `href` or uses an attribute binding on a role collection.
@@ -129,12 +136,14 @@ a B-to-C destination mismatch, and declaration validation.
 `test/browser/link-collection.browser.test.ts` measures real DOM in Chrome: DOM versus visual order,
 a badged first card, off-screen members, wrapped and grouped cards, hidden members, empty,
 ambiguous, nested, miscounted and invalid scopes, pre-dispatch changes, and the destination
-check's single dispatch, a real same-tab navigation that confirms, a `<base href>` that differs
+check's single dispatch, a real same-tab navigation that confirms, a page title that names the
+selected link, which cannot stand in for the arrival, a `<base href>` that differs
 between earlier reads and the final check, which cannot confirm, and its refusals (new tab,
 `<base target>`, an empty `target` under `<base target="_blank">`, a whitespace-padded `_self`,
 download, same document, non-http). A link's own `_self` under `<base target="_blank">` still dispatches.
 `npm run test:link-selection` also runs `scripts/test-link-selection.mjs` against real Chrome/MCP
 with full-document navigation: a reorder, a redirect to another post that fails, a swallowed click
 that stays inconclusive, a click that closes the original tab so another tab showing the expected
-post is selected, which stays inconclusive, a discovery that refuses a `target="_blank"` link
+post is selected, which stays inconclusive, a temporary switch that sends every read after the click
+to another tab showing the expected post while the run's tab redirects elsewhere, which fails, a discovery that refuses a `target="_blank"` link
 without opening it, and grouped image and title links.

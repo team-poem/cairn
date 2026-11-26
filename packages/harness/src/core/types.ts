@@ -120,12 +120,34 @@ interface CollectionScope {
   conditions?: CollectionCondition[];
 }
 
+/** Host-declared plain links with no accessible collection root (#343). Membership is the
+ * host's CSS, never inferred from names, siblings or layout. */
+export interface LinkMembership {
+  /** Must match exactly one element, which bounds the collection. */
+  scope: string;
+  /** Run as `scope.querySelectorAll(member)`, so it starts with `:scope`. Every match is a member. */
+  member: string;
+  /** Selector inside the member for its link. Without it, the member itself is the link. */
+  action?: string;
+  /** With `action`: the member's links must all share one href. It counts once; the first link is clicked. */
+  group?: "destination";
+}
+export interface LinkCollectionScope {
+  links: LinkMembership;
+  order: "dom";
+  /** Required: plain links expose no total, so the host's count is the only completeness proof. */
+  expectedCount: number;
+  index: number;
+  root?: never; itemRole?: never; target?: never; conditions?: never; choice?: never;
+}
+
 /** A position and an eligible choice are separate persisted contracts. */
-export type CollectionTarget = CollectionScope & (
+export type RoleCollectionTarget = CollectionScope & { links?: never } & (
   | { /** Zero-based position among ALL members, not only enabled/matching action candidates. */
       index: number; choice?: never }
   | { choice: CollectionChoice; index?: never }
 );
+export type CollectionTarget = RoleCollectionTarget | LinkCollectionScope;
 
 /** Run-local adapter facts. Refs bind both the node and collection/condition continuity.
  * Missing or ambiguous actions retain their member's position with no target. */

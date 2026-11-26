@@ -2,20 +2,18 @@ import type { Driver } from "./ports.js";
 import type { CollectionTarget, Evidence, ExecutedAction, Scenario, Step } from "./types.js";
 import { copyCapturePath, copyEvidenceData, sameCapturePath } from "./evidence-capture.js";
 import { hashContractValue } from "./contract.js";
-import { CollectionSelectionError, resolveChoiceValues, resolveCollectionTarget, SelectionNotDispatchedError, validateCollectionTarget } from "./collection.js";
+import { CollectionSelectionError, isLinkCollection, resolveChoiceValues, resolveCollectionTarget, SelectionNotDispatchedError, validateCollectionTarget } from "./collection.js";
 import { rethrowBudget } from "./budget.js";
 
-/** Explicit application-owned resource key. Never inferred from a label or URL. */
-export interface SelectedItemKey {
-  kind: "attribute";
-  scope: "item" | "action";
-  attribute: string;
-}
-export interface DestinationResourceKey {
-  kind: "attribute";
-  selector: string;
-  attribute: string;
-}
+/** Explicit application-owned resource key, or the exact selected link's own href (#343).
+ * Never inferred from a label. */
+export type SelectedItemKey =
+  | { kind: "attribute"; scope: "item" | "action"; attribute: string }
+  | { kind: "href" };
+/** `location` is the top-level document URL after the selection step. It pairs only with `href`. */
+export type DestinationResourceKey =
+  | { kind: "attribute"; selector: string; attribute: string }
+  | { kind: "location" };
 /** A Driver must return complete only for one independently observed, bounded resource key. */
 export interface ResourceKeyObservation { complete: boolean; value?: string }
 
@@ -80,9 +78,18 @@ export function validateSelectedItemBinding(value: unknown): SelectedItemBinding
   const click = before.at(-1)!;
   if (click.kind !== "click" || !click.target?.collection)
     throw new Error("selected-item evidence supports collection click sources only");
-  validateCollectionTarget(click.target);
+  const selection = validateCollectionTarget(click.target);
   if (after.length < before.length || !sameCapturePath(before, after.slice(0, before.length)))
     throw new Error("selected-item destination must extend its source action prefix");
+  if (isLinkCollection(selection)) {
+    fields(source.key, ["kind"]);
+    fields(destination.key, ["kind"]);
+    if (source.key.kind !== "href" || destination.key.kind !== "location")
+      throw new Error("a link collection binding compares its href with the arrival location");
+    // A later step could reach the selected href itself and hide a wrong arrival.
+    if (after.length !== before.length) throw new Error("a link destination is read at its selection step");
+    return row as unknown as SelectedItemBinding;
+  }
   fields(source.key, ["kind", "scope", "attribute"]);
   fields(destination.key, ["kind", "selector", "attribute"]);
   if (source.key.kind !== "attribute" || !["item", "action"].includes(source.key.scope as string)
@@ -218,8 +225,8 @@ export class SelectedItemEvidenceSession {
         throw new CollectionSelectionError("unsupported", "choice requires guarded resource-key dispatch");
       const references = choice.where.flatMap(predicate => typeof predicate.value === "string" ? [] : [predicate.value.bindingId]);
       if (!references.length) {
-        if (!point || point.binding.source.key.scope !== choice.identity.scope
-          || point.binding.source.key.attribute !== choice.identity.attribute)
+        const key = point?.binding.source.key;
+        if (key?.kind !== "attribute" || key.scope !== choice.identity.scope || key.attribute !== choice.identity.attribute)
           throw new CollectionSelectionError("invalid", "choice requires its matching source binding");
       } else {
         dependency = this.pending.find(p => p.binding.id === references[0]);

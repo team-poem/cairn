@@ -1,5 +1,5 @@
 /** Narrow, exact-node collection evidence. No accessible-name inference or visual ordering. */
-import { CollectionSelectionError } from "../../core/collection.js";
+import { CollectionSelectionError, isLinkCollection } from "../../core/collection.js";
 import { extractFirstJsonObject } from "../../core/json.js";
 import type { CollectionObservation, CollectionTarget, PageElement } from "../../core/types.js";
 import { documentTopology } from "./chrome-documents.js";
@@ -40,6 +40,11 @@ export function collectionRows(raw: string): Row[] {
   });
 }
 
+/** In-page link-scope refusals that are authoring or page facts, not a transient capture gap. */
+const linkRefusals: Record<string, "invalid" | "ambiguous" | "missing"> = {
+  "invalid selector": "invalid", "ambiguous scope": "ambiguous", "missing scope": "missing", "nested members": "ambiguous",
+};
+
 /** One captured declaration; saved DOM objects live in the existing bounded observation guard. */
 export class ChromeCollectionObservation {
   private readonly key: string;
@@ -56,12 +61,43 @@ export class ChromeCollectionObservation {
   ) { this.key = `collection:${identity}`; }
 
   get choice() { return this.selection.choice; }
+  get links() { return isLinkCollection(this.selection); }
+
+  /** The selected link's destination without its fragment, read from the exact saved node. A link
+   * that opens a tab, downloads, stays in this document or is not http(s) has no arrival this check
+   * can observe, so it is refused before dispatch rather than clicked and left unconfirmed. */
+  async linkDestination(uid: string): Promise<string> {
+    const result = extractFirstJsonObject(await this.call("evaluate_script", {
+      args: [uid],
+      function: `(action) => {
+        const state = globalThis[Symbol.for(${JSON.stringify(this.guardKey)})];
+        const saved = state?.collections?.get(${JSON.stringify(this.key)});
+        const link = action?.nodeType === 3 ? action.parentElement : action;
+        if (window.top !== window || !state?.observer || state.overflow || !saved?.actions.includes(action) || link?.tagName !== 'A')
+          return {reason:'stale'};
+        const target = link.hasAttribute('target') ? link.target : document.querySelector('base[target]')?.target ?? '';
+        if (!['', '_self'].includes(target) || link.hasAttribute('download')) return {reason:'unsupported'};
+        let url;
+        try { url = new URL(link.href); } catch { return {reason:'unsupported'}; }
+        if (!/^https?:$/.test(url.protocol)) return {reason:'unsupported'};
+        const here = new URL(location.href);
+        url.hash = ''; here.hash = '';
+        return url.href === here.href ? {reason:'unsupported'} : {value:url.href};
+      }`,
+    })) as { value?: unknown; reason?: unknown } | undefined;
+    if (typeof result?.value === "string") return result.value;
+    throw result?.reason === "unsupported"
+      ? new CollectionSelectionError("unsupported", "the selected link has no same-tab document destination")
+      : new CollectionSelectionError("stale", "collection observation is unavailable");
+  }
 
   async start(raw: string, candidates: ReadonlyMap<string, PageElement>): Promise<CollectionObservation> {
     const plan = this.plan(raw);
     // The initial AX snapshot follows installation of a fresh guard. Any mutation before
     // measurement leaves that first semantic capture unproven, including external labels.
     const result = await this.measure(plan, 0);
+    const refusal = typeof result.reason === "string" ? linkRefusals[result.reason] : undefined;
+    if (refusal) throw new CollectionSelectionError(refusal, `declared links: ${result.reason}`);
     if (!Array.isArray(result.items) || !Array.isArray(result.conditions) || result.conditions.length !== plan.conditions.length) {
       throw new CollectionSelectionError("incomplete", "collection measurement is unavailable");
     }
@@ -106,6 +142,14 @@ export class ChromeCollectionObservation {
   private plan(raw: string): Plan {
     if (documentTopology(raw).framed) throw new CollectionSelectionError("unsupported", "collection selection requires a top-level document");
     const all = collectionRows(raw);
+    if (isLinkCollection(this.selection)) {
+      // The host's CSS decides membership in the page. Pass every AX link so each member can be
+      // bound to its exact accessibility node; a member without one keeps its position unbound.
+      const rows = all.filter(row => row.role === "link");
+      if (rows.length > 4096) throw new CollectionSelectionError("incomplete", "collection measurement exceeds its node bound");
+      return { rows, root: -1, items: [], actions: rows.map((_, index) => index), conditions: [] };
+    }
+    const selection = this.selection;
     // Keep browser AX ancestry instead of reconstructing accessibility membership from
     // DOM parents. aria-owns can move an otherwise unchanged DOM node to another owner.
     const stack: Array<{ row: Row; indent: number }> = [];
@@ -120,21 +164,21 @@ export class ChromeCollectionObservation {
       while (boundary >= 0 && !["list", "listbox"].includes(stack[boundary]!.row.role)) boundary--;
       row.collectionUid = stack[boundary]?.row.uid;
       let item = stack.length - 1;
-      while (item > boundary && stack[item]!.row.role !== this.selection.itemRole) item--;
-      row.itemUid = row.role === this.selection.itemRole ? row.uid
+      while (item > boundary && stack[item]!.row.role !== selection.itemRole) item--;
+      row.itemUid = row.role === selection.itemRole ? row.uid
         : item > boundary ? stack[item]!.row.uid : undefined;
       stack.push({ row, indent });
     }
     const matches = (role: string, name?: string) => all.filter(row => row.role === role && (name === undefined || row.name === name));
-    const roots = matches(this.selection.root.role, this.selection.root.name);
+    const roots = matches(selection.root.role, selection.root.name);
     if (roots.length !== 1) throw new CollectionSelectionError(roots.length ? "ambiguous" : "missing", "named collection root is not unique and present");
-    const conditions = (this.selection.conditions ?? []).map(condition => {
+    const conditions = (selection.conditions ?? []).map(condition => {
       const found = matches(condition.control.role, condition.control.name);
       if (found.length !== 1) throw new CollectionSelectionError("condition", "declared control is not uniquely present");
       return found[0]!;
     });
-    const items = matches(this.selection.itemRole).filter(row => row.collectionUid === roots[0]!.uid);
-    const actions = matches(this.selection.target.role, this.selection.target.name);
+    const items = matches(selection.itemRole).filter(row => row.collectionUid === roots[0]!.uid);
+    const actions = matches(selection.target.role, selection.target.name);
     const rows = [...new Map([roots[0]!, ...items, ...actions, ...conditions].map(row => [row.uid, row])).values()];
     if (rows.length > 4096) throw new CollectionSelectionError("incomplete", "collection measurement exceeds its node bound");
     const index = (row: Row) => rows.findIndex(candidate => candidate.uid === row.uid);
@@ -166,8 +210,15 @@ export class ChromeCollectionObservation {
       if (ownership?.unsupported || (${JSON.stringify(this.hostStamp ?? null)} !== null && ownership?.stamp !== ${JSON.stringify(this.hostStamp ?? null)})) return fail('ownership');
       const element = node => node?.nodeType === 3 ? node.parentElement : node;
       const local = node => !!node?.isConnected && node.getRootNode() === document;
-      if (![plan.root, ...plan.conditions].every(index => local(nodes[index]))) return fail('coverage');
-      const root = element(nodes[plan.root]);
+      if (![...(spec.links ? [] : [plan.root]), ...plan.conditions].every(index => local(nodes[index]))) return fail('coverage');
+      const query = (scope, selector) => { try { return [...scope.querySelectorAll(selector)]; } catch { return null; } };
+      let root;
+      if (spec.links) {
+        const scopes = query(document, spec.links.scope);
+        if (!scopes) return fail('invalid selector');
+        if (scopes.length !== 1) return fail(scopes.length ? 'ambiguous scope' : 'missing scope');
+        root = scopes[0];
+      } else root = element(nodes[plan.root]);
       const protectedScopes = [root, ...plan.conditions.map(index => element(nodes[index]))];
       const overlaps = node => !!node && protectedScopes.some(scope =>
         scope === node || scope.contains(node) || node.contains?.(scope));
@@ -234,17 +285,25 @@ export class ChromeCollectionObservation {
         }
         return true;
       };
-      if (!rendered(root) || collectionRole(root) !== spec.root.role || registry?.excluded(root)) return fail('root');
+      if (!rendered(root) || (!spec.links && collectionRole(root) !== spec.root.role) || registry?.excluded(root)) return fail('root');
       // A DOM walk establishes all local members, independently of named/model-budgeted AX rows.
-      const members = [], walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
+      let members = [];
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_ELEMENT);
       let count = 0, el = root;
       do {
         if (++count > 4096 || el.shadowRoot || /^(IFRAME|FRAME)$/.test(el.tagName) ||
             el.hasAttribute('aria-owns') || el.ariaOwnsElements?.length) return fail('unsupported topology');
-        if (itemRole(el) === spec.itemRole && owner(el) === root) members.push(el);
+        if (!spec.links && itemRole(el) === spec.itemRole && owner(el) === root) members.push(el);
         el = walker.nextNode();
       } while (el);
+      if (spec.links) {
+        members = query(root, spec.links.member);
+        if (!members) return fail('invalid selector');
+        if (members.some(member => members.some(other => other !== member && other.contains(member)))) return fail('nested members');
+      }
+      // Every member keeps its position. A hidden one refuses the collection rather than being skipped.
       if (members.some(member => !rendered(member) || registry?.excluded(member))) return fail('hidden member');
+      if (!spec.links) {
       const axMembers = plan.items.filter(index => local(nodes[index])).map(index => element(nodes[index]));
       if (new Set(axMembers).size !== axMembers.length || axMembers.length !== members.length ||
           members.some((member, index) => member !== axMembers[index])) return fail('partial accessibility membership');
@@ -257,6 +316,7 @@ export class ChromeCollectionObservation {
         if ((member >= 0) !== axInside || (member >= 0 &&
             plan.rows[index].itemUid !== plan.rows[plan.items[member]].uid)) return fail('accessibility action membership');
       }
+      }
       const positiveInteger = value => /^\\d+$/.test(value || '') && Number.isSafeInteger(Number(value)) && Number(value) > 0 ? Number(value) : undefined;
       const anyPosition = members.some(member => member.hasAttribute('aria-setsize') || member.hasAttribute('aria-posinset'));
       const totalKnown = members.length > 0 && members.every((member, index) =>
@@ -265,8 +325,18 @@ export class ChromeCollectionObservation {
       let complete = (!anyPosition || totalKnown) && (totalKnown || spec.expectedCount === members.length);
       if (root.hasAttribute('aria-rowcount') && positiveInteger(root.getAttribute('aria-rowcount')) !== members.length) complete = false;
       if (spec.expectedCount !== undefined && spec.expectedCount !== members.length) complete = false;
+      const linkOf = member => {
+        const anchors = spec.links.action ? query(member, spec.links.action) : [member];
+        if (!anchors) return null;
+        if (!anchors.length || anchors.some(anchor => anchor.tagName !== 'A' || !anchor.hasAttribute('href'))) return undefined;
+        if (anchors.length > 1 && (!spec.links.group || anchors.some(anchor => anchor.href !== anchors[0].href))) return undefined;
+        return anchors[0];
+      };
+      const links = spec.links ? members.map(linkOf) : [];
+      if (links.includes(null)) return fail('invalid selector');
       const choices = members.map((member, position) => {
-        const matches = plan.actions.filter(index => {
+        const matches = spec.links ? plan.actions.filter(index => local(nodes[index]) && links[position] !== undefined &&
+            element(nodes[index]) === links[position] && !registry?.excluded(nodes[index])) : plan.actions.filter(index => {
           if (!local(nodes[index])) return false;
           const action = element(nodes[index]);
           return (action === member || member.contains(action)) && owner(action) === root &&
@@ -315,7 +385,9 @@ export class ChromeCollectionObservation {
         if (typeof actionFacts[index]?.occluded === 'boolean') choice.occluded = actionFacts[index].occluded;
         else if (spec.choice && choice.action !== undefined) complete = false;
       });
-      const semantics = choices.map(choice => choice.action === undefined ? null : [plan.rows[choice.action].role, plan.rows[choice.action].name]);
+      // A link's destination is part of what was selected; a changed href expires the binding.
+      const semantics = choices.map(choice => choice.action === undefined ? null : [plan.rows[choice.action].role, plan.rows[choice.action].name,
+        ...(spec.links ? [element(nodes[choice.action]).href, element(nodes[choice.action]).target] : [])]);
       const signature = JSON.stringify([choices.map(choice => [choice.disabled, choice.occluded, choice.choice]), semantics, conditions, complete]);
       state.retain(state.observer.takeRecords());
       if (state.overflow || state.records.length !== ${revision} ||

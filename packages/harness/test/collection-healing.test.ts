@@ -9,7 +9,7 @@ import { stepError } from "../src/core/errors.js";
 import { runHarness } from "../src/core/pipeline.js";
 import { LlmStepHealer } from "../src/core/step-heal.js";
 import type { Driver, LlmClient } from "../src/core/ports.js";
-import type { CollectionObservation, CollectionTarget, Scenario, Step, Target } from "../src/core/types.js";
+import type { CollectionObservation, RoleCollectionTarget as CollectionTarget, Scenario, Step, Target } from "../src/core/types.js";
 import { runScenario } from "../src/run.js";
 import { StubDriver } from "./support/doubles.js";
 

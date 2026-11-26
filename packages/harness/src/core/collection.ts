@@ -1,6 +1,6 @@
 /** Explicit collection selection. Drivers measure; core validates; no model or fallback. */
 import type { Driver } from "./ports.js";
-import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionResourceKey, CollectionTarget, Step, Target } from "./types.js";
+import type { CollectionChoice, CollectionChoicePredicate, CollectionCondition, CollectionLocator, CollectionResourceKey, CollectionTarget, LinkCollectionScope, Step, Target } from "./types.js";
 
 export type CollectionSelectionCode = "invalid" | "unsupported" | "incomplete" | "condition" | "missing" | "disabled" | "stale" | "ambiguous";
 
@@ -133,10 +133,38 @@ function choice(value: unknown): CollectionChoice {
   return { version: 1, cardinality: 1, policy: "first-dom", identity: key, where, maxReselections: row.maxReselections };
 }
 
+function selector(value: unknown, label: string): string {
+  if (typeof value !== "string" || !value.trim() || value.length > 512) invalid(`${label} must be a nonblank selector of at most 512 characters`);
+  return value;
+}
+
+function linkCollection(raw: unknown): LinkCollectionScope {
+  const value = record(raw, ["links", "order", "index", "expectedCount"], "collection");
+  if (value.order !== "dom") invalid("only DOM order is supported");
+  const links = record(value.links, ["scope", "member", "action", "group"], "links");
+  const member = selector(links.member, "links.member");
+  if (!member.startsWith(":scope")) invalid("links.member must start with :scope");
+  if (links.group !== undefined && (links.group !== "destination" || links.action === undefined))
+    invalid("links.group must be destination and requires links.action");
+  if (value.expectedCount === undefined) invalid("link collections require expectedCount");
+  const index = position(value.index, "index"), expectedCount = position(value.expectedCount, "expectedCount");
+  if (index >= expectedCount) invalid("index must be below expectedCount");
+  return { links: { scope: selector(links.scope, "links.scope"), member,
+    ...(links.action !== undefined ? { action: selector(links.action, "links.action") } : {}),
+    ...(links.group !== undefined ? { group: "destination" as const } : {}) },
+    order: "dom", index, expectedCount };
+}
+
+export function isLinkCollection(selection: CollectionTarget): selection is LinkCollectionScope {
+  return "links" in selection && selection.links !== undefined;
+}
+
 /** Validate frozen input at runtime, returning a private copy before awaited browser work. */
 export function validateCollectionTarget(target: Target): CollectionTarget {
   const outer = record(target, ["collection"], "target");
-  const value = record(outer.collection, ["root", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
+  const raw = outer.collection;
+  if (raw && typeof raw === "object" && "links" in raw) return linkCollection(raw);
+  const value = record(raw, ["root", "itemRole", "target", "order", "index", "choice", "expectedCount", "conditions"], "collection");
   if (value.order !== "dom") invalid("only DOM order is supported");
   if (value.itemRole !== "listitem" && value.itemRole !== "option") invalid("itemRole must be listitem or option");
   const root = locator(value.root, "root");
@@ -264,13 +292,15 @@ export async function resolveCollectionTarget(driver: Driver, target: Target): P
   const item = selectedIndex === undefined ? undefined : items[selectedIndex];
   if (!item) throw new CollectionSelectionError("missing", "requested position is absent");
   const chosen = item.target;
+  // An image-only link may have no accessible name, so a link collection checks the role only.
+  const action: CollectionLocator = isLinkCollection(selection) ? { role: "link" } : selection.target!;
   if (!chosen || typeof chosen.ref !== "string" || !chosen.ref || typeof chosen.name !== "string" ||
-      chosen.role !== selection.target.role || (selection.target.name !== undefined && chosen.name !== selection.target.name))
+      chosen.role !== action.role || (action.name !== undefined && chosen.name !== action.name))
     throw new CollectionSelectionError("incomplete", "selected member has no uniquely bound matching action");
   if ((chosen.disabled !== undefined && typeof chosen.disabled !== "boolean") ||
       (chosen.occluded !== undefined && typeof chosen.occluded !== "boolean"))
     throw new CollectionSelectionError("incomplete", "selected action eligibility is invalid");
   if (item.disabled === true || chosen.disabled === true) throw new CollectionSelectionError("disabled", "requested member or action is disabled");
   if (chosen.occluded === true) throw new CollectionSelectionError("missing", "requested action is obstructed");
-  return { target: { text: chosen.name, role: selection.target.role }, ref: chosen.ref };
+  return { target: { text: chosen.name, role: action.role }, ref: chosen.ref };
 }

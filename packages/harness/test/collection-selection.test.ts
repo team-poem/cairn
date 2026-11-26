@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { CollectionSelectionError, resolveCollectionTarget, validateCollectionTarget } from "../src/core/collection.js";
 import { BuiltinStepHandler } from "../src/core/steps.js";
 import { StubDriver } from "./support/doubles.js";
-import type { CollectionObservation, CollectionTarget, Driver, Step, Target } from "../src/index.js";
+import type { CollectionObservation, RoleCollectionTarget as CollectionTarget, Driver, Step, Target } from "../src/index.js";
 import { runHarness } from "../src/core/pipeline.js";
 
 const selection: CollectionTarget = {
@@ -22,7 +22,7 @@ function driver(facts = observation()): Driver & { observeCollection: ReturnType
 describe("collection declaration validation", () => {
   it("copies nested declaration data without modifying the caller", () => {
     const authored = target();
-    const copy = validateCollectionTarget(authored);
+    const copy = validateCollectionTarget(authored) as CollectionTarget;
     copy.root.name = "Other";
     copy.conditions![0]!.value = "other";
     expect(authored.collection).toEqual(selection);

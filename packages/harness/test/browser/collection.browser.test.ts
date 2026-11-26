@@ -4,7 +4,7 @@ import { ChromeDevToolsDriver } from "../../src/adapters/drivers/chrome.js";
 import { collectionRows } from "../../src/adapters/drivers/chrome-collection.js";
 import { createHostOwnedRootScope } from "../../src/adapters/drivers/host-owned-roots.js";
 import { resolveCollectionTarget } from "../../src/core/collection.js";
-import type { CollectionTarget, Target } from "../../src/core/types.js";
+import type { RoleCollectionTarget as CollectionTarget, Target } from "../../src/core/types.js";
 
 let browser: Browser;
 beforeAll(async () => { browser = await chromium.launch({ channel: "chrome" }).catch(() => chromium.launch()); });

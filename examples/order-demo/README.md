@@ -5,7 +5,7 @@ It uses the existing public cairn API. It makes no changes to discovery, healing
 replay, or the app-context experiment in #252.
 
 Visit the [hosted recorded demo](https://cairn-order-demo.vercel.app). It serves the
-verified 2026-09-22 recording below, not live model executions. The sample shop
+verified 2026-11-27 recording below, not live model executions. The sample shop
 also runs on the host with synthetic orders and no payments or external services.
 
 The sample shop sells one fictional notebook. Its orders are ephemeral, with no
@@ -71,11 +71,11 @@ the recording checkout commit, the preserved engine archive's SHA-256 and versio
 model ID, and every frame. Partial or failed recordings
 remain on disk, but the viewer refuses to present them as a completed demo.
 
-## Local recording on 2026-09-22
+## Local recording on 2026-11-27
 
-The complete recording used `codex:gpt-5.6-sol`, engine 2.9.2, and isolated Chrome.
+The complete recording used `codex:gpt-5.6-sol`, engine 2.9.9, and isolated Chrome.
 The preserved engine archive SHA-256 is
-`2477211a9364b4cc2381b0554ee7dbee23feebb67116d97f5ca1905c99c8ea1e`.
+`15d9fd735d0b3828e0e6d795685c255928ecad086791f78215db21412438498f`.
 The manifest also carries the exact recorder and shop source hashes.
 
 | Stage | Observed model calls | Outcome |
@@ -85,13 +85,19 @@ The manifest also carries the exact recorder and shop source hashes.
 | Changed UI without healing | 0 | Target failure detected |
 | Repair | 1 | Pass under original assertions; repair saved |
 | Repaired replay | 0 | Pass, `work` proof |
-| Broken order API, healing enabled | 7 | Original 500 detected; final verdict remains failed |
+| Broken order API, healing enabled | 6 | Original 500 detected; final verdict remains failed |
 
-The last stage's trace event 11 records the original POST 500. After outcome
-re-discovery, the final request list is empty and the original order assertion
-fails for missing evidence. The two server-side order attempts both returned 500;
-no repaired scenario was offered. The viewer discloses this evidence-retention
-limit instead of presenting the final result as if it still contained the 500.
+The total is 14 model calls, under the default cap of 24. The 2026-09-22
+recording with engine 2.9.2 used 15: the same counts except 7 in the last stage.
+
+The last stage's trace event 11 records the original POST 500. In this recording
+the final result also keeps it: the final request list contains POST 500, and the
+original order assertion fails with `expected 200, got 500`. The two server-side
+order attempts both returned 500; no repaired scenario was offered. The 2.9.2
+recording lost that request after outcome re-discovery and disclosed the loss.
+Engine 2.9.9 adds `provenance: undefined` to a discovered scenario. The recorder now
+compares the saved file with the scenario after a JSON round trip, so that key does
+not fail the save check. No other recorder logic changed.
 This is one demonstration, not a success-rate or cost benchmark.
 
 ## Build and deploy
@@ -135,9 +141,9 @@ separately; credentials and model execution are never part of the deployment.
 The source archive includes the hosting adapter so it can be reproduced outside
 the monorepo. A new recording is required if any recorded source hash changes.
 
-On 2026-10-01, the public deployment loaded all six stages and the original
-manifest. Browser inspection verified the replay's zero model calls and work
-proof, and the defect stage's failed result and original POST 500 disclosure.
+On 2026-10-01, the public deployment loaded all six stages and the 2026-09-22
+manifest (engine 2.9.2). Browser inspection verified the replay's zero model calls
+and work proof, and the defect stage's failed result and original POST 500 disclosure.
 The hosted API returned 200 for the original and changed variants and 500 for the
 broken variant. These are deployment checks, not newcomer usability results.
 
@@ -182,9 +188,9 @@ not support `gpt-6-astra`, and Claude Code was not authenticated. These are not
 model-quality samples. This preparation is not a reliability benchmark; a
 complete recording identifies its own model and exact source hashes.
 
-The shop uses `history.pushState` after its order request. In preparation, the
-original replay correctly detected POST 500, then outcome re-discovery returned
-an empty request list and failed the unchanged goal for missing evidence. The
+The shop uses `history.pushState` after its order request. In preparation, and in
+the 2026-09-22 recording with engine 2.9.2, the original replay correctly detected
+POST 500, then outcome re-discovery returned an empty request list and failed the unchanged goal for missing evidence. The
 viewer distinguishes the original failure in the trace from the final verdict;
 it explicitly discloses when the 500 is absent from the final result. No repair is
 saved. Full-navigation evidence retention is also a known limitation in the #256

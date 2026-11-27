@@ -269,7 +269,7 @@ async function main() {
       await saveSkillFile(resolve(output, stage.scenario), frozen);
       assert.deepEqual(
         await loadSkillFile(resolve(output, stage.scenario)),
-        frozen,
+        JSON.parse(JSON.stringify(frozen)),
       );
       discoveryTrace.emit({
         kind: "freeze",

@@ -13,6 +13,6 @@
     "node": ">=22.12"
   },
   "dependencies": {
-    "cairn-engine": "^2.9.2"
+    "cairn-engine": "^2.9.9"
   }
 }

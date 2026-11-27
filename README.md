@@ -27,7 +27,7 @@ The loop is **discover → freeze → replay → self-heal**. Ordinary replay ex
 
 Follow one checkout through discovery, zero-call replay, a changed control, verified repair, another zero-call replay, and an order API failure that stays red. Inspect the saved code, browser captures and verdicts, or download the runnable source from the viewer.
 
-The viewer shows **recorded engine executions**, not live model calls. Its interactive shop uses synthetic orders with no payments. The recording uses a preserved 2.9.2 engine build and discloses an evidence-retention limitation in the failure stage; it is not a general repair-success benchmark. [Recording details and reproduction](examples/order-demo).
+The viewer shows **recorded engine executions**, not live model calls. Its interactive shop uses synthetic orders with no payments. The recording uses a preserved 2.9.9 engine build and keeps the original POST 500 in the failure stage's final result; it is not a general repair-success benchmark. [Recording details and reproduction](examples/order-demo).
 
 External newcomer testing has not been completed. The setup below can be checked independently; that does not establish how easy it is for a first-time user.
 
